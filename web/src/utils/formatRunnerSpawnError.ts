@@ -1,5 +1,7 @@
 import type { Machine } from '../types/api'
 
+const RUNNER_SPAWN_ERROR_MAX_AGE_MS = 60_000
+
 function getLastSpawnError(runnerState: unknown): { message: string; at?: number } | null {
     if (!runnerState || typeof runnerState !== 'object' || Array.isArray(runnerState)) {
         return null
@@ -16,9 +18,19 @@ function getLastSpawnError(runnerState: unknown): { message: string; at?: number
     return typeof at === 'number' ? { message, at } : { message }
 }
 
-export function formatRunnerSpawnError(machine: Machine | null): string | null {
+export function formatRunnerSpawnError(
+    machine: Machine | null,
+    now = Date.now()
+): string | null {
     const lastSpawnError = getLastSpawnError(machine?.runnerState)
     if (!lastSpawnError) {
+        return null
+    }
+
+    if (
+        typeof lastSpawnError.at === 'number'
+        && now - lastSpawnError.at > RUNNER_SPAWN_ERROR_MAX_AGE_MS
+    ) {
         return null
     }
 
