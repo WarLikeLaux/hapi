@@ -794,6 +794,7 @@ describe('SessionList collapse behavior', () => {
         expect(activePanel()?.getAttribute('data-open')).toBe('true')
         expect(activeHeader).not.toHaveAttribute('role', 'button')
         expect(activeHeader).not.toHaveAttribute('aria-expanded')
+        expect(activeHeader.querySelector('svg')).toHaveClass('rotate-90')
 
         fireEvent.click(activeHeader)
         fireEvent.keyDown(activeHeader, { key: 'Enter' })
@@ -831,6 +832,7 @@ describe('SessionList collapse behavior', () => {
         expect(workingPanel()?.getAttribute('data-open')).toBe('true')
         expect(workingHeader).not.toHaveAttribute('role', 'button')
         expect(workingHeader).not.toHaveAttribute('aria-expanded')
+        expect(workingHeader.querySelector('svg')).toHaveClass('rotate-90')
 
         fireEvent.click(workingHeader)
         fireEvent.keyDown(workingHeader, { key: 'Enter' })

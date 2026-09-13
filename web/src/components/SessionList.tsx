@@ -1753,7 +1753,7 @@ export function SessionList(props: {
                     {collapsible ? (
                         <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={collapsed && !isFiltering} />
                     ) : (
-                        <span className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={false} />
                     )}
                     <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
                         <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-badge-success-text)]" />
