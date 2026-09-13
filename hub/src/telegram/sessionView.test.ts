@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { Machine, Session } from '../sync/syncEngine'
-import { formatReadyNotification, formatSessionNotification } from './sessionView'
+import { buildSessionLink, formatReadyNotification, formatSessionNotification } from './sessionView'
 
 function createSession(overrides: Partial<Session> = {}): Session {
     return {
@@ -55,6 +55,12 @@ function createMachine(overrides: Partial<Machine> = {}): Machine {
 }
 
 describe('Telegram session notifications', () => {
+    it('builds a direct session URL without Mini App parameters', () => {
+        expect(buildSessionLink('https://hapi.example.com/?startapp=old', 'session-123')).toBe(
+            'https://hapi.example.com/sessions/session-123'
+        )
+    })
+
     it('adds session, machine, and path context to ready notifications', () => {
         expect(formatReadyNotification(createSession(), createMachine())).toBe([
             'Ready: rotate HAPI secrets on Work Laptop',

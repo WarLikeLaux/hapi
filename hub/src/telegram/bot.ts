@@ -8,7 +8,12 @@
 import { Bot, Context, InlineKeyboard } from 'grammy'
 import { SyncEngine, Session, type Machine } from '../sync/syncEngine'
 import { handleCallback, CallbackContext } from './callbacks'
-import { formatReadyNotification, formatSessionNotification, createNotificationKeyboard } from './sessionView'
+import {
+    buildSessionLink,
+    createNotificationKeyboard,
+    formatReadyNotification,
+    formatSessionNotification
+} from './sessionView'
 import { getAgentName } from '../notifications/sessionInfo'
 import type { NotificationChannel, TaskNotification } from '../notifications/notificationTypes'
 import type { Store } from '../store'
@@ -111,17 +116,15 @@ export class HappyBot implements NotificationChannel {
     private setupCommands(): void {
         // /app - Open Telegram Mini App (primary entry point)
         this.bot.command('app', async (ctx) => {
-            const keyboard = new InlineKeyboard().webApp('Open App', this.publicUrl)
-            await ctx.reply('Open HAPI Mini App:', { reply_markup: keyboard })
+            await ctx.reply(`Open HAPI:\n${this.publicUrl}`)
         })
 
         // /start - Simple welcome with Mini App link
         this.bot.command('start', async (ctx) => {
-            const keyboard = new InlineKeyboard().webApp('Open App', this.publicUrl)
             await ctx.reply(
                 'Welcome to HAPI Bot!\n\n' +
-                'Use the Mini App for full session management.',
-                { reply_markup: keyboard }
+                'Open HAPI for full session management:\n' +
+                this.publicUrl
             )
         })
     }
@@ -214,10 +217,11 @@ export class HappyBot implements NotificationChannel {
             return
         }
 
-        const text = formatReadyNotification(session, this.getSessionMachine(session))
-        const url = buildMiniAppDeepLink(this.publicUrl, `session_${session.id}`)
-        const keyboard = new InlineKeyboard()
-            .webApp('Open Session', url)
+        const text = appendSessionLink(
+            formatReadyNotification(session, this.getSessionMachine(session)),
+            this.publicUrl,
+            session.id
+        )
 
         const chatIds = this.getBoundChatIds(session.namespace)
         if (chatIds.length === 0) {
@@ -228,8 +232,7 @@ export class HappyBot implements NotificationChannel {
             try {
                 await this.bot.api.sendMessage(
                     chatId,
-                    text,
-                    { reply_markup: keyboard }
+                    text
                 )
             } catch (error) {
                 console.error(`[HAPIBot] Failed to send ready notification to chat ${chatId}:`, error)
@@ -245,8 +248,12 @@ export class HappyBot implements NotificationChannel {
             return
         }
 
-        const text = formatSessionNotification(session, this.getSessionMachine(session))
-        const keyboard = createNotificationKeyboard(session, this.publicUrl)
+        const text = appendSessionLink(
+            formatSessionNotification(session, this.getSessionMachine(session)),
+            this.publicUrl,
+            session.id
+        )
+        const keyboard = createNotificationKeyboard(session)
 
         const chatIds = this.getBoundChatIds(session.namespace)
         if (chatIds.length === 0) {
@@ -255,9 +262,11 @@ export class HappyBot implements NotificationChannel {
 
         for (const chatId of chatIds) {
             try {
-                await this.bot.api.sendMessage(chatId, text, {
-                    reply_markup: keyboard
-                })
+                await this.bot.api.sendMessage(
+                    chatId,
+                    text,
+                    keyboard ? { reply_markup: keyboard } : undefined
+                )
             } catch (error) {
                 console.error(`[HAPIBot] Failed to send notification to chat ${chatId}:`, error)
             }
@@ -274,10 +283,11 @@ export class HappyBot implements NotificationChannel {
         const prefix = status === 'failed' || status === 'error' || status === 'killed' || status === 'aborted'
             ? 'Task failed'
             : 'Task completed'
-        const url = buildMiniAppDeepLink(this.publicUrl, `session_${session.id}`)
-        const keyboard = new InlineKeyboard()
-            .webApp('Open Session', url)
-
+        const text = appendSessionLink(
+            `${prefix}\n\n${agentName}: ${notification.summary}`,
+            this.publicUrl,
+            session.id
+        )
         const chatIds = this.getBoundChatIds(session.namespace)
         if (chatIds.length === 0) {
             return
@@ -285,9 +295,7 @@ export class HappyBot implements NotificationChannel {
 
         for (const chatId of chatIds) {
             try {
-                await this.bot.api.sendMessage(chatId, `${prefix}\n\n${agentName}: ${notification.summary}`, {
-                    reply_markup: keyboard
-                })
+                await this.bot.api.sendMessage(chatId, text)
             } catch (error) {
                 console.error(`[HAPIBot] Failed to send task notification to chat ${chatId}:`, error)
             }
@@ -295,13 +303,6 @@ export class HappyBot implements NotificationChannel {
     }
 }
 
-function buildMiniAppDeepLink(baseUrl: string, startParam: string): string {
-    try {
-        const url = new URL(baseUrl)
-        url.searchParams.set('startapp', startParam)
-        return url.toString()
-    } catch {
-        const separator = baseUrl.includes('?') ? '&' : '?'
-        return `${baseUrl}${separator}startapp=${encodeURIComponent(startParam)}`
-    }
+function appendSessionLink(text: string, publicUrl: string, sessionId: string): string {
+    return `${text}\n\n${buildSessionLink(publicUrl, sessionId)}`
 }

@@ -82,17 +82,15 @@ describe('input-request notification channels', () => {
             sessionId: session.id, url: expected.url })
     })
 
-    it('gives Telegram the same summary with only an Open Session button', () => {
+    it('gives Telegram the same summary without a session link button', () => {
         expect(formatSessionNotification(session)).toBe(`${expected.title}\n\n${expected.body}`)
-        expect(createNotificationKeyboard(session, 'https://hapi.example.com').inline_keyboard).toEqual([
-            [{ text: 'Open Session', web_app: { url: 'https://hapi.example.com/?startapp=session_session-input' } }]
-        ])
+        expect(createNotificationKeyboard(session)).toBeUndefined()
         const approvalFirst = { ...session, agentState: { requests: {
             'request-approval': session.agentState!.requests!['request-approval'],
             'request-input': session.agentState!.requests!['request-input']
         } } }
-        const buttons = createNotificationKeyboard(approvalFirst, 'https://hapi.example.com').inline_keyboard.flat()
-        expect(buttons.map(button => button.text)).toEqual(['Allow', 'Deny', 'Details'])
+        const buttons = createNotificationKeyboard(approvalFirst)!.inline_keyboard.flat()
+        expect(buttons.map(button => button.text)).toEqual(['Allow', 'Deny'])
         expect(formatSessionNotification(approvalFirst)).toContain('Tool: Bash')
         expect(formatSessionNotification(approvalFirst)).not.toContain('needs your input')
     })

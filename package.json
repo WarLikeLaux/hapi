@@ -23,6 +23,7 @@
         "build:web": "cd web && bun run build",
         "dev:hub": "cd hub && bun run dev",
         "dev:web": "cd web && bun run dev",
+        "deploy:local-hub": "bash scripts/deploy-local-hub.sh",
         "typecheck": "bun run --parallel typecheck:cli typecheck:web typecheck:hub typecheck:relay",
         "typecheck:cli": "cd cli && bun run typecheck",
         "typecheck:hub": "cd hub && bun run typecheck",

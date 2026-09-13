@@ -130,41 +130,31 @@ function formatSessionPath(session: Session): string | null {
 /**
  * Create notification keyboard for quick actions
  */
-export function createNotificationKeyboard(session: Session, publicUrl: string): InlineKeyboard {
-    const keyboard = new InlineKeyboard()
+export function createNotificationKeyboard(session: Session): InlineKeyboard | undefined {
     const pending = getFirstPendingRequest(session)
     const canControl = session.active
 
     if (canControl && pending && !isInputRequestTool(pending.request.tool)) {
         const requestId = pending.requestId
         const reqPrefix = requestId.slice(0, 8)
+        const keyboard = new InlineKeyboard()
 
         keyboard
             .text('Allow', createCallbackData(ACTIONS.APPROVE, session.id, reqPrefix))
             .text('Deny', createCallbackData(ACTIONS.DENY, session.id, reqPrefix))
-        keyboard.row()
-
-        keyboard.webApp(
-            'Details',
-            buildMiniAppDeepLink(publicUrl, `session_${session.id}`)
-        )
         return keyboard
     }
 
-    keyboard.webApp(
-        'Open Session',
-        buildMiniAppDeepLink(publicUrl, `session_${session.id}`)
-    )
-    return keyboard
+    return undefined
 }
 
-function buildMiniAppDeepLink(baseUrl: string, startParam: string): string {
+export function buildSessionLink(baseUrl: string, sessionId: string): string {
     try {
         const url = new URL(baseUrl)
-        url.searchParams.set('startapp', startParam)
+        url.pathname = `/sessions/${sessionId}`
+        url.search = ''
         return url.toString()
     } catch {
-        const separator = baseUrl.includes('?') ? '&' : '?'
-        return `${baseUrl}${separator}startapp=${encodeURIComponent(startParam)}`
+        return `${baseUrl.replace(/\/$/, '')}/sessions/${encodeURIComponent(sessionId)}`
     }
 }
