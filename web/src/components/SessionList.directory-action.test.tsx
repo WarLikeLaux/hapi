@@ -151,6 +151,85 @@ describe('SessionList directory action', () => {
 
         expect(screen.queryByRole('button', { name: 'New session in this directory' })).toBeNull()
     })
+
+    it('deletes every HAPI session for the right-clicked project and preserves other machines', async () => {
+        const onRefresh = vi.fn(async () => {})
+        const api = {
+            archiveSession: vi.fn(async () => {}),
+            deleteSession: vi.fn(async () => {}),
+        }
+        const activeSession = makeSession({
+            id: 'active-session',
+            active: true,
+            updatedAt: Date.now(),
+            metadata: {
+                path: '/home/ubuntu/project',
+                machineId: 'machine-1',
+                name: 'Active work',
+                flavor: 'codex',
+            },
+        })
+        const inactiveSession = makeSession({
+            id: 'inactive-session',
+            updatedAt: Date.now() - 1,
+            metadata: {
+                path: '/home/ubuntu/project',
+                machineId: 'machine-1',
+                name: 'Finished work',
+                flavor: 'codex',
+            },
+        })
+        const otherMachineSession = makeSession({
+            id: 'other-machine-session',
+            updatedAt: Date.now() - 2,
+            metadata: {
+                path: '/home/ubuntu/project',
+                machineId: 'machine-2',
+                name: 'Other machine',
+                flavor: 'codex',
+            },
+        })
+
+        renderWithProviders(
+            <SessionList
+                sessions={[activeSession, inactiveSession, otherMachineSession]}
+                selectedSessionId={null}
+                onSelect={vi.fn()}
+                onNewSession={vi.fn()}
+                onRefresh={onRefresh}
+                isLoading={false}
+                renderHeader={false}
+                api={api as never}
+                machineLabelsById={{ 'machine-1': 'Mint', 'machine-2': 'Desktop' }}
+            />
+        )
+
+        const mintProjectHeader = screen
+            .getAllByTitle('/home/ubuntu/project')
+            .find((element) => element.textContent?.includes('Mint'))
+        expect(mintProjectHeader).toBeDefined()
+        fireEvent.contextMenu(mintProjectHeader!, {
+            clientX: 100,
+            clientY: 120,
+        })
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Delete all sessions' }))
+
+        expect(screen.getByRole('heading', { name: 'Delete project sessions?' })).toBeInTheDocument()
+        expect(screen.getByText(/Delete all HAPI sessions from “ubuntu\/project · Mint”\? Sessions to delete: 2/)).toBeInTheDocument()
+        expect(screen.getByText(/Local agent transcripts are kept/)).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Delete all' }))
+
+        await waitFor(() => {
+            expect(api.archiveSession).toHaveBeenCalledTimes(1)
+            expect(api.archiveSession).toHaveBeenCalledWith('active-session')
+            expect(api.deleteSession).toHaveBeenCalledTimes(2)
+            expect(api.deleteSession).toHaveBeenCalledWith('active-session')
+            expect(api.deleteSession).toHaveBeenCalledWith('inactive-session')
+            expect(api.deleteSession).not.toHaveBeenCalledWith('other-machine-session')
+            expect(onRefresh).toHaveBeenCalledTimes(1)
+        })
+    })
 })
 
 describe('SessionList time filter', () => {

@@ -54,6 +54,7 @@ import { Spinner } from '@/components/Spinner'
 import { transferComposerDraftThenNavigate } from '@/lib/composer-draft-transfer'
 import { useToast } from '@/lib/toast-context'
 import { getPathDisplayName } from '@/utils/path'
+import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
 
 export { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
 
@@ -64,6 +65,21 @@ type SessionGroup = {
     machineId: string | null
     sessions: SessionSummary[]
     latestUserMessageAt: number
+}
+
+type ProjectMenuState = {
+    key: string
+    title: string
+    sessions: SessionSummary[]
+    anchorPoint: { x: number; y: number }
+}
+
+function getSessionProjectDirectory(session: SessionSummary): string {
+    return session.metadata?.worktree?.basePath ?? session.metadata?.path ?? 'Other'
+}
+
+function getSessionProjectKey(session: SessionSummary): string {
+    return `${session.metadata?.machineId ?? UNKNOWN_MACHINE_ID}::${getSessionProjectDirectory(session)}`
 }
 
 /**
@@ -303,9 +319,9 @@ function groupSessionsByDirectory(sessions: SessionSummary[]): SessionGroup[] {
     const groups = new Map<string, { directory: string; machineId: string | null; sessions: SessionSummary[] }>()
 
     sessions.forEach(session => {
-        const path = session.metadata?.worktree?.basePath ?? session.metadata?.path ?? 'Other'
+        const path = getSessionProjectDirectory(session)
         const machineId = session.metadata?.machineId ?? null
-        const key = `${machineId ?? UNKNOWN_MACHINE_ID}::${path}`
+        const key = getSessionProjectKey(session)
         if (!groups.has(key)) {
             groups.set(key, {
                 directory: path,
@@ -490,6 +506,60 @@ function ChevronIcon(props: { className?: string; collapsed?: boolean }) {
         >
             <polyline points="9 18 15 12 9 6" />
         </svg>
+    )
+}
+
+function ProjectTrashIcon(props: { className?: string }) {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className} aria-hidden="true">
+            <path d="M3 6h18" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+        </svg>
+    )
+}
+
+function ProjectActionMenu(props: {
+    state: ProjectMenuState | null
+    onClose: () => void
+    onDelete: (target: ProjectMenuState) => void
+}) {
+    const { t } = useTranslation()
+    const anchorPoint = props.state?.anchorPoint ?? { x: 0, y: 0 }
+    const { menuRef, menuStyle } = useAnchoredMenu({
+        isOpen: props.state !== null,
+        onClose: props.onClose,
+        anchorPoint,
+        align: 'start',
+    })
+
+    if (!props.state) return null
+    const target = props.state
+
+    return (
+        <div
+            ref={menuRef}
+            className="fixed z-50 box-border w-max max-w-[calc(100vw-16px)] rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-1 shadow-lg animate-menu-pop"
+            style={menuStyle}
+        >
+            <div className="max-w-64 truncate px-3 py-1.5 text-xs font-medium text-[var(--app-hint)]" title={target.title}>
+                {target.title}
+            </div>
+            <div role="menu">
+                <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-3 rounded-md py-2 pl-3 pr-6 text-left text-base text-red-500 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                    onClick={() => {
+                        props.onClose()
+                        props.onDelete(target)
+                    }}
+                >
+                    <ProjectTrashIcon className="h-[18px] w-[18px] shrink-0" />
+                    {t('sessions.project.deleteAll')}
+                </button>
+            </div>
+        </div>
     )
 }
 
@@ -1246,10 +1316,41 @@ export function SessionList(props: {
     const [customStart, setCustomStart] = useState('')
     const [customEnd, setCustomEnd] = useState('')
     const [markAllReadOpen, setMarkAllReadOpen] = useState(false)
+    const [projectMenu, setProjectMenu] = useState<ProjectMenuState | null>(null)
+    const [projectDeleteTarget, setProjectDeleteTarget] = useState<ProjectMenuState | null>(null)
+    const [projectDeletePending, setProjectDeletePending] = useState(false)
     const [, setCodexImportedSessionsVersion] = useState(0)
     const normalizedQuery = normalizeSearch(searchQuery)
     const timeRange = getSessionTimeRange(customStart, customEnd)
     const isFiltering = normalizedQuery.length > 0 || timeRange !== null
+
+    const openProjectMenu = (
+        group: SessionGroup,
+        title: string,
+        point: { x: number; y: number }
+    ) => {
+        setProjectMenu({
+            key: group.key,
+            title,
+            sessions: props.sessions.filter((session) => getSessionProjectKey(session) === group.key),
+            anchorPoint: point,
+        })
+    }
+
+    const deleteProjectSessions = async () => {
+        if (!api || !projectDeleteTarget) {
+            throw new Error(t('dialog.error.default'))
+        }
+        setProjectDeletePending(true)
+        try {
+            const activeSessions = projectDeleteTarget.sessions.filter((session) => session.active)
+            await Promise.all(activeSessions.map((session) => api.archiveSession(session.id)))
+            await Promise.all(projectDeleteTarget.sessions.map((session) => api.deleteSession(session.id)))
+            await props.onRefresh()
+        } finally {
+            setProjectDeletePending(false)
+        }
+    }
 
     useEffect(() => {
         // 中文注释：监听导入标记变化，让列表在“导入完成”或“用户已在 Hapi 中继续会话”后立即刷新时间文案。
@@ -1689,6 +1790,13 @@ export function SessionList(props: {
                 <div
                     className="group/project sticky top-0 z-10 flex items-center gap-2 bg-[var(--app-bg)] py-1.5 pl-2 pr-2 text-left rounded-lg transition-colors hover:bg-[var(--app-secondary-bg)] cursor-pointer min-w-0 w-full select-none"
                     onClick={() => toggleGroup(group.key, isCollapsed)}
+                    onContextMenu={(event) => {
+                        event.preventDefault()
+                        openProjectMenu(group, groupTitle, {
+                            x: event.clientX,
+                            y: event.clientY,
+                        })
+                    }}
                     title={group.directory}
                 >
                     <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={isCollapsed} />
@@ -2147,6 +2255,28 @@ export function SessionList(props: {
             </SessionListScrollAnchor>
             </div>
             </div>
+            <ProjectActionMenu
+                state={projectMenu}
+                onClose={() => setProjectMenu(null)}
+                onDelete={setProjectDeleteTarget}
+            />
+            <ConfirmDialog
+                isOpen={projectDeleteTarget !== null}
+                onClose={() => {
+                    if (!projectDeletePending) setProjectDeleteTarget(null)
+                }}
+                title={t('sessions.project.deleteTitle')}
+                description={t('sessions.project.deleteDescription', {
+                    count: projectDeleteTarget?.sessions.length ?? 0,
+                    name: projectDeleteTarget?.title ?? '',
+                })}
+                confirmLabel={t('sessions.project.deleteConfirm')}
+                confirmingLabel={t('sessions.project.deleting')}
+                onConfirm={deleteProjectSessions}
+                isPending={projectDeletePending}
+                centerTitle
+                destructive
+            />
             <ConfirmDialog
                 isOpen={markAllReadOpen}
                 onClose={() => setMarkAllReadOpen(false)}
