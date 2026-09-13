@@ -770,7 +770,7 @@ describe('SessionList collapse behavior', () => {
         expect(screen.getByRole('button', { name: /Idle task/ })).toBeInTheDocument()
     })
 
-    it('toggles the Active section and forces it open while searching', () => {
+    it('keeps the Active section visible and non-collapsible', () => {
         localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const sessions = [
             makeSession({
@@ -792,22 +792,22 @@ describe('SessionList collapse behavior', () => {
         const activeHeader = screen.getByTitle('Active sessions')
         const activePanel = () => activeHeader.nextElementSibling
         expect(activePanel()?.getAttribute('data-open')).toBe('true')
-        expect(activeHeader.getAttribute('aria-expanded')).toBe('true')
+        expect(activeHeader).not.toHaveAttribute('role', 'button')
+        expect(activeHeader).not.toHaveAttribute('aria-expanded')
 
+        fireEvent.click(activeHeader)
         fireEvent.keyDown(activeHeader, { key: 'Enter' })
-        expect(activeHeader.getAttribute('aria-expanded')).toBe('false')
-        expect(activePanel()?.getAttribute('data-open')).toBeNull()
+        expect(activePanel()?.getAttribute('data-open')).toBe('true')
 
-        // Searching forces the section open even while collapsed.
+        // Search filtering also leaves the section open.
         fireEvent.click(screen.getByRole('button', { name: SEARCH_LABEL }))
         fireEvent.change(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), {
             target: { value: 'Quiet' },
         })
         expect(activePanel()?.getAttribute('data-open')).toBe('true')
-        expect(activeHeader.getAttribute('aria-expanded')).toBe('true')
     })
 
-    it('keeps the Working section open while searching even when collapsed', () => {
+    it('keeps the Working section visible and non-collapsible', () => {
         localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const sessions = [
             makeSession({
@@ -825,14 +825,16 @@ describe('SessionList collapse behavior', () => {
         ]
         render(renderSessionList(sessions))
 
-        const workingPanel = () => screen.getByTitle('Working sessions').nextElementSibling
+        const workingHeader = screen.getByTitle('Working sessions')
+        const workingPanel = () => workingHeader.nextElementSibling
 
         expect(workingPanel()?.getAttribute('data-open')).toBe('true')
-        expect(screen.getByTitle('Working sessions').getAttribute('aria-expanded')).toBe('true')
+        expect(workingHeader).not.toHaveAttribute('role', 'button')
+        expect(workingHeader).not.toHaveAttribute('aria-expanded')
 
-        fireEvent.click(screen.getByTitle('Working sessions'))
-        expect(workingPanel()?.getAttribute('data-open')).toBeNull()
-        expect(screen.getByTitle('Working sessions').getAttribute('aria-expanded')).toBe('false')
+        fireEvent.click(workingHeader)
+        fireEvent.keyDown(workingHeader, { key: 'Enter' })
+        expect(workingPanel()?.getAttribute('data-open')).toBe('true')
 
         fireEvent.click(screen.getByRole('button', { name: SEARCH_LABEL }))
         fireEvent.change(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), {
@@ -840,32 +842,6 @@ describe('SessionList collapse behavior', () => {
         })
 
         expect(workingPanel()?.getAttribute('data-open')).toBe('true')
-        // The section stays reported open while searching even though the
-        // underlying collapsed state is still set.
-        expect(screen.getByTitle('Working sessions').getAttribute('aria-expanded')).toBe('true')
-    })
-
-    it('toggles the Working section with the keyboard', () => {
-        localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
-        const sessions = [
-            makeSession({
-                id: 'session-running',
-                active: true,
-                thinking: true,
-                updatedAt: 100,
-                metadata: { path: '/work/hapi', name: 'Running task', flavor: 'codex' },
-            }),
-        ]
-        render(renderSessionList(sessions))
-
-        const header = screen.getByRole('button', { name: /Working sessions/ })
-        expect(header.getAttribute('aria-expanded')).toBe('true')
-
-        fireEvent.keyDown(header, { key: 'Enter' })
-        expect(header.getAttribute('aria-expanded')).toBe('false')
-
-        fireEvent.keyDown(header, { key: ' ' })
-        expect(header.getAttribute('aria-expanded')).toBe('true')
     })
 
     it('reveals recent inactive sessions newest-first in batches of five', () => {
@@ -894,6 +870,7 @@ describe('SessionList collapse behavior', () => {
 
         const recentHeader = screen.getByRole('button', { name: 'Toggle recent history' })
         expect(recentHeader).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.getByTestId('recent-session-indicator')).toHaveClass('bg-[var(--app-badge-warning-text)]')
         fireEvent.click(recentHeader)
 
         const panel = recentHeader.nextElementSibling as HTMLElement

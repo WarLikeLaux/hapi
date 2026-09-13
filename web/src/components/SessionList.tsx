@@ -1632,8 +1632,6 @@ export function SessionList(props: {
     const [collapseOverrides, setCollapseOverrides] = useState<Map<string, boolean>>(
         () => new Map()
     )
-    const [activeSectionCollapsed, setActiveSectionCollapsed] = useState(false)
-    const [workingSectionCollapsed, setWorkingSectionCollapsed] = useState(false)
     const [pinnedSectionCollapsed, setPinnedSectionCollapsed] = useState(false)
     const [recentSectionCollapsed, setRecentSectionCollapsed] = useState(true)
     const [recentVisibleCount, setRecentVisibleCount] = useState(RECENT_SESSION_BATCH_SIZE)
@@ -1720,13 +1718,15 @@ export function SessionList(props: {
         onToggle,
         sessions,
         activityTimeBasis,
+        collapsible = true,
     }: {
         sectionKey: string
         titleKey: string
         collapsed: boolean
-        onToggle: () => void
+        onToggle?: () => void
         sessions: SessionSummary[]
         activityTimeBasis: SessionActivityTimeBasis
+        collapsible?: boolean
     }) => {
         if (sessions.length === 0) {
             return null
@@ -1734,20 +1734,27 @@ export function SessionList(props: {
         return (
             <div key={sectionKey}>
                 <div
-                    className="group/running flex min-w-0 w-full select-none cursor-pointer items-center gap-2 rounded-lg py-1.5 pl-2 pr-2 transition-colors hover:bg-[var(--app-secondary-bg)]"
-                    role="button"
-                    tabIndex={0}
-                    aria-expanded={!collapsed || isFiltering}
-                    onClick={onToggle}
-                    onKeyDown={(event) => {
+                    className={cn(
+                        'group/running flex min-w-0 w-full select-none items-center gap-2 rounded-lg py-1.5 pl-2 pr-2 transition-colors',
+                        collapsible && 'cursor-pointer hover:bg-[var(--app-secondary-bg)]'
+                    )}
+                    role={collapsible ? 'button' : undefined}
+                    tabIndex={collapsible ? 0 : undefined}
+                    aria-expanded={collapsible ? (!collapsed || isFiltering) : undefined}
+                    onClick={collapsible ? onToggle : undefined}
+                    onKeyDown={collapsible ? (event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                             event.preventDefault()
-                            onToggle()
+                            onToggle?.()
                         }
-                    }}
+                    } : undefined}
                     title={t(titleKey)}
                 >
-                    <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={collapsed && !isFiltering} />
+                    {collapsible ? (
+                        <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={collapsed && !isFiltering} />
+                    ) : (
+                        <span className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    )}
                     <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
                         <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-badge-success-text)]" />
                     </span>
@@ -1758,7 +1765,7 @@ export function SessionList(props: {
                         ({sessions.length})
                     </span>
                 </div>
-                <div className="collapsible-panel" data-open={(!collapsed || isFiltering) || undefined}>
+                <div className="collapsible-panel" data-open={(!collapsible || !collapsed || isFiltering) || undefined}>
                     <div className="collapsible-inner">
                     <div className="flex flex-col gap-0.5 ml-3 pl-1 py-1">
                         {sessions.map((s) => (
@@ -1812,7 +1819,10 @@ export function SessionList(props: {
                 >
                     <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={recentSectionCollapsed} />
                     <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-hint)]" />
+                        <span
+                            data-testid="recent-session-indicator"
+                            className="h-1.5 w-1.5 rounded-full bg-[var(--app-badge-warning-text)]"
+                        />
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                         {t('sessions.recentSection')}
@@ -2335,18 +2345,18 @@ export function SessionList(props: {
                 {renderSessionSection({
                     sectionKey: 'working-section',
                     titleKey: 'sessions.runningSection',
-                    collapsed: workingSectionCollapsed,
-                    onToggle: () => setWorkingSectionCollapsed((value) => !value),
+                    collapsed: false,
                     sessions: workingSessions,
                     activityTimeBasis: 'user',
+                    collapsible: false,
                 })}
                 {renderSessionSection({
                     sectionKey: 'active-section',
                     titleKey: 'sessions.activeSection',
-                    collapsed: activeSectionCollapsed,
-                    onToggle: () => setActiveSectionCollapsed((value) => !value),
+                    collapsed: false,
                     sessions: activeSessions,
                     activityTimeBasis: 'agent',
+                    collapsible: false,
                 })}
                 {renderRecentSessions()}
                 {groups.map(renderDirectoryGroup)}
