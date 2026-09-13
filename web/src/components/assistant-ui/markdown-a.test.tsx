@@ -17,15 +17,6 @@ import { HappyChatProvider, type HappyChatContextValue } from '@/components/Assi
 import { I18nProvider } from '@/lib/i18n-context'
 import type { ApiClient } from '@/api/client'
 
-const navigate = vi.fn()
-vi.mock('@tanstack/react-router', async () => {
-    const actual = await vi.importActual<typeof import('@tanstack/react-router')>('@tanstack/react-router')
-    return {
-        ...actual,
-        useNavigate: () => navigate,
-    }
-})
-
 // defaultComponents.a is the memoized A component.
 const AnchorComponent = (defaultComponents as Record<string, unknown>).a as React.ComponentType<
     React.ComponentPropsWithoutRef<'a'>
@@ -212,6 +203,32 @@ describe('cross-tab sync via storage event', () => {
 // ── <A> component — click handler ────────────────────────────────────────────
 
 describe('markdown <A> component — click handler', () => {
+    it('opens safe links in a new tab without allowing opener access', () => {
+        renderA({ href: 'https://example.com', children: 'link' })
+        const link = document.querySelector('a')!
+
+        expect(link).toHaveAttribute('target', '_blank')
+        expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    it('keeps caller rel values while enforcing new-tab protections', () => {
+        renderA({ href: 'https://example.com', rel: 'nofollow', children: 'link' })
+        const link = document.querySelector('a')!
+
+        expect(link).toHaveAttribute('rel', 'nofollow noopener noreferrer')
+    })
+
+    it('opens HAPI session references in a new tab', () => {
+        renderA({
+            href: '/sessions/8d534fba-33d6-4ce4-9d96-64e9e38d61da',
+            children: 'session',
+        })
+        const link = document.querySelector('a')!
+
+        expect(link).toHaveAttribute('target', '_blank')
+        expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
     it('prevents default when href is empty string (deny-scheme link)', () => {
         renderA({ href: '', children: 'deny' })
         const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true })

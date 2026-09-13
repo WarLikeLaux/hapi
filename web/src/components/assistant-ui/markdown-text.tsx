@@ -1,6 +1,6 @@
 import '@assistant-ui/react-markdown/styles/dot.css'
 
-import type { ComponentPropsWithoutRef, ComponentType, MouseEvent, ReactNode } from 'react'
+import type { ComponentPropsWithoutRef, ComponentType, ReactNode } from 'react'
 import { useState, useCallback, useEffect, useMemo, createContext, useContext } from 'react'
 import {
     MarkdownTextPrimitive,
@@ -14,8 +14,6 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import remarkDisableIndentedCode from '@/lib/remark-disable-indented-code'
 import remarkRepairTables from '@/lib/remark-repair-tables'
-import { useNavigate } from '@tanstack/react-router'
-import { PRESERVE_SESSION_SIDEBAR_SCROLL } from '@/lib/sessionNavigation'
 import remarkStripCjkAutolink from '@/lib/remark-strip-cjk-autolink'
 import remarkNonHttpsAutolink from '@/lib/remark-non-https-autolink'
 import { cn, encodeBase64 } from '@/lib/utils'
@@ -502,66 +500,40 @@ function Code(props: ComponentPropsWithoutRef<'code'>) {
     )
 }
 
+function newTabRel(rel: string | undefined): string {
+    const tokens = new Set(rel?.split(/\s+/).filter(Boolean) ?? [])
+    tokens.add('noopener')
+    tokens.add('noreferrer')
+    return Array.from(tokens).join(' ')
+}
+
 function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & { filePath: string; sessionId: string }) {
     const { filePath, sessionId, ...anchorProps } = props
-    const navigate = useNavigate()
-    const rel = anchorProps.target === '_blank' ? (anchorProps.rel ?? 'noreferrer') : anchorProps.rel
     const search = new URLSearchParams({ path: encodeBase64(filePath), origin: 'chat' }).toString()
     const href = `/sessions/${encodeURIComponent(sessionId)}/file?${search}`
-
-    const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-        anchorProps.onClick?.(event)
-        if (event.defaultPrevented) return
-        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-
-        event.preventDefault()
-        void navigate({
-            to: '/sessions/$sessionId/file',
-            params: { sessionId },
-            search: {
-                path: encodeBase64(filePath),
-                origin: 'chat',
-            },
-            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-        })
-    }
 
     return (
         <a
             {...anchorProps}
             href={href}
-            rel={rel}
-            onClick={handleClick}
+            target="_blank"
+            rel={newTabRel(anchorProps.rel)}
             className={cn('aui-md-a font-medium text-[var(--app-link)] underline decoration-[color:var(--app-link-muted)] underline-offset-3', anchorProps.className)}
         />
     )
 }
 
 function SessionPathAnchor(props: ComponentPropsWithoutRef<'a'> & { targetSessionId: string }) {
-    const navigate = useNavigate()
-    const rel = props.target === '_blank' ? (props.rel ?? 'noreferrer') : props.rel
-    // Preserve Vite BASE_URL for copy / open-in-new-tab (SPA click uses navigate).
-    const href = buildSessionReferencePath(props.targetSessionId)
-
-    const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-        props.onClick?.(event)
-        if (event.defaultPrevented) return
-        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-
-        event.preventDefault()
-        void navigate({
-            to: '/sessions/$sessionId',
-            params: { sessionId: props.targetSessionId },
-            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-        })
-    }
+    const { targetSessionId, ...anchorProps } = props
+    // Preserve Vite BASE_URL for opening the route in a new tab.
+    const href = buildSessionReferencePath(targetSessionId)
 
     return (
         <a
-            {...props}
+            {...anchorProps}
             href={href}
-            rel={rel}
-            onClick={handleClick}
+            target="_blank"
+            rel={newTabRel(anchorProps.rel)}
             className={cn('aui-md-a font-medium text-[var(--app-link)] underline decoration-[color:var(--app-link-muted)] underline-offset-3', props.className)}
         />
     )
@@ -571,9 +543,11 @@ function SessionPathAnchor(props: ComponentPropsWithoutRef<'a'> & { targetSessio
  * Anchor component with URI scheme policy enforcement.
  *
  * - Scheme-less hrefs (#1452 fail-closed): known app routes (`/settings`, `#`,
- *   `?`, `/sessions/…`) stay SPA-navigable; workspace file targets open via
+ *   `?`, `/sessions/…`) stay navigable; workspace file targets open via
  *   FilePathAnchor; any other path-like href renders as inert (non-clickable)
  *   text so we never paint a blue link that SPA-404s.
+ * - Every navigable markdown link opens in a new tab so the current HAPI chat
+ *   is never replaced.
  * - IANA safe schemes (https/http/mailto/irc/ircs/xmpp): navigate directly.
  * - Deny schemes (javascript/data/vbscript/file): silently block. denyOnlyTransform
  *   already strips the href to "", so href="" in DOM (belt-and-suspenders onClick
@@ -582,9 +556,8 @@ function SessionPathAnchor(props: ComponentPropsWithoutRef<'a'> & { targetSessio
  *   so middle-click / drag-to-bar cannot bypass the dialog. Dialog opens on left-click
  *   via the shared UriConfirmContext (single dialog per markdown root).
  * - Custom schemes, already allowed by user: live href in DOM; middle-click works.
- * - File-path links (decoded by remarkFilePathLinks): delegated to FilePathAnchor
- *   which uses useNavigate for SPA routing.
- * - Session citation paths (`/sessions/<id>`): SessionPathAnchor SPA navigation.
+ * - File-path links (decoded by remarkFilePathLinks): delegated to FilePathAnchor.
+ * - Session citation paths (`/sessions/<id>`): delegated to SessionPathAnchor.
  */
 function InertMarkdownHref(props: { href: string; children?: ReactNode; className?: string }) {
     // Plain/muted — intentionally not an <a>, so middle-click / copy-link can't
@@ -616,7 +589,6 @@ function A(props: ComponentPropsWithoutRef<'a'>) {
     const candidatePath =
         typeof props.href === 'string' ? decodeFilePathCandidateHref(props.href) : null
     const targetSessionId = typeof props.href === 'string' ? parseSessionPathHref(props.href) : null
-    const rel = props.target === '_blank' ? (props.rel ?? 'noreferrer') : props.rel
 
     if (filePath) {
         if (!chat) {
@@ -727,7 +699,8 @@ function A(props: ComponentPropsWithoutRef<'a'>) {
         <a
             {...rest}
             href={domHref}
-            rel={rel}
+            target="_blank"
+            rel={newTabRel(props.rel)}
             onClick={handleClick}
             className={cn('aui-md-a font-medium text-[var(--app-link)] underline decoration-[color:var(--app-link-muted)] underline-offset-3', props.className)}
         />
