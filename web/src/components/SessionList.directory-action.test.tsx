@@ -789,6 +789,44 @@ describe('SessionList collapse behavior', () => {
         expect(header.getAttribute('aria-expanded')).toBe('true')
     })
 
+    it('reveals recent inactive sessions newest-first in batches of five', () => {
+        const sessions = Array.from({ length: 7 }, (_, index) => makeSession({
+            id: `recent-${index + 1}`,
+            updatedAt: index + 1,
+            metadata: {
+                path: `/work/project-${index + 1}`,
+                name: `History ${index + 1}`,
+                agentSessionId: `thread-${index + 1}`
+            }
+        }))
+
+        renderWithProviders(
+            <SessionList
+                sessions={sessions}
+                selectedSessionId={null}
+                onSelect={vi.fn()}
+                onNewSession={vi.fn()}
+                onRefresh={vi.fn()}
+                isLoading={false}
+                renderHeader={false}
+                api={null}
+            />
+        )
+
+        const recentHeader = screen.getByRole('button', { name: 'Toggle recent history' })
+        expect(recentHeader).toHaveAttribute('aria-expanded', 'false')
+        fireEvent.click(recentHeader)
+
+        const panel = recentHeader.nextElementSibling as HTMLElement
+        const firstBatch = panel.querySelectorAll('button[data-session-scroll-anchor]')
+        expect(firstBatch).toHaveLength(5)
+        expect(firstBatch[0]).toHaveTextContent('History 7')
+        expect(firstBatch[4]).toHaveTextContent('History 3')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Expand 2' }))
+        expect(panel.querySelectorAll('button[data-session-scroll-anchor]')).toHaveLength(7)
+    })
+
     it('keeps the previous selected path open when selection moves', async () => {
         const sessions = [
             makeSession({

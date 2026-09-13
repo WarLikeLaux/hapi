@@ -56,6 +56,8 @@ import type {
     SqliteStorageUsageResponse,
     HubSettingsResponse,
     UpdateHubSettingsRequest,
+    UpdateWorkspacePinsRequest,
+    WorkspacePinsResponse,
     UsageSummaryResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
@@ -776,6 +778,17 @@ export class ApiClient {
 
     async updateHubSettings(settings: UpdateHubSettingsRequest): Promise<HubSettingsResponse> {
         return await this.request<HubSettingsResponse>('/api/hub-settings', {
+            method: 'PUT',
+            body: JSON.stringify(settings)
+        })
+    }
+
+    async getWorkspacePins(): Promise<WorkspacePinsResponse> {
+        return await this.request<WorkspacePinsResponse>('/api/workspace-pins')
+    }
+
+    async updateWorkspacePins(settings: UpdateWorkspacePinsRequest): Promise<WorkspacePinsResponse> {
+        return await this.request<WorkspacePinsResponse>('/api/workspace-pins', {
             method: 'PUT',
             body: JSON.stringify(settings)
         })

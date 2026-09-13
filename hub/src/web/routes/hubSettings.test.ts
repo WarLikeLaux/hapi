@@ -130,4 +130,33 @@ describe('GET/PUT /api/hub-settings', () => {
             sessionSummaryInChat: true
         })
     })
+
+    it('persists and deduplicates owner workspace pins', async () => {
+        const { app } = await createApp()
+        const pin = { machineId: 'machine-1', path: '/home/user/code/hapi' }
+        const put = await app.request('/api/workspace-pins', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ pins: [pin, pin] })
+        })
+
+        expect(put.status).toBe(200)
+        expect(await put.json()).toEqual({ pins: [pin] })
+
+        const get = await app.request('/api/workspace-pins')
+        expect(get.status).toBe(200)
+        expect(get.headers.get('cache-control')).toBe('no-store')
+        expect(await get.json()).toEqual({ pins: [pin] })
+    })
+
+    it('keeps workspace paths owner-only', async () => {
+        const { app } = await createApp('tenant')
+
+        expect((await app.request('/api/workspace-pins')).status).toBe(403)
+        expect((await app.request('/api/workspace-pins', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ pins: [] })
+        })).status).toBe(403)
+    })
 })

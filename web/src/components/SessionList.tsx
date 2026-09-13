@@ -169,6 +169,7 @@ type MachineGroup = {
 
 export const UNKNOWN_MACHINE_ID = '__unknown__'
 export const GROUP_SESSION_PREVIEW_LIMIT = DEFAULT_SESSION_PREVIEW_LIMIT
+export const RECENT_SESSION_BATCH_SIZE = 5
 
 export function getSessionUserActivityAt(session: SessionSummary): number {
     return session.lastUserMessageAt || session.createdAt || session.updatedAt
@@ -1383,6 +1384,9 @@ export function SessionList(props: {
             ))
         )
     }, [machineFilteredSessions, pinInProgressSessions])
+    const recentSessions = useMemo(() => sortSessionsByNewestAgentActivity(
+        projectHeaderSessions.filter((session) => !session.active && !session.globalPinned)
+    ), [projectHeaderSessions])
     const allDirectoryGroups = useMemo(
         () => groupSessionsByDirectory(
             projectHeaderSessions.filter((session) => !session.globalPinned)
@@ -1404,6 +1408,8 @@ export function SessionList(props: {
     const [activeSectionCollapsed, setActiveSectionCollapsed] = useState(false)
     const [workingSectionCollapsed, setWorkingSectionCollapsed] = useState(false)
     const [pinnedSectionCollapsed, setPinnedSectionCollapsed] = useState(false)
+    const [recentSectionCollapsed, setRecentSectionCollapsed] = useState(true)
+    const [recentVisibleCount, setRecentVisibleCount] = useState(RECENT_SESSION_BATCH_SIZE)
     const autoExpandedSelectedSessionKeyRef = useRef<string | null>(null)
     const isGroupCollapsed = (group: SessionGroup): boolean => {
         if (isFiltering) return false
@@ -1543,6 +1549,80 @@ export function SessionList(props: {
                             />
                         ))}
                     </div>
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    const renderRecentSessions = () => {
+        // Search/date/unread results already render in their project groups.
+        // Keep this shortcut out of filtered views to avoid duplicate results.
+        if (recentSessions.length === 0 || isFiltering || showUnreadOnly) return null
+        const visibleRecentSessions = recentSessions.slice(0, recentVisibleCount)
+        const hiddenCount = recentSessions.length - visibleRecentSessions.length
+        const expandCount = Math.min(RECENT_SESSION_BATCH_SIZE, hiddenCount)
+
+        return (
+            <div key="recent-section">
+                <div
+                    className="group/recent flex min-w-0 w-full select-none cursor-pointer items-center gap-2 rounded-lg py-1.5 pl-2 pr-2 transition-colors hover:bg-[var(--app-secondary-bg)]"
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={!recentSectionCollapsed}
+                    aria-label={t('sessions.recentToggle')}
+                    onClick={() => setRecentSectionCollapsed((value) => !value)}
+                    onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setRecentSectionCollapsed((value) => !value)
+                        }
+                    }}
+                    title={t('sessions.recentSection')}
+                >
+                    <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={recentSectionCollapsed} />
+                    <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-hint)]" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {t('sessions.recentSection')}
+                    </span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
+                        ({recentSessions.length})
+                    </span>
+                </div>
+                <div className="collapsible-panel" data-open={!recentSectionCollapsed || undefined}>
+                    <div className="collapsible-inner">
+                    {!recentSectionCollapsed ? (
+                        <div className="flex flex-col gap-0.5 ml-3 pl-1 py-1">
+                            {visibleRecentSessions.map((session) => (
+                                <SessionItem
+                                    key={session.id}
+                                    session={session}
+                                    onSelect={props.onSelect}
+                                    showPath={false}
+                                    api={api}
+                                    titleSuggestionAvailable={titleSuggestionAvailable}
+                                    selected={session.id === selectedSessionId}
+                                    showDetailedStatus={showDetailedStatus}
+                                    inRunningSection
+                                    projectLabel={getPathDisplayName(session.metadata?.worktree?.basePath ?? session.metadata?.path ?? 'Other')}
+                                    machineLabel={resolveMachineLabel(session.metadata?.machineId ?? null)}
+                                    lastSeenVersion={lastSeenVersion}
+                                />
+                            ))}
+                            {hiddenCount > 0 ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setRecentVisibleCount((count) => Math.min(count + RECENT_SESSION_BATCH_SIZE, recentSessions.length))}
+                                    className="ml-2.5 mr-2 my-1 flex items-center justify-center gap-1 rounded-md border border-dashed border-[var(--app-border)] px-2 py-1 text-center text-xs text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
+                                >
+                                    <SessionPreviewArrowIcon direction="down" className="h-3 w-3 shrink-0" />
+                                    {t('sessions.group.expand', { n: expandCount })}
+                                </button>
+                            ) : null}
+                        </div>
+                    ) : null}
                     </div>
                 </div>
             </div>
@@ -1952,7 +2032,7 @@ export function SessionList(props: {
                     />
                 ) : null}
 
-                {props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null || showUnreadOnly) && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && globalPinnedSessions.length === 0 ? (
+                {props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null || showUnreadOnly) && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
                     <div className="px-4 py-8 text-center text-sm text-[var(--app-hint)]">
                         {t('sessions.search.noResults')}
                     </div>
@@ -2025,6 +2105,7 @@ export function SessionList(props: {
                     onToggle: () => setActiveSectionCollapsed((value) => !value),
                     sessions: activeSessions,
                 })}
+                {renderRecentSessions()}
                 {groups.map(renderDirectoryGroup)}
             </SessionListScrollAnchor>
             </div>

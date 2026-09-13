@@ -46,6 +46,8 @@ export interface Settings {
      * Default off: render/copy strip the footer; store stays raw.
      */
     sessionSummaryInChat?: boolean
+    /** Workspace browser pins shared by the owner's web clients. */
+    workspacePins?: Array<{ machineId: string; path: string }>
     /**
      * Hub-side provider API keys / endpoints managed from Settings.
      * Env vars still win when set at process start (ops override).

@@ -53,6 +53,55 @@ function reasoningTextOf(message: { content: unknown }): string {
 }
 
 describe('cli session handlers', () => {
+    it('treats a persisted ready event as an authoritative idle boundary', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('ready-idle', {}, null, 'default')
+        const socket = new FakeSocket()
+        const idle = mock()
+        registerSessionHandlers(socket as unknown as CliSocketWithData, {
+            store,
+            resolveSessionAccess: () => ({ ok: true, value: session }),
+            emitAccessError() {},
+            onSessionIdle: idle
+        })
+
+        socket.trigger('message', {
+            sid: session.id,
+            message: JSON.stringify({
+                role: 'agent',
+                content: { type: 'event', data: { type: 'ready' } }
+            })
+        })
+
+        expect(idle).toHaveBeenCalledWith(session.id, expect.any(Number))
+        store.close()
+    })
+
+    it('does not treat an imported historical ready event as the live turn boundary', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('historical-ready', {}, null, 'default')
+        const socket = new FakeSocket()
+        const idle = mock()
+        registerSessionHandlers(socket as unknown as CliSocketWithData, {
+            store,
+            resolveSessionAccess: () => ({ ok: true, value: session }),
+            emitAccessError() {},
+            onSessionIdle: idle
+        })
+
+        socket.trigger('message', {
+            sid: session.id,
+            message: {
+                role: 'agent',
+                content: { type: 'event', data: { type: 'ready' } }
+            },
+            createdAt: 1_234
+        })
+
+        expect(idle).not.toHaveBeenCalled()
+        store.close()
+    })
+
     it.each([undefined, 'terminated', 'error'] as const)('preserves shared Codex pending input on execution exit (%s)', reason => {
         const store = new Store(':memory:')
         const session = store.sessions.getOrCreateSession('shared-end', { flavor: 'codex', capabilities: { concurrentClients: true } }, null, 'default')

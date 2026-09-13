@@ -1,5 +1,10 @@
 import { Hono } from 'hono'
-import { UpdateHubSettingsRequestSchema, type HubSettingsResponse } from '@hapi/protocol'
+import {
+    UpdateHubSettingsRequestSchema,
+    UpdateWorkspacePinsRequestSchema,
+    type HubSettingsResponse,
+    type WorkspacePin
+} from '@hapi/protocol'
 import {
     getSettingsFile,
     readSettingsOrThrow,
@@ -50,6 +55,36 @@ export function createHubSettingsRoutes(dataDir: string): Hono<WebAppEnv> {
                 result: toHubSettings(settings)
             }
         })
+        c.header('Cache-Control', 'no-store')
+        return c.json(response)
+    })
+
+    app.get('/workspace-pins', async (c) => {
+        if (c.get('namespace') !== 'default') {
+            return c.json({ error: OWNER_ONLY_ERROR }, 403)
+        }
+        c.header('Cache-Control', 'no-store')
+        const settings = await readSettingsOrThrow(getSettingsFile(dataDir))
+        return c.json({ pins: settings.workspacePins ?? [] })
+    })
+
+    app.put('/workspace-pins', async (c) => {
+        if (c.get('namespace') !== 'default') {
+            return c.json({ error: OWNER_ONLY_ERROR }, 403)
+        }
+        const json = await c.req.json().catch(() => null)
+        const parsed = UpdateWorkspacePinsRequestSchema.safeParse(json)
+        if (!parsed.success || parsed.data.pins.length > 200) {
+            return c.json({ error: 'Invalid body' }, 400)
+        }
+        const pins = Array.from(new Map(parsed.data.pins.map((pin) => [
+            `${pin.machineId}\u0000${pin.path}`,
+            pin
+        ])).values()) as WorkspacePin[]
+        const response = await updateSettings(getSettingsFile(dataDir), (current) => ({
+            settings: { ...current, workspacePins: pins },
+            result: { pins }
+        }))
         c.header('Cache-Control', 'no-store')
         return c.json(response)
     })

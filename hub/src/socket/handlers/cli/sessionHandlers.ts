@@ -13,6 +13,7 @@ import { shouldRecordSessionActivity } from '../../../sync/sessionActivity'
 import type { CliSocketWithData } from '../../socketTypes'
 import type { SessionEndReason } from '@hapi/protocol'
 import type { AccessErrorReason, AccessResult } from './types'
+import { isReadySessionEventContent } from '../../../sync/sessionReady'
 
 type SessionAlivePayload = {
     sid: string
@@ -89,6 +90,7 @@ export type SessionHandlersDeps = {
     emitAccessError: EmitAccessError
     onSessionAlive?: (payload: SessionAlivePayload) => void
     onSessionReady?: (payload: SessionReadyPayload) => void
+    onSessionIdle?: (sessionId: string, time: number) => void
     onSessionEnd?: (payload: SessionEndPayload) => void
     onWebappEvent?: (event: SyncEvent) => void
     onBackgroundTaskDelta?: (sessionId: string, delta: { started: number; completed: number }) => void
@@ -101,7 +103,7 @@ export type SessionHandlersDeps = {
 }
 
 export function registerSessionHandlers(socket: CliSocketWithData, deps: SessionHandlersDeps): void {
-    const { store, resolveSessionAccess, emitAccessError, onSessionAlive, onSessionReady, onSessionEnd, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed } = deps
+    const { store, resolveSessionAccess, emitAccessError, onSessionAlive, onSessionReady, onSessionIdle, onSessionEnd, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed } = deps
 
     socket.on('native-queue-message', data => {
         const parsed = z.object({ sid: z.string(), localId: z.string().min(1), text: z.string().nullable() }).safeParse(data)
@@ -153,6 +155,13 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
         }
 
         const msg = store.messages.addMessage(sid, content, localId, undefined, createdAt)
+
+        // The launcher's thinking=false keepalive is volatile and may be lost
+        // while the socket reconnects after a hub restart. The persisted ready
+        // event is the reliable turn boundary, so use it to reconcile idle state.
+        if (createdAt === undefined && isReadySessionEventContent(content)) {
+            onSessionIdle?.(sid, msg.createdAt)
+        }
 
         // A reasoning stream arrives as a series of growing snapshots under one
         // stable id, so a stream should cost one row rather than one per

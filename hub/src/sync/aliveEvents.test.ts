@@ -71,6 +71,91 @@ describe('alive incremental events', () => {
         expect(update.data).toEqual(expect.objectContaining({ active: true }))
     })
 
+    it('clears thinking on a reliable ready boundary without ending the session', () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const session = cache.getOrCreateSession(
+            'session-ready-idle',
+            { path: '/tmp/project', host: 'localhost' },
+            null,
+            'default'
+        )
+
+        const now = Date.now()
+        cache.handleSessionAlive({ sid: session.id, time: now, thinking: true })
+        events.length = 0
+        cache.handleSessionIdle(session.id, now + 1)
+
+        expect(cache.getSession(session.id)).toMatchObject({
+            active: true,
+            thinking: false,
+            activeTurnStartedAt: null
+        })
+        expect(events).toContainEqual(expect.objectContaining({
+            type: 'session-updated',
+            sessionId: session.id,
+            data: { thinking: false, activeTurnStartedAt: null }
+        }))
+
+        events.length = 0
+        cache.handleSessionAlive({ sid: session.id, time: now + 2, thinking: true })
+        expect(cache.getSession(session.id)?.thinking).toBe(false)
+        expect(events).not.toContainEqual(expect.objectContaining({
+            type: 'session-updated',
+            sessionId: session.id,
+            data: expect.objectContaining({ thinking: true })
+        }))
+
+        cache.markMessageQueued(session.id, now + 3)
+        expect(cache.getSession(session.id)?.thinking).toBe(true)
+        store.close()
+    })
+
+    it('recovers the ready boundary after a hub restart despite later event noise', () => {
+        const store = new Store(':memory:')
+        const initialCache = new SessionCache(store, createPublisher([]))
+        const session = initialCache.getOrCreateSession(
+            'session-ready-restart',
+            { path: '/tmp/project', host: 'localhost' },
+            null,
+            'default'
+        )
+        const now = Date.now()
+
+        store.messages.addMessage(
+            session.id,
+            { role: 'user', content: { type: 'text', text: 'run task' } },
+            'restart-user',
+            undefined,
+            now
+        )
+        store.sessions.recordSessionUserActivity(session.id, now, session.namespace)
+        store.messages.addMessage(
+            session.id,
+            { role: 'agent', content: { type: 'event', data: { type: 'ready' } } },
+            'restart-ready',
+            undefined,
+            now + 1
+        )
+        for (let index = 0; index < 30; index += 1) {
+            store.messages.addMessage(
+                session.id,
+                { role: 'agent', content: { type: 'event', data: { type: 'noise', index } } },
+                `restart-noise-${index}`,
+                undefined,
+                now + 2 + index
+            )
+        }
+
+        const restartedCache = new SessionCache(store, createPublisher([]))
+        restartedCache.refreshSession(session.id)
+        restartedCache.handleSessionAlive({ sid: session.id, time: now + 100, thinking: true })
+
+        expect(restartedCache.getSession(session.id)?.thinking).toBe(false)
+        store.close()
+    })
+
     it('emits full active machine object on machine alive', () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []

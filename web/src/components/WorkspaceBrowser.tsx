@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ApiClient } from '@/api/client'
 import type { Machine, MachineDirectoryEntry } from '@/types/api'
 import { queryKeys } from '@/lib/query-keys'
@@ -49,6 +49,25 @@ function RefreshIcon(props: { className?: string }) {
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+        </svg>
+    )
+}
+
+function SearchIcon(props: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+        </svg>
+    )
+}
+
+function PinIcon(props: { className?: string; filled?: boolean }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill={props.filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+            <path d="M12 17v5" />
+            <path d="M5 17h14" />
+            <path d="M7 4V2h10v2l-2 5v4l2 2H7l2-2V9Z" />
         </svg>
     )
 }
@@ -168,6 +187,26 @@ function readShowHidden(): boolean {
     }
 }
 
+export function getSortedWorkspaceDirectories(
+    entries: MachineDirectoryEntry[],
+    currentPath: string | null,
+    pinnedPathSet: Set<string>,
+    searchQuery: string
+): MachineDirectoryEntry[] {
+    const query = searchQuery.trim().toLocaleLowerCase()
+    return entries
+        .filter(entry => entry.type === 'directory')
+        .filter(entry => !query || entry.name.toLocaleLowerCase().includes(query))
+        .sort((a, b) => {
+            if (!currentPath) return a.name.localeCompare(b.name)
+            const aPinned = pinnedPathSet.has(normalizePathForComparison(joinPath(currentPath, a.name)))
+            const bPinned = pinnedPathSet.has(normalizePathForComparison(joinPath(currentPath, b.name)))
+            if (aPinned !== bPinned) return aPinned ? -1 : 1
+            const modifiedDelta = (b.modified ?? 0) - (a.modified ?? 0)
+            return modifiedDelta || a.name.localeCompare(b.name)
+        })
+}
+
 export function WorkspaceBrowser(props: {
     api: ApiClient
     machines: Machine[]
@@ -186,6 +225,13 @@ export function WorkspaceBrowser(props: {
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [showHidden, setShowHidden] = useState<boolean>(readShowHidden)
+    const [searchQuery, setSearchQuery] = useState('')
+    const [savingPinPath, setSavingPinPath] = useState<string | null>(null)
+
+    const workspacePinsQuery = useQuery({
+        queryKey: queryKeys.workspacePins,
+        queryFn: () => api.getWorkspacePins()
+    })
 
     useEffect(() => {
         if (machines.length === 0) {
@@ -298,12 +344,45 @@ export function WorkspaceBrowser(props: {
         props.onStartSession(machineId, currentPath)
     }, [machineId, currentPath, props])
 
+    const handleTogglePin = useCallback(async (path: string) => {
+        if (!machineId || savingPinPath) return
+        const pins = workspacePinsQuery.data?.pins ?? []
+        const normalizedPath = normalizePathForComparison(path)
+        const isPinned = pins.some(pin => (
+            pin.machineId === machineId
+            && normalizePathForComparison(pin.path) === normalizedPath
+        ))
+        const nextPins = isPinned
+            ? pins.filter(pin => !(
+                pin.machineId === machineId
+                && normalizePathForComparison(pin.path) === normalizedPath
+            ))
+            : [...pins, { machineId, path }]
+
+        setSavingPinPath(normalizedPath)
+        try {
+            const result = await api.updateWorkspacePins({ pins: nextPins })
+            queryClient.setQueryData(queryKeys.workspacePins, result)
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Failed to update pinned projects')
+        } finally {
+            setSavingPinPath(null)
+        }
+    }, [api, machineId, queryClient, savingPinPath, workspacePinsQuery.data?.pins])
+
     const breadcrumbs = useMemo(() => {
         if (!currentPath || !selectedRoot) return []
         return buildBreadcrumbs(currentPath, selectedRoot)
     }, [currentPath, selectedRoot])
 
-    const directories = useMemo(() => entries.filter(e => e.type === 'directory'), [entries])
+    const pinnedPathSet = useMemo(() => new Set(
+        (workspacePinsQuery.data?.pins ?? [])
+            .filter(pin => pin.machineId === machineId)
+            .map(pin => normalizePathForComparison(pin.path))
+    ), [machineId, workspacePinsQuery.data?.pins])
+    const directories = useMemo(() => {
+        return getSortedWorkspaceDirectories(entries, currentPath, pinnedPathSet, searchQuery)
+    }, [currentPath, entries, pinnedPathSet, searchQuery])
     const atRoot = !!(currentPath && selectedRoot && normalizePathForComparison(currentPath) === normalizePathForComparison(selectedRoot))
 
     const machineSelector = (
@@ -432,6 +511,19 @@ export function WorkspaceBrowser(props: {
                         </div>
                     </div>
                 )}
+
+                {currentPath && (
+                    <label className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2.5 focus-within:border-[var(--app-link)]">
+                        <SearchIcon className="h-4 w-4 shrink-0 text-[var(--app-hint)]" />
+                        <input
+                            type="search"
+                            value={searchQuery}
+                            onChange={(event) => setSearchQuery(event.target.value)}
+                            placeholder={t('browse.searchPlaceholder')}
+                            className="min-w-0 flex-1 bg-transparent text-sm text-[var(--app-fg)] outline-none placeholder:text-[var(--app-hint)]"
+                        />
+                    </label>
+                )}
             </div>
 
             {error && (
@@ -445,13 +537,20 @@ export function WorkspaceBrowser(props: {
                     <div className="flex items-center justify-center py-8 text-sm text-[var(--app-hint)]">{t('browse.empty')}</div>
                 ) : (
                     <div className="flex flex-col px-2 py-1">
-                        {directories.map(entry => (
-                            <button
+                        {directories.map(entry => {
+                            const entryPath = currentPath ? joinPath(currentPath, entry.name) : entry.name
+                            const isPinned = pinnedPathSet.has(normalizePathForComparison(entryPath))
+                            const isSavingPin = savingPinPath === normalizePathForComparison(entryPath)
+                            return (
+                            <div
                                 key={entry.name}
-                                type="button"
-                                onClick={() => handleEntryClick(entry)}
-                                className="flex items-center gap-2 px-2 py-2 rounded-lg text-left hover:bg-[var(--app-subtle-bg)] transition-colors w-full"
+                                className="group/project flex min-h-10 items-center rounded-lg transition-colors hover:bg-[var(--app-subtle-bg)]"
                             >
+                                <button
+                                    type="button"
+                                    onClick={() => handleEntryClick(entry)}
+                                    className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2 text-left"
+                                >
                                 {entry.isGitRepo ? (
                                     <GitIcon className="h-4 w-4 text-orange-500 shrink-0" />
                                 ) : (
@@ -461,8 +560,21 @@ export function WorkspaceBrowser(props: {
                                 {entry.isGitRepo && (
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-500 font-medium shrink-0">git</span>
                                 )}
-                            </button>
-                        ))}
+                                </button>
+                                <button
+                                    type="button"
+                                    aria-label={t(isPinned ? 'browse.unpinProject' : 'browse.pinProject')}
+                                    title={t(isPinned ? 'browse.unpinProject' : 'browse.pinProject')}
+                                    aria-pressed={isPinned}
+                                    disabled={isSavingPin}
+                                    onClick={() => void handleTogglePin(entryPath)}
+                                    className={`mr-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] ${isPinned ? 'text-[var(--app-link)]' : 'text-[var(--app-hint)] opacity-70 group-hover/project:opacity-100'} disabled:opacity-40`}
+                                >
+                                    <PinIcon className="h-4 w-4" filled={isPinned} />
+                                </button>
+                            </div>
+                            )
+                        })}
                     </div>
                 )}
             </div>

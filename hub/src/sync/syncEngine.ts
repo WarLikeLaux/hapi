@@ -555,6 +555,10 @@ export class SyncEngine {
         this.triggerDedupIfNeeded(payload.sid)
     }
 
+    handleSessionIdle(sessionId: string, time: number): void {
+        this.sessionCache.handleSessionIdle(sessionId, time)
+    }
+
     clearQueuedThinkingGrace(sessionId: string): void {
         this.sessionCache.clearQueuedThinkingGrace(sessionId)
     }

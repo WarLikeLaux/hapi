@@ -77,6 +77,21 @@ export const UpdateHubSettingsRequestSchema = z
 
 export type UpdateHubSettingsRequest = z.infer<typeof UpdateHubSettingsRequestSchema>
 
+export const WorkspacePinSchema = z.object({
+    machineId: z.string().min(1).max(256),
+    path: z.string().min(1).max(4096)
+})
+
+export const WorkspacePinsResponseSchema = z.object({
+    pins: z.array(WorkspacePinSchema)
+})
+
+export const UpdateWorkspacePinsRequestSchema = WorkspacePinsResponseSchema
+
+export type WorkspacePin = z.infer<typeof WorkspacePinSchema>
+export type WorkspacePinsResponse = z.infer<typeof WorkspacePinsResponseSchema>
+export type UpdateWorkspacePinsRequest = z.infer<typeof UpdateWorkspacePinsRequestSchema>
+
 export const CreateMachineResponseSchema = z.object({
     machine: MachineSchema
 })
