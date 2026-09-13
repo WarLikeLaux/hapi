@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SessionListScrollAnchor } from './SessionListScrollAnchor'
 import type { SessionSummary } from '@/types/api'
-import { isWildcardSearch, matchesSearchQuery } from '@hapi/protocol'
 import type { ApiClient } from '@/api/client'
+import {
+    buildSessionSearchScoreIndex,
+    sessionMatchesQuery,
+    sortSessionsBySearchRelevance,
+} from '@/lib/sessionListSearch'
+import type { SessionSearchScoreIndex } from '@/lib/sessionListSearch'
 import { useLongPress } from '@/hooks/useLongPress'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
@@ -65,6 +70,9 @@ type SessionGroup = {
     machineId: string | null
     sessions: SessionSummary[]
     latestUserMessageAt: number
+    latestUpdatedAt: number
+    hasActiveSession: boolean
+    hasPinnedSession: boolean
 }
 
 type ProjectMenuState = {
@@ -339,6 +347,10 @@ function groupSessionsByDirectory(sessions: SessionSummary[]): SessionGroup[] {
                 (max, s) => Math.max(max, getSessionUserActivityAt(s)),
                 -Infinity
             )
+            const latestUpdatedAt = group.sessions.reduce(
+                (max, s) => Math.max(max, s.updatedAt),
+                -Infinity
+            )
             const displayName = getPathDisplayName(group.directory)
 
             return {
@@ -348,12 +360,57 @@ function groupSessionsByDirectory(sessions: SessionSummary[]): SessionGroup[] {
                 machineId: group.machineId,
                 sessions: sortedSessions,
                 latestUserMessageAt,
+                latestUpdatedAt,
+                hasActiveSession: group.sessions.some((session) => session.active),
+                hasPinnedSession: group.sessions.some((session) => session.pinned),
             }
         })
         .sort((a, b) => {
             const activityDelta = a.latestUserMessageAt - b.latestUserMessageAt
             return activityDelta || a.key.localeCompare(b.key)
         })
+}
+
+/**
+ * Apply upstream relevance without replacing the fork's activity ordering when
+ * scores tie. Project pins remain one contiguous block so the divider cannot
+ * jump back and forth through a search result.
+ */
+function sortSessionsBySearchRelevancePreservingForkOrder(
+    sessions: readonly SessionSummary[],
+    index: SessionSearchScoreIndex,
+    preserveProjectPins = false
+): SessionSummary[] {
+    const rankBucket = (bucket: readonly SessionSummary[]) => bucket
+        .map((session, originalIndex) => ({ session, originalIndex }))
+        .sort((a, b) => (
+            (index.scores.get(b.session.id) ?? 0) - (index.scores.get(a.session.id) ?? 0)
+            || a.originalIndex - b.originalIndex
+        ))
+        .map(({ session }) => session)
+
+    if (!preserveProjectPins) return rankBucket(sessions)
+    return [
+        ...rankBucket(sessions.filter((session) => session.pinned)),
+        ...rankBucket(sessions.filter((session) => !session.pinned)),
+    ]
+}
+
+function rankSessionGroupsBySearchRelevancePreservingForkOrder(
+    groups: readonly SessionGroup[],
+    index: SessionSearchScoreIndex
+): SessionGroup[] {
+    return groups
+        .map((group, originalIndex) => ({
+            group: {
+                ...group,
+                sessions: sortSessionsBySearchRelevancePreservingForkOrder(group.sessions, index, true),
+            },
+            originalIndex,
+            score: Math.max(...group.sessions.map((session) => index.scores.get(session.id) ?? 0)),
+        }))
+        .sort((a, b) => b.score - a.score || a.originalIndex - b.originalIndex)
+        .map(({ group }) => group)
 }
 
 
@@ -586,30 +643,10 @@ function SessionPreviewArrowIcon(props: { direction: 'up' | 'down'; className?: 
 }
 
 export { getSessionTitle } from '@/lib/sessionTitle'
+export { sessionMatchesQuery } from '@/lib/sessionListSearch'
 
 export function normalizeSearch(value: string | null | undefined): string {
     return (value ?? '').trim().toLowerCase()
-}
-
-export function sessionMatchesQuery(session: SessionSummary, query: string, machineLabel: string): boolean {
-    if (!query) return true
-    const searchableParts = [
-        getSessionTitle(session),
-        getWorktreeSessionLabel(session),
-        session.id,
-        session.metadata?.path,
-        session.metadata?.worktree?.basePath,
-        session.metadata?.worktree?.worktreePath,
-        session.metadata?.name,
-        session.metadata?.summary?.text,
-        session.metadata?.flavor,
-        machineLabel,
-    ]
-        .filter((part): part is string => typeof part === 'string' && part.length > 0)
-    if (isWildcardSearch(query)) {
-        return searchableParts.some((part) => matchesSearchQuery(part, query))
-    }
-    return searchableParts.join('\n').toLowerCase().includes(query)
 }
 
 
@@ -1414,18 +1451,43 @@ export function SessionList(props: {
         () => new Set(sidebarSessions.map(session => formatDateValue(new Date(session.updatedAt)))),
         [sidebarSessions]
     )
+    const hasTextQuery = normalizedQuery.length > 0
+    const timeScopedSessions = useMemo(
+        () => timeRange === null
+            ? allSessions
+            : allSessions.filter(session => sessionMatchesTimeRange(session, timeRange)),
+        [allSessions, timeRange?.start, timeRange?.end] // eslint-disable-line react-hooks/exhaustive-deps
+    )
+    const projectTimeScopedSessions = useMemo(
+        () => timeRange === null
+            ? sidebarSessions
+            : sidebarSessions.filter(session => sessionMatchesTimeRange(session, timeRange)),
+        [sidebarSessions, timeRange?.start, timeRange?.end] // eslint-disable-line react-hooks/exhaustive-deps
+    )
+    const searchScoreIndex = useMemo(
+        () => hasTextQuery
+            ? buildSessionSearchScoreIndex(projectTimeScopedSessions, normalizedQuery, resolveMachineLabel)
+            : null,
+        [hasTextQuery, projectTimeScopedSessions, normalizedQuery, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
+    )
     const visibleSessions = useMemo(
-        () => isFiltering
-            ? allSessions.filter(session => (
-                sessionMatchesTimeRange(session, timeRange)
-                && sessionMatchesQuery(
-                    session,
-                    normalizedQuery,
-                    resolveMachineLabel(session.metadata?.machineId ?? null)
-                )
-            ))
-            : allSessions,
-        [allSessions, isFiltering, normalizedQuery, timeRange?.start, timeRange?.end, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
+        () => {
+            if (!isFiltering) return allSessions
+            const matched = hasTextQuery && searchScoreIndex
+                ? timeScopedSessions.filter(session => searchScoreIndex.matchedIds.has(session.id))
+                : timeScopedSessions.filter(session => (
+                    sessionMatchesQuery(
+                        session,
+                        normalizedQuery,
+                        resolveMachineLabel(session.metadata?.machineId ?? null)
+                    )
+                ))
+            if (hasTextQuery && searchScoreIndex) {
+                return sortSessionsBySearchRelevance(matched, searchScoreIndex)
+            }
+            return matched
+        },
+        [allSessions, hasTextQuery, isFiltering, normalizedQuery, searchScoreIndex, timeScopedSessions, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
     )
     const allGroups = useMemo(
         () => groupSessionsByDirectory(sidebarSessions),
@@ -1482,14 +1544,12 @@ export function SessionList(props: {
     // visible list; only the active-only preference is deliberately ignored.
     const projectHeaderSessions = useMemo(() => {
         const searched = isFiltering
-            ? sidebarSessions.filter((session) => (
-                sessionMatchesTimeRange(session, timeRange)
-                && sessionMatchesQuery(
-                    session,
-                    normalizedQuery,
-                    resolveMachineLabel(session.metadata?.machineId ?? null)
+            ? hasTextQuery && searchScoreIndex
+                ? sortSessionsBySearchRelevance(
+                    projectTimeScopedSessions.filter((session) => searchScoreIndex.matchedIds.has(session.id)),
+                    searchScoreIndex
                 )
-            ))
+                : projectTimeScopedSessions
             : sidebarSessions
         const lastSeenById = showUnreadOnly ? getSessionLastSeenSnapshot() : null
         const unread = lastSeenById
@@ -1502,10 +1562,13 @@ export function SessionList(props: {
             ))
     }, [
         activeMachineFilter,
+        hasTextQuery,
         isFiltering,
         lastSeenVersion,
         machineLabelsById,
         normalizedQuery,
+        projectTimeScopedSessions,
+        searchScoreIndex,
         selectedSessionId,
         showUnreadOnly,
         sidebarSessions,
@@ -1513,30 +1576,39 @@ export function SessionList(props: {
         timeRange?.start,
     ]) // eslint-disable-line react-hooks/exhaustive-deps
     const globalPinnedSessions = useMemo(() => {
-        return sortSessionsByUserActivity(
+        const pinned = sortSessionsByUserActivity(
             machineFilteredSessions.filter((session) => Boolean(session.globalPinned))
         )
-    }, [machineFilteredSessions])
+        return hasTextQuery && searchScoreIndex
+            ? sortSessionsBySearchRelevancePreservingForkOrder(pinned, searchScoreIndex)
+            : pinned
+    }, [hasTextQuery, machineFilteredSessions, searchScoreIndex])
     const workingSessions = useMemo(() => {
         if (!pinInProgressSessions) {
             return []
         }
-        return sortSessionsByNewestUserActivity(
+        const working = sortSessionsByNewestUserActivity(
             machineFilteredSessions.filter((session) => (
                 !session.globalPinned && isWorkingSession(session)
             ))
         )
-    }, [machineFilteredSessions, pinInProgressSessions])
+        return hasTextQuery && searchScoreIndex
+            ? sortSessionsBySearchRelevancePreservingForkOrder(working, searchScoreIndex)
+            : working
+    }, [hasTextQuery, machineFilteredSessions, pinInProgressSessions, searchScoreIndex])
     const activeSessions = useMemo(() => {
         if (!pinInProgressSessions) {
             return []
         }
-        return sortSessionsByNewestAgentActivity(
+        const active = sortSessionsByNewestAgentActivity(
             machineFilteredSessions.filter((session) => (
                 session.active && !session.globalPinned && !isWorkingSession(session)
             ))
         )
-    }, [machineFilteredSessions, pinInProgressSessions])
+        return hasTextQuery && searchScoreIndex
+            ? sortSessionsBySearchRelevancePreservingForkOrder(active, searchScoreIndex)
+            : active
+    }, [hasTextQuery, machineFilteredSessions, pinInProgressSessions, searchScoreIndex])
     const recentSessions = useMemo(() => sortSessionsByNewestAgentActivity(
         projectHeaderSessions.filter((session) => !session.active && !session.globalPinned)
     ), [projectHeaderSessions])
@@ -1546,15 +1618,17 @@ export function SessionList(props: {
         ),
         [projectHeaderSessions]
     )
-    const groups = useMemo(
-        () => allDirectoryGroups.flatMap((group) => {
+    const groups = useMemo(() => {
+        const grouped = allDirectoryGroups.flatMap((group) => {
             const sessions = pinInProgressSessions
                 ? group.sessions.filter((session) => !isPinnedInProgressSession(session))
                 : group.sessions
             return sessions.length > 0 ? [{ ...group, sessions }] : []
-        }),
-        [allDirectoryGroups, pinInProgressSessions]
-    )
+        })
+        return hasTextQuery && searchScoreIndex
+            ? rankSessionGroupsBySearchRelevancePreservingForkOrder(grouped, searchScoreIndex)
+            : grouped
+    }, [allDirectoryGroups, hasTextQuery, pinInProgressSessions, searchScoreIndex])
     const [collapseOverrides, setCollapseOverrides] = useState<Map<string, boolean>>(
         () => new Map()
     )
@@ -1857,6 +1931,7 @@ export function SessionList(props: {
                             <div key={s.id} className="contents">
                                 {shouldShowPinnedDivider(visibleGroupSessions, index) ? (
                                     <div
+                                        data-testid="session-pin-divider"
                                         className="ml-2.5 mr-2 my-1 border-t border-[var(--app-border)]"
                                         aria-hidden="true"
                                     />
