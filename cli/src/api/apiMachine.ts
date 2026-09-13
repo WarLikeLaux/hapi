@@ -60,6 +60,7 @@ import { homedir } from 'node:os'
 import type { CursorChatStoreStatus } from '@hapi/protocol/apiTypes'
 import { MachinePathPolicy } from './machinePathPolicy'
 import { getAgentAvailabilityResponse } from '@/agent/agentAvailability'
+import { shellQuote } from '@/modules/common/shellQuote'
 
 export { normalizeWindowsDriveRoot } from './machinePathPolicy'
 
@@ -82,6 +83,10 @@ interface CursorChatStoreStatusRequest {
     workspacePath: string
     cursorSessionId: string
     homeDir?: string
+}
+
+export function buildTermDeckResumeCommand(sessionId: string, apiUrl: string): string {
+    return `HAPI_API_URL=${shellQuote(apiUrl)} hapi resume ${shellQuote(sessionId)}`
 }
 
 async function ensureTermDeckSession(params: {
@@ -117,7 +122,10 @@ async function ensureTermDeckSession(params: {
                 ...(token ? { authorization: `Bearer ${token}` } : {})
             },
             body: JSON.stringify({
-                command: `hapi resume ${params.sessionId}`,
+                // TermDeck normally runs as a systemd/launchd service and therefore does not inherit
+                // the runner's HAPI_API_URL. Preserve the runner's effective hub address in the launch
+                // command so `hapi resume` reconnects to this session instead of probing its default hub.
+                command: buildTermDeckResumeCommand(params.sessionId, configuration.apiUrl),
                 cwd: params.directory,
                 title: params.title?.trim() || 'HAPI Codex',
                 integration_ref: `hapi:${params.sessionId}`

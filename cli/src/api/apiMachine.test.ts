@@ -38,7 +38,7 @@ vi.mock('@/cursor/cursorChatStoreStatus', () => ({
     inspectCursorChatStore: inspectCursorChatStoreMock
 }))
 
-import { ApiMachineClient, normalizeWindowsDriveRoot } from './apiMachine'
+import { ApiMachineClient, buildTermDeckResumeCommand, normalizeWindowsDriveRoot } from './apiMachine'
 import type { Machine } from './types'
 
 function makeMachine(id: string): Machine {
@@ -66,6 +66,17 @@ describe('normalizeWindowsDriveRoot', () => {
     it('leaves non-drive-root paths unchanged', () => {
         expect(normalizeWindowsDriveRoot('C:\\Users')).toBe('C:\\Users')
         expect(normalizeWindowsDriveRoot('/tmp/workspace')).toBe('/tmp/workspace')
+    })
+})
+
+describe('buildTermDeckResumeCommand', () => {
+    it('pins the child CLI to the runner hub and shell-quotes both values', () => {
+        expect(buildTermDeckResumeCommand(
+            'session with spaces',
+            'https://hapi.example.test/path?key=value&mode=remote'
+        )).toBe(
+            'HAPI_API_URL="https://hapi.example.test/path?key=value&mode=remote" hapi resume "session with spaces"'
+        )
     })
 })
 
