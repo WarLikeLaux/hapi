@@ -222,11 +222,12 @@ export function SessionHeader(props: {
     const [renameOpen, setRenameOpen] = useState(false)
     const [exportOpen, setExportOpen] = useState(false)
     const [archiveOpen, setArchiveOpen] = useState(false)
+    const [restartOpen, setRestartOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [isSyncingCodex, setIsSyncingCodex] = useState(false)
     const [isSyncingPi, setIsSyncingPi] = useState(false)
 
-    const { archiveSession, reopenSession, renameSession, suggestSessionTitle, updateSessionSummary, setPinMode, deleteSession, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, setPinMode, deleteSession, isPending } = useSessionActions(
         api,
         session.id,
         session.metadata?.flavor ?? null
@@ -256,17 +257,24 @@ export function SessionHeader(props: {
         onSessionDeleted?.()
     }
 
+    const followReopenedSession = async (result: Awaited<ReturnType<typeof reopenSession>>) => {
+        if (result.sessionId && result.sessionId !== session.id) {
+            retargetSharePendingTransfer(session.id, result.sessionId)
+            await onSessionReopened?.(result.sessionId)
+        }
+    }
+
     const handleReopen = async () => {
         setReopenError(null)
         try {
-            const result = await reopenSession()
-            if (result.sessionId && result.sessionId !== session.id) {
-                retargetSharePendingTransfer(session.id, result.sessionId)
-                await onSessionReopened?.(result.sessionId)
-            }
+            await followReopenedSession(await reopenSession())
         } catch (error) {
             setReopenError(formatReopenError(error))
         }
+    }
+
+    const handleRestart = async () => {
+        await followReopenedSession(await restartSession())
     }
 
     const handleSyncCodex = async () => {
@@ -553,6 +561,7 @@ export function SessionHeader(props: {
                 onOpenTermDeck={api && agentFlavor === 'codex' && !isTouch && session.metadata?.machineId
                     ? () => void handleOpenTermDeck()
                     : undefined}
+                onRestart={props.canReopen === false ? undefined : () => setRestartOpen(true)}
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={props.canReopen === false ? undefined : handleReopen}
                 reopenDisabledReason={props.reopenDisabledReason}
@@ -603,6 +612,18 @@ export function SessionHeader(props: {
                 onConfirm={archiveSession}
                 isPending={isPending}
                 destructive
+                centerTitle
+            />
+
+            <ConfirmDialog
+                isOpen={restartOpen}
+                onClose={() => setRestartOpen(false)}
+                title={t('dialog.restart.title')}
+                description={t('dialog.restart.description', { name: title })}
+                confirmLabel={t('dialog.restart.confirm')}
+                confirmingLabel={t('dialog.restart.confirming')}
+                onConfirm={handleRestart}
+                isPending={isPending}
                 centerTitle
             />
 

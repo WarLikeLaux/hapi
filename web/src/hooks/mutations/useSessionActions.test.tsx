@@ -155,6 +155,55 @@ describe('useSessionActions - reopenSession', () => {
     })
 })
 
+describe('useSessionActions - restartSession', () => {
+    it('waits for archive before reopening the same session', async () => {
+        const calls: string[] = []
+        const api = {
+            archiveSession: vi.fn(async () => {
+                calls.push('archive')
+            }),
+            reopenSession: vi.fn(async () => {
+                calls.push('reopen')
+                return {
+                    ok: true as const,
+                    sessionId: 'session-A-spawned',
+                    resumed: true,
+                }
+            }),
+        } as unknown as ApiClient
+        const { result } = renderHook(
+            () => useSessionActions(api, 'session-A', 'codex'),
+            { wrapper: createWrapper() },
+        )
+
+        let response: { ok: true; sessionId: string; resumed: boolean } | undefined
+        await act(async () => {
+            response = await result.current.restartSession()
+        })
+
+        expect(calls).toEqual(['archive', 'reopen'])
+        expect(api.archiveSession).toHaveBeenCalledWith('session-A')
+        expect(api.reopenSession).toHaveBeenCalledWith('session-A')
+        expect(response?.sessionId).toBe('session-A-spawned')
+    })
+
+    it('does not reopen when stopping the session fails', async () => {
+        const api = {
+            archiveSession: vi.fn(async () => {
+                throw new Error('stop failed')
+            }),
+            reopenSession: vi.fn(),
+        } as unknown as ApiClient
+        const { result } = renderHook(
+            () => useSessionActions(api, 'session-A', 'codex'),
+            { wrapper: createWrapper() },
+        )
+
+        await expect(result.current.restartSession()).rejects.toThrow('stop failed')
+        expect(api.reopenSession).not.toHaveBeenCalled()
+    })
+})
+
 describe('useSessionActions - setModel', () => {
     it('stays pending until the refreshed session detail is available', async () => {
         let releaseSessionRefresh!: () => void

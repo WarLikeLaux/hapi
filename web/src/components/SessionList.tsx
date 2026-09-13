@@ -1008,6 +1008,7 @@ function SessionItem(props: {
     const [renameOpen, setRenameOpen] = useState(false)
     const [exportOpen, setExportOpen] = useState(false)
     const [archiveOpen, setArchiveOpen] = useState(false)
+    const [restartOpen, setRestartOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
     const {
         status: cursorChatStoreStatus,
@@ -1034,7 +1035,7 @@ function SessionItem(props: {
         ? t('session.action.reopenCursorUnverified')
         : undefined
 
-    const { archiveSession, reopenSession, renameSession, suggestSessionTitle, updateSessionSummary, deleteSession, setPinMode, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, deleteSession, setPinMode, isPending } = useSessionActions(
         api,
         s.id,
         s.metadata?.flavor ?? null
@@ -1054,23 +1055,30 @@ function SessionItem(props: {
         }
     }
 
+    const followReopenedSession = async (result: Awaited<ReturnType<typeof reopenSession>>) => {
+        // resumeSession may merge the row into a freshly-spawned sessionId.
+        // Follow it so the operator lands on the live session.
+        if (result.sessionId && result.sessionId !== s.id) {
+            retargetSharePendingTransfer(s.id, result.sessionId)
+            await transferComposerDraftThenNavigate(
+                s.id,
+                result.sessionId,
+                () => onSelect(result.sessionId),
+            )
+        }
+    }
+
     const handleReopen = async () => {
         setReopenError(null)
         try {
-            const result = await reopenSession()
-            // resumeSession may merge the row into a freshly-spawned sessionId.
-            // Follow it so the operator lands on the live session.
-            if (result.sessionId && result.sessionId !== s.id) {
-                retargetSharePendingTransfer(s.id, result.sessionId)
-                await transferComposerDraftThenNavigate(
-                    s.id,
-                    result.sessionId,
-                    () => onSelect(result.sessionId),
-                )
-            }
+            await followReopenedSession(await reopenSession())
         } catch (error) {
             setReopenError(formatReopenError(error))
         }
+    }
+
+    const handleRestart = async () => {
+        await followReopenedSession(await restartSession())
     }
 
     const handleOpenTermDeck = async () => {
@@ -1167,6 +1175,7 @@ function SessionItem(props: {
                 onOpenTermDeck={s.metadata?.flavor === 'codex' && !isTouch
                     ? () => void handleOpenTermDeck()
                     : undefined}
+                onRestart={cursorReopenDisabledReason ? undefined : () => setRestartOpen(true)}
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={cursorReopenDisabledReason ? undefined : handleReopen}
                 reopenDisabledReason={cursorReopenDisabledReason}
@@ -1221,6 +1230,20 @@ function SessionItem(props: {
                     onConfirm={archiveSession}
                     isPending={isPending}
                     destructive
+                    centerTitle
+                />
+            ) : null}
+
+            {restartOpen ? (
+                <ConfirmDialog
+                    isOpen={true}
+                    onClose={() => setRestartOpen(false)}
+                    title={t('dialog.restart.title')}
+                    description={t('dialog.restart.description', { name: sessionName })}
+                    confirmLabel={t('dialog.restart.confirm')}
+                    confirmingLabel={t('dialog.restart.confirming')}
+                    onConfirm={handleRestart}
+                    isPending={isPending}
                     centerTitle
                 />
             ) : null}

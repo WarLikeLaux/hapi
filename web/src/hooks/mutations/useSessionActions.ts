@@ -18,6 +18,7 @@ export function useSessionActions(
     abortSession: () => Promise<void>
     archiveSession: () => Promise<void>
     reopenSession: () => Promise<ReopenSessionResponse>
+    restartSession: () => Promise<ReopenSessionResponse>
     switchSession: () => Promise<void>
     setPermissionMode: (mode: PermissionMode) => Promise<void>
     setCollaborationMode: (mode: CodexCollaborationMode) => Promise<void>
@@ -109,6 +110,26 @@ export function useSessionActions(
                 // When reopen merges into a different id, the source detail may
                 // already be gone. Invalidating it while still on the source
                 // route races with draft handoff and flashes "Session unavailable".
+                if (result.sessionId === sessionId) {
+                    await invalidateSession()
+                } else {
+                    await queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
+                }
+                markSessionActiveInCache(result.sessionId)
+            })()
+        },
+    })
+
+    const restartMutation = useMutation<ReopenSessionResponse, Error, void>({
+        mutationFn: async () => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            await api.archiveSession(sessionId)
+            return await api.reopenSession(sessionId)
+        },
+        onSuccess: (result) => {
+            void (async () => {
                 if (result.sessionId === sessionId) {
                     await invalidateSession()
                 } else {
@@ -284,6 +305,7 @@ export function useSessionActions(
         abortSession: abortMutation.mutateAsync,
         archiveSession: archiveMutation.mutateAsync,
         reopenSession: reopenMutation.mutateAsync,
+        restartSession: restartMutation.mutateAsync,
         switchSession: switchMutation.mutateAsync,
         setPermissionMode: permissionMutation.mutateAsync,
         setCollaborationMode: collaborationMutation.mutateAsync,
@@ -300,6 +322,7 @@ export function useSessionActions(
         isPending: abortMutation.isPending
             || archiveMutation.isPending
             || reopenMutation.isPending
+            || restartMutation.isPending
             || switchMutation.isPending
             || permissionMutation.isPending
             || collaborationMutation.isPending

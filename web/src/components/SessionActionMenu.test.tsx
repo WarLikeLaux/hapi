@@ -167,6 +167,17 @@ describe('SessionActionMenu - Reopen action', () => {
         expect(screen.queryByRole('menuitem', { name: /Reopen/ })).toBeNull()
     })
 
+    it('offers restart for active sessions and closes the menu when selected', () => {
+        const onRestart = vi.fn()
+        const onClose = vi.fn()
+        renderMenu({ sessionActive: true, onRestart, onClose })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Restart session' }))
+
+        expect(onRestart).toHaveBeenCalledOnce()
+        expect(onClose).toHaveBeenCalledOnce()
+    })
+
     it('does not render the Reopen item when onReopen is omitted (back-compat)', () => {
         renderMenu({ sessionActive: false, onReopen: undefined })
 

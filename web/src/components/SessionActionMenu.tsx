@@ -22,6 +22,7 @@ type SessionActionMenuProps = {
     onSyncCodex?: () => void
     onSyncPi?: () => void
     onOpenTermDeck?: () => void
+    onRestart?: () => void
     onArchive: () => void
     onReopen?: () => void
     reopenDisabledReason?: string
@@ -214,6 +215,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onSyncCodex,
         onSyncPi,
         onOpenTermDeck,
+        onRestart,
         onArchive,
         onReopen,
         reopenDisabledReason,
@@ -250,6 +252,11 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const handleArchive = () => {
         onClose()
         onArchive()
+    }
+
+    const handleRestart = () => {
+        onClose()
+        onRestart?.()
     }
 
     const handleReopen = () => {
@@ -416,15 +423,28 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                 ) : null}
 
                 {sessionActive ? (
-                    <button
-                        type="button"
-                        role="menuitem"
-                        className={`${baseItemClassName} text-red-500 hover:bg-red-500/10`}
-                        onClick={handleArchive}
-                    >
-                        <StopIcon className="text-red-500" />
-                        {t('session.action.archive')}
-                    </button>
+                    <>
+                        {onRestart ? (
+                            <button
+                                type="button"
+                                role="menuitem"
+                                className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                                onClick={handleRestart}
+                            >
+                                <ReopenIcon className="text-[var(--app-hint)]" />
+                                {t('session.action.restart')}
+                            </button>
+                        ) : null}
+                        <button
+                            type="button"
+                            role="menuitem"
+                            className={`${baseItemClassName} text-red-500 hover:bg-red-500/10`}
+                            onClick={handleArchive}
+                        >
+                            <StopIcon className="text-red-500" />
+                            {t('session.action.archive')}
+                        </button>
+                    </>
                 ) : (
                     <>
                         {onReopen || reopenDisabledReason || reopenHint ? (
