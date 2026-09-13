@@ -59,19 +59,53 @@ export async function requestPwaUpdateReload(
 
 export function setupRegistrationUpdateChecks(
     registration: ServiceWorkerRegistration,
+    onUpdateWaiting: () => void = () => {},
 ): () => void {
+    const detectWaitingUpdate = () => {
+        if (registration.waiting) {
+            onUpdateWaiting()
+        }
+    }
+
+    let observedInstallingWorker: ServiceWorker | null = null
+
+    const handleInstallingStateChange = () => {
+        if (
+            observedInstallingWorker?.state === 'installed' &&
+            navigator.serviceWorker.controller
+        ) {
+            onUpdateWaiting()
+        }
+    }
+
+    const observeInstallingWorker = () => {
+        observedInstallingWorker?.removeEventListener('statechange', handleInstallingStateChange)
+        observedInstallingWorker = registration.installing
+        observedInstallingWorker?.addEventListener('statechange', handleInstallingStateChange)
+        detectWaitingUpdate()
+    }
+
+    const checkForUpdate = () => {
+        detectWaitingUpdate()
+        void registration.update().then(detectWaitingUpdate).catch((error) => {
+            console.error('SW update check failed:', error)
+        })
+    }
+
+    registration.addEventListener('updatefound', observeInstallingWorker)
+
     // Browsers are allowed to throttle navigation-triggered service-worker
     // checks. Ask explicitly on every app start so a long-lived HAPI tab does
     // not remain pinned to a stale precache after a local deployment.
-    void registration.update()
+    checkForUpdate()
 
     const intervalId = window.setInterval(() => {
-        void registration.update()
+        checkForUpdate()
     }, PWA_UPDATE_CHECK_INTERVAL_MS)
 
     const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
-            void registration.update()
+            checkForUpdate()
         }
     }
 
@@ -80,6 +114,8 @@ export function setupRegistrationUpdateChecks(
     return () => {
         window.clearInterval(intervalId)
         document.removeEventListener('visibilitychange', handleVisibilityChange)
+        registration.removeEventListener('updatefound', observeInstallingWorker)
+        observedInstallingWorker?.removeEventListener('statechange', handleInstallingStateChange)
     }
 }
 
@@ -104,7 +140,10 @@ export function usePwaUpdate() {
                     return
                 }
 
-                cleanupRef.current = setupRegistrationUpdateChecks(registration)
+                cleanupRef.current = setupRegistrationUpdateChecks(
+                    registration,
+                    () => setNeedRefresh(true),
+                )
             },
             onRegisterError(error) {
                 console.error('SW registration error:', error)

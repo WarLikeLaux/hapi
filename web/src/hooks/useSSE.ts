@@ -55,6 +55,14 @@ export function shouldInvalidateSessionListForEvent(scope: SSEScope, eventType: 
     return scope === 'global' && eventType === 'messages-invalidated'
 }
 
+export function isReadySessionMessage(content: unknown): boolean {
+    if (!isObject(content) || content.role !== 'agent' || !isObject(content.content)) {
+        return false
+    }
+    const payload = content.content
+    return payload.type === 'event' && isObject(payload.data) && payload.data.type === 'ready'
+}
+
 /**
  * @deprecated Prefer gating against SessionSummary watermarks. Kept for unit
  * tests of the old "detail required" rule; summary path no longer uses this
@@ -604,6 +612,25 @@ export function useSSE(options: {
             return patched
         }
 
+        const applyReadyMessageBoundary = (sessionId: string, readyAt: number) => {
+            const detail = queryClient.getQueryData<SessionResponse>(queryKeys.session(sessionId))
+            if (
+                detail?.session
+                && readyAt >= (detail.session.lastUserMessageAt ?? detail.session.createdAt)
+            ) {
+                patchSessionDetail(sessionId, { thinking: false, activeTurnStartedAt: null })
+            }
+
+            const sessions = queryClient.getQueryData<SessionsResponse>(queryKeys.sessions)
+            const summary = sessions?.sessions.find((item) => item.id === sessionId)
+            if (
+                summary
+                && readyAt >= (summary.lastUserMessageAt ?? summary.createdAt ?? 0)
+            ) {
+                patchSessionSummary(sessionId, { thinking: false, activeTurnStartedAt: null })
+            }
+        }
+
         const removeSessionSummary = (sessionId: string) => {
             queryClient.setQueryData<SessionsResponse | undefined>(queryKeys.sessions, (previous) => {
                 if (!previous) {
@@ -686,6 +713,18 @@ export function useSSE(options: {
 
             if (shouldInvalidateSessionListForEvent(scope, event.type)) {
                 queueSessionListInvalidation()
+            }
+
+            // `ready` is persisted as a message and therefore survives an SSE
+            // reconnect. Use that durable boundary to repair the session
+            // caches too: mobile browsers can occasionally miss the adjacent
+            // `session-updated { thinking: false }` event and otherwise leave
+            // the list stuck in Working indefinitely.
+            if (
+                event.type === 'message-received'
+                && isReadySessionMessage(event.message.content)
+            ) {
+                applyReadyMessageBoundary(event.sessionId, event.message.createdAt)
             }
 
             if (scope === 'global' && MESSAGE_STREAM_EVENT_TYPES.has(event.type)) {

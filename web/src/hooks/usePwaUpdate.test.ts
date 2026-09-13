@@ -44,6 +44,8 @@ describe('setupRegistrationUpdateChecks', () => {
     it('checks for updates on an hourly interval', () => {
         const registration = {
             update: vi.fn().mockResolvedValue(undefined),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
         } as unknown as ServiceWorkerRegistration
 
         const cleanup = setupRegistrationUpdateChecks(registration)
@@ -62,6 +64,8 @@ describe('setupRegistrationUpdateChecks', () => {
     it('checks for updates when the tab becomes visible', () => {
         const registration = {
             update: vi.fn().mockResolvedValue(undefined),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
         } as unknown as ServiceWorkerRegistration
 
         const cleanup = setupRegistrationUpdateChecks(registration)
@@ -88,6 +92,8 @@ describe('setupRegistrationUpdateChecks', () => {
     it('removes listeners and clears the interval on cleanup', () => {
         const registration = {
             update: vi.fn().mockResolvedValue(undefined),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
         } as unknown as ServiceWorkerRegistration
         const removeEventListenerSpy = vi.spyOn(document, 'removeEventListener')
         const clearIntervalSpy = vi.spyOn(window, 'clearInterval')
@@ -97,6 +103,26 @@ describe('setupRegistrationUpdateChecks', () => {
 
         expect(removeEventListenerSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
         expect(clearIntervalSpy).toHaveBeenCalled()
+        expect(registration.removeEventListener).toHaveBeenCalledWith(
+            'updatefound',
+            expect.any(Function),
+        )
+    })
+
+    it('recovers an update that was already waiting when the app opens', () => {
+        const onUpdateWaiting = vi.fn()
+        const registration = {
+            waiting: {} as ServiceWorker,
+            update: vi.fn().mockResolvedValue(undefined),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        } as unknown as ServiceWorkerRegistration
+
+        const cleanup = setupRegistrationUpdateChecks(registration, onUpdateWaiting)
+
+        expect(onUpdateWaiting).toHaveBeenCalled()
+
+        cleanup()
     })
 })
 
@@ -218,6 +244,8 @@ describe('usePwaUpdate', () => {
 
         const registration = {
             update: vi.fn().mockResolvedValue(undefined),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
         } as unknown as ServiceWorkerRegistration
 
         renderHook(() => usePwaUpdate())
@@ -232,5 +260,22 @@ describe('usePwaUpdate', () => {
         expect(registration.update).toHaveBeenCalledTimes(2)
 
         vi.useRealTimers()
+    })
+
+    it('shows the refresh prompt when onRegistered finds a waiting update', () => {
+        const registration = {
+            waiting: {} as ServiceWorker,
+            update: vi.fn().mockResolvedValue(undefined),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        } as unknown as ServiceWorkerRegistration
+
+        const { result } = renderHook(() => usePwaUpdate())
+
+        act(() => {
+            capturedOptions.onRegistered?.(registration)
+        })
+
+        expect(result.current.needRefresh).toBe(true)
     })
 })

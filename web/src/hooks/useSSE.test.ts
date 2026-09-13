@@ -2,17 +2,20 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SessionSummary } from '@/types/api'
+import type { SessionsResponse, SessionSummary } from '@/types/api'
 import type { Session } from '@/types/api'
+import { queryKeys } from '@/lib/query-keys'
 import {
     applySessionDetailPatch,
     canApplyVersionedSummaryPatch,
     isGlobalScopedMessageStreamEvent,
     isNewerVersionedPatch,
+    isReadySessionMessage,
     isRenderIrrelevantPatch,
     isRenderIrrelevantSessionPatch,
     shouldInvalidateSessionListForEvent,
-    useSSE
+    useSSE,
+    type SSEScope
 } from './useSSE'
 
 class FakeEventSource {
@@ -45,8 +48,12 @@ class FakeEventSource {
     }
 }
 
-function renderUseSSE(options?: { onDisconnect?: (reason: string) => void }) {
-    const queryClient = new QueryClient()
+function renderUseSSE(options?: {
+    onDisconnect?: (reason: string) => void
+    scope?: SSEScope
+    queryClient?: QueryClient
+}) {
+    const queryClient = options?.queryClient ?? new QueryClient()
     const wrapper = ({ children }: { children: ReactNode }) =>
         createElement(QueryClientProvider, { client: queryClient }, children)
     return renderHook(() => useSSE({
@@ -54,6 +61,7 @@ function renderUseSSE(options?: { onDisconnect?: (reason: string) => void }) {
         token: 'test-token',
         baseUrl: 'http://hub.test',
         subscription: { all: true },
+        scope: options?.scope,
         onEvent: () => {},
         onDisconnect: options?.onDisconnect
     }), { wrapper })
@@ -159,6 +167,64 @@ describe('useSSE connection liveness (mobile suspend/resume)', () => {
 
         unmount()
     })
+
+    it('clears a stale Working summary when the durable ready message arrives', () => {
+        const queryClient = new QueryClient()
+        queryClient.setQueryData<SessionsResponse>(queryKeys.sessions, {
+            sessions: [makeSummary({
+                thinking: true,
+                createdAt: 500,
+                lastUserMessageAt: 1_000
+            })]
+        })
+        const { unmount } = renderUseSSE({ scope: 'global', queryClient })
+
+        act(() => {
+            FakeEventSource.instances[0]?.simulateMessage({
+                type: 'message-received',
+                sessionId: 'session-1',
+                message: {
+                    id: 'ready-1',
+                    seq: 1,
+                    localId: null,
+                    content: { role: 'agent', content: { type: 'event', data: { type: 'ready' } } },
+                    createdAt: 2_000
+                }
+            })
+        })
+
+        expect(queryClient.getQueryData<SessionsResponse>(queryKeys.sessions)?.sessions[0]?.thinking).toBe(false)
+        unmount()
+    })
+
+    it('does not let a replayed ready message clear a newer turn', () => {
+        const queryClient = new QueryClient()
+        queryClient.setQueryData<SessionsResponse>(queryKeys.sessions, {
+            sessions: [makeSummary({
+                thinking: true,
+                createdAt: 500,
+                lastUserMessageAt: 2_000
+            })]
+        })
+        const { unmount } = renderUseSSE({ scope: 'global', queryClient })
+
+        act(() => {
+            FakeEventSource.instances[0]?.simulateMessage({
+                type: 'message-received',
+                sessionId: 'session-1',
+                message: {
+                    id: 'ready-old',
+                    seq: 1,
+                    localId: null,
+                    content: { role: 'agent', content: { type: 'event', data: { type: 'ready' } } },
+                    createdAt: 1_000
+                }
+            })
+        })
+
+        expect(queryClient.getQueryData<SessionsResponse>(queryKeys.sessions)?.sessions[0]?.thinking).toBe(true)
+        unmount()
+    })
 })
 
 function makeSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
@@ -261,6 +327,18 @@ describe('isNewerVersionedPatch (PR #897 review, HAPI Bot 2026-06-16 Major)', ()
 })
 
 describe('useSSE scope handling', () => {
+    it('recognizes only the persisted agent ready boundary', () => {
+        expect(isReadySessionMessage({
+            role: 'agent',
+            content: { type: 'event', data: { type: 'ready' } }
+        })).toBe(true)
+        expect(isReadySessionMessage({
+            role: 'agent',
+            content: { type: 'event', data: { type: 'title-changed' } }
+        })).toBe(false)
+        expect(isReadySessionMessage({ role: 'user', content: { type: 'event', data: { type: 'ready' } } })).toBe(false)
+    })
+
     it('invalidates the global session list when message ownership changes', () => {
         expect(shouldInvalidateSessionListForEvent('global', 'messages-invalidated')).toBe(true)
         expect(shouldInvalidateSessionListForEvent('full', 'messages-invalidated')).toBe(false)
