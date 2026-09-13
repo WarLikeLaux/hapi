@@ -15,7 +15,7 @@ describe('NewSession preferences', () => {
     })
 
     it('loads defaults when storage is empty', () => {
-        expect(loadPreferredAgent()).toBe('claude')
+        expect(loadPreferredAgent()).toBe('codex')
         expect(loadPreferredYoloMode()).toBe(false)
     })
 
@@ -30,7 +30,7 @@ describe('NewSession preferences', () => {
     it('falls back to default agent on invalid stored value', () => {
         localStorage.setItem('hapi:newSession:agent', 'unknown-agent')
 
-        expect(loadPreferredAgent()).toBe('claude')
+        expect(loadPreferredAgent()).toBe('codex')
     })
 
     it('persists new values to storage', () => {
@@ -185,7 +185,37 @@ describe('NewSession preferences', () => {
 
         expect(resolvePreferredLaunchSettings('codex', null, true).permissionMode).toBe('yolo')
         expect(resolvePreferredLaunchSettings('copilot', null, true).permissionMode).toBe('default')
-        expect(resolvePreferredLaunchSettings('codex', null, false).permissionMode).toBe('default')
+        expect(resolvePreferredLaunchSettings('codex', null, false).permissionMode).toBe('yolo')
+    })
+
+    it('uses YOLO for a new Codex launch and preserves later explicit choices', () => {
+        expect(resolvePreferredLaunchSettings('codex', null).permissionMode).toBe('yolo')
+
+        savePreferredLaunchSettings('machine-1', 'codex', {
+            model: 'auto',
+            cursorSelectedBase: 'auto',
+            effort: 'auto',
+            modelReasoningEffort: 'default',
+            permissionMode: 'default'
+        })
+
+        expect(loadPreferredLaunchSettings('machine-1', 'codex')?.permissionMode).toBe('default')
+    })
+
+    it('migrates a previously persisted Codex default to YOLO once', () => {
+        localStorage.setItem(
+            'hapi:newSession:launchSettings:v1:machine-1:codex',
+            JSON.stringify({
+                model: 'auto',
+                cursorSelectedBase: 'auto',
+                effort: 'auto',
+                modelReasoningEffort: 'default',
+                permissionMode: 'default'
+            })
+        )
+
+        expect(loadPreferredLaunchSettings('machine-1', 'codex')?.permissionMode).toBe('yolo')
+        expect(localStorage.getItem('hapi:newSession:codexYoloDefault:v1')).toBe('true')
     })
 
     it('migrates the legacy YOLO preference for Claude to bypassPermissions', () => {

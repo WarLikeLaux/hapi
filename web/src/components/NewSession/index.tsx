@@ -70,6 +70,7 @@ import {
 } from './preferences'
 import { SessionTypeSelector } from './SessionTypeSelector'
 import { PermissionField } from './PermissionField'
+import { putCodexFirst, resolveDefaultMachineDirectory } from './defaults'
 import { usesNativePermissionSelect, usesSharedPermissionModeState } from '@/lib/codexFamilyPermissionAgents'
 import { CodexSessionSyncDialog } from '@/components/CodexSessionSyncDialog'
 import { PiSessionImportDialog } from '@/components/PiSessionImportDialog'
@@ -275,11 +276,20 @@ export function NewSession(props: {
         if (foundLast) {
             setMachineId(foundLast.id)
             if (!props.initialDirectory) {
-                const paths = getRecentPaths(foundLast.id)
-                if (paths[0]) setDirectory(paths[0])
+                setDirectory(resolveDefaultMachineDirectory(
+                    foundLast,
+                    getRecentPaths(foundLast.id)
+                ))
             }
         } else if (props.machines[0]) {
-            setMachineId(props.machines[0].id)
+            const firstMachine = props.machines[0]
+            setMachineId(firstMachine.id)
+            if (!props.initialDirectory) {
+                setDirectory(resolveDefaultMachineDirectory(
+                    firstMachine,
+                    getRecentPaths(firstMachine.id)
+                ))
+            }
         }
     }, [props.machines, machineId, getLastUsedMachineId, getRecentPaths, props.initialDirectory])
 
@@ -292,9 +302,9 @@ export function NewSession(props: {
         machineId,
     })
     const availableAgents = useMemo(
-        () => agentAvailability.agents
+        () => putCodexFirst(agentAvailability.agents
             .filter((entry) => entry.available && entry.agent !== 'gemini')
-            .map((entry) => entry.agent as AgentType),
+            .map((entry) => entry.agent as AgentType)),
         [agentAvailability.agents]
     )
     const selectedAgentAvailable = availableAgents.includes(agent)
@@ -1339,13 +1349,11 @@ export function NewSession(props: {
         setSelectedPiImportSessionId(null)
         setPiImportSessions([])
         setPiImportMachineId(null)
-        const paths = getRecentPaths(newMachineId)
-        if (paths[0]) {
-            setDirectory(paths[0])
-        } else {
-            setDirectory('')
-        }
-    }, [getRecentPaths])
+        const machine = props.machines.find((candidate) => candidate.id === newMachineId)
+        setDirectory(machine
+            ? resolveDefaultMachineDirectory(machine, getRecentPaths(newMachineId))
+            : '')
+    }, [getRecentPaths, props.machines])
 
     const handleCursorBaseChange = useCallback((baseKey: string) => {
         if (baseKey === 'auto') {

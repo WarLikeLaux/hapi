@@ -17,6 +17,7 @@ import { LEGACY_YOLO_BRIDGE_AGENTS, usesSharedPermissionModeState } from '@/lib/
 const AGENT_STORAGE_KEY = 'hapi:newSession:agent'
 const YOLO_STORAGE_KEY = 'hapi:newSession:yolo'
 const LAUNCH_SETTINGS_STORAGE_PREFIX = 'hapi:newSession:launchSettings:v1'
+const CODEX_YOLO_DEFAULT_MIGRATION_KEY = 'hapi:newSession:codexYoloDefault:v1'
 
 export type PreferredLaunchSettings = {
     model: string
@@ -39,7 +40,7 @@ export function loadPreferredAgent(): AgentType {
     } catch {
         // Ignore storage errors
     }
-    return 'claude'
+    return 'codex'
 }
 
 export function savePreferredAgent(agent: AgentType): void {
@@ -83,11 +84,25 @@ export function loadPreferredLaunchSettings(
         if (!parsed || typeof parsed !== 'object' || typeof parsed.model !== 'string') {
             return null
         }
-        const permissionMode = typeof parsed.permissionMode === 'string'
-            ? getLaunchPermissionModesForFlavor(agent).includes(parsed.permissionMode as PermissionMode)
-                ? parsed.permissionMode as PermissionMode
+        const storedPermissionMode = typeof parsed.permissionMode === 'string'
+            ? parsed.permissionMode
+            : undefined
+        let permissionMode = storedPermissionMode
+            ? getLaunchPermissionModesForFlavor(agent).includes(storedPermissionMode as PermissionMode)
+                ? storedPermissionMode as PermissionMode
                 : 'default'
             : undefined
+        // Existing installations may have persisted Codex "default" before
+        // YOLO became this fork's initial launch mode. Migrate that value once;
+        // later explicit choices remain respected.
+        if (
+            agent === 'codex'
+            && storedPermissionMode === 'default'
+            && localStorage.getItem(CODEX_YOLO_DEFAULT_MIGRATION_KEY) !== 'true'
+        ) {
+            permissionMode = 'yolo'
+            localStorage.setItem(CODEX_YOLO_DEFAULT_MIGRATION_KEY, 'true')
+        }
         return {
             model: parsed.model,
             cursorSelectedBase: typeof parsed.cursorSelectedBase === 'string'
@@ -110,6 +125,9 @@ export function savePreferredLaunchSettings(
     settings: PreferredLaunchSettings
 ): void {
     try {
+        if (agent === 'codex') {
+            localStorage.setItem(CODEX_YOLO_DEFAULT_MIGRATION_KEY, 'true')
+        }
         localStorage.setItem(
             launchSettingsStorageKey(machineId, agent),
             JSON.stringify(settings)
@@ -160,12 +178,15 @@ export function resolvePreferredLaunchSettings(
     const legacyYoloBridgeMode = preferredPermissionMode === undefined && legacyYolo && LEGACY_YOLO_BRIDGE_AGENTS.includes(agent)
         ? resolveHapiYoloPermissionMode(agent)
         : null
+    const defaultPermissionMode = agent === 'codex' ? 'yolo' : 'default'
     const permissionMode = usesSharedPermissionMode
-        ? preferredPermissionMode && availablePermissionModes.includes(preferredPermissionMode)
-            ? preferredPermissionMode
+        ? preferredPermissionMode
+            ? availablePermissionModes.includes(preferredPermissionMode)
+                ? preferredPermissionMode
+                : 'default'
             : legacyYoloBridgeMode && availablePermissionModes.includes(legacyYoloBridgeMode)
                 ? legacyYoloBridgeMode
-                : 'default'
+                : defaultPermissionMode
         : undefined
 
     return {
