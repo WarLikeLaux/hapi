@@ -224,8 +224,19 @@ describe('SessionActionMenu - Reopen action', () => {
 
         expect(screen.getByRole('menuitem', { name: /Reopen/ })).toBeInTheDocument()
         expect(screen.getByRole('menuitem', { name: /Delete/ })).toBeInTheDocument()
-        // Archive should not show up for inactive sessions (it is the active-session destructive).
-        expect(screen.queryByRole('menuitem', { name: /Archive/ })).toBeNull()
+        // Stop should not show up for sessions that are already inactive.
+        expect(screen.queryByRole('menuitem', { name: /Stop session/ })).toBeNull()
+    })
+
+    it('stops an active session through the existing safe archive flow', () => {
+        const onArchive = vi.fn()
+        const onClose = vi.fn()
+        renderMenu({ sessionActive: true, onArchive, onClose })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Stop session' }))
+
+        expect(onArchive).toHaveBeenCalledTimes(1)
+        expect(onClose).toHaveBeenCalledTimes(1)
     })
 })
 

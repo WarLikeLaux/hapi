@@ -12,7 +12,7 @@ type CodexSessionIndexTitle = {
     updatedAt: string
 }
 
-type CodexImportedMessageContent = {
+type CodexImportedMessageContent = ({
     role: 'user'
     content: { type: 'text'; text: string }
     meta: { sentFrom: 'cli' }
@@ -20,7 +20,7 @@ type CodexImportedMessageContent = {
     role: 'agent'
     content: { type: typeof AGENT_MESSAGE_PAYLOAD_TYPE; data: unknown }
     meta: { sentFrom: 'cli' }
-}
+}) & { createdAt?: number }
 
 export type LocalCodexSessionSummary = {
     id: string
@@ -212,31 +212,38 @@ function extractCodexToolCallId(payload: Record<string, unknown>): string | null
     return null
 }
 
-function buildImportedUserMessage(text: string): CodexImportedMessageContent {
-    return { role: 'user', content: { type: 'text', text }, meta: { sentFrom: 'cli' } }
+function parseCodexTimestamp(value: unknown): number | undefined {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined
+    const timestamp = typeof value === 'number' ? value : Date.parse(value)
+    return Number.isFinite(timestamp) ? timestamp : undefined
 }
 
-function buildImportedAgentMessage(data: unknown): CodexImportedMessageContent {
-    return { role: 'agent', content: { type: AGENT_MESSAGE_PAYLOAD_TYPE, data }, meta: { sentFrom: 'cli' } }
+function buildImportedUserMessage(text: string, createdAt?: number): CodexImportedMessageContent {
+    return { role: 'user', content: { type: 'text', text }, meta: { sentFrom: 'cli' }, ...(createdAt !== undefined ? { createdAt } : {}) }
+}
+
+function buildImportedAgentMessage(data: unknown, createdAt?: number): CodexImportedMessageContent {
+    return { role: 'agent', content: { type: AGENT_MESSAGE_PAYLOAD_TYPE, data }, meta: { sentFrom: 'cli' }, ...(createdAt !== undefined ? { createdAt } : {}) }
 }
 
 function convertCodexRecordToImportedMessage(record: Record<string, unknown>): CodexImportedMessageContent | null {
     const type = asString(record.type)
     const payload = asRecord(record.payload)
     if (!type || !payload) return null
+    const createdAt = parseCodexTimestamp(record.timestamp ?? payload.timestamp)
     if (type === 'event_msg') {
         const eventType = asString(payload.type)
         if (eventType === 'user_message') {
             const text = asString(payload.message) ?? asString(payload.text) ?? asString(payload.content)
-            return text && !shouldIgnoreSyntheticUserMessage(text) ? buildImportedUserMessage(text) : null
+            return text && !shouldIgnoreSyntheticUserMessage(text) ? buildImportedUserMessage(text, createdAt) : null
         }
         if (eventType === 'agent_message') {
             const message = asString(payload.message)
-            return message ? buildImportedAgentMessage({ type: 'message', message, id: randomUUID() }) : null
+            return message ? buildImportedAgentMessage({ type: 'message', message, id: randomUUID() }, createdAt) : null
         }
         if (eventType === 'token_count') {
             const info = asRecord(payload.info)
-            return info ? buildImportedAgentMessage({ type: 'token_count', info, id: randomUUID() }) : null
+            return info ? buildImportedAgentMessage({ type: 'token_count', info, id: randomUUID() }, createdAt) : null
         }
         return null
     }
@@ -246,17 +253,17 @@ function convertCodexRecordToImportedMessage(record: Record<string, unknown>): C
         const role = asString(payload.role)
         const text = extractCodexText(payload.content)
         if (!text || shouldIgnoreSyntheticUserMessage(text)) return null
-        if (role === 'user') return buildImportedUserMessage(text)
-        if (role === 'assistant') return buildImportedAgentMessage({ type: 'message', message: text, id: randomUUID() })
+        if (role === 'user') return buildImportedUserMessage(text, createdAt)
+        if (role === 'assistant') return buildImportedAgentMessage({ type: 'message', message: text, id: randomUUID() }, createdAt)
     }
     if (itemType === 'function_call') {
         const name = asString(payload.name)
         const callId = extractCodexToolCallId(payload)
-        return name && callId ? buildImportedAgentMessage({ type: 'tool-call', name, callId, input: parseCodexFunctionArguments(payload.arguments), id: randomUUID() }) : null
+        return name && callId ? buildImportedAgentMessage({ type: 'tool-call', name, callId, input: parseCodexFunctionArguments(payload.arguments), id: randomUUID() }, createdAt) : null
     }
     if (itemType === 'function_call_output') {
         const callId = extractCodexToolCallId(payload)
-        return callId ? buildImportedAgentMessage({ type: 'tool-call-result', callId, output: payload.output, id: randomUUID() }) : null
+        return callId ? buildImportedAgentMessage({ type: 'tool-call-result', callId, output: payload.output, id: randomUUID() }, createdAt) : null
     }
     return null
 }

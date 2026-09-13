@@ -249,7 +249,7 @@ export default {
   'session.action.markUnread': '标为未读',
   'session.action.syncCodex': '同步 Codex',
   'session.action.syncPi': '同步 Pi 历史',
-  'session.action.archive': '归档',
+  'session.action.archive': '停止会话',
   'session.action.reopen': '重新打开',
   'session.action.reopenCursorChecking': '正在检查记录设备上的 Cursor 聊天数据是否仍然可用。',
   'session.action.reopenCursorMissing': '记录设备上的 Cursor 聊天数据已不可用。',
@@ -291,10 +291,10 @@ export default {
   'dialog.rename.generating': '生成中…',
   'dialog.rename.generateError': '标题生成失败，请重试。',
 
-  'dialog.archive.title': '归档会话',
-  'dialog.archive.description': '确定要归档 "{name}" 吗？这将断开活动会话。',
-  'dialog.archive.confirm': '归档',
-  'dialog.archive.confirming': '归档中…',
+  'dialog.archive.title': '停止会话',
+  'dialog.archive.description': '确定要停止 "{name}" 吗？对话会保留，之后可以重新打开。',
+  'dialog.archive.confirm': '停止会话',
+  'dialog.archive.confirming': '停止中…',
 
   'dialog.reopen.errorTitle': '无法重新打开会话',
   'dialog.reopen.dismiss': '关闭',

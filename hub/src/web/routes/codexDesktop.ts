@@ -79,7 +79,7 @@ type CodexLocalSessionsResponse = {
     machineId?: string
 }
 
-type CodexImportedMessageContent = {
+type CodexImportedMessageContent = ({
     role: 'user'
     content: {
         type: 'text'
@@ -97,7 +97,7 @@ type CodexImportedMessageContent = {
     meta: {
         sentFrom: 'cli'
     }
-}
+}) & { createdAt?: number }
 
 type CodexImportedMessageSource = 'event_msg' | 'response_item'
 type CodexImportedMessageEntry = {
@@ -605,7 +605,13 @@ function listLocalCodexSessions(limit = DEFAULT_CODEX_SESSION_SCAN_LIMIT): Codex
         .slice(0, limit)
 }
 
-function buildImportedUserMessage(text: string): CodexImportedMessageContent {
+function parseCodexTimestamp(value: unknown): number | undefined {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined
+    const timestamp = typeof value === 'number' ? value : Date.parse(value)
+    return Number.isFinite(timestamp) ? timestamp : undefined
+}
+
+function buildImportedUserMessage(text: string, createdAt?: number): CodexImportedMessageContent {
     return {
         role: 'user',
         content: {
@@ -614,11 +620,12 @@ function buildImportedUserMessage(text: string): CodexImportedMessageContent {
         },
         meta: {
             sentFrom: 'cli'
-        }
+        },
+        ...(createdAt !== undefined ? { createdAt } : {})
     }
 }
 
-function buildImportedAgentMessage(data: unknown): CodexImportedMessageContent {
+function buildImportedAgentMessage(data: unknown, createdAt?: number): CodexImportedMessageContent {
     return {
         role: 'agent',
         content: {
@@ -627,7 +634,8 @@ function buildImportedAgentMessage(data: unknown): CodexImportedMessageContent {
         },
         meta: {
             sentFrom: 'cli'
-        }
+        },
+        ...(createdAt !== undefined ? { createdAt } : {})
     }
 }
 
@@ -637,6 +645,8 @@ function convertCodexRecordToImportedMessage(record: Record<string, unknown>): C
     if (!type || !payload) {
         return null
     }
+
+    const createdAt = parseCodexTimestamp(record.timestamp ?? payload.timestamp)
 
     if (type === 'event_msg') {
         const eventType = asString(payload.type)
@@ -651,27 +661,27 @@ function convertCodexRecordToImportedMessage(record: Record<string, unknown>): C
             if (!text) {
                 return null
             }
-            return buildImportedUserMessage(text)
+            return buildImportedUserMessage(text, createdAt)
         }
 
         if (eventType === 'agent_message') {
             const message = asString(payload.message)
-            return message ? buildImportedAgentMessage({ type: 'message', message, id: randomUUID() }) : null
+            return message ? buildImportedAgentMessage({ type: 'message', message, id: randomUUID() }, createdAt) : null
         }
 
         if (eventType === 'agent_reasoning') {
             const message = asString(payload.text) ?? asString(payload.message)
-            return message ? buildImportedAgentMessage({ type: 'reasoning', message, id: randomUUID() }) : null
+            return message ? buildImportedAgentMessage({ type: 'reasoning', message, id: randomUUID() }, createdAt) : null
         }
 
         if (eventType === 'agent_reasoning_delta') {
             const delta = asString(payload.delta) ?? asString(payload.text) ?? asString(payload.message)
-            return delta ? buildImportedAgentMessage({ type: 'reasoning-delta', delta }) : null
+            return delta ? buildImportedAgentMessage({ type: 'reasoning-delta', delta }, createdAt) : null
         }
 
         if (eventType === 'token_count') {
             const info = asRecord(payload.info)
-            return info ? buildImportedAgentMessage({ type: 'token_count', info, id: randomUUID() }) : null
+            return info ? buildImportedAgentMessage({ type: 'token_count', info, id: randomUUID() }, createdAt) : null
         }
 
         return null
@@ -690,10 +700,10 @@ function convertCodexRecordToImportedMessage(record: Record<string, unknown>): C
                 return null
             }
             if (role === 'user') {
-                return shouldIgnoreInjectedResponseUserMessage(text) ? null : buildImportedUserMessage(text)
+                return shouldIgnoreInjectedResponseUserMessage(text) ? null : buildImportedUserMessage(text, createdAt)
             }
             if (role === 'assistant') {
-                return buildImportedAgentMessage({ type: 'message', message: text, id: randomUUID() })
+                return buildImportedAgentMessage({ type: 'message', message: text, id: randomUUID() }, createdAt)
             }
             return null
         }
@@ -710,7 +720,7 @@ function convertCodexRecordToImportedMessage(record: Record<string, unknown>): C
                 callId,
                 input: parseCodexFunctionArguments(payload.arguments),
                 id: randomUUID()
-            })
+            }, createdAt)
         }
 
         if (itemType === 'function_call_output') {
@@ -723,7 +733,7 @@ function convertCodexRecordToImportedMessage(record: Record<string, unknown>): C
                 callId,
                 output: payload.output,
                 id: randomUUID()
-            })
+            }, createdAt)
         }
     }
 
@@ -2087,31 +2097,34 @@ function importSingleCodexSession(options: {
         if (targetIsActive && messagesToAppend.length > 0) {
             throw new Error('当前会话正在运行且 Codex transcript 有新消息，停止或归档后再同步，避免消息顺序错乱')
         }
-        const appendedMessages = messagesToAppend.map((message) => options.store.messages.addMessage(sessionId!, message))
+        const appendedMessages = messagesToAppend.map((message) => {
+            const { createdAt, ...content } = message
+            return options.store.messages.addMessage(sessionId!, content, undefined, undefined, createdAt)
+        })
 
-        // 中文注释：更新 Hapi 会话的 updatedAt，并在已有会话追加时广播新增消息，让当前打开的聊天页立刻显示客户端新增内容。
-        const latestMessageCreatedAt = appendedMessages[appendedMessages.length - 1]?.createdAt ?? Date.now()
-        options.store.sessions.touchSessionUpdatedAt(sessionId, latestMessageCreatedAt, options.namespace)
-        const latestUserMessageAt = appendedMessages.reduce(
-            (latest, message) => shouldRecordSessionActivity(message.content)
-                ? Math.max(latest, message.createdAt)
-                : latest,
+        // Keep imported sessions on the transcript timeline. Re-syncing an old
+        // thread must not make it look newly active merely because Sync Codex
+        // was clicked today.
+        const transcriptUpdatedAt = transcript.messages.reduce(
+            (latest, message) => Math.max(latest, message.createdAt ?? 0),
             0
-        )
-        if (engine && latestUserMessageAt > 0) {
-            engine.recordSessionActivity(sessionId, latestUserMessageAt)
-        } else if (latestUserMessageAt > 0) {
-            options.store.sessions.recordSessionUserActivity(
-                sessionId,
-                latestUserMessageAt,
-                options.namespace
-            )
-        }
-        if (created) {
-            engine?.handleRealtimeEvent({ type: 'session-updated', sessionId })
-        } else {
+        ) || transcript.modifiedAt
+        const transcriptUserMessages = transcript.messages.filter((message) => message.role === 'user')
+        const transcriptLastUserMessageAt = transcriptUserMessages.reduce(
+            (latest, message) => Math.max(latest, message.createdAt ?? 0),
+            0
+        ) || (transcriptUserMessages.length > 0 ? transcript.modifiedAt : null)
+
+        if (!created) {
             emitImportedMessageEvents(engine, sessionId, appendedMessages)
         }
+        options.store.sessions.setImportedSessionActivity(
+            sessionId,
+            transcriptUpdatedAt,
+            transcriptLastUserMessageAt,
+            options.namespace
+        )
+        engine?.handleRealtimeEvent({ type: 'session-updated', sessionId })
 
         const output = [
             `Codex thread: ${options.codexSessionId}`,

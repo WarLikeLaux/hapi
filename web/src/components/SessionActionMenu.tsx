@@ -78,7 +78,7 @@ function PinIcon(props: { className?: string; filled?: boolean }) {
     )
 }
 
-function ArchiveIcon(props: { className?: string }) {
+function StopIcon(props: { className?: string }) {
     return (
         <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -92,9 +92,7 @@ function ArchiveIcon(props: { className?: string }) {
             strokeLinejoin="round"
             className={props.className}
         >
-            <rect width="20" height="5" x="2" y="3" rx="1" />
-            <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
-            <path d="M10 12h4" />
+            <rect width="14" height="14" x="5" y="5" rx="2" />
         </svg>
     )
 }
@@ -393,7 +391,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         className={`${baseItemClassName} text-red-500 hover:bg-red-500/10`}
                         onClick={handleArchive}
                     >
-                        <ArchiveIcon className="text-red-500" />
+                        <StopIcon className="text-red-500" />
                         {t('session.action.archive')}
                     </button>
                 ) : (

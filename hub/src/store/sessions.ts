@@ -670,6 +670,33 @@ export function touchSessionUpdatedAt(
     }
 }
 
+export function setImportedSessionActivity(
+    db: Database,
+    id: string,
+    updatedAt: number,
+    lastUserMessageAt: number | null,
+    namespace: string
+): boolean {
+    try {
+        const result = db.prepare(`
+            UPDATE sessions
+            SET updated_at = @updated_at,
+                last_user_message_at = @last_user_message_at,
+                seq = seq + 1
+            WHERE id = @id
+              AND namespace = @namespace
+        `).run({
+            id,
+            namespace,
+            updated_at: updatedAt,
+            last_user_message_at: lastUserMessageAt
+        })
+        return result.changes === 1
+    } catch {
+        return false
+    }
+}
+
 export function recordSessionUserActivity(
     db: Database,
     id: string,

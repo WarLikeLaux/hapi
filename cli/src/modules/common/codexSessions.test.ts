@@ -167,7 +167,7 @@ describe('listLocalCodexSessionSummaries', () => {
 
         writeFileSync(join(sessionsDir, 'wanted.jsonl'), [
             JSON.stringify({ type: 'session_meta', payload: { id: 'wanted-session-id', cwd: '/tmp/project' } }),
-            JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'wanted' }] } })
+            JSON.stringify({ timestamp: '2026-06-27T12:34:56.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'wanted' }] } })
         ].join('\n'))
         writeFileSync(join(sessionsDir, 'other.jsonl'), [
             JSON.stringify({ type: 'session_meta', payload: { id: 'other-session-id', cwd: '/tmp/project' } }),
@@ -178,6 +178,7 @@ describe('listLocalCodexSessionSummaries', () => {
 
         expect(sessions.map((session) => session.id)).toEqual(['wanted-session-id'])
         expect(sessions[0]?.messages).toHaveLength(1)
+        expect(sessions[0]?.messages[0]?.createdAt).toBe(Date.parse('2026-06-27T12:34:56.000Z'))
         rmSync(root, { recursive: true, force: true })
     })
 })

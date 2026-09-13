@@ -19,6 +19,7 @@ function createTranscript(codexHome: string, sessionId: string, cwd = 'C:\\work\
     const transcriptPath = join(sessionDir, `rollout-${sessionId}.jsonl`)
     const lines = [
         {
+            timestamp: '2026-06-04T10:00:00.000Z',
             type: 'session_meta',
             payload: {
                 id: sessionId,
@@ -28,6 +29,7 @@ function createTranscript(codexHome: string, sessionId: string, cwd = 'C:\\work\
             }
         },
         {
+            timestamp: '2026-06-04T10:01:00.000Z',
             type: 'response_item',
             payload: {
                 type: 'message',
@@ -36,6 +38,7 @@ function createTranscript(codexHome: string, sessionId: string, cwd = 'C:\\work\
             }
         },
         {
+            timestamp: '2026-06-04T10:02:00.000Z',
             type: 'response_item',
             payload: {
                 type: 'message',
@@ -406,6 +409,13 @@ describe('Codex Desktop import routes', () => {
             expect(engine.getSession(session.id)?.hasConversationContent).toBe(true)
             const messages = store.messages.getAllMessages(session.id)
             expect(messages).toHaveLength(2)
+            expect(messages.map((message) => message.createdAt)).toEqual([
+                Date.parse('2026-06-04T10:01:00.000Z'),
+                Date.parse('2026-06-04T10:02:00.000Z')
+            ])
+            const refreshedSession = store.sessions.getSession(session.id)
+            expect(refreshedSession?.updatedAt).toBe(Date.parse('2026-06-04T10:02:00.000Z'))
+            expect(refreshedSession?.lastUserMessageAt).toBe(Date.parse('2026-06-04T10:01:00.000Z'))
             expect(messages[0].content).toEqual({
                 role: 'user',
                 content: {
@@ -432,6 +442,27 @@ describe('Codex Desktop import routes', () => {
             })
         } finally {
             engine.stop()
+            store.close()
+            rmSync(codexHome, { recursive: true, force: true })
+        }
+    })
+
+    it('keeps transcript activity time when re-sync adds no messages', async () => {
+        const codexHome = mkdtempSync(join(tmpdir(), 'hapi-codex-home-time-test-'))
+        const store = new Store(':memory:')
+        const codexSessionId = '10101010-1010-4010-8010-101010101010'
+        process.env.CODEX_HOME = codexHome
+
+        try {
+            createTranscript(codexHome, codexSessionId)
+            await importSelectedCodexSessions({ codexSessionIds: [codexSessionId], store, namespace: 'default' })
+            const sessionId = store.sessions.getSessionsByNamespace('default')[0]!.id
+            const expectedUpdatedAt = Date.parse('2026-06-04T10:02:00.000Z')
+
+            await importSelectedCodexSessions({ codexSessionIds: [codexSessionId], store, namespace: 'default' })
+
+            expect(store.sessions.getSession(sessionId)?.updatedAt).toBe(expectedUpdatedAt)
+        } finally {
             store.close()
             rmSync(codexHome, { recursive: true, force: true })
         }
