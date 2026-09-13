@@ -161,6 +161,39 @@ describe('UnifiedButton — default send intent', () => {
     })
 })
 
+describe('UnifiedButton — touch target', () => {
+    afterEach(cleanup)
+
+    it('uses a double-width 64x32px send target on touch devices and keeps desktop compact', () => {
+        const { rerender } = renderInProviders(
+            <UnifiedButton
+                canSend
+                voiceStatus="disconnected"
+                voiceEnabled={false}
+                controlsDisabled={false}
+                onSend={() => {}}
+                onVoiceToggle={() => {}}
+                isTouch
+            />,
+        )
+        expect(getButton('Send').className).toContain('h-8 w-16')
+
+        rerender(
+            <I18nProvider>
+                <UnifiedButton
+                    canSend
+                    voiceStatus="disconnected"
+                    voiceEnabled={false}
+                    controlsDisabled={false}
+                    onSend={() => {}}
+                    onVoiceToggle={() => {}}
+                />
+            </I18nProvider>,
+        )
+        expect(getButton('Send').className).toContain('h-8 w-8')
+    })
+})
+
 describe('DictationButton', () => {
     afterEach(cleanup)
 
@@ -259,5 +292,41 @@ describe('ComposerButtons responsive toolbar', () => {
         expect(getComposerToolbarJustifyContent('right')).toBe('safe end')
         expect(getComposerToolbarJustifyContent('left')).toBe('flex-start')
         expect(getComposerToolbarJustifyContent('split')).toBe('flex-start')
+    })
+
+    it('hides schedule on touch devices', () => {
+        const noop = () => {}
+        render(
+            <RuntimeProviders>
+                <ComposerButtons
+                    isTouch
+                    canSend
+                    controlsDisabled={false}
+                    showSettingsButton={false}
+                    onSettingsToggle={noop}
+                    expanded={false}
+                    onExpandedToggle={noop}
+                    showTerminalButton={false}
+                    terminalDisabled={false}
+                    terminalLabel="Terminal"
+                    onTerminal={noop}
+                    showAbortButton={false}
+                    abortDisabled={false}
+                    isAborting={false}
+                    onAbort={noop}
+                    showSwitchButton={false}
+                    switchDisabled={false}
+                    isSwitching={false}
+                    onSwitch={noop}
+                    voiceEnabled={false}
+                    voiceStatus="disconnected"
+                    onVoiceToggle={noop}
+                    onSend={noop}
+                    onSchedule={noop}
+                />
+            </RuntimeProviders>,
+        )
+
+        expect(screen.queryByRole('button', { name: /schedule/i })).toBeNull()
     })
 })

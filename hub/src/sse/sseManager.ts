@@ -96,7 +96,8 @@ export class SSEManager {
         this.visibilityTracker.registerConnection(
             subscription.id,
             subscription.namespace,
-            options.visibility ?? 'hidden'
+            options.visibility ?? 'hidden',
+            subscription.sessionId
         )
         this.ensureHeartbeat()
         return {

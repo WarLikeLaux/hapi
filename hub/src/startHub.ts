@@ -266,7 +266,8 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
             syncEngine,
             botToken: config.telegramBotToken,
             publicUrl: config.publicUrl,
-            store
+            store,
+            visibilityTracker
         })
         // Only add to notification channels if notifications are enabled
         if (config.telegramNotification) {

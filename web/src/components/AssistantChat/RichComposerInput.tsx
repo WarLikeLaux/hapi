@@ -902,13 +902,43 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
     const handleInput = useCallback((_e: ReactFormEvent<HTMLDivElement>) => {
         clearMentionTooltip()
         if (composingRef.current) {
-            const root = rootRef.current
-            if (root) setDomIsEmpty(editorDomIsEmpty(root))
+            // Android dictation and some IMEs can keep composition open until
+            // Space/Enter. Echoing the current DOM value is safe because
+            // lastEmittedRef prevents the controlled render from repainting
+            // the editor, and it lets send state update before compositionend.
+            onEdit?.()
+            emitFromDom()
             return
         }
         onEdit?.()
         emitFromDom()
     }, [clearMentionTooltip, emitFromDom, onEdit])
+
+    // Some mobile keyboards, voice dictation engines, and autocorrect paths
+    // mutate contenteditable without dispatching React's input event. Observe
+    // the DOM as a fallback so the controlled value (and send-button state)
+    // follows those edits immediately. Normal input remains single-shot because
+    // handleInput updates lastEmittedRef before MutationObserver runs.
+    useEffect(() => {
+        const root = rootRef.current
+        if (!root || typeof MutationObserver === 'undefined') return
+
+        let queued = false
+        const observer = new MutationObserver(() => {
+            if (queued) return
+            queued = true
+            queueMicrotask(() => {
+                queued = false
+                if (rootRef.current !== root) return
+                const serialized = serializeComposerSegments(segmentsFromEditor(root))
+                if (serialized === lastEmittedRef.current) return
+                onEdit?.()
+                emitFromDom()
+            })
+        })
+        observer.observe(root, { childList: true, characterData: true, subtree: true })
+        return () => observer.disconnect()
+    }, [emitFromDom, onEdit])
 
     const insertPlainClipboardText = useCallback((text: string) => {
         const root = rootRef.current

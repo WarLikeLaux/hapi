@@ -43,7 +43,7 @@ import { markSkillUsed } from '@/lib/recent-skills'
 import { useComposerDraft } from '@/hooks/useComposerDraft'
 import type { AttachmentDraftInput } from '@/lib/composer-attachment-drafts'
 import { persistInactiveComposerAttachments, setComposerDraftSnapshot, updateComposerDraftTextSnapshot, attachmentDraftRevision, resetInactiveComposerAttachmentVisibility } from '@/lib/composer-draft-transfer'
-import { useComposerEnterBehavior } from '@/hooks/useComposerEnterBehavior'
+import { getEffectiveComposerEnterBehavior, useComposerEnterBehavior } from '@/hooks/useComposerEnterBehavior'
 import { FloatingOverlay } from '@/components/ChatInput/FloatingOverlay'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import { StatusBar } from '@/components/AssistantChat/StatusBar'
@@ -854,6 +854,7 @@ export function HappyComposer(props: {
     }, [controlledByUser])
 
     const { haptic: platformHaptic, isTouch } = usePlatform()
+    const effectiveComposerEnterBehavior = getEffectiveComposerEnterBehavior(composerEnterBehavior, isTouch)
     const { isStandalone, isIOS } = usePWAInstall()
     const isIOSPWA = isIOS && isStandalone
     const bottomPaddingClass = isIOSPWA ? 'pb-0' : 'pb-3'
@@ -1276,7 +1277,7 @@ export function HappyComposer(props: {
 
         // Only plain Enter (no modifiers) sends; other modifier combos are ignored
         if (key === 'Enter') {
-            if (composerEnterBehavior === 'newline') {
+            if (effectiveComposerEnterBehavior === 'newline') {
                 if ((e.ctrlKey || e.metaKey) && !e.altKey && canSend) {
                     e.preventDefault()
                     flushAndSend()
@@ -1357,7 +1358,7 @@ export function HappyComposer(props: {
         canSend,
         handleSend,
         haptic,
-        composerEnterBehavior,
+        effectiveComposerEnterBehavior,
         richMentionsEnabled,
         richComposerFueStatus,
         dismissRichComposerFue,
@@ -2333,6 +2334,7 @@ export function HappyComposer(props: {
                         ) : null}
 
                         <ComposerButtons
+                            isTouch={isTouch}
                             canSend={canSend}
                             controlsDisabled={controlsDisabled}
                             showSettingsButton={showSettingsButton}

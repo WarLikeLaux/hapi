@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { flushSync } from 'react-dom'
 import { useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -153,6 +153,28 @@ describe('RichComposerInput responsive placeholder', () => {
 })
 
 describe('RichComposerInput controlled synchronization', () => {
+    it('syncs contenteditable mutations that arrive without an input event', async () => {
+        render(<SynchronousControlledHarness />)
+        const editor = screen.getByTestId('rich-composer-input')
+
+        editor.textContent = 'voice dictated text'
+
+        await waitFor(() => {
+            expect(screen.getByTestId('controlled-value').textContent).toBe('voice dictated text')
+        })
+    })
+
+    it('syncs dictation text while mobile composition remains open', () => {
+        render(<SynchronousControlledHarness />)
+        const editor = screen.getByTestId('rich-composer-input')
+
+        fireEvent.compositionStart(editor)
+        editor.textContent = 'unfinished dictation'
+        fireEvent.input(editor)
+
+        expect(screen.getByTestId('controlled-value').textContent).toBe('unfinished dictation')
+    })
+
     afterEach(() => {
         window.getSelection()?.removeAllRanges()
     })

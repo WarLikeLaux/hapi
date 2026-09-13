@@ -17,6 +17,7 @@ import {
 import { getAgentName } from '../notifications/sessionInfo'
 import type { NotificationChannel, TaskNotification } from '../notifications/notificationTypes'
 import type { Store } from '../store'
+import type { VisibilityTracker } from '../visibility/visibilityTracker'
 
 export interface BotContext extends Context {
     // Extended context for future use
@@ -27,6 +28,7 @@ export interface HappyBotConfig {
     botToken: string
     publicUrl: string
     store: Store
+    visibilityTracker: VisibilityTracker
 }
 
 /**
@@ -38,11 +40,13 @@ export class HappyBot implements NotificationChannel {
     private isRunning = false
     private readonly publicUrl: string
     private readonly store: Store
+    private readonly visibilityTracker: VisibilityTracker
 
     constructor(config: HappyBotConfig) {
         this.syncEngine = config.syncEngine
         this.publicUrl = config.publicUrl
         this.store = config.store
+        this.visibilityTracker = config.visibilityTracker
 
         this.bot = new Bot<BotContext>(config.botToken)
         this.setupMiddleware()
@@ -213,7 +217,7 @@ export class HappyBot implements NotificationChannel {
      * Send a notification when agent is ready for input.
      */
     async sendReady(session: Session): Promise<void> {
-        if (!session.active) {
+        if (!session.active || this.shouldSuppress(session)) {
             return
         }
 
@@ -244,7 +248,7 @@ export class HappyBot implements NotificationChannel {
      * Send permission notification to all bound chats
      */
     async sendPermissionRequest(session: Session): Promise<void> {
-        if (!session.active) {
+        if (!session.active || this.shouldSuppress(session)) {
             return
         }
 
@@ -274,7 +278,7 @@ export class HappyBot implements NotificationChannel {
     }
 
     async sendTaskNotification(session: Session, notification: TaskNotification): Promise<void> {
-        if (!session.active) {
+        if (!session.active || this.shouldSuppress(session)) {
             return
         }
 
@@ -300,6 +304,10 @@ export class HappyBot implements NotificationChannel {
                 console.error(`[HAPIBot] Failed to send task notification to chat ${chatId}:`, error)
             }
         }
+    }
+
+    private shouldSuppress(session: Session): boolean {
+        return this.visibilityTracker.hasVisibleSessionConnection(session.namespace, session.id)
     }
 }
 

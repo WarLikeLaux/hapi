@@ -490,6 +490,7 @@ export function UnifiedButton(props: {
      * would fall back to chat, the button must look like a normal chat send.
      */
     routesToScratchlist?: boolean
+    isTouch?: boolean
 }) {
     const { t } = useTranslation()
 
@@ -560,7 +561,7 @@ export function UnifiedButton(props: {
             disabled={isDisabled}
             aria-label={ariaLabel}
             title={ariaLabel}
-            className={`ml-1 flex h-8 w-8 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+            className={`ml-1 flex items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${props.isTouch ? 'h-8 w-16' : 'h-8 w-8'} ${className}`}
         >
             {icon}
         </button>
@@ -599,6 +600,7 @@ export function DictationButton(props: {
 }
 
 export function ComposerButtons(props: {
+    isTouch?: boolean
     canSend: boolean
     controlsDisabled: boolean
     showSettingsButton: boolean
@@ -848,7 +850,7 @@ export function ComposerButtons(props: {
 
                 {/* Schedule button — only shown when onSchedule handler is provided */}
                 <ToolbarItemSlot item="schedule">
-                {props.onSchedule ? (
+                {props.onSchedule && !props.isTouch ? (
                     <div>
                         <button
                             ref={scheduleButtonRef}
@@ -898,6 +900,7 @@ export function ComposerButtons(props: {
             />
 
             <UnifiedButton
+                isTouch={props.isTouch}
                 canSend={props.canSend}
                 voiceStatus={props.voiceStatus}
                 voiceEnabled={props.voiceEnabled}
