@@ -14,6 +14,56 @@ function buildApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
     return app
 }
 
+describe('Git comparison routes', () => {
+    it('forwards a validated comparison scope and session path', async () => {
+        const session = {
+            id: 'session-1',
+            namespace: 'default',
+            active: true,
+            metadata: { path: '/project' }
+        } as unknown as Session
+        const calls: unknown[] = []
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            getGitComparison: async (...args: unknown[]) => {
+                calls.push(args)
+                return { success: true, scope: 'branch', files: [] }
+            },
+            getGitDiffFile: async (...args: unknown[]) => {
+                calls.push(args)
+                return { success: true, stdout: 'diff' }
+            }
+        } as unknown as Partial<SyncEngine>
+        const app = buildApp(engine)
+
+        const comparison = await app.request('/api/sessions/session-1/git-comparison?scope=branch')
+        const file = await app.request('/api/sessions/session-1/git-diff-file?path=src%2Ffeature.ts&comparison=branch')
+
+        expect(comparison.status).toBe(200)
+        expect(file.status).toBe(200)
+        expect(calls).toEqual([
+            ['session-1', { cwd: '/project', scope: 'branch' }],
+            ['session-1', { cwd: '/project', filePath: 'src/feature.ts', staged: undefined, comparison: 'branch' }]
+        ])
+    })
+
+    it('rejects an unknown comparison scope', async () => {
+        const session = {
+            id: 'session-1',
+            namespace: 'default',
+            active: true,
+            metadata: { path: '/project' }
+        } as unknown as Session
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session })
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/git-comparison?scope=everything')
+
+        expect(response.status).toBe(400)
+    })
+})
+
 describe('generated images route', () => {
     it('serves generated images with an immutable cache header instead of no-store', async () => {
         const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])

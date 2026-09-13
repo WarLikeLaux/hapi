@@ -25,6 +25,8 @@ export type {
     DirectoryEntry,
     FileReadResponse,
     GitCommandResponse,
+    GitComparisonResponse,
+    GitComparisonScope,
     GrokModelsResponse,
     GrokModelSummary,
     CopilotModelsResponse,

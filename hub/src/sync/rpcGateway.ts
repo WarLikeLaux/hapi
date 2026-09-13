@@ -20,6 +20,8 @@ import type {
     DirectoryEntry,
     FileReadResponse,
     GeneratedImageResponse,
+    GitComparisonResponse,
+    GitComparisonScope,
     ImplementCodexPlanResult,
     CopilotModelsResponse,
     GrokModelsResponse,
@@ -339,11 +341,15 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.GitStatus, { cwd }) as RpcCommandResponse
     }
 
+    async getGitComparison(sessionId: string, options: { cwd?: string; scope: GitComparisonScope }): Promise<GitComparisonResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.GitComparison, options) as GitComparisonResponse
+    }
+
     async getGitDiffNumstat(sessionId: string, options: { cwd?: string; staged?: boolean }): Promise<RpcCommandResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.GitDiffNumstat, options) as RpcCommandResponse
     }
 
-    async getGitDiffFile(sessionId: string, options: { cwd?: string; filePath: string; staged?: boolean }): Promise<RpcCommandResponse> {
+    async getGitDiffFile(sessionId: string, options: { cwd?: string; filePath: string; staged?: boolean; comparison?: GitComparisonScope }): Promise<RpcCommandResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.GitDiffFile, options) as RpcCommandResponse
     }
 

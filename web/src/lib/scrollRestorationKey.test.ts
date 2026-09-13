@@ -65,6 +65,19 @@ describe('getScrollRestorationKey', () => {
         expect(getScrollRestorationKey(unstaged)).not.toBe(getScrollRestorationKey(staged))
     })
 
+    it('differentiates committed comparison file diffs', () => {
+        const lastCommit = makeLocation({
+            pathname: '/sessions/abc123/file',
+            search: { path: 'src/foo.ts', comparison: 'last-commit' },
+        })
+        const branch = makeLocation({
+            pathname: '/sessions/abc123/file',
+            search: { path: 'src/foo.ts', comparison: 'branch' },
+        })
+        expect(getScrollRestorationKey(lastCommit)).toBe('/sessions/abc123/file?path=src/foo.ts&comparison=last-commit')
+        expect(getScrollRestorationKey(branch)).toBe('/sessions/abc123/file?path=src/foo.ts&comparison=branch')
+    })
+
     it('differentiates browse route by machineId', () => {
         const noMachine = makeLocation({ pathname: '/browse', search: {} })
         const machineA = makeLocation({ pathname: '/browse', search: { machineId: 'm-aaa' } })
@@ -87,6 +100,16 @@ describe('getScrollRestorationKey', () => {
         expect(getScrollRestorationKey(changes)).toBe('/sessions/abc123/files')
         expect(getScrollRestorationKey(directories)).toBe('/sessions/abc123/files?tab=directories')
         expect(getScrollRestorationKey(changes)).not.toBe(getScrollRestorationKey(directories))
+    })
+
+    it('differentiates files routes by committed comparison', () => {
+        const working = makeLocation({ pathname: '/sessions/abc123/files', search: {} })
+        const branch = makeLocation({
+            pathname: '/sessions/abc123/files',
+            search: { comparison: 'branch' },
+        })
+        expect(getScrollRestorationKey(working)).toBe('/sessions/abc123/files')
+        expect(getScrollRestorationKey(branch)).toBe('/sessions/abc123/files?comparison=branch')
     })
 
     it('ignores history-entry-unique state.__TSR_key — same logical key for two history entries', () => {

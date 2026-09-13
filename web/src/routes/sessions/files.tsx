@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { PRESERVE_SESSION_SIDEBAR_SCROLL } from '@/lib/sessionNavigation'
-import type { FileSearchItem, GitFileStatus } from '@/types/api'
+import type { FileSearchItem, GitComparisonScope, GitFileStatus } from '@/types/api'
 import { FileIcon } from '@/components/FileIcon'
 import { DirectoryTree } from '@/components/SessionFiles/DirectoryTree'
 import { FileActionMenu } from '@/components/FileActionMenu'
@@ -14,6 +14,7 @@ import { LoadingState } from '@/components/LoadingState'
 import { useAppContext } from '@/lib/app-context'
 import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { useGitStatusFiles } from '@/hooks/queries/useGitStatusFiles'
+import { useGitComparisonFiles } from '@/hooks/queries/useGitComparisonFiles'
 import { useSession } from '@/hooks/queries/useSession'
 import { useSessionFileSearch } from '@/hooks/queries/useSessionFileSearch'
 import {
@@ -72,6 +73,7 @@ const DIRECTORY_SORT_STORAGE_KEY = 'hapi-directory-sort'
 const FILES_TAB_STORAGE_KEY = 'hapi-files-tab'
 
 type FilesTab = 'changes' | 'directories'
+type ChangesView = 'working' | GitComparisonScope
 
 function readFilesTab(): FilesTab {
     try {
@@ -360,6 +362,8 @@ export default function FilesPage() {
     const [directorySort, setDirectorySort] = useState<DirectorySort>(readDirectorySort)
     const [fileMenu, setFileMenu] = useState<{ path: string; point: AnchoredMenuPoint } | null>(null)
     const searchQuery = search.query ?? ''
+    const changesView: ChangesView = search.comparison ?? 'working'
+    const comparisonScope = changesView === 'working' ? null : changesView
 
     const openFileMenu = useCallback((path: string, point: AnchoredMenuPoint) => {
         setFileMenu({ path, point })
@@ -374,11 +378,12 @@ export default function FilesPage() {
             search: {
                 ...(activeTab === 'directories' ? { tab: 'directories' as const } : {}),
                 ...(query ? { query } : {}),
+                ...(comparisonScope ? { comparison: comparisonScope } : {}),
             },
             replace: true,
             ...PRESERVE_SESSION_SIDEBAR_SCROLL,
         })
-    }, [activeTab, navigate, sessionId])
+    }, [activeTab, comparisonScope, navigate, sessionId])
 
     useEffect(() => {
         try {
@@ -398,7 +403,7 @@ export default function FilesPage() {
     useEffect(() => {
         const el = scrollRef.current
         if (!el) return
-        const key = `${SCROLL_KEY_PREFIX}${sessionId}:${activeTab}`
+        const key = `${SCROLL_KEY_PREFIX}${sessionId}:${activeTab}:${comparisonScope ?? 'working'}`
         try {
             const saved = sessionStorage.getItem(key)
             if (saved !== null) el.scrollTop = Number(saved)
@@ -413,7 +418,7 @@ export default function FilesPage() {
             }
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab, sessionId])
+    }, [activeTab, comparisonScope, sessionId])
 
     const {
         status: gitStatus,
@@ -421,6 +426,13 @@ export default function FilesPage() {
         isLoading: gitLoading,
         refetch: refetchGit
     } = useGitStatusFiles(api, sessionId)
+    const {
+        comparison,
+        files: comparisonFiles,
+        error: comparisonError,
+        isLoading: comparisonLoading,
+        refetch: refetchComparison
+    } = useGitComparisonFiles(api, sessionId, comparisonScope)
 
     const shouldSearch = Boolean(searchQuery)
 
@@ -436,6 +448,7 @@ export default function FilesPage() {
         const fileSearch = {
             path: encodeBase64(path),
             ...(staged !== undefined ? { staged } : {}),
+            ...(comparisonScope ? { comparison: comparisonScope } : {}),
             ...(activeTab === 'directories' ? { tab: 'directories' as const } : {}),
             ...(searchQuery ? { query: searchQuery } : {}),
         }
@@ -445,7 +458,7 @@ export default function FilesPage() {
             search: fileSearch,
             ...PRESERVE_SESSION_SIDEBAR_SCROLL,
         })
-    }, [activeTab, navigate, searchQuery, sessionId])
+    }, [activeTab, comparisonScope, navigate, searchQuery, sessionId])
 
     const handleAddFileToComposer = useCallback((path: string) => {
         appendFileReferenceToComposerDraft(sessionId, path)
@@ -456,11 +469,18 @@ export default function FilesPage() {
         })
     }, [navigate, sessionId])
 
-    const branchLabel = getDetachedBranchLabel(gitStatus?.branch, t)
-    const showGitErrorBanner = Boolean(gitError)
+    const branchLabel = getDetachedBranchLabel(comparison?.branch ?? gitStatus?.branch, t)
+    const activeGitError = comparisonScope ? comparisonError : gitError
+    const activeGitLoading = comparisonScope ? comparisonLoading : gitLoading
+    const showGitErrorBanner = Boolean(activeGitError)
     const gitErrorMessage = useMemo(
-        () => (gitError ? formatGitStatusError(gitError, t) : null),
-        [gitError, t]
+        () => {
+            if (!activeGitError) return null
+            return comparisonScope
+                ? t('files.comparison.error', { error: activeGitError })
+                : formatGitStatusError(activeGitError, t)
+        },
+        [activeGitError, comparisonScope, t]
     )
     const searchErrorMessage = useMemo(
         () => (searchResults.error ? formatFileSearchError(searchResults.error, t) : null),
@@ -471,6 +491,22 @@ export default function FilesPage() {
         const parts = base.split(/[/\\]/).filter(Boolean)
         return parts.length ? parts[parts.length - 1] : base
     }, [session?.metadata?.path, sessionId])
+    const comparisonSummary = comparisonScope === 'last-commit'
+        ? t('files.comparison.lastCommitSummary', {
+            sha: comparison?.headSha?.slice(0, 7) ?? '',
+            subject: comparison?.headSubject ?? ''
+        })
+        : comparisonScope === 'branch'
+            ? t(
+                comparison?.commitCount === 1
+                    ? 'files.comparison.branchSummary.one'
+                    : 'files.comparison.branchSummary.other',
+                {
+                    n: comparison?.commitCount ?? 0,
+                    base: comparison?.baseBranch ?? t('files.comparison.defaultBranch')
+                }
+            )
+            : null
 
     const handleRefresh = useCallback(() => {
         if (searchQuery) {
@@ -487,8 +523,25 @@ export default function FilesPage() {
             return
         }
 
-        void refetchGit()
-    }, [activeTab, queryClient, refetchGit, searchQuery, sessionId])
+        if (comparisonScope) {
+            void refetchComparison()
+        } else {
+            void refetchGit()
+        }
+    }, [activeTab, comparisonScope, queryClient, refetchComparison, refetchGit, searchQuery, sessionId])
+
+    const handleChangesViewChange = useCallback((nextView: ChangesView) => {
+        navigate({
+            to: '/sessions/$sessionId/files',
+            params: { sessionId },
+            search: {
+                ...(nextView !== 'working' ? { comparison: nextView } : {}),
+                ...(searchQuery ? { query: searchQuery } : {}),
+            },
+            replace: true,
+            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
+        })
+    }, [navigate, searchQuery, sessionId])
 
     const handleTabChange = useCallback((nextTab: FilesTab) => {
         setActiveTab(nextTab)
@@ -499,11 +552,12 @@ export default function FilesPage() {
             search: {
                 ...(nextTab === 'directories' ? { tab: nextTab } : {}),
                 ...(searchQuery ? { query: searchQuery } : {}),
+                ...(comparisonScope ? { comparison: comparisonScope } : {}),
             },
             replace: true,
             ...PRESERVE_SESSION_SIDEBAR_SCROLL,
         })
-    }, [navigate, searchQuery, sessionId])
+    }, [comparisonScope, navigate, searchQuery, sessionId])
 
     const handleToggleFiles = useCallback(() => {
         navigate({
@@ -627,19 +681,34 @@ export default function FilesPage() {
                 </div>
             </div>
 
-            {!gitLoading && gitStatus && !searchQuery && activeTab === 'changes' ? (
+            {(gitStatus || comparison) && !searchQuery && activeTab === 'changes' ? (
                 <div className="bg-[var(--app-bg)]">
-                    <div className="mx-auto w-full max-w-content px-3 py-2 border-b border-[var(--app-divider)]">
-                        <div className="flex items-center gap-2 text-sm">
-                            <GitBranchIcon className="text-[var(--app-hint)]" />
-                            <span className="font-semibold">{branchLabel}</span>
+                    <div className="mx-auto flex w-full max-w-content items-start gap-3 border-b border-[var(--app-divider)] px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 text-sm">
+                                <GitBranchIcon className="shrink-0 text-[var(--app-hint)]" />
+                                <span className="truncate font-semibold">{branchLabel}</span>
+                            </div>
+                            <div className="truncate text-xs text-[var(--app-hint)]">
+                                {comparisonSummary ?? t('files.branch.summary', {
+                                    staged: gitStatus?.totalStaged ?? 0,
+                                    unstaged: gitStatus?.totalUnstaged ?? 0,
+                                })}
+                            </div>
                         </div>
-                        <div className="text-xs text-[var(--app-hint)]">
-                            {t('files.branch.summary', {
-                                staged: gitStatus.totalStaged,
-                                unstaged: gitStatus.totalUnstaged,
-                            })}
-                        </div>
+                        <label className="shrink-0">
+                            <span className="sr-only">{t('files.comparison.label')}</span>
+                            <select
+                                value={changesView}
+                                onChange={(event) => handleChangesViewChange(event.target.value as ChangesView)}
+                                className="h-8 max-w-[10.5rem] rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-2 text-xs font-medium text-[var(--app-fg)] outline-none focus:border-[var(--app-link)] focus:ring-1 focus:ring-[var(--app-link)]"
+                                aria-label={t('files.comparison.label')}
+                            >
+                                <option value="working">{t('files.comparison.working')}</option>
+                                <option value="last-commit">{t('files.comparison.lastCommit')}</option>
+                                <option value="branch">{t('files.comparison.branch')}</option>
+                            </select>
+                        </label>
                     </div>
                 </div>
             ) : null}
@@ -687,11 +756,11 @@ export default function FilesPage() {
                             onRequestFileMenu={openFileMenu}
                             sort={directorySort}
                         />
-                    ) : gitLoading ? (
+                    ) : activeGitLoading ? (
                         <FileListSkeleton label={t('loading.git')} />
                     ) : (
                         <div>
-                            {gitStatus?.stagedFiles.length ? (
+                            {!comparisonScope && gitStatus?.stagedFiles.length ? (
                                 <div>
                                     <div className="border-b border-[var(--app-divider)] bg-[var(--app-bg)] px-3 py-2 text-xs font-semibold text-[var(--app-git-staged-color)]">
                                         {t('files.changes.section.staged', { n: gitStatus.stagedFiles.length })}
@@ -708,7 +777,7 @@ export default function FilesPage() {
                                 </div>
                             ) : null}
 
-                            {gitStatus?.unstagedFiles.length ? (
+                            {!comparisonScope && gitStatus?.unstagedFiles.length ? (
                                 <div>
                                     <div className="border-b border-[var(--app-divider)] bg-[var(--app-bg)] px-3 py-2 text-xs font-semibold text-[var(--app-git-unstaged-color)]">
                                         {t('files.changes.section.unstaged', { n: gitStatus.unstagedFiles.length })}
@@ -725,15 +794,35 @@ export default function FilesPage() {
                                 </div>
                             ) : null}
 
-                            {!gitStatus ? (
+                            {comparisonScope && comparisonFiles.map((file, index) => (
+                                <GitFileRow
+                                    key={`${comparisonScope}-${file.fullPath}-${index}`}
+                                    file={file}
+                                    onOpen={() => handleOpenFile(file.fullPath)}
+                                    onOpenMenu={(point) => openFileMenu(file.fullPath, point)}
+                                    showDivider={index < comparisonFiles.length - 1}
+                                />
+                            ))}
+
+                            {!comparisonScope && !gitStatus ? (
                                 <div className="p-6 text-sm text-[var(--app-hint)]">
                                     {t('files.changes.empty.unavailable')}
                                 </div>
                             ) : null}
 
-                            {gitStatus && gitStatus.stagedFiles.length === 0 && gitStatus.unstagedFiles.length === 0 ? (
+                            {!comparisonScope && gitStatus && gitStatus.stagedFiles.length === 0 && gitStatus.unstagedFiles.length === 0 ? (
                                 <div className="p-6 text-sm text-[var(--app-hint)]">
                                     {t('files.changes.empty.none')}
+                                </div>
+                            ) : null}
+
+                            {comparisonScope && !activeGitError && comparison?.success && comparisonFiles.length === 0 ? (
+                                <div className="p-6 text-sm text-[var(--app-hint)]">
+                                    {comparisonScope === 'last-commit'
+                                        ? t('files.comparison.empty.lastCommit')
+                                        : t('files.comparison.empty.branch', {
+                                            base: comparison.baseBranch ?? t('files.comparison.defaultBranch')
+                                        })}
                                 </div>
                             ) : null}
                         </div>

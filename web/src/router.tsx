@@ -1099,7 +1099,7 @@ const sessionDetailRoute = createRoute({
 const sessionFilesRoute = createRoute({
     getParentRoute: () => sessionDetailRoute,
     path: 'files',
-    validateSearch: (search: Record<string, unknown>): { tab?: 'changes' | 'directories'; query?: string } => {
+    validateSearch: (search: Record<string, unknown>): { tab?: 'changes' | 'directories'; query?: string; comparison?: 'last-commit' | 'branch' } => {
         const tabValue = typeof search.tab === 'string' ? search.tab : undefined
         const tab = tabValue === 'directories'
             ? 'directories'
@@ -1109,10 +1109,14 @@ const sessionFilesRoute = createRoute({
         const query = typeof search.query === 'string' && search.query.length > 0
             ? search.query
             : undefined
+        const comparison = search.comparison === 'last-commit' || search.comparison === 'branch'
+            ? search.comparison
+            : undefined
 
         return {
             ...(tab ? { tab } : {}),
             ...(query ? { query } : {}),
+            ...(comparison ? { comparison } : {}),
         }
     },
     component: FilesPage,
@@ -1127,6 +1131,7 @@ const sessionTerminalRoute = createRoute({
 type SessionFileSearch = {
     path: string
     staged?: boolean
+    comparison?: 'last-commit' | 'branch'
     tab?: 'changes' | 'directories'
     query?: string
     origin?: 'chat'
@@ -1142,6 +1147,9 @@ const sessionFileRoute = createRoute({
             : search.staged === false || search.staged === 'false'
                 ? false
                 : undefined
+        const comparison = search.comparison === 'last-commit' || search.comparison === 'branch'
+            ? search.comparison
+            : undefined
 
         const tabValue = typeof search.tab === 'string' ? search.tab : undefined
         const tab = tabValue === 'directories'
@@ -1157,6 +1165,9 @@ const sessionFileRoute = createRoute({
         const result: SessionFileSearch = { path }
         if (staged !== undefined) {
             result.staged = staged
+        }
+        if (comparison !== undefined) {
+            result.comparison = comparison
         }
         if (tab !== undefined) {
             result.tab = tab

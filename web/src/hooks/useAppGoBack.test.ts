@@ -46,9 +46,11 @@ describe('getSessionFilesBackSearch', () => {
             staged: false,
             tab: 'directories',
             query: '感',
+            comparison: 'branch',
         })).toEqual({
             tab: 'directories',
             query: '感',
+            comparison: 'branch',
         })
     })
 
@@ -82,6 +84,7 @@ describe('useAppGoBack file preview navigation', () => {
             path: 'encoded-path',
             tab: 'directories',
             query: 'readme',
+            comparison: 'last-commit',
         }
         const { result } = renderHook(() => useAppGoBack())
 
@@ -92,6 +95,7 @@ describe('useAppGoBack file preview navigation', () => {
             search: {
                 tab: 'directories',
                 query: 'readme',
+                comparison: 'last-commit',
             },
             resetScroll: false,
         })
