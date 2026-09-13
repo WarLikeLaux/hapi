@@ -22,6 +22,7 @@ type SessionActionMenuProps = {
     onSyncCodex?: () => void
     onSyncPi?: () => void
     onOpenTermDeck?: () => void
+    onContinueInFolder?: () => void
     onRestart?: () => void
     onArchive: () => void
     onReopen?: () => void
@@ -107,6 +108,17 @@ function TerminalIcon(props: { className?: string }) {
             <rect width="20" height="16" x="2" y="4" rx="2" />
             <path d="m6 9 3 3-3 3" />
             <path d="M13 15h5" />
+        </svg>
+    )
+}
+
+function ContinueInFolderIcon(props: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            className={props.className}>
+            <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+            <path d="m9 13 2 2 4-4" />
         </svg>
     )
 }
@@ -215,6 +227,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onSyncCodex,
         onSyncPi,
         onOpenTermDeck,
+        onContinueInFolder,
         onRestart,
         onArchive,
         onReopen,
@@ -289,6 +302,11 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onOpenTermDeck?.()
     }
 
+    const handleContinueInFolder = () => {
+        onClose()
+        onContinueInFolder?.()
+    }
+
     const handleDelete = () => {
         onClose()
         onDelete()
@@ -338,6 +356,18 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     <CopyIcon className="h-[18px] w-[18px] text-[var(--app-hint)]" />
                     {t('session.action.copyReference')}
                 </button>
+
+                {onContinueInFolder ? (
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={handleContinueInFolder}
+                    >
+                        <ContinueInFolderIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.continueInFolder')}
+                    </button>
+                ) : null}
 
                 {onMarkUnread ? (
                     <button

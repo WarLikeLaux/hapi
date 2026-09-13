@@ -93,6 +93,19 @@ describe('SessionActionMenu - Mark unread action', () => {
     })
 })
 
+describe('SessionActionMenu - Continue in folder action', () => {
+    it('fires the continuation handler and closes the menu', () => {
+        const onContinueInFolder = vi.fn()
+        const onClose = vi.fn()
+        renderMenu({ onContinueInFolder, onClose })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Continue in another folder' }))
+
+        expect(onContinueInFolder).toHaveBeenCalledOnce()
+        expect(onClose).toHaveBeenCalledOnce()
+    })
+})
+
 describe('SessionActionMenu - positioning', () => {
     it('centers the menu on the supplied anchor', () => {
         const originalInnerWidth = window.innerWidth

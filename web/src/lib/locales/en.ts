@@ -287,6 +287,11 @@ export default {
   'session.action.delete': 'Delete',
   'session.action.copy': 'Copy',
   'session.action.copyReference': 'Copy reference',
+  'session.action.continueInFolder': 'Continue in another folder',
+  'newSession.continue.description': 'Continuing from “{title}”. A reference to the previous conversation will be sent automatically.',
+  'newSession.continue.loading': 'Loading source session…',
+  'newSession.continue.notFound': 'The source session could not be loaded.',
+  'newSession.continue.sendFailed.title': 'Session created, but context was not sent',
 
   // Dialogs
   'dialog.uri.title': 'Open this link?',

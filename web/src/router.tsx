@@ -244,6 +244,13 @@ function SessionsPage() {
                         })}
                         onNewSessionInDirectory={handleNewSessionInDirectory}
                         onBrowse={canBrowse ? () => navigate({ to: '/browse' }) : undefined}
+                        onContinueInFolder={(session) => navigate({
+                            to: '/browse',
+                            search: {
+                                continueFromSessionId: session.id,
+                                ...(session.metadata?.machineId ? { machineId: session.metadata.machineId } : {}),
+                            },
+                        })}
                         onRefresh={handleRefresh}
                         isLoading={isLoading}
                         renderHeader={false}
@@ -902,17 +909,31 @@ function NewSessionPage() {
     const queryClient = useQueryClient()
     const { machines, isLoading: machinesLoading, error: machinesError } = useMachines(api, true)
     const { t } = useTranslation()
-    const { directory: initialDirectory, machineId: initialMachineId, shareTransferId } = newSessionRoute.useSearch()
+    const {
+        directory: initialDirectory,
+        machineId: initialMachineId,
+        shareTransferId,
+        continueFromSessionId,
+    } = newSessionRoute.useSearch()
+    const {
+        session: continueFromSession,
+        isLoading: continueFromLoading,
+        error: continueFromError,
+    } = useSession(api, continueFromSessionId ?? null)
 
     const handleCancel = useCallback(() => {
         if (shareTransferId) {
             void deleteShareTransfer(shareTransferId)
         }
-        navigate({
+        navigate(continueFromSessionId ? {
+            to: '/sessions/$sessionId',
+            params: { sessionId: continueFromSessionId },
+            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
+        } : {
             to: '/sessions',
             ...PRESERVE_SESSION_SIDEBAR_SCROLL,
         })
-    }, [navigate, shareTransferId])
+    }, [continueFromSessionId, navigate, shareTransferId])
 
     const handleSuccess = useCallback((sessionId: string) => {
         if (shareTransferId) {
@@ -941,11 +962,12 @@ function NewSessionPage() {
         // disagree if the user changed machines without yet creating a
         // session. Preserve shareTransferId so a share-target spawn that
         // detours through /browse still seeds the composer after success.
-        const search: { machineId?: string; shareTransferId?: string } = {}
+        const search: { machineId?: string; shareTransferId?: string; continueFromSessionId?: string } = {}
         if (args.machineId) search.machineId = args.machineId
         if (shareTransferId) search.shareTransferId = shareTransferId
+        if (continueFromSessionId) search.continueFromSessionId = continueFromSessionId
         navigate({ to: '/browse', search })
-    }, [navigate, shareTransferId])
+    }, [continueFromSessionId, navigate, shareTransferId])
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -972,7 +994,13 @@ function NewSessionPage() {
                     </div>
                 ) : null}
 
-                <NewSession
+                {continueFromSessionId && continueFromLoading ? (
+                    <LoadingState label={t('newSession.continue.loading')} className="p-4 text-sm" />
+                ) : continueFromSessionId && !continueFromSession ? (
+                    <div className="p-3 text-sm text-red-600">
+                        {continueFromError ?? t('newSession.continue.notFound')}
+                    </div>
+                ) : <NewSession
                     api={api}
                     machines={machines}
                     isLoading={machinesLoading}
@@ -981,7 +1009,8 @@ function NewSessionPage() {
                     onChooseFolder={handleChooseFolder}
                     initialDirectory={initialDirectory}
                     initialMachineId={initialMachineId}
-                />
+                    continueFromSession={continueFromSession ?? undefined}
+                />}
             </div>
         </div>
     )
@@ -993,16 +1022,19 @@ function BrowsePage() {
     const goBack = useAppGoBack()
     const { machines, isLoading: machinesLoading } = useMachines(api, true)
     const { t } = useTranslation()
-    const { machineId: initialMachineId, shareTransferId } = browseRoute.useSearch()
+    const { machineId: initialMachineId, shareTransferId, continueFromSessionId } = browseRoute.useSearch()
 
     const handleStartSession = useCallback((machineId: string, directory: string) => {
         navigate({
             to: '/sessions/new',
-            search: shareTransferId
-                ? { directory, machineId, shareTransferId }
-                : { directory, machineId }
+            search: {
+                directory,
+                machineId,
+                ...(shareTransferId ? { shareTransferId } : {}),
+                ...(continueFromSessionId ? { continueFromSessionId } : {}),
+            }
         })
-    }, [navigate, shareTransferId])
+    }, [continueFromSessionId, navigate, shareTransferId])
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -1144,6 +1176,7 @@ type NewSessionSearch = {
     directory?: string
     machineId?: string
     shareTransferId?: string
+    continueFromSessionId?: string
 }
 
 const newSessionRoute = createRoute({
@@ -1160,6 +1193,9 @@ const newSessionRoute = createRoute({
         if (typeof search.shareTransferId === 'string' && search.shareTransferId) {
             result.shareTransferId = search.shareTransferId
         }
+        if (typeof search.continueFromSessionId === 'string' && search.continueFromSessionId) {
+            result.continueFromSessionId = search.continueFromSessionId
+        }
         return result
     },
     component: NewSessionPage,
@@ -1168,13 +1204,16 @@ const newSessionRoute = createRoute({
 const browseRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/browse',
-    validateSearch: (search: Record<string, unknown>): { machineId?: string; shareTransferId?: string } => {
-        const result: { machineId?: string; shareTransferId?: string } = {}
+    validateSearch: (search: Record<string, unknown>): { machineId?: string; shareTransferId?: string; continueFromSessionId?: string } => {
+        const result: { machineId?: string; shareTransferId?: string; continueFromSessionId?: string } = {}
         if (typeof search.machineId === 'string' && search.machineId) {
             result.machineId = search.machineId
         }
         if (typeof search.shareTransferId === 'string' && search.shareTransferId) {
             result.shareTransferId = search.shareTransferId
+        }
+        if (typeof search.continueFromSessionId === 'string' && search.continueFromSessionId) {
+            result.continueFromSessionId = search.continueFromSessionId
         }
         return result
     },
