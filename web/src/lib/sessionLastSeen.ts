@@ -150,17 +150,28 @@ export function getSessionLastSeenSnapshot(): Readonly<Record<string, number>> {
 type SessionReadStateInput = {
     id: string
     updatedAt: number
+    lastAgentMessageAt?: number
+}
+
+function getUnreadActivityAt(session: SessionReadStateInput): number {
+    if (Object.prototype.hasOwnProperty.call(session, 'lastAgentMessageAt')) {
+        return typeof session.lastAgentMessageAt === 'number' && Number.isFinite(session.lastAgentMessageAt)
+            ? session.lastAgentMessageAt
+            : 0
+    }
+    return session.updatedAt
 }
 
 function latestSessionUpdates(sessions: Iterable<SessionReadStateInput>): Map<string, number> {
     const latest = new Map<string, number>()
     for (const session of sessions) {
-        if (!session.id || !Number.isFinite(session.updatedAt)) {
+        const activityAt = getUnreadActivityAt(session)
+        if (!session.id || !Number.isFinite(activityAt) || activityAt <= 0) {
             continue
         }
         const current = latest.get(session.id)
-        if (current === undefined || session.updatedAt > current) {
-            latest.set(session.id, session.updatedAt)
+        if (current === undefined || activityAt > current) {
+            latest.set(session.id, activityAt)
         }
     }
     return latest
@@ -238,7 +249,7 @@ export function markAllSessionsSeen(sessions: Iterable<SessionReadStateInput>): 
     return count
 }
 
-export function initializeSessionLastSeen(scope: string, sessions: Iterable<{ id: string; updatedAt: number }>): void {
+export function initializeSessionLastSeen(scope: string, sessions: Iterable<SessionReadStateInput>): void {
     const storage = getLocalStorage()
     if (!storage) {
         return
@@ -251,7 +262,7 @@ export function initializeSessionLastSeen(scope: string, sessions: Iterable<{ id
         }
         const store = readStore()
         for (const session of sessions) {
-            store[session.id] ??= session.updatedAt
+            store[session.id] ??= getUnreadActivityAt(session)
         }
         storage.setItem(STORAGE_KEY, JSON.stringify(store))
         storage.setItem(baselineKey, '1')
@@ -292,7 +303,7 @@ export function markSessionSeen(sessionId: string, seenAt: number): void {
 
 /** Move the local watermark just behind the current activity and remember the explicit action. */
 export function markSessionUnread(sessionId: string, updatedAt: number): void {
-    if (!sessionId || !Number.isFinite(updatedAt)) {
+    if (!sessionId || !Number.isFinite(updatedAt) || updatedAt <= 0) {
         return
     }
 

@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 
-import { hasConversationMessageContent } from '@hapi/protocol/messages'
+import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import { decodeMessageContent } from './contentCodec'
 
 import type { StoredMessage } from './types'
@@ -175,6 +175,36 @@ export class MessageStore {
             return false
         } finally {
             query.finalize()
+        }
+    }
+
+    /** Stable chat activity, excluding keepalives, lifecycle events and sync bookkeeping. */
+    getConversationActivity(sessionId: string): {
+        hasContent: boolean
+        lastMessageAt?: number
+        lastAgentMessageAt?: number
+    } {
+        const query = this.db.prepare<{ content: string | Uint8Array; created_at: number }, [string]>(
+            'SELECT content, created_at FROM messages WHERE session_id = ? ORDER BY seq ASC'
+        )
+        let lastMessageAt: number | undefined
+        let lastAgentMessageAt: number | undefined
+        try {
+            for (const row of query.iterate(sessionId)) {
+                const content = decodeMessageContent(row.content)
+                if (!hasConversationMessageContent(content)) continue
+                lastMessageAt = Math.max(lastMessageAt ?? 0, row.created_at)
+                if (unwrapRoleWrappedRecordEnvelope(content)?.role === 'agent') {
+                    lastAgentMessageAt = Math.max(lastAgentMessageAt ?? 0, row.created_at)
+                }
+            }
+        } finally {
+            query.finalize()
+        }
+        return {
+            hasContent: lastMessageAt !== undefined,
+            lastMessageAt,
+            lastAgentMessageAt,
         }
     }
 

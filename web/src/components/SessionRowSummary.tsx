@@ -12,6 +12,7 @@ import { getCodexImportedAt } from '@/lib/codexImportedSessions'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { useTranslation } from '@/lib/use-translation'
 import { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
+import { useMinuteTick } from '@/hooks/useMinuteTick'
 
 function LoaderIcon(props: { className?: string }) {
     return (
@@ -83,13 +84,16 @@ function getSessionTimeLabel(
     session: SessionSummary,
     t: (key: string, params?: Record<string, string | number>) => string
 ): string | null {
+    if (session.lastMessageAt !== undefined && session.lastMessageAt > 0) {
+        return formatRelativeTime(session.lastMessageAt, t)
+    }
     const importedAt = session.metadata?.flavor === 'codex'
         ? getCodexImportedAt(session.metadata?.agentSessionId)
         : null
     if (importedAt !== null) {
         return formatCodexImportedRelativeTime(importedAt, t)
     }
-    return formatRelativeTime(session.updatedAt, t)
+    return formatRelativeTime(session.lastUserMessageAt ?? session.createdAt ?? session.updatedAt, t)
 }
 
 /**
@@ -160,6 +164,7 @@ export function SessionRowSummary(props: {
     )
     const attentionId = attentionTooltipIdProp ?? ownedIds.attentionId
     const scheduleId = scheduleTooltipIdProp ?? ownedIds.scheduleId
+    useMinuteTick(true)
     const timeLabel = getSessionTimeLabel(s, t)
 
     return (

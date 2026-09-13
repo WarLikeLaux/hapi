@@ -148,6 +148,20 @@ describe('classifyVisibleSessionAttention', () => {
 })
 
 describe('sessionIsUnread', () => {
+    it('ignores status churn after the latest agent message was seen', () => {
+        expect(sessionIsUnread(
+            makeSummary({ id: 'stable', lastAgentMessageAt: 2_000, updatedAt: 9_000 }),
+            { lastSeenAt: 2_000 }
+        )).toBe(false)
+    })
+
+    it('uses a new agent message even when the generic session timestamp is unchanged', () => {
+        expect(sessionIsUnread(
+            makeSummary({ id: 'reply', lastAgentMessageAt: 3_000, updatedAt: 9_000 }),
+            { lastSeenAt: 2_000 }
+        )).toBe(true)
+    })
+
     it('is true when updatedAt is newer than lastSeenAt', () => {
         expect(sessionIsUnread(
             makeSummary({ id: 'u', updatedAt: 5000 }),

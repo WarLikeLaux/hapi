@@ -58,6 +58,15 @@ describe('sessionLastSeen', () => {
         expect(getSessionManualUnreadAt('manual')).toBeNull()
     })
 
+    it('uses agent-message activity instead of generic session updates', () => {
+        markSessionSeen('stable', 2_000)
+        const sessions = [{ id: 'stable', updatedAt: 9_000, lastAgentMessageAt: 2_000 }]
+
+        expect(getUnreadSessionCount(sessions)).toBe(0)
+        expect(markAllSessionsSeen(sessions)).toBe(0)
+        expect(getSessionLastSeenAt('stable')).toBe(2_000)
+    })
+
     it('notifies consumers once for a batch mark-as-read operation', () => {
         markSessionUnread('session-a', 1000)
         markSessionUnread('session-b', 2000)

@@ -1,4 +1,5 @@
 import { AgentStateSchema, MetadataSchema, SessionPatchSchema, TeamStateSchema } from '@hapi/protocol/schemas'
+import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { CodexCollaborationMode, CopilotAgentMode, PermissionMode, Session, SessionPatch } from '@hapi/protocol/types'
 import type { Store } from '../store'
 import { clampAliveTime } from './aliveTime'
@@ -193,14 +194,17 @@ export class SessionCache {
             return parsed.success ? parsed.data : undefined
         })()
 
+        const conversationActivity = this.store.messages.getConversationActivity(sessionId)
         const session: Session = {
-            hasConversationContent: this.store.messages.hasConversationContent(sessionId),
+            hasConversationContent: conversationActivity.hasContent,
             id: stored.id,
             namespace: stored.namespace,
             seq: stored.seq,
             createdAt: stored.createdAt,
             updatedAt: stored.updatedAt,
             lastUserMessageAt: stored.lastUserMessageAt ?? stored.createdAt,
+            lastMessageAt: conversationActivity.lastMessageAt ?? 0,
+            lastAgentMessageAt: conversationActivity.lastAgentMessageAt ?? 0,
             pinned: stored.pinned,
             globalPinned: stored.globalPinned,
             active: existing?.active ?? stored.active,
@@ -239,11 +243,58 @@ export class SessionCache {
 
     refreshConversationContent(sessionId: string): void {
         const session = this.sessions.get(sessionId)
-        const hasContent = this.store.messages.hasConversationContent(sessionId)
-        if (session && session.hasConversationContent !== hasContent) {
-            session.hasConversationContent = hasContent
-            this.publisher.emit({ type: 'session-updated', sessionId, data: { ...session } })
+        if (!session) return
+        const activity = this.store.messages.getConversationActivity(sessionId)
+        if (
+            session.hasConversationContent !== activity.hasContent
+            || session.lastMessageAt !== (activity.lastMessageAt ?? 0)
+            || session.lastAgentMessageAt !== (activity.lastAgentMessageAt ?? 0)
+        ) {
+            session.hasConversationContent = activity.hasContent
+            session.lastMessageAt = activity.lastMessageAt ?? 0
+            session.lastAgentMessageAt = activity.lastAgentMessageAt ?? 0
+            this.publisher.emit({
+                type: 'session-updated',
+                sessionId,
+                data: {
+                    ...session,
+                    lastMessageAt: session.lastMessageAt,
+                    lastAgentMessageAt: session.lastAgentMessageAt,
+                }
+            })
         }
+    }
+
+    recordConversationMessage(sessionId: string, content: unknown, createdAt: number): void {
+        if (!hasConversationMessageContent(content) || !Number.isFinite(createdAt)) return
+        const session = this.sessions.get(sessionId)
+        if (!session) return
+
+        const nextLastMessageAt = Math.max(session.lastMessageAt ?? 0, createdAt)
+        const isAgentMessage = unwrapRoleWrappedRecordEnvelope(content)?.role === 'agent'
+        const nextLastAgentMessageAt = isAgentMessage
+            ? Math.max(session.lastAgentMessageAt ?? 0, createdAt)
+            : session.lastAgentMessageAt ?? 0
+        if (
+            session.hasConversationContent
+            && session.lastMessageAt === nextLastMessageAt
+            && session.lastAgentMessageAt === nextLastAgentMessageAt
+        ) return
+
+        const hadConversationContent = session.hasConversationContent
+        session.hasConversationContent = true
+        session.lastMessageAt = nextLastMessageAt
+        session.lastAgentMessageAt = nextLastAgentMessageAt
+        this.publisher.emit({
+            type: 'session-updated',
+            sessionId,
+            data: hadConversationContent
+                ? {
+                    lastMessageAt: nextLastMessageAt,
+                    lastAgentMessageAt: nextLastAgentMessageAt,
+                } satisfies SessionPatch
+                : { ...session }
+        })
     }
 
     reloadAll(): void {

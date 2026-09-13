@@ -29,6 +29,8 @@ describe('session conversation content', () => {
             expect(engine.getSession(empty.id)?.hasConversationContent).toBe(false)
             const session = engine.getSession(nonempty.id)!
             expect(session.hasConversationContent).toBe(true)
+            expect(session.lastMessageAt).toBeGreaterThan(0)
+            expect(session.lastAgentMessageAt).toBe(session.lastMessageAt)
             expect(toSessionSummary(SessionSchema.parse(session)).hasConversationContent).toBe(true)
         } finally {
             engine.stop()
@@ -44,6 +46,8 @@ describe('session conversation content', () => {
             const session = engine.getOrCreateSession('live', { path: '/work', host: 'test' }, null, 'default')
             await engine.sendMessage(session.id, { text: 'Hello', localId: 'first' })
             expect(engine.getSession(session.id)?.hasConversationContent).toBe(true)
+            expect(engine.getSession(session.id)?.lastMessageAt).toBeGreaterThan(0)
+            expect(engine.getSession(session.id)?.lastAgentMessageAt).toBe(0)
             expect(events.some(event => event.type === 'session-updated'
                 && event.data && 'id' in event.data && event.data.hasConversationContent === true)).toBe(true)
 

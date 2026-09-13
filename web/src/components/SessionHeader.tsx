@@ -520,7 +520,7 @@ export function SessionHeader(props: {
                 sessionPinned={Boolean(session.pinned)}
                 sessionGlobalPinned={Boolean(session.globalPinned)}
                 onRename={() => setRenameOpen(true)}
-                onMarkUnread={() => markSessionUnread(session.id, session.updatedAt)}
+                onMarkUnread={() => markSessionUnread(session.id, session.lastAgentMessageAt ?? 0)}
                 onSetPinMode={api ? (mode) => void handleSetPinMode(mode) : undefined}
                 onExport={() => setExportOpen(true)}
                 onSyncCodex={api && codexSessionId ? handleSyncCodex : undefined}

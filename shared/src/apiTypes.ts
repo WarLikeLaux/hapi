@@ -659,6 +659,23 @@ export const SpawnSessionRequestSchema = z.object({
 
 export type SpawnSessionRequest = z.infer<typeof SpawnSessionRequestSchema>
 
+export const EnsureTermDeckSessionRequestSchema = z.object({
+    sessionId: z.string().min(1).max(200).regex(/^[A-Za-z0-9_-]+$/)
+})
+
+export type EnsureTermDeckSessionRequest = z.infer<typeof EnsureTermDeckSessionRequestSchema>
+
+export type EnsureTermDeckSessionResponse = {
+    success: true
+    sessionId: string
+    url: string
+    reused: boolean
+} | {
+    success: false
+    error: string
+    code?: 'not_configured' | 'unavailable' | 'outside_workspace_roots'
+}
+
 export const MachineListDirectoryRequestSchema = z.object({
     path: z.string().min(1),
     includeHidden: z.boolean().optional()

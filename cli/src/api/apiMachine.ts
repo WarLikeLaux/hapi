@@ -3,7 +3,7 @@
  */
 
 import { io, type Socket } from 'socket.io-client'
-import { readdir, stat } from 'node:fs/promises'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { logger } from '@/ui/logger'
 import { configuration } from '@/configuration'
@@ -82,6 +82,73 @@ interface CursorChatStoreStatusRequest {
     workspacePath: string
     cursorSessionId: string
     homeDir?: string
+}
+
+async function ensureTermDeckSession(params: {
+    sessionId: string
+    directory: string
+    title?: string
+}): Promise<unknown> {
+    const apiUrl = process.env.HAPI_TERMDECK_API_URL?.trim().replace(/\/+$/, '')
+    const publicUrl = process.env.HAPI_TERMDECK_PUBLIC_URL?.trim().replace(/\/+$/, '')
+    if (!apiUrl || !publicUrl) {
+        return { success: false, error: 'TermDeck integration is not configured on this runner', code: 'not_configured' }
+    }
+
+    let token = process.env.HAPI_TERMDECK_TOKEN?.trim() ?? ''
+    const tokenFile = process.env.HAPI_TERMDECK_TOKEN_FILE?.trim()
+    if (!token && tokenFile) {
+        try {
+            token = (await readFile(tokenFile, 'utf8')).trim()
+        } catch (error) {
+            return {
+                success: false,
+                error: `Unable to read the TermDeck token file: ${error instanceof Error ? error.message : String(error)}`,
+                code: 'not_configured'
+            }
+        }
+    }
+
+    try {
+        const response = await fetch(`${apiUrl}/api/sessions`, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                ...(token ? { authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+                command: `hapi resume ${params.sessionId}`,
+                cwd: params.directory,
+                title: params.title?.trim() || 'HAPI Codex',
+                integration_ref: `hapi:${params.sessionId}`
+            }),
+            signal: AbortSignal.timeout(10_000)
+        })
+        const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+        if (!response.ok || !payload) {
+            const detail = typeof payload?.detail === 'string' ? payload.detail : `${response.status} ${response.statusText}`
+            return { success: false, error: `TermDeck rejected the session: ${detail}`, code: 'unavailable' }
+        }
+        const termDeckSessionId = typeof payload.session_id === 'string' ? payload.session_id : ''
+        const project = typeof payload.project === 'string' ? payload.project : ''
+        const worktreeId = typeof payload.worktree_id === 'string' && payload.worktree_id ? payload.worktree_id : 'root'
+        if (!termDeckSessionId || !project) {
+            return { success: false, error: 'TermDeck returned an incomplete session response', code: 'unavailable' }
+        }
+        const path = `/p/${encodeURIComponent(project)}/${encodeURIComponent(worktreeId)}/${encodeURIComponent(termDeckSessionId)}`
+        return {
+            success: true,
+            sessionId: termDeckSessionId,
+            url: `${publicUrl}${path}`,
+            reused: payload.integration_reused === true
+        }
+    } catch (error) {
+        return {
+            success: false,
+            error: `TermDeck is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+            code: 'unavailable'
+        }
+    }
 }
 
 function workspaceRootsEqual(left?: string[], right?: string[]): boolean {
@@ -441,6 +508,20 @@ export class ApiMachineClient {
                         agent: result.agent,
                     }
             }
+        })
+
+        this.rpcHandlerManager.registerHandler(RPC_METHODS.EnsureTermDeckSession, async (params: any) => {
+            const sessionId = typeof params?.sessionId === 'string' ? params.sessionId : ''
+            const directory = typeof params?.directory === 'string' ? params.directory : ''
+            const title = typeof params?.title === 'string' ? params.title : undefined
+            if (!sessionId || !directory) {
+                return { success: false, error: 'Session ID and directory are required', code: 'unavailable' }
+            }
+            const resolvedDirectory = await this.pathPolicy.resolveForCheck(directory)
+            if (!this.pathPolicy.isWithinSpawnRoots(resolvedDirectory)) {
+                return { success: false, error: 'Path is outside workspace roots', code: 'outside_workspace_roots' }
+            }
+            return await ensureTermDeckSession({ sessionId, directory: resolvedDirectory, title })
         })
 
         this.rpcHandlerManager.registerHandler(RPC_METHODS.StopSession, async (params: any) => {

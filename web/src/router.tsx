@@ -207,7 +207,7 @@ function SessionsPage() {
         initializeSessionLastSeen(baseUrl, sessions)
         setInitializedHub(baseUrl)
     }, [baseUrl, error, isLoading, sessions])
-    useSelectedSessionSeen(selectedSessionId, selectedSession?.updatedAt)
+    useSelectedSessionSeen(selectedSessionId, selectedSession?.lastAgentMessageAt)
     const isSessionsIndex = pathname === '/sessions' || pathname === '/sessions/'
     const sidebar = useSidebarResize()
     const handleNewSessionInDirectory = useCallback((args: { machineId: string | null; directory: string }) => {

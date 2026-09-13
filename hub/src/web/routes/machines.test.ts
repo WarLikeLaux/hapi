@@ -29,6 +29,42 @@ function createMachine(overrides?: Partial<Machine>): Machine {
 }
 
 describe('machines routes', () => {
+    it('derives the TermDeck launch from the authorized Codex session', async () => {
+        const machine = createMachine()
+        let forwarded: unknown[] = []
+        const engine = {
+            getMachine: () => machine,
+            resolveSessionAccess: () => ({
+                ok: true as const,
+                sessionId: 'session-1',
+                session: {
+                    metadata: {
+                        machineId: 'machine-1',
+                        flavor: 'codex',
+                        path: '/workspace/project',
+                        name: 'Linked session'
+                    }
+                }
+            }),
+            ensureTermDeckSession: async (...args: unknown[]) => {
+                forwarded = args
+                return { success: true, sessionId: 'terminal-1', url: 'https://example.test/p/project/root/terminal-1', reused: false }
+            }
+        } as unknown as SyncEngine
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => { c.set('namespace', 'default'); await next() })
+        app.route('/api', createMachinesRoutes(() => engine))
+
+        const response = await app.request('/api/machines/machine-1/termdeck', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sessionId: 'session-1', directory: '/untrusted' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(forwarded).toEqual(['machine-1', 'session-1', '/workspace/project', 'Linked session'])
+    })
+
     it('blocks spawn and availability inspection when the runner needs an upgrade', async () => {
         const machine = createMachine({
             metadata: {

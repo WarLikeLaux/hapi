@@ -6,12 +6,21 @@ export type SessionAttention =
     | { kind: 'background' }
     | { kind: 'unread' }
 
+/** Agent-authored conversation activity only; status/sync updates never create unread. */
+export function getSessionUnreadActivityAt(summary: SessionSummary): number {
+    // Explicit 0 from current hubs means "no agent message yet". Missing means
+    // an older hub, where updatedAt is the only available compatibility signal.
+    return Object.prototype.hasOwnProperty.call(summary, 'lastAgentMessageAt')
+        ? summary.lastAgentMessageAt ?? 0
+        : summary.updatedAt
+}
+
 /** True when the session has activity newer than the operator's last-seen watermark. */
 export function sessionIsUnread(
     summary: SessionSummary,
     options: { lastSeenAt: number }
 ): boolean {
-    return summary.updatedAt > options.lastSeenAt
+    return getSessionUnreadActivityAt(summary) > options.lastSeenAt
 }
 
 export function classifySessionAttention(
@@ -19,7 +28,7 @@ export function classifySessionAttention(
     options: { selected: boolean; lastSeenAt: number; manualUnreadAt?: number | null }
 ): SessionAttention | null {
     if (options.selected) {
-        return options.manualUnreadAt === summary.updatedAt
+        return options.manualUnreadAt === getSessionUnreadActivityAt(summary)
             ? { kind: 'unread' }
             : null
     }

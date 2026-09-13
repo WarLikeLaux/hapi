@@ -3,6 +3,7 @@ import {
     MACHINE_CAPABILITIES,
     MachineListDirectoryRequestSchema,
     MachinePathsExistsRequestSchema,
+    EnsureTermDeckSessionRequestSchema,
     RenameMachineRequestSchema,
     SpawnSessionRequestSchema
 } from '@hapi/protocol'
@@ -11,7 +12,7 @@ import { RPC_TARGET_MISSING_ERROR_CODE } from '@hapi/protocol/rpcMethods'
 import type { SyncEngine } from '../../sync/syncEngine'
 import { RpcTargetMissingError } from '../../sync/rpcGateway'
 import type { WebAppEnv } from '../middleware/auth'
-import { requireMachine } from './guards'
+import { requireMachine, requireSession } from './guards'
 
 export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
@@ -115,6 +116,45 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             parsed.data.collaborationMode,
             parsed.data.copilotAgentMode,
             startingMode
+        )
+        return c.json(result)
+    })
+
+    app.post('/machines/:id/termdeck', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) return c.json({ error: 'Not connected' }, 503)
+
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) return machine
+
+        const parsed = EnsureTermDeckSessionRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid body' }, 400)
+
+        const access = requireSession(c, engine, parsed.data.sessionId)
+        if (access instanceof Response) return access
+        const session = access.session
+        if (session.metadata?.machineId !== machineId) {
+            return c.json({ error: 'Session does not belong to this machine' }, 409)
+        }
+        if (session.metadata?.flavor !== 'codex') {
+            return c.json({ error: 'TermDeck integration is available for Codex sessions only' }, 400)
+        }
+        if (session.active && session.metadata?.capabilities?.concurrentClients !== true) {
+            return c.json({
+                success: false,
+                error: 'This older active Codex runtime cannot accept another client. Stop and reopen it once, then open it in TermDeck.',
+                code: 'unavailable'
+            })
+        }
+        const directory = session.metadata.path?.trim()
+        if (!directory) return c.json({ error: 'Session directory is unavailable' }, 409)
+
+        const result = await engine.ensureTermDeckSession(
+            machineId,
+            access.sessionId,
+            directory,
+            session.metadata.name
         )
         return c.json(result)
     })

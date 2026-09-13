@@ -216,9 +216,12 @@ export class SyncEngine {
         this.sessionCache = new SessionCache(store, this.eventPublisher)
         this.eventPublisher.subscribe((event) => {
             if (event.type === 'message-received') {
-                if (!this.sessionCache.getSession(event.sessionId)?.hasConversationContent
-                    && hasConversationMessageContent(event.message.content)) {
-                    this.sessionCache.refreshConversationContent(event.sessionId)
+                if (hasConversationMessageContent(event.message.content)) {
+                    this.sessionCache.recordConversationMessage(
+                        event.sessionId,
+                        event.message.content,
+                        event.message.createdAt
+                    )
                 }
             } else if (event.type === 'message-cancelled' || event.type === 'messages-invalidated') {
                 this.sessionCache.refreshConversationContent(event.sessionId)
@@ -2038,6 +2041,10 @@ export class SyncEngine {
             copilotAgentMode,
             startingMode
         )
+    }
+
+    async ensureTermDeckSession(machineId: string, sessionId: string, directory: string, title?: string) {
+        return await this.rpcGateway.ensureTermDeckSession(machineId, sessionId, directory, title)
     }
 
     /**

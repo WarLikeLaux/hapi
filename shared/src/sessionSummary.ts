@@ -54,6 +54,8 @@ export type SessionSummary = {
     createdAt?: number
     updatedAt: number
     lastUserMessageAt?: number
+    lastMessageAt?: number
+    lastAgentMessageAt?: number
     pinned?: boolean
     globalPinned?: boolean
     metadata: SessionSummaryMetadata | null
@@ -215,6 +217,8 @@ export function toSessionSummary(session: Session): SessionSummary {
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         lastUserMessageAt: session.lastUserMessageAt || session.createdAt || session.updatedAt,
+        lastMessageAt: session.lastMessageAt,
+        lastAgentMessageAt: session.lastAgentMessageAt,
         pinned: session.pinned ?? false,
         globalPinned: session.globalPinned ?? false,
         metadata: toSessionSummaryMetadata(session.metadata),

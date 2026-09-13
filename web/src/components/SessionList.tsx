@@ -27,7 +27,7 @@ import { DEFAULT_SESSION_PREVIEW_LIMIT, useSessionPreviewLimit } from '@/hooks/u
 import { useSessionListStatusMode } from '@/hooks/useSessionListStatusMode'
 import { useShowActiveSessionsOnly } from '@/hooks/useShowActiveSessionsOnly'
 import { usePinInProgressSessions } from '@/hooks/usePinInProgressSessions'
-import { classifyVisibleSessionAttention, sessionIsUnread } from '@/lib/sessionAttention'
+import { classifyVisibleSessionAttention, getSessionUnreadActivityAt, sessionIsUnread } from '@/lib/sessionAttention'
 import {
     getSessionLastSeenAt,
     getSessionLastSeenSnapshot,
@@ -191,7 +191,7 @@ export function sortSessionsByNewestUserActivity(sessions: SessionSummary[]): Se
 
 export function sortSessionsByNewestAgentActivity(sessions: SessionSummary[]): SessionSummary[] {
     return [...sessions].sort((a, b) => (
-        b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)
+        getSessionUnreadActivityAt(b) - getSessionUnreadActivityAt(a) || a.id.localeCompare(b.id)
     ))
 }
 
@@ -930,7 +930,7 @@ function SessionItem(props: {
         machineLabel,
         lastSeenVersion
     } = props
-    const { haptic } = usePlatform()
+    const { haptic, isTouch } = usePlatform()
     const [menuOpen, setMenuOpen] = useState(false)
     const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
     const [renameOpen, setRenameOpen] = useState(false)
@@ -1001,6 +1001,29 @@ function SessionItem(props: {
         }
     }
 
+    const handleOpenTermDeck = async () => {
+        if (!api || !s.metadata?.machineId || !s.metadata.path) return
+        const tab = window.open('about:blank', '_blank')
+        if (tab) tab.opener = null
+        try {
+            const result = await api.ensureTermDeckSession(
+                s.metadata.machineId,
+                s.id
+            )
+            if (!result.success) throw new Error(result.error)
+            if (tab) tab.location.replace(result.url)
+            else window.open(result.url, '_blank', 'noopener,noreferrer')
+        } catch (error) {
+            tab?.close()
+            addToast({
+                title: t('termdeck.openFailed'),
+                body: error instanceof Error ? error.message : t('dialog.error.default'),
+                sessionId: s.id,
+                url: `/sessions/${s.id}`
+            })
+        }
+    }
+
     const longPressHandlers = useLongPress({
         onLongPress: (point) => {
             haptic.impact('medium')
@@ -1067,7 +1090,10 @@ function SessionItem(props: {
                 onSetPinMode={(mode) => void handleSetPinMode(mode)}
                 onRename={() => setRenameOpen(true)}
                 onExport={() => setExportOpen(true)}
-                onMarkUnread={() => markSessionUnread(s.id, s.updatedAt)}
+                onMarkUnread={() => markSessionUnread(s.id, getSessionUnreadActivityAt(s))}
+                onOpenTermDeck={s.metadata?.flavor === 'codex' && !isTouch
+                    ? () => void handleOpenTermDeck()
+                    : undefined}
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={cursorReopenDisabledReason ? undefined : handleReopen}
                 reopenDisabledReason={cursorReopenDisabledReason}

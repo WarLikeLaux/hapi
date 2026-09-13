@@ -75,6 +75,12 @@ export function applySessionDetailPatch(session: Session, patch: SessionPatch): 
         const nextLastUserMessageAt = Math.max(nextSession.lastUserMessageAt ?? 0, patch.lastUserMessageAt)
         assign('lastUserMessageAt', nextLastUserMessageAt)
     }
+    if (patch.lastMessageAt !== undefined) {
+        assign('lastMessageAt', Math.max(nextSession.lastMessageAt ?? 0, patch.lastMessageAt))
+    }
+    if (patch.lastAgentMessageAt !== undefined) {
+        assign('lastAgentMessageAt', Math.max(nextSession.lastAgentMessageAt ?? 0, patch.lastAgentMessageAt))
+    }
     if (patch.model !== undefined) assign('model', patch.model)
     if (patch.modelReasoningEffort !== undefined) assign('modelReasoningEffort', patch.modelReasoningEffort)
     if (patch.effort !== undefined) assign('effort', patch.effort)
