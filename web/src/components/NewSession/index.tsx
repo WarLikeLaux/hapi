@@ -17,7 +17,11 @@ import { usePiModelsForMachine } from '@/hooks/queries/usePiModelsForMachine'
 import { useAgentAvailability } from '@/hooks/queries/useAgentAvailability'
 import { useSessions } from '@/hooks/queries/useSessions'
 import { useActiveSuggestions, type Suggestion } from '@/hooks/useActiveSuggestions'
-import { useDirectorySuggestions } from '@/hooks/useDirectorySuggestions'
+import {
+    getMatchingDirectoryPaths,
+    resolveDirectorySearchTarget,
+    useDirectorySuggestions
+} from '@/hooks/useDirectorySuggestions'
 import { useRecentPaths } from '@/hooks/useRecentPaths'
 import { useTranslation } from '@/lib/use-translation'
 import { getCodexModelReasoningEfforts } from '@/lib/codexModelCapabilities'
@@ -542,6 +546,17 @@ export function NewSession(props: {
     const trimmedDirectory = directory.trim()
     const deferredDirectory = useDeferredValue(trimmedDirectory)
     const allPaths = useDirectorySuggestions(machineId, sessions, recentPaths)
+    const workspaceRoots = useMemo(
+        () => selectedMachine?.metadata?.workspaceRoots ?? [],
+        [selectedMachine?.metadata?.workspaceRoots]
+    )
+    const directoryListingCacheRef = useRef(
+        new Map<string, Awaited<ReturnType<ApiClient['listMachineDirectory']>>>()
+    )
+
+    useEffect(() => {
+        directoryListingCacheRef.current.clear()
+    }, [machineId])
 
     const pathsToCheck = useMemo(
         () => Array.from(new Set([
@@ -979,15 +994,37 @@ export function NewSession(props: {
 
     const getSuggestions = useCallback(async (query: string): Promise<Suggestion[]> => {
         const lowered = query.toLowerCase()
-        return verifiedPaths
+        const knownPaths = verifiedPaths
             .filter((path) => path.toLowerCase().includes(lowered))
+        const searchTarget = resolveDirectorySearchTarget(query, workspaceRoots)
+        let filesystemPaths: string[] = []
+
+        if (machineId && searchTarget) {
+            const cacheKey = `${machineId}\u0000${searchTarget.directory}`
+            let listing = directoryListingCacheRef.current.get(cacheKey)
+            if (!listing) {
+                try {
+                    listing = await props.api.listMachineDirectory(machineId, searchTarget.directory)
+                    if (listing.success) {
+                        directoryListingCacheRef.current.set(cacheKey, listing)
+                    }
+                } catch {
+                    listing = undefined
+                }
+            }
+            if (listing?.success && listing.entries) {
+                filesystemPaths = getMatchingDirectoryPaths(searchTarget, listing.entries)
+            }
+        }
+
+        return [...new Set([...filesystemPaths, ...knownPaths])]
             .slice(0, 8)
             .map((path) => ({
                 key: path,
                 text: path,
                 label: path
             }))
-    }, [verifiedPaths])
+    }, [machineId, props.api, verifiedPaths, workspaceRoots])
 
     const activeQuery = (!isDirectoryFocused || suppressSuggestions) ? null : directory
 
