@@ -20,6 +20,7 @@ import {
     setSessionTodos,
     replaceSessionTodos,
     touchSessionUpdatedAt,
+    recordSessionUserActivity,
     updateSessionAgentState,
     updateSessionMetadata
 } from './sessions'
@@ -114,6 +115,10 @@ export class SessionStore {
 
     touchSessionUpdatedAt(id: string, updatedAt: number, namespace: string): boolean {
         return touchSessionUpdatedAt(this.db, id, updatedAt, namespace)
+    }
+
+    recordSessionUserActivity(id: string, activityAt: number, namespace: string): boolean {
+        return recordSessionUserActivity(this.db, id, activityAt, namespace)
     }
 
     getSession(id: string): StoredSession | null {

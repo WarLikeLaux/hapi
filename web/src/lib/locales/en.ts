@@ -92,7 +92,7 @@ export default {
   'sessions.timeFilter.dayWithActivity': '{date}, has session activity',
   'sessions.group.expand': 'Expand {n}',
   'sessions.group.collapse': 'Collapse {n}',
-  'sessions.runningSection': 'In progress',
+  'sessions.runningSection': 'Working sessions',
   'sessions.activeSection': 'Active sessions',
   'sessions.group.new': 'New session in this directory',
   'sessions.machineFilter.label': 'Filter sessions by machine',

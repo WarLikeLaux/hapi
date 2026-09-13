@@ -51,6 +51,19 @@ export function classifySessionAttention(
     return null
 }
 
+export function classifyVisibleSessionAttention(
+    summary: SessionSummary,
+    options: {
+        selected: boolean
+        lastSeenAt: number
+        manualUnreadAt?: number | null
+        detailed: boolean
+    }
+): SessionAttention | null {
+    const attention = classifySessionAttention(summary, options)
+    return options.detailed || attention?.kind === 'unread' ? attention : null
+}
+
 export function getSessionAttentionLabelKey(attention: SessionAttention): string {
     switch (attention.kind) {
         case 'permission':

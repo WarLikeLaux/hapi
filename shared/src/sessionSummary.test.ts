@@ -15,6 +15,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     return {
         id: 'session-1',
         namespace: 'default',
+        createdAt: 500,
         active: true,
         activeAt: 1000,
         updatedAt: 2000,
@@ -69,6 +70,12 @@ describe('getPendingRequestKinds', () => {
 })
 
 describe('toSessionSummary', () => {
+    it('exposes stable user-authored recency with a creation-time fallback', () => {
+        expect(toSessionSummary(makeSession({ lastUserMessageAt: 1500 })).lastUserMessageAt).toBe(1500)
+        expect(toSessionSummary(makeSession({ lastUserMessageAt: undefined })).lastUserMessageAt).toBe(500)
+        expect(toSessionSummary(makeSession()).createdAt).toBe(500)
+    })
+
     it('includes the pinned state', () => {
         expect(toSessionSummary(makeSession({ pinned: true })).pinned).toBe(true)
         expect(toSessionSummary(makeSession({ globalPinned: true })).globalPinned).toBe(true)

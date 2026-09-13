@@ -763,12 +763,14 @@ describe('session model', () => {
         cache.recordSessionActivity(session.id, activityAt)
 
         expect(store.sessions.getSession(session.id)?.updatedAt).toBe(activityAt)
+        expect(store.sessions.getSession(session.id)?.lastUserMessageAt).toBe(activityAt)
         expect(cache.getSession(session.id)?.updatedAt).toBe(activityAt)
+        expect(cache.getSession(session.id)?.lastUserMessageAt).toBe(activityAt)
         expect(events).toContainEqual({
             type: 'session-updated',
             sessionId: session.id,
             namespace: 'default',
-            data: { updatedAt: activityAt }
+            data: { updatedAt: activityAt, lastUserMessageAt: activityAt }
         })
     })
 
@@ -941,18 +943,18 @@ describe('session model', () => {
             const invoked = store.messages.getMessages(session.id).find((message) => message.id === queued.id)
             expect(invoked?.invokedAt).toBe(2_000)
             expect(activity).toEqual([
-                { sessionId: session.id, updatedAt: 2_000 },
-                { sessionId: session.id, updatedAt: 2_000 }
+                { sessionId: session.id, updatedAt: 1_000 },
+                { sessionId: session.id, updatedAt: 1_000 }
             ])
-            expect(store.sessions.getSession(session.id)?.updatedAt).toBe(2_000)
-            expect(events.filter((event) => event.type === 'session-updated')).toHaveLength(1)
+            expect(store.sessions.getSession(session.id)?.updatedAt).toBe(1_000)
+            expect(events.filter((event) => event.type === 'session-updated')).toHaveLength(0)
             expect(webEvents.filter((event) => event.type === 'messages-consumed')).toHaveLength(2)
         } finally {
             Date.now = originalDateNow
         }
     })
 
-    it('replays the persisted invocation timestamp after the first activity callback fails', () => {
+    it('replays the persisted user-message timestamp after the first activity callback fails', () => {
         const originalDateNow = Date.now
         const originalConsoleError = console.error
         let now = 1_000
@@ -1003,8 +1005,8 @@ describe('session model', () => {
 
             expect(store.messages.getLocalMessageStates(session.id, ['local-replay']))
                 .toEqual([{ localId: 'local-replay', invokedAt: 2_000 }])
-            expect(store.sessions.getSession(session.id)?.updatedAt).toBe(2_000)
-            expect(activity).toEqual([{ sessionId: session.id, updatedAt: 2_000 }])
+            expect(store.sessions.getSession(session.id)?.updatedAt).toBe(1_000)
+            expect(activity).toEqual([{ sessionId: session.id, updatedAt: 1_000 }])
             expect(webEvents.filter((event) => event.type === 'messages-consumed').map((event) => event.invokedAt))
                 .toEqual([2_000, 3_000])
         } finally {
@@ -1013,7 +1015,7 @@ describe('session model', () => {
         }
     })
 
-    it('uses the newest persisted invocation timestamp for a partial messages-consumed batch', () => {
+    it('keeps the original user-message timestamp for a partial messages-consumed batch', () => {
         const originalDateNow = Date.now
         let now = 1_000
         Date.now = () => now
@@ -1056,7 +1058,7 @@ describe('session model', () => {
                     { localId: 'local-old', invokedAt: 1_500 },
                     { localId: 'local-fresh', invokedAt: 2_000 }
                 ])
-            expect(activity).toEqual([{ sessionId: session.id, updatedAt: 2_000 }])
+            expect(activity).toEqual([{ sessionId: session.id, updatedAt: 1_000 }])
             expect(webEvents.filter((event) => event.type === 'messages-consumed').map((event) => event.invokedAt))
                 .toEqual([2_000])
         } finally {

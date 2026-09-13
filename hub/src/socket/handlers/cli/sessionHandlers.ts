@@ -410,9 +410,9 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
             return
         }
         const invokedAt = Date.now()
-        let sessionUpdatedAt: number
+        let sessionUserActivityAt: number
         try {
-            sessionUpdatedAt = store.recordMessagesConsumed(
+            sessionUserActivityAt = store.recordMessagesConsumed(
                 data.sid,
                 localIds,
                 invokedAt,
@@ -424,7 +424,7 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
         }
 
         try {
-            onSessionActivity?.(data.sid, sessionUpdatedAt)
+            onSessionActivity?.(data.sid, sessionUserActivityAt)
         } catch (err) {
             console.error('onSessionActivity failed', err)
         }

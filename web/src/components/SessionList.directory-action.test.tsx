@@ -429,6 +429,7 @@ describe('SessionList collapse behavior', () => {
     })
 
     it('leaves active sessions in directory groups when pin-in-progress is off', () => {
+        localStorage.setItem('hapi-pin-in-progress-sessions', 'false')
         const sessions = [
             makeSession({
                 id: 'session-running',
@@ -445,14 +446,14 @@ describe('SessionList collapse behavior', () => {
         ]
         render(renderSessionList(sessions, null))
 
-        expect(screen.queryByTitle('In progress')).toBeNull()
+        expect(screen.queryByTitle('Active sessions')).toBeNull()
         expect(screen.getByTitle('/work/hapi')).toBeInTheDocument()
+        fireEvent.click(screen.getByTitle('/work/hapi'))
         expect(screen.getByRole('button', { name: /Running task/ })).toBeInTheDocument()
-        // Active group stays expanded by default so the project glance is immediate.
         expect(screen.getByTitle('/work/hapi').nextElementSibling?.getAttribute('data-open')).toBe('true')
     })
 
-    it('pins active sessions into In progress when the preference is on', () => {
+    it('floats working sessions into the compact Working section', () => {
         localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const sessions = [
             makeSession({
@@ -470,13 +471,13 @@ describe('SessionList collapse behavior', () => {
         ]
         render(renderSessionList(sessions, null))
 
-        expect(screen.getByTitle('In progress')).toBeInTheDocument()
+        expect(screen.getByTitle('Working sessions')).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Running task/ })).toBeInTheDocument()
         // Directory group retains only the inactive session.
         expect(getProjectPanel().getAttribute('data-open')).toBeNull()
     })
 
-    it('keeps project-pinned active sessions in their project group when the preference is on', () => {
+    it('floats project-pinned working sessions into the Working section', () => {
         localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const sessions = [
             makeSession({
@@ -495,12 +496,12 @@ describe('SessionList collapse behavior', () => {
         ]
         render(renderSessionList(sessions, null))
 
-        expect(screen.queryByTitle('In progress')).toBeNull()
-        expect(getProjectPanel().getAttribute('data-open')).toBe('true')
+        expect(screen.getByTitle('Working sessions')).toBeInTheDocument()
+        expect(getProjectPanel().getAttribute('data-open')).toBeNull()
         expect(screen.getByRole('button', { name: /Pinned running task/ })).toBeInTheDocument()
     })
 
-    it('keeps In progress above project-pin groups; project pin stays first inside its group', () => {
+    it('keeps pinned and Working sections above collapsed project history', () => {
         localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const sessions = [
             makeSession({
@@ -536,20 +537,18 @@ describe('SessionList collapse behavior', () => {
         render(renderSessionList(sessions, null))
 
         const globalSection = screen.getByTitle('Pinned sessions')
-        const inProgress = screen.getByTitle('In progress')
+        const working = screen.getByTitle('Working sessions')
         const projectPinGroup = screen.getByTitle('/work/pinned-project')
         const otherGroup = screen.getByTitle('/work/other')
-        const projectPinRow = screen.getByRole('button', { name: /Project pin/ })
-        const projectIdleRow = screen.getByRole('button', { name: /Project idle/ })
 
-        // Section order: global pin band → In progress → directory groups
-        // (project-pin groups may sort first among groups, but never above In progress).
-        expect(globalSection).toAppearBefore(inProgress)
-        expect(inProgress).toAppearBefore(projectPinGroup)
+        expect(globalSection).toAppearBefore(working)
+        expect(working).toAppearBefore(projectPinGroup)
         expect(projectPinGroup).toAppearBefore(otherGroup)
-        // Intra-group: project pin stays first inside its folder.
-        expect(projectPinRow).toAppearBefore(projectIdleRow)
         expect(screen.getByRole('button', { name: /Unpinned floater/ })).toBeInTheDocument()
+        fireEvent.click(projectPinGroup)
+        expect(screen.getByRole('button', { name: /Project pin/ })).toAppearBefore(
+            screen.getByRole('button', { name: /Project idle/ })
+        )
     })
 
     it('does not label quiet active sessions as Idle', () => {
@@ -594,23 +593,17 @@ describe('SessionList collapse behavior', () => {
         ]
         render(renderSessionList(sessions, null))
 
-        expect(screen.getByTitle('In progress')).toBeInTheDocument()
-        expect(screen.getByText(/Running \(1\)/)).toBeInTheDocument()
-        expect(screen.getByText(/pending \(1\)/)).toBeInTheDocument()
-        // Quiet active sessions float into their own Active section (finished
-        // executing, still connected) instead of falling into directory groups.
+        expect(screen.getByTitle('Working sessions')).toHaveTextContent('(1)')
         expect(screen.getByTitle('Active sessions')).toBeInTheDocument()
-        expect(screen.getByText(/Active \(1\)/)).toBeInTheDocument()
+        expect(screen.getByTitle('Active sessions')).toHaveTextContent('(2)')
+        expect(screen.getByRole('button', { name: /Running task/ })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Pending task/ })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Quiet task/ })).toBeInTheDocument()
-        // The directory header survives as an action-only header (copy-path /
-        // new-session-in-directory) even though every row floated.
-        expect(screen.getByTitle('/work/hapi')).toBeInTheDocument()
-        expect(screen.getByTitle('/work/hapi').nextElementSibling).toBeNull()
-        expect(screen.getByTitle('/work/other')).toBeInTheDocument()
-        expect(screen.getByTitle('/work/other').nextElementSibling).toBeNull()
+        expect(screen.queryByTitle('/work/hapi')).toBeNull()
+        expect(screen.queryByTitle('/work/other')).toBeNull()
     })
 
-    it('keeps new-session-in-directory actions for projects whose rows all floated', () => {
+    it('does not leave a dangling project row when every session floated', () => {
         localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const onNewSessionInDirectory = vi.fn()
         const sessions = [
@@ -636,15 +629,9 @@ describe('SessionList collapse behavior', () => {
         )
 
         expect(screen.getByTitle('Active sessions')).toBeInTheDocument()
-        // The project header survives as an action-only header.
-        const header = screen.getByTitle('/work/hapi')
-        expect(header.nextElementSibling).toBeNull()
-
-        fireEvent.click(screen.getByRole('button', { name: 'New session in this directory' }))
-        expect(onNewSessionInDirectory).toHaveBeenCalledWith({
-            machineId: 'machine-1',
-            directory: '/work/hapi',
-        })
+        expect(screen.queryByTitle('/work/hapi')).toBeNull()
+        expect(screen.queryByRole('button', { name: 'New session in this directory' })).toBeNull()
+        expect(onNewSessionInDirectory).not.toHaveBeenCalled()
     })
 
     it('auto-expands the path again when the selected session changes', async () => {
@@ -682,7 +669,7 @@ describe('SessionList collapse behavior', () => {
         })
     })
 
-    it('keeps an inactive project-pinned group expanded with no selection', () => {
+    it('keeps an inactive project-pinned group collapsed with no selection', () => {
         const sessions = [
             makeSession({
                 id: 'session-pinned',
@@ -698,12 +685,13 @@ describe('SessionList collapse behavior', () => {
         ]
         render(renderSessionList(sessions, null))
 
-        expect(getProjectPanel().getAttribute('data-open')).toBe('true')
+        expect(getProjectPanel().getAttribute('data-open')).toBeNull()
+        fireEvent.click(screen.getByTitle('/work/hapi'))
         expect(screen.getByRole('button', { name: /Pinned task/ })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Idle task/ })).toBeInTheDocument()
     })
 
-    it('toggles the Active section independently of In progress', () => {
+    it('toggles the Active section and forces it open while searching', () => {
         localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const sessions = [
             makeSession({
@@ -727,7 +715,6 @@ describe('SessionList collapse behavior', () => {
         expect(activePanel()?.getAttribute('data-open')).toBe('true')
         expect(activeHeader.getAttribute('aria-expanded')).toBe('true')
 
-        // Keyboard toggle mirrors the In progress section.
         fireEvent.keyDown(activeHeader, { key: 'Enter' })
         expect(activeHeader.getAttribute('aria-expanded')).toBe('false')
         expect(activePanel()?.getAttribute('data-open')).toBeNull()
@@ -741,7 +728,7 @@ describe('SessionList collapse behavior', () => {
         expect(activeHeader.getAttribute('aria-expanded')).toBe('true')
     })
 
-    it('keeps the running section open while searching even when collapsed', () => {
+    it('keeps the Working section open while searching even when collapsed', () => {
         localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const sessions = [
             makeSession({
@@ -759,27 +746,27 @@ describe('SessionList collapse behavior', () => {
         ]
         render(renderSessionList(sessions))
 
-        const runningPanel = () => screen.getByTitle('In progress').nextElementSibling
+        const workingPanel = () => screen.getByTitle('Working sessions').nextElementSibling
 
-        expect(runningPanel()?.getAttribute('data-open')).toBe('true')
-        expect(screen.getByTitle('In progress').getAttribute('aria-expanded')).toBe('true')
+        expect(workingPanel()?.getAttribute('data-open')).toBe('true')
+        expect(screen.getByTitle('Working sessions').getAttribute('aria-expanded')).toBe('true')
 
-        fireEvent.click(screen.getByTitle('In progress'))
-        expect(runningPanel()?.getAttribute('data-open')).toBeNull()
-        expect(screen.getByTitle('In progress').getAttribute('aria-expanded')).toBe('false')
+        fireEvent.click(screen.getByTitle('Working sessions'))
+        expect(workingPanel()?.getAttribute('data-open')).toBeNull()
+        expect(screen.getByTitle('Working sessions').getAttribute('aria-expanded')).toBe('false')
 
         fireEvent.click(screen.getByRole('button', { name: SEARCH_LABEL }))
         fireEvent.change(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), {
             target: { value: 'Running' },
         })
 
-        expect(runningPanel()?.getAttribute('data-open')).toBe('true')
+        expect(workingPanel()?.getAttribute('data-open')).toBe('true')
         // The section stays reported open while searching even though the
         // underlying collapsed state is still set.
-        expect(screen.getByTitle('In progress').getAttribute('aria-expanded')).toBe('true')
+        expect(screen.getByTitle('Working sessions').getAttribute('aria-expanded')).toBe('true')
     })
 
-    it('toggles the running section with the keyboard', () => {
+    it('toggles the Working section with the keyboard', () => {
         localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const sessions = [
             makeSession({
@@ -792,7 +779,7 @@ describe('SessionList collapse behavior', () => {
         ]
         render(renderSessionList(sessions))
 
-        const header = screen.getByRole('button', { name: /In progress/ })
+        const header = screen.getByRole('button', { name: /Working sessions/ })
         expect(header.getAttribute('aria-expanded')).toBe('true')
 
         fireEvent.keyDown(header, { key: 'Enter' })

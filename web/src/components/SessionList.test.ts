@@ -13,6 +13,7 @@ import {
     getPreviousSessionVisibleCount,
     getPullToRefreshState,
     getSessionDedupKey,
+    getSessionUserActivityAt,
     getWorktreeSessionLabel,
     getVisibleSessionPreview,
     isSidebarEmptySessionStub,
@@ -21,7 +22,10 @@ import {
     sessionMatchesQuery,
     sessionMatchesTimeRange,
     shouldShowPinnedDivider,
-    shouldShowSessionInSidebar
+    shouldShowSessionInSidebar,
+    sortSessionsByNewestAgentActivity,
+    sortSessionsByNewestUserActivity,
+    sortSessionsByUserActivity
 } from './SessionList'
 
 function makeSession(overrides: Partial<SessionSummary> & { id: string }): SessionSummary {
@@ -453,7 +457,7 @@ describe('getVisibleSessionPreview', () => {
             limit: 3
         })
 
-        expect(preview.map(session => session.id)).toEqual(['s-1', 's-5', 's-6'])
+        expect(preview.map(session => session.id)).toEqual(['s-4', 's-5', 's-6'])
     })
 
     it('does not exceed the limit just because many sessions are active', () => {
@@ -466,7 +470,7 @@ describe('getVisibleSessionPreview', () => {
 
         const preview = getVisibleSessionPreview(sessions, { limit: 4 })
 
-        expect(preview.map(session => session.id)).toEqual(['s-1', 's-2', 's-3', 's-4'])
+        expect(preview.map(session => session.id)).toEqual(['s-3', 's-4', 's-5', 's-6'])
     })
 
     it('does not move an already-visible selected session to the top', () => {
@@ -481,7 +485,7 @@ describe('getVisibleSessionPreview', () => {
             limit: 4
         })
 
-        expect(preview.map(session => session.id)).toEqual(['s-1', 's-2', 's-3', 's-4'])
+        expect(preview.map(session => session.id)).toEqual(['s-3', 's-4', 's-5', 's-6'])
     })
 
     it('returns all sessions when expanded', () => {
@@ -514,6 +518,16 @@ describe('filterActiveSessionsOnly', () => {
             .toEqual(['live', 'selected-dead'])
     })
 
+    it('keeps pinned inactive sessions visible', () => {
+        const sessions = [
+            makeSession({ id: 'dead', metadata: { path: '/p' } }),
+            makeSession({ id: 'project-pin', pinned: true, metadata: { path: '/p' } }),
+            makeSession({ id: 'global-pin', globalPinned: true, metadata: { path: '/p' } }),
+        ]
+        expect(filterActiveSessionsOnly(sessions).map((session) => session.id))
+            .toEqual(['project-pin', 'global-pin'])
+    })
+
     it('preserves input order', () => {
         const sessions = [
             makeSession({ id: 'a', active: true, metadata: { path: '/p' } }),
@@ -521,6 +535,44 @@ describe('filterActiveSessionsOnly', () => {
             makeSession({ id: 'c', active: true, metadata: { path: '/p' } })
         ]
         expect(filterActiveSessionsOnly(sessions).map(s => s.id)).toEqual(['a', 'c'])
+    })
+})
+
+describe('user-authored session ordering', () => {
+    it('sorts oldest to newest by last user message and ignores updatedAt churn', () => {
+        const sessions = [
+            makeSession({ id: 'newest', lastUserMessageAt: 300, updatedAt: 301 }),
+            makeSession({ id: 'oldest', lastUserMessageAt: 100, updatedAt: 9999 }),
+            makeSession({ id: 'middle', lastUserMessageAt: 200, updatedAt: 201 }),
+        ]
+
+        expect(sortSessionsByUserActivity(sessions).map((session) => session.id))
+            .toEqual(['oldest', 'middle', 'newest'])
+    })
+
+    it('falls back to creation time and then updatedAt', () => {
+        expect(getSessionUserActivityAt(makeSession({ id: 'created', createdAt: 10, updatedAt: 20 }))).toBe(10)
+        expect(getSessionUserActivityAt(makeSession({ id: 'updated', updatedAt: 20 }))).toBe(20)
+    })
+
+    it('sorts Working sessions by newest user message first', () => {
+        const sessions = [
+            makeSession({ id: 'older', lastUserMessageAt: 100, updatedAt: 999 }),
+            makeSession({ id: 'newer', lastUserMessageAt: 200, updatedAt: 201 }),
+        ]
+
+        expect(sortSessionsByNewestUserActivity(sessions).map((session) => session.id))
+            .toEqual(['newer', 'older'])
+    })
+
+    it('sorts Active sessions by newest agent activity first', () => {
+        const sessions = [
+            makeSession({ id: 'older-agent', lastUserMessageAt: 500, updatedAt: 600 }),
+            makeSession({ id: 'newer-agent', lastUserMessageAt: 100, updatedAt: 900 }),
+        ]
+
+        expect(sortSessionsByNewestAgentActivity(sessions).map((session) => session.id))
+            .toEqual(['newer-agent', 'older-agent'])
     })
 })
 

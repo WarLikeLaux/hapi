@@ -13,6 +13,7 @@ import { SessionStore } from './sessionStore'
 import { UserStore } from './userStore'
 import { UsageStore } from './usageStore'
 import { WorkGraphStore } from './workGraphStore'
+import { shouldRecordSessionActivity } from '../sync/sessionActivity'
 
 export type {
     NativeDevicePlatform,
@@ -42,7 +43,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 26
+const SCHEMA_VERSION: number = 27
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -126,13 +127,13 @@ export class Store {
         this.scratchlist = new ScratchlistStore(this.db)
         this.usage = new UsageStore(this.db)
         this.workGraph = new WorkGraphStore(this.db)
+        this.backfillLastUserMessageAt()
     }
 
     /**
      * Atomically records a CLI prompt-consumption acknowledgement and returns
-     * the persisted session activity timestamp. A duplicate or sibling-stamped
-     * acknowledgement leaves the session untouched while returning its existing
-     * timestamp for replay-safe in-memory cache synchronization.
+     * the persisted user-message timestamp. Consumption can happen much later
+     * than composition, so it must not manufacture newer user activity.
      */
     recordMessagesConsumed(
         sessionId: string,
@@ -141,21 +142,39 @@ export class Store {
         namespace: string
     ): number {
         return this.db.transaction(() => {
+            const acknowledgedLocalIds = new Set(localIds)
+            const acknowledgedUserMessageAt = this.messages
+                .getUninvokedLocalMessages(sessionId)
+                .filter((message) => (
+                    message.localId !== null
+                    && acknowledgedLocalIds.has(message.localId)
+                    && shouldRecordSessionActivity(message.content)
+                ))
+                .reduce((latest, message) => Math.max(latest, message.createdAt), 0)
             const changes = this.messages.markMessagesInvoked(sessionId, localIds, invokedAt)
-            if (changes > 0) {
-                this.sessions.touchSessionUpdatedAt(sessionId, invokedAt, namespace)
+            if (changes > 0 && acknowledgedUserMessageAt > 0) {
+                this.sessions.recordSessionUserActivity(sessionId, acknowledgedUserMessageAt, namespace)
             }
 
             const session = this.sessions.getSessionByNamespace(sessionId, namespace)
             if (!session) {
                 throw new Error('session not found after messages-consumed transition')
             }
-            if (changes > 0 && session.updatedAt < invokedAt) {
-                throw new Error('session activity was not persisted after messages-consumed transition')
-            }
-
-            return session.updatedAt
+            return session.lastUserMessageAt ?? session.createdAt
         })()
+    }
+
+    private backfillLastUserMessageAt(): void {
+        for (const session of this.sessions.getSessions()) {
+            if (session.lastUserMessageAt !== null) continue
+            let lastUserMessageAt = session.createdAt
+            for (const message of this.messages.getAllMessages(session.id)) {
+                if (shouldRecordSessionActivity(message.content)) {
+                    lastUserMessageAt = Math.max(lastUserMessageAt, message.createdAt)
+                }
+            }
+            this.sessions.recordSessionUserActivity(session.id, lastUserMessageAt, session.namespace)
+        }
     }
 
     /** Persist a steer delivery state before/after the native request. */
@@ -348,6 +367,7 @@ export class Store {
             23: () => this.migrateFromV23ToV24(),
             24: () => this.migrateFromV24ToV25(),
             25: () => this.migrateFromV25ToV26(),
+            26: () => this.migrateFromV26ToV27(),
         })
 
         if (currentVersion === 0) {
@@ -402,6 +422,7 @@ export class Store {
                 machine_id TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
+                last_user_message_at INTEGER,
                 metadata TEXT,
                 metadata_version INTEGER DEFAULT 1,
                 agent_state TEXT,
@@ -994,6 +1015,14 @@ export class Store {
                   AND scheduled_at IS NULL
                   AND delivery_state = 'queued';
         `)
+    }
+
+    /** v26→v27: persist user-authored recency independently from agent churn. */
+    private migrateFromV26ToV27(): void {
+        const columns = this.getSessionColumnNames()
+        if (columns.size > 0 && !columns.has('last_user_message_at')) {
+            this.db.exec('ALTER TABLE sessions ADD COLUMN last_user_message_at INTEGER')
+        }
     }
 
     /**

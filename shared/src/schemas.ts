@@ -322,6 +322,7 @@ export const SessionSchema = z.object({
     seq: z.number(),
     createdAt: z.number(),
     updatedAt: z.number(),
+    lastUserMessageAt: z.number().optional(),
     pinned: z.boolean().optional(),
     globalPinned: z.boolean().optional(),
     active: z.boolean(),
@@ -389,6 +390,7 @@ export const SessionPatchSchema = z.object({
     activeTurnStartedAt: z.number().nullable().optional(),
     activeAt: z.number().optional(),
     updatedAt: z.number().optional(),
+    lastUserMessageAt: z.number().optional(),
     // Structured-patch fields for the second half of #884. Letting the four
     // hub-side emit-sites in cli/sessionHandlers.ts (todos, teamState,
     // metadata, agentState writes) carry their delta means the web client's

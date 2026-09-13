@@ -92,7 +92,7 @@ export default {
   'sessions.timeFilter.dayWithActivity': '{date}，有会话活动',
   'sessions.group.expand': '展开 {n} 个',
   'sessions.group.collapse': '收起 {n} 个',
-  'sessions.runningSection': '进行中',
+  'sessions.runningSection': '工作中会话',
   'sessions.activeSection': '活跃会话',
   'sessions.group.new': '在此目录新建会话',
   'sessions.machineFilter.label': '按机器筛选会话',

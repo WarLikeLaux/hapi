@@ -7,6 +7,7 @@ import { AGENT_MESSAGE_PAYLOAD_TYPE } from '@hapi/protocol'
 import type { CodexCollaborationMode } from '@hapi/protocol/types'
 import { Hono } from 'hono'
 import type { Machine, SyncEngine } from '../../sync/syncEngine'
+import { shouldRecordSessionActivity } from '../../sync/sessionActivity'
 import type { Store, StoredMessage } from '../../store'
 import { truncateOversizedMessageContent } from '../../store/contentCodec'
 import type { WebAppEnv } from '../middleware/auth'
@@ -1350,15 +1351,28 @@ async function mergeSingleDuplicateCodexSessionGroup(options: {
         emitImportedMessageEvents(engine, canonical.sessionId, appendedMessages)
     }
 
+    options.store.sessions.touchSessionUpdatedAt(canonical.sessionId, latestActivity, options.namespace)
+    const latestUserActivity = appendedMessages.reduce(
+        (latest, message) => shouldRecordSessionActivity(message.content)
+            ? Math.max(latest, message.createdAt)
+            : latest,
+        0
+    )
     if (engine) {
-        engine.recordSessionActivity(canonical.sessionId, latestActivity)
+        if (latestUserActivity > 0) {
+            engine.recordSessionActivity(canonical.sessionId, latestUserActivity)
+        }
         // 中文注释：即使这次只是删除重复分身、没有新增消息，也主动刷新 canonical 会话，确保左侧列表立刻收敛到合并后的状态。
         engine.handleRealtimeEvent({
             type: 'session-updated',
             sessionId: canonical.sessionId
         })
-    } else {
-        options.store.sessions.touchSessionUpdatedAt(canonical.sessionId, latestActivity, options.namespace)
+    } else if (latestUserActivity > 0) {
+        options.store.sessions.recordSessionUserActivity(
+            canonical.sessionId,
+            latestUserActivity,
+            options.namespace
+        )
     }
 
     return {
@@ -2077,10 +2091,21 @@ function importSingleCodexSession(options: {
 
         // 中文注释：更新 Hapi 会话的 updatedAt，并在已有会话追加时广播新增消息，让当前打开的聊天页立刻显示客户端新增内容。
         const latestMessageCreatedAt = appendedMessages[appendedMessages.length - 1]?.createdAt ?? Date.now()
-        if (engine) {
-            engine.recordSessionActivity(sessionId, latestMessageCreatedAt)
-        } else {
-            options.store.sessions.touchSessionUpdatedAt(sessionId, latestMessageCreatedAt, options.namespace)
+        options.store.sessions.touchSessionUpdatedAt(sessionId, latestMessageCreatedAt, options.namespace)
+        const latestUserMessageAt = appendedMessages.reduce(
+            (latest, message) => shouldRecordSessionActivity(message.content)
+                ? Math.max(latest, message.createdAt)
+                : latest,
+            0
+        )
+        if (engine && latestUserMessageAt > 0) {
+            engine.recordSessionActivity(sessionId, latestUserMessageAt)
+        } else if (latestUserMessageAt > 0) {
+            options.store.sessions.recordSessionUserActivity(
+                sessionId,
+                latestUserMessageAt,
+                options.namespace
+            )
         }
         if (created) {
             engine?.handleRealtimeEvent({ type: 'session-updated', sessionId })

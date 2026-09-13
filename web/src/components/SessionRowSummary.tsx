@@ -4,7 +4,7 @@ import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { ScheduleIcon } from '@/components/icons'
 import { HoverTooltip, SESSION_ROW_TOOLTIP_FOCUS_CLASS, useSessionRowTooltipIds } from '@/components/HoverTooltip'
 import { getAttentionLabel, SessionAttentionIndicator } from '@/components/SessionAttentionIndicator'
-import { classifySessionAttention } from '@/lib/sessionAttention'
+import { classifyVisibleSessionAttention } from '@/lib/sessionAttention'
 import { getSessionLastSeenAt, getSessionManualUnreadAt } from '@/lib/sessionLastSeen'
 import { formatRelativeTime } from '@/lib/relativeTime'
 import { formatScheduledTooltipDetail } from '@/lib/scheduledTime'
@@ -139,13 +139,12 @@ export function SessionRowSummary(props: {
     const worktreeLabel = getWorktreeSessionLabel(s)
     const todoProgress = getTodoProgress(s)
     const attention = useMemo(
-        () => showDetailedStatus
-            ? classifySessionAttention(s, {
-                selected,
-                lastSeenAt: getSessionLastSeenAt(s.id),
-                manualUnreadAt: getSessionManualUnreadAt(s.id),
-            })
-            : null,
+        () => classifyVisibleSessionAttention(s, {
+            selected,
+            lastSeenAt: getSessionLastSeenAt(s.id),
+            manualUnreadAt: getSessionManualUnreadAt(s.id),
+            detailed: showDetailedStatus,
+        }),
         [s, selected, showDetailedStatus, lastSeenVersion]
     )
     const attentionLabel = attention ? getAttentionLabel(attention, t) : null

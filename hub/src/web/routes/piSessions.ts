@@ -7,6 +7,7 @@ import type { Store, StoredMessage, StoredSession } from '../../store'
 import { ImportedMessageConflictError } from '../../store/messages'
 import { truncateOversizedMessageContent } from '../../store/contentCodec'
 import type { Machine, SyncEngine } from '../../sync/syncEngine'
+import { shouldRecordSessionActivity } from '../../sync/sessionActivity'
 import type { WebAppEnv } from '../middleware/auth'
 
 const importLocks = new Map<string, Promise<PiImportResult>>()
@@ -324,7 +325,16 @@ export function importPiSession(options: {
     if (transcript.model !== undefined) store.sessions.setSessionModel(stored.id, transcript.model ?? null, namespace, { touchUpdatedAt: false })
     if (transcript.thinkingLevel !== undefined) store.sessions.setSessionEffort(stored.id, transcript.thinkingLevel ?? null, namespace, { touchUpdatedAt: false })
     const activityAt = appended.at(-1)?.createdAt ?? transcript.modifiedAt
-    engine.recordSessionActivity(stored.id, activityAt)
+    store.sessions.touchSessionUpdatedAt(stored.id, activityAt, namespace)
+    const lastUserMessageAt = appended.reduce(
+        (latest, message) => shouldRecordSessionActivity(message.content)
+            ? Math.max(latest, message.createdAt)
+            : latest,
+        0
+    )
+    if (lastUserMessageAt > 0) {
+        engine.recordSessionActivity(stored.id, lastUserMessageAt)
+    }
     emitImportedMessages(engine, stored.id, appended)
     engine.handleRealtimeEvent({ type: 'session-updated', sessionId: stored.id })
     return {

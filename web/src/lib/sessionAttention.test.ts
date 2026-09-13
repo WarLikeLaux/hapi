@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionSummary } from '@/types/api'
 import {
     classifySessionAttention,
+    classifyVisibleSessionAttention,
     sessionIsUnread,
 } from './sessionAttention'
 
@@ -129,6 +130,20 @@ describe('classifySessionAttention', () => {
             { selected: false, lastSeenAt: 1000 }
         )
         expect(attention).toEqual({ kind: 'unread' })
+    })
+})
+
+describe('classifyVisibleSessionAttention', () => {
+    it('keeps unread visible in standard mode but hides detailed-only states', () => {
+        expect(classifyVisibleSessionAttention(
+            makeSummary({ id: 'unread', updatedAt: 5000 }),
+            { selected: false, lastSeenAt: 1000, detailed: false }
+        )).toEqual({ kind: 'unread' })
+
+        expect(classifyVisibleSessionAttention(
+            makeSummary({ id: 'permission', pendingRequestKinds: ['permission'] }),
+            { selected: false, lastSeenAt: 1000, detailed: false }
+        )).toBeNull()
     })
 })
 

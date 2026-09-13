@@ -182,6 +182,7 @@ export class SessionCache {
             seq: stored.seq,
             createdAt: stored.createdAt,
             updatedAt: stored.updatedAt,
+            lastUserMessageAt: stored.lastUserMessageAt ?? stored.createdAt,
             pinned: stored.pinned,
             globalPinned: stored.globalPinned,
             active: existing?.active ?? stored.active,
@@ -557,7 +558,8 @@ export class SessionCache {
         }
 
         const nextUpdatedAt = Math.max(stored.updatedAt, updatedAt)
-        const touched = this.store.sessions.touchSessionUpdatedAt(sessionId, nextUpdatedAt, stored.namespace)
+        const nextLastUserMessageAt = Math.max(stored.lastUserMessageAt ?? stored.createdAt, updatedAt)
+        const touched = this.store.sessions.recordSessionUserActivity(sessionId, updatedAt, stored.namespace)
         const session = this.sessions.get(sessionId)
 
         if (!session) {
@@ -567,16 +569,27 @@ export class SessionCache {
             return
         }
 
-        if (nextUpdatedAt <= session.updatedAt && !touched) {
+        if (
+            nextUpdatedAt <= session.updatedAt
+            && nextLastUserMessageAt <= (session.lastUserMessageAt ?? session.createdAt)
+            && !touched
+        ) {
             return
         }
 
         session.updatedAt = Math.max(session.updatedAt, nextUpdatedAt)
+        session.lastUserMessageAt = Math.max(
+            session.lastUserMessageAt ?? session.createdAt,
+            nextLastUserMessageAt
+        )
         this.publisher.emit({
             type: 'session-updated',
             sessionId,
             namespace: session.namespace,
-            data: { updatedAt: session.updatedAt } satisfies SessionPatch
+            data: {
+                updatedAt: session.updatedAt,
+                lastUserMessageAt: session.lastUserMessageAt
+            } satisfies SessionPatch
         })
     }
 

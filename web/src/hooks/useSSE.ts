@@ -158,6 +158,7 @@ export function isRenderIrrelevantPatch(current: SessionSummary, next: SessionSu
     return current.active === next.active
         && current.thinking === next.thinking
         && current.updatedAt === next.updatedAt
+        && current.lastUserMessageAt === next.lastUserMessageAt
         && current.backgroundTaskCount === next.backgroundTaskCount
         && current.model === next.model
         && current.modelReasoningEffort === next.modelReasoningEffort
@@ -529,6 +530,9 @@ export function useSSE(options: {
                     updatedAt: patch.updatedAt !== undefined
                         ? Math.max(current.updatedAt, patch.updatedAt)
                         : current.updatedAt,
+                    lastUserMessageAt: patch.lastUserMessageAt !== undefined
+                        ? Math.max(current.lastUserMessageAt ?? current.createdAt ?? 0, patch.lastUserMessageAt)
+                        : current.lastUserMessageAt,
                     backgroundTaskCount: Object.prototype.hasOwnProperty.call(patch, 'backgroundTaskCount')
                         ? patch.backgroundTaskCount ?? 0
                         : current.backgroundTaskCount,

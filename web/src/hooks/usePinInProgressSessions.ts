@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-export const DEFAULT_PIN_IN_PROGRESS_SESSIONS = false
+export const DEFAULT_PIN_IN_PROGRESS_SESSIONS = true
 
 function getPinInProgressSessionsStorageKey(): string {
     return 'hapi-pin-in-progress-sessions'
@@ -44,9 +44,8 @@ function safeRemoveItem(key: string): void {
 }
 
 function parsePinInProgressSessions(raw: string | null): boolean {
-    if (raw === 'true') {
-        return true
-    }
+    if (raw === 'false') return false
+    if (raw === 'true') return true
     return DEFAULT_PIN_IN_PROGRESS_SESSIONS
 }
 

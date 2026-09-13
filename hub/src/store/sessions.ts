@@ -139,6 +139,7 @@ type DbSessionRow = {
     machine_id: string | null
     created_at: number
     updated_at: number
+    last_user_message_at: number | null
     pinned: number
     global_pinned: number
     metadata: string | null
@@ -166,6 +167,7 @@ function toStoredSession(row: DbSessionRow): StoredSession {
         machineId: row.machine_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        lastUserMessageAt: row.last_user_message_at,
         pinned: row.pinned === 1,
         globalPinned: row.global_pinned === 1,
         metadata: safeJsonParse(row.metadata),
@@ -226,7 +228,7 @@ export function getOrCreateSession(
 
     db.prepare(`
         INSERT INTO sessions (
-            id, tag, namespace, machine_id, created_at, updated_at,
+            id, tag, namespace, machine_id, created_at, updated_at, last_user_message_at,
             metadata, metadata_version,
             agent_state, agent_state_version,
             model,
@@ -235,7 +237,7 @@ export function getOrCreateSession(
             todos, todos_updated_at,
             active, active_at, seq
         ) VALUES (
-            @id, @tag, @namespace, NULL, @created_at, @updated_at,
+            @id, @tag, @namespace, NULL, @created_at, @updated_at, @created_at,
             @metadata, 1,
             @agent_state, 1,
             @model,
@@ -662,6 +664,38 @@ export function touchSessionUpdatedAt(
             updated_at: updatedAt
         })
 
+        return result.changes === 1
+    } catch {
+        return false
+    }
+}
+
+export function recordSessionUserActivity(
+    db: Database,
+    id: string,
+    activityAt: number,
+    namespace: string
+): boolean {
+    try {
+        const result = db.prepare(`
+            UPDATE sessions
+            SET updated_at = CASE
+                    WHEN updated_at < @activity_at THEN @activity_at
+                    ELSE updated_at
+                END,
+                last_user_message_at = CASE
+                    WHEN last_user_message_at IS NULL OR last_user_message_at < @activity_at THEN @activity_at
+                    ELSE last_user_message_at
+                END,
+                seq = seq + 1
+            WHERE id = @id
+              AND namespace = @namespace
+              AND (
+                  updated_at < @activity_at
+                  OR last_user_message_at IS NULL
+                  OR last_user_message_at < @activity_at
+              )
+        `).run({ id, namespace, activity_at: activityAt })
         return result.changes === 1
     } catch {
         return false

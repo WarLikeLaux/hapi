@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-export const DEFAULT_SHOW_ACTIVE_SESSIONS_ONLY = false
+export const DEFAULT_SHOW_ACTIVE_SESSIONS_ONLY = true
 
 function getShowActiveSessionsOnlyStorageKey(): string {
     return 'hapi-show-active-sessions-only'
@@ -44,9 +44,8 @@ function safeRemoveItem(key: string): void {
 }
 
 function parseShowActiveSessionsOnly(raw: string | null): boolean {
-    if (raw === 'true') {
-        return true
-    }
+    if (raw === 'false') return false
+    if (raw === 'true') return true
     return DEFAULT_SHOW_ACTIVE_SESSIONS_ONLY
 }
 

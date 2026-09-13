@@ -27,7 +27,7 @@ import { DEFAULT_SESSION_PREVIEW_LIMIT, useSessionPreviewLimit } from '@/hooks/u
 import { useSessionListStatusMode } from '@/hooks/useSessionListStatusMode'
 import { useShowActiveSessionsOnly } from '@/hooks/useShowActiveSessionsOnly'
 import { usePinInProgressSessions } from '@/hooks/usePinInProgressSessions'
-import { classifySessionAttention, sessionIsUnread } from '@/lib/sessionAttention'
+import { classifyVisibleSessionAttention, sessionIsUnread } from '@/lib/sessionAttention'
 import {
     getSessionLastSeenAt,
     getSessionLastSeenSnapshot,
@@ -63,18 +63,8 @@ type SessionGroup = {
     displayName: string
     machineId: string | null
     sessions: SessionSummary[]
-    latestUpdatedAt: number
-    hasActiveSession: boolean
-    hasPinnedSession: boolean
+    latestUserMessageAt: number
 }
-
-const RUNNING_BUCKETS = [
-    { key: 'working', labelKey: 'session.item.running', colorClass: 'text-[var(--app-badge-success-text)]', pulse: true },
-    { key: 'pending', labelKey: 'session.item.pending', colorClass: 'text-[var(--app-badge-warning-text)]', pulse: true },
-    { key: 'active', labelKey: 'session.item.active', colorClass: 'text-[var(--app-hint)]', pulse: false },
-] as const
-
-type RunningBucketKey = (typeof RUNNING_BUCKETS)[number]['key']
 
 /**
  * Sessions that warrant the optional pinned top sections.
@@ -174,13 +164,39 @@ type MachineGroup = {
     label: string
     projectGroups: SessionGroup[]
     totalSessions: number
-    hasActiveSession: boolean
-    hasPinnedSession: boolean
-    latestUpdatedAt: number
+    latestUserMessageAt: number
 }
 
 export const UNKNOWN_MACHINE_ID = '__unknown__'
 export const GROUP_SESSION_PREVIEW_LIMIT = DEFAULT_SESSION_PREVIEW_LIMIT
+
+export function getSessionUserActivityAt(session: SessionSummary): number {
+    return session.lastUserMessageAt || session.createdAt || session.updatedAt
+}
+
+export function sortSessionsByUserActivity(sessions: SessionSummary[]): SessionSummary[] {
+    return [...sessions].sort((a, b) => {
+        const activityDelta = getSessionUserActivityAt(a) - getSessionUserActivityAt(b)
+        return activityDelta || a.id.localeCompare(b.id)
+    })
+}
+
+export function sortSessionsByNewestUserActivity(sessions: SessionSummary[]): SessionSummary[] {
+    return [...sessions].sort((a, b) => {
+        const activityDelta = getSessionUserActivityAt(b) - getSessionUserActivityAt(a)
+        return activityDelta || a.id.localeCompare(b.id)
+    })
+}
+
+export function sortSessionsByNewestAgentActivity(sessions: SessionSummary[]): SessionSummary[] {
+    return [...sessions].sort((a, b) => (
+        b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)
+    ))
+}
+
+export function isWorkingSession(session: SessionSummary): boolean {
+    return session.active && (session.thinking || (session.backgroundTaskCount ?? 0) > 0)
+}
 
 export function getSessionDedupKey(session: SessionSummary): string | null {
     const agentId = session.metadata?.agentSessionId?.trim()
@@ -250,7 +266,12 @@ export function prepareSidebarSessions(sessions: SessionSummary[], selectedSessi
 // operator currently has open — otherwise toggling the filter would yank the
 // selected session out from under them.
 export function filterActiveSessionsOnly(sessions: SessionSummary[], selectedSessionId?: string | null): SessionSummary[] {
-    return sessions.filter(session => session.active || session.id === selectedSessionId)
+    return sessions.filter(session => (
+        session.active
+        || session.pinned
+        || session.globalPinned
+        || session.id === selectedSessionId
+    ))
 }
 
 // Transient unread lens: hide sessions the operator has already seen.
@@ -296,19 +317,11 @@ function groupSessionsByDirectory(sessions: SessionSummary[]): SessionGroup[] {
 
     return Array.from(groups.entries())
         .map(([key, group]) => {
-            const sortedSessions = [...group.sessions].sort((a, b) => {
-                if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1
-                const rankA = a.active ? (a.pendingRequestsCount > 0 ? 0 : 1) : 2
-                const rankB = b.active ? (b.pendingRequestsCount > 0 ? 0 : 1) : 2
-                if (rankA !== rankB) return rankA - rankB
-                return b.updatedAt - a.updatedAt
-            })
-            const latestUpdatedAt = group.sessions.reduce(
-                (max, s) => (s.updatedAt > max ? s.updatedAt : max),
+            const sortedSessions = sortSessionsByUserActivity(group.sessions)
+            const latestUserMessageAt = group.sessions.reduce(
+                (max, s) => Math.max(max, getSessionUserActivityAt(s)),
                 -Infinity
             )
-            const hasActiveSession = group.sessions.some(s => s.active)
-            const hasPinnedSession = group.sessions.some(s => s.pinned)
             const displayName = getPathDisplayName(group.directory)
 
             return {
@@ -317,19 +330,12 @@ function groupSessionsByDirectory(sessions: SessionSummary[]): SessionGroup[] {
                 displayName,
                 machineId: group.machineId,
                 sessions: sortedSessions,
-                latestUpdatedAt,
-                hasActiveSession,
-                hasPinnedSession
+                latestUserMessageAt,
             }
         })
         .sort((a, b) => {
-            if (a.hasPinnedSession !== b.hasPinnedSession) {
-                return a.hasPinnedSession ? -1 : 1
-            }
-            if (a.hasActiveSession !== b.hasActiveSession) {
-                return a.hasActiveSession ? -1 : 1
-            }
-            return b.latestUpdatedAt - a.latestUpdatedAt
+            const activityDelta = a.latestUserMessageAt - b.latestUserMessageAt
+            return activityDelta || a.key.localeCompare(b.key)
         })
 }
 
@@ -363,22 +369,17 @@ function groupByMachine(
                 label: resolveMachineLabel(g.machineId),
                 projectGroups: [],
                 totalSessions: 0,
-                hasActiveSession: false,
-                hasPinnedSession: false,
-                latestUpdatedAt: 0,
+                latestUserMessageAt: 0,
             }
             map.set(key, mg)
         }
         mg.projectGroups.push(g)
         mg.totalSessions += g.sessions.length
-        if (g.hasActiveSession) mg.hasActiveSession = true
-        if (g.hasPinnedSession) mg.hasPinnedSession = true
-        if (g.latestUpdatedAt > mg.latestUpdatedAt) mg.latestUpdatedAt = g.latestUpdatedAt
+        if (g.latestUserMessageAt > mg.latestUserMessageAt) mg.latestUserMessageAt = g.latestUserMessageAt
     }
     return [...map.values()].sort((a, b) => {
-        if (a.hasPinnedSession !== b.hasPinnedSession) return a.hasPinnedSession ? -1 : 1
-        if (a.hasActiveSession !== b.hasActiveSession) return a.hasActiveSession ? -1 : 1
-        return b.latestUpdatedAt - a.latestUpdatedAt
+        const activityDelta = a.latestUserMessageAt - b.latestUserMessageAt
+        return activityDelta || a.label.localeCompare(b.label)
     })
 }
 
@@ -560,13 +561,17 @@ export function getVisibleSessionPreview(
         requiredIds.add(options.selectedSessionId)
     }
 
+    const firstRecentIndex = Math.max(0, sessions.length - limit)
     const visible: SessionSummary[] = sessions.filter((session, index) => {
-        return index < limit || requiredIds.has(session.id)
+        return index >= firstRecentIndex || requiredIds.has(session.id)
     })
 
-    for (let index = visible.length - 1; visible.length > limit && index >= 0; index -= 1) {
+    for (let index = 0; visible.length > limit && index < visible.length;) {
         const session = visible[index]
-        if (!session || requiredIds.has(session.id)) continue
+        if (!session || requiredIds.has(session.id)) {
+            index += 1
+            continue
+        }
         visible.splice(index, 1)
     }
 
@@ -1011,13 +1016,12 @@ function SessionItem(props: {
 
     const sessionName = getSessionTitle(s)
     const attention = useMemo(
-        () => showDetailedStatus
-            ? classifySessionAttention(s, {
-                selected,
-                lastSeenAt: getSessionLastSeenAt(s.id),
-                manualUnreadAt: getSessionManualUnreadAt(s.id)
-            })
-            : null,
+        () => classifyVisibleSessionAttention(s, {
+            selected,
+            lastSeenAt: getSessionLastSeenAt(s.id),
+            manualUnreadAt: getSessionManualUnreadAt(s.id),
+            detailed: showDetailedStatus,
+        }),
         [s, selected, showDetailedStatus, lastSeenVersion]
     )
     const hasScheduleTooltip = showDetailedStatus && s.futureScheduledMessageCount > 0
@@ -1253,8 +1257,8 @@ export function SessionList(props: {
         [lastSeenVersion, readableSessions]
     )
     const sessionActivityDates = useMemo(
-        () => new Set(allSessions.map(session => formatDateValue(new Date(session.updatedAt)))),
-        [allSessions]
+        () => new Set(sidebarSessions.map(session => formatDateValue(new Date(session.updatedAt)))),
+        [sidebarSessions]
     )
     const visibleSessions = useMemo(
         () => isFiltering
@@ -1270,8 +1274,8 @@ export function SessionList(props: {
         [allSessions, isFiltering, normalizedQuery, timeRange?.start, timeRange?.end, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
     )
     const allGroups = useMemo(
-        () => groupSessionsByDirectory(allSessions),
-        [allSessions]
+        () => groupSessionsByDirectory(sidebarSessions),
+        [sidebarSessions]
     )
     const machineFilters = useMemo(
         () => groupByMachine(allGroups, resolveMachineLabel),
@@ -1319,78 +1323,86 @@ export function SessionList(props: {
             ),
         [unreadFilteredSessions, activeMachineFilter]
     )
+    // Project launch points stay visible when inactive session rows are hidden.
+    // Search/date/unread/machine lenses still scope them consistently with the
+    // visible list; only the active-only preference is deliberately ignored.
+    const projectHeaderSessions = useMemo(() => {
+        const searched = isFiltering
+            ? sidebarSessions.filter((session) => (
+                sessionMatchesTimeRange(session, timeRange)
+                && sessionMatchesQuery(
+                    session,
+                    normalizedQuery,
+                    resolveMachineLabel(session.metadata?.machineId ?? null)
+                )
+            ))
+            : sidebarSessions
+        const lastSeenById = showUnreadOnly ? getSessionLastSeenSnapshot() : null
+        const unread = lastSeenById
+            ? filterUnreadSessionsOnly(searched, selectedSessionId, (id) => lastSeenById[id] ?? 0)
+            : searched
+        return activeMachineFilter === null
+            ? unread
+            : unread.filter((session) => (
+                (session.metadata?.machineId ?? UNKNOWN_MACHINE_ID) === activeMachineFilter
+            ))
+    }, [
+        activeMachineFilter,
+        isFiltering,
+        lastSeenVersion,
+        machineLabelsById,
+        normalizedQuery,
+        selectedSessionId,
+        showUnreadOnly,
+        sidebarSessions,
+        timeRange?.end,
+        timeRange?.start,
+    ]) // eslint-disable-line react-hooks/exhaustive-deps
     const globalPinnedSessions = useMemo(() => {
-        return machineFilteredSessions
-            .filter((session) => Boolean(session.globalPinned))
-            .sort((a, b) => b.updatedAt - a.updatedAt)
+        return sortSessionsByUserActivity(
+            machineFilteredSessions.filter((session) => Boolean(session.globalPinned))
+        )
     }, [machineFilteredSessions])
-    const runningSessions = useMemo(() => {
-        const buckets: Record<RunningBucketKey, SessionSummary[]> = {
-            working: [],
-            pending: [],
-            active: [],
-        }
-        if (!pinInProgressSessions) {
-            return buckets
-        }
-        for (const session of machineFilteredSessions) {
-            if (session.globalPinned || session.pinned) {
-                continue
-            }
-            if (!session.active) {
-                continue
-            }
-            if (session.thinking || (session.backgroundTaskCount ?? 0) > 0) {
-                buckets.working.push(session)
-            } else if ((session.pendingRequestsCount ?? 0) > 0) {
-                buckets.pending.push(session)
-            } else {
-                // Quiet but connected: finished executing, operator will continue.
-                buckets.active.push(session)
-            }
-        }
-        const byRecent = (a: SessionSummary, b: SessionSummary) => b.updatedAt - a.updatedAt
-        for (const key of Object.keys(buckets) as RunningBucketKey[]) {
-            buckets[key].sort(byRecent)
-        }
-        return buckets
-    }, [machineFilteredSessions, pinInProgressSessions])
-    const runningSessionTotal = runningSessions.working.length
-        + runningSessions.pending.length
-    const activeSessionTotal = runningSessions.active.length
-    const groups = useMemo(
-        () => groupSessionsByDirectory(
-            machineFilteredSessions.filter((session) => {
-                if (session.globalPinned) return false
-                if (pinInProgressSessions && !session.pinned && isPinnedInProgressSession(session)) return false
-                return true
-            })
-        ),
-        [machineFilteredSessions, pinInProgressSessions]
-    )
-    // Directory groups whose rows all floated to the pinned sections still
-    // render an action-only header so copy-path / new-session-in-directory
-    // stay available (no rows to group, but the project itself is live).
-    // Based on the same machineFilteredSessions set as `groups` so machine /
-    // unread filters stay consistent.
-    const allDirectoryGroups = useMemo(
-        () => groupSessionsByDirectory(
-            machineFilteredSessions.filter((session) => !session.globalPinned)
-        ),
-        [machineFilteredSessions]
-    )
-    const actionOnlyGroups = useMemo(() => {
+    const workingSessions = useMemo(() => {
         if (!pinInProgressSessions) {
             return []
         }
-        const visibleKeys = new Set(groups.map((group) => group.key))
-        return allDirectoryGroups.filter((group) => !visibleKeys.has(group.key))
-    }, [groups, allDirectoryGroups, pinInProgressSessions])
+        return sortSessionsByNewestUserActivity(
+            machineFilteredSessions.filter((session) => (
+                !session.globalPinned && isWorkingSession(session)
+            ))
+        )
+    }, [machineFilteredSessions, pinInProgressSessions])
+    const activeSessions = useMemo(() => {
+        if (!pinInProgressSessions) {
+            return []
+        }
+        return sortSessionsByNewestAgentActivity(
+            machineFilteredSessions.filter((session) => (
+                session.active && !session.globalPinned && !isWorkingSession(session)
+            ))
+        )
+    }, [machineFilteredSessions, pinInProgressSessions])
+    const allDirectoryGroups = useMemo(
+        () => groupSessionsByDirectory(
+            projectHeaderSessions.filter((session) => !session.globalPinned)
+        ),
+        [projectHeaderSessions]
+    )
+    const groups = useMemo(
+        () => allDirectoryGroups.flatMap((group) => {
+            const sessions = pinInProgressSessions
+                ? group.sessions.filter((session) => !isPinnedInProgressSession(session))
+                : group.sessions
+            return sessions.length > 0 ? [{ ...group, sessions }] : []
+        }),
+        [allDirectoryGroups, pinInProgressSessions]
+    )
     const [collapseOverrides, setCollapseOverrides] = useState<Map<string, boolean>>(
         () => new Map()
     )
-    const [runningSectionCollapsed, setRunningSectionCollapsed] = useState(false)
     const [activeSectionCollapsed, setActiveSectionCollapsed] = useState(false)
+    const [workingSectionCollapsed, setWorkingSectionCollapsed] = useState(false)
     const [pinnedSectionCollapsed, setPinnedSectionCollapsed] = useState(false)
     const autoExpandedSelectedSessionKeyRef = useRef<string | null>(null)
     const isGroupCollapsed = (group: SessionGroup): boolean => {
@@ -1400,7 +1412,7 @@ export function SessionList(props: {
         const hasSelectedSession = selectedSessionId
             ? group.sessions.some(session => session.id === selectedSessionId)
             : false
-        return !group.hasActiveSession && !group.hasPinnedSession && !hasSelectedSession
+        return !hasSelectedSession
     }
 
     const toggleGroup = (groupKey: string, isCollapsed: boolean) => {
@@ -1468,24 +1480,20 @@ export function SessionList(props: {
         )
     }
 
-    const renderPinnedSection = ({
+    const renderSessionSection = ({
         sectionKey,
         titleKey,
         collapsed,
         onToggle,
-        pulse,
-        count,
-        bucketKeys,
+        sessions,
     }: {
         sectionKey: string
         titleKey: string
         collapsed: boolean
         onToggle: () => void
-        pulse: boolean
-        count: number
-        bucketKeys: RunningBucketKey[]
+        sessions: SessionSummary[]
     }) => {
-        if (count === 0) {
+        if (sessions.length === 0) {
             return null
         }
         return (
@@ -1506,89 +1514,36 @@ export function SessionList(props: {
                 >
                     <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={collapsed && !isFiltering} />
                     <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-                        <span className={`h-1.5 w-1.5 rounded-full bg-[var(--app-badge-success-text)] ${pulse ? 'animate-pulse' : ''}`} />
+                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-badge-success-text)]" />
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                         {t(titleKey)}
                     </span>
                     <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
-                        ({count})
+                        ({sessions.length})
                     </span>
                 </div>
                 <div className="collapsible-panel" data-open={(!collapsed || isFiltering) || undefined}>
                     <div className="collapsible-inner">
                     <div className="flex flex-col gap-0.5 ml-3 pl-1 py-1">
-                        {bucketKeys.map((bucketKey) => {
-                            const bucket = RUNNING_BUCKETS.find((b) => b.key === bucketKey)
-                            const sessions = runningSessions[bucketKey]
-                            if (!bucket || sessions.length === 0) {
-                                return null
-                            }
-                            return (
-                                <div key={bucketKey}>
-                                    <div className={`flex items-center gap-1 px-1 pt-1 pb-0.5 text-[11px] font-medium ${bucket.colorClass}`}>
-                                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full bg-current ${bucket.pulse ? 'animate-pulse' : ''}`} aria-hidden="true" />
-                                        {t(bucket.labelKey)} ({sessions.length})
-                                    </div>
-                                    {sessions.map((s) => (
-                                        <SessionItem
-                                            key={s.id}
-                                            session={s}
-                                            onSelect={props.onSelect}
-                                            showPath={false}
-                                            api={api}
-                                            titleSuggestionAvailable={titleSuggestionAvailable}
-                                            selected={s.id === selectedSessionId}
-                                            showDetailedStatus={showDetailedStatus}
-                                            inRunningSection
-                                            projectLabel={getPathDisplayName(s.metadata?.worktree?.basePath ?? s.metadata?.path ?? 'Other')}
-                                            machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
-                                            lastSeenVersion={lastSeenVersion}
-                                        />
-                                    ))}
-                                </div>
-                            )
-                        })}
+                        {sessions.map((s) => (
+                            <SessionItem
+                                key={s.id}
+                                session={s}
+                                onSelect={props.onSelect}
+                                showPath={false}
+                                api={api}
+                                titleSuggestionAvailable={titleSuggestionAvailable}
+                                selected={s.id === selectedSessionId}
+                                showDetailedStatus={showDetailedStatus}
+                                inRunningSection
+                                projectLabel={getPathDisplayName(s.metadata?.worktree?.basePath ?? s.metadata?.path ?? 'Other')}
+                                machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
+                                lastSeenVersion={lastSeenVersion}
+                            />
+                        ))}
                     </div>
                     </div>
-                </div>
-            </div>
-        )
-    }
-
-    const renderActionOnlyGroupHeader = (group: SessionGroup) => {
-        // With multiple machines in the unfiltered view, disambiguate
-        // same-named directories by suffixing the machine label.
-        const groupTitle = showMachineFilterBar && activeMachineFilter === null
-            ? `${group.displayName} · ${resolveMachineLabel(group.machineId)}`
-            : group.displayName
-        return (
-            <div key={group.key} data-session-scroll-anchor>
-                <div
-                    className="group/project sticky top-0 z-10 flex items-center gap-2 bg-[var(--app-bg)] py-1.5 pl-2 pr-2 text-left rounded-lg transition-colors hover:bg-[var(--app-secondary-bg)] min-w-0 w-full select-none"
-                    title={group.directory}
-                >
-                    <span className="font-medium text-sm truncate flex-1">
-                        {groupTitle}
-                    </span>
-                    <CopyPathButton path={group.directory} className="opacity-0 group-hover/project:opacity-100 transition-opacity duration-150" />
-                    {onNewSessionInDirectory && group.directory !== 'Other' ? (
-                        <button
-                            type="button"
-                            onClick={(event) => {
-                                event.stopPropagation()
-                                onNewSessionInDirectory({
-                                    machineId: group.machineId,
-                                    directory: group.directory
-                                })
-                            }}
-                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] opacity-70 transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-link)] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
-                            title={t('sessions.group.new')}
-                            aria-label={t('sessions.group.new')}
-                        >
-                            <PlusIcon className="h-3.5 w-3.5" />
-                        </button>
-                    ) : null}
                 </div>
             </div>
         )
@@ -1901,7 +1856,7 @@ export function SessionList(props: {
                             {showMachineFilterBar ? (
                                 <MachineFilterMenu
                                     machines={machineFilterItems}
-                                    totalCount={allSessions.length}
+                                    totalCount={sidebarSessions.length}
                                     value={activeMachineFilter}
                                     onChange={setMachineFilter}
                                 />
@@ -1960,7 +1915,7 @@ export function SessionList(props: {
             {showMachineFilterBar ? (
                 <MachineFilterBar
                     machines={machineFilterItems}
-                    totalCount={allSessions.length}
+                    totalCount={sidebarSessions.length}
                     value={activeMachineFilter}
                     onChange={setMachineFilter}
                 />
@@ -1997,7 +1952,7 @@ export function SessionList(props: {
                     />
                 ) : null}
 
-                {props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null || showUnreadOnly) && groups.length === 0 && runningSessionTotal === 0 && activeSessionTotal === 0 && globalPinnedSessions.length === 0 ? (
+                {props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null || showUnreadOnly) && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && globalPinnedSessions.length === 0 ? (
                     <div className="px-4 py-8 text-center text-sm text-[var(--app-hint)]">
                         {t('sessions.search.noResults')}
                     </div>
@@ -2056,26 +2011,21 @@ export function SessionList(props: {
                     </div>
                 ) : null}
 
-                {renderPinnedSection({
-                    sectionKey: 'running-section',
+                {renderSessionSection({
+                    sectionKey: 'working-section',
                     titleKey: 'sessions.runningSection',
-                    collapsed: runningSectionCollapsed,
-                    onToggle: () => setRunningSectionCollapsed((value) => !value),
-                    pulse: true,
-                    count: runningSessionTotal,
-                    bucketKeys: ['working', 'pending'],
+                    collapsed: workingSectionCollapsed,
+                    onToggle: () => setWorkingSectionCollapsed((value) => !value),
+                    sessions: workingSessions,
                 })}
-                {renderPinnedSection({
+                {renderSessionSection({
                     sectionKey: 'active-section',
                     titleKey: 'sessions.activeSection',
                     collapsed: activeSectionCollapsed,
                     onToggle: () => setActiveSectionCollapsed((value) => !value),
-                    pulse: false,
-                    count: activeSessionTotal,
-                    bucketKeys: ['active'],
+                    sessions: activeSessions,
                 })}
                 {groups.map(renderDirectoryGroup)}
-                {actionOnlyGroups.map(renderActionOnlyGroupHeader)}
             </SessionListScrollAnchor>
             </div>
             </div>

@@ -5,6 +5,7 @@ export type StoredSession = {
     machineId: string | null
     createdAt: number
     updatedAt: number
+    lastUserMessageAt: number | null
     pinned: boolean
     globalPinned: boolean
     metadata: unknown | null
