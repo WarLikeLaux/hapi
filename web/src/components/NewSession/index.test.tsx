@@ -1287,7 +1287,8 @@ describe('NewSession launch preferences', () => {
         }))
         expect(mocks.sendMessage).toHaveBeenCalledWith(
             'continued-session',
-            expect.stringContaining('/sessions/8d534fba-33d6-4ce4-9d96-64e9e38d61da')
+            expect.stringContaining('/sessions/8d534fba-33d6-4ce4-9d96-64e9e38d61da'),
+            expect.stringMatching(/^local-/)
         )
     })
 })

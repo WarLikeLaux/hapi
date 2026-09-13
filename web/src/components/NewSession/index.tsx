@@ -84,6 +84,7 @@ import { markCodexSessionsImported } from '@/lib/codexImportedSessions'
 import { useToast } from '@/lib/toast-context'
 import { buildSessionReferenceText } from '@/lib/sessionReference'
 import { getSessionTitle } from '@/lib/sessionTitle'
+import { makeClientSideId } from '@/lib/messages'
 
 
 
@@ -1707,7 +1708,8 @@ export function NewSession(props: {
                     try {
                         await props.api.sendMessage(
                             result.sessionId,
-                            `${buildSessionReferenceText(getSessionTitle(continueFrom), continueFrom.id)} Continue the work from that session in this project directory.`
+                            `${buildSessionReferenceText(getSessionTitle(continueFrom), continueFrom.id)} Continue the work from that session in this project directory.`,
+                            makeClientSideId('local')
                         )
                     } catch (sendError) {
                         addToast({
