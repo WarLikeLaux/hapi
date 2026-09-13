@@ -566,6 +566,31 @@ describe('aggregateResponseGroups', () => {
         })
     })
 
+    it('keeps compaction markers inside one surrounding Show work response group', () => {
+        const blocks: VisibleChatBlock[] = [
+            userText('u1'),
+            agentText('a1', {
+                localId: 'L1',
+                invokedAt: 100,
+                model: 'gpt-5',
+                usage: { input_tokens: 2, output_tokens: 3, service_tier: 'standard' }
+            }),
+            agentEvent('compact', { type: 'compact', trigger: 'auto', preTokens: 1000 }),
+            agentText('a2', {
+                localId: 'L2',
+                invokedAt: 200,
+                model: 'gpt-5',
+                usage: { input_tokens: 4, output_tokens: 5, service_tier: 'standard' }
+            })
+        ]
+
+        expect(aggregateResponseGroups(blocks).get('a1')?.turnCount).toBe(2)
+        expect(toThreadMessageLike(blocks[2]!, 'agent-event:compact', 150)).toMatchObject({
+            role: 'assistant',
+            content: [{ type: 'reasoning', text: 'Conversation compacted' }]
+        })
+    })
+
     it('does not aggregate user-role cli-output blocks (they do not belong to a response group)', () => {
         // Defensive: a cli-output with source='user' is rendered as a user
         // role message by the converter, so it must not be folded into an

@@ -41,6 +41,11 @@ export type VisibleChatBlock = ChatBlock | ToolGroupBlock
 
 export type VisibleChatBlockRole = 'user' | 'assistant' | 'system'
 
+export function isInlineWorkEvent(block: VisibleChatBlock): boolean {
+    return block.kind === 'agent-event'
+        && ['title-changed', 'compact', 'microcompact'].includes(block.event.type)
+}
+
 /**
  * The role a block renders under in the thread. `@assistant-ui/react` joins
  * adjacent assistant-role blocks into a single card, so this also determines
@@ -48,12 +53,12 @@ export type VisibleChatBlockRole = 'user' | 'assistant' | 'system'
  */
 export function visibleBlockRole(block: VisibleChatBlock): VisibleChatBlockRole {
     if (block.kind === 'user-text') return 'user'
-    // A title change is work performed inside the current agent turn. Keeping
-    // it as a system boundary splits the surrounding assistant output into two
-    // cards, leaving pre-title reasoning outside the completed turn's Show work
-    // dialog. Other lifecycle events remain standalone system messages.
+    // Title changes and compaction markers are work performed inside the
+    // current agent turn. Keeping them as system boundaries splits the
+    // surrounding assistant output into multiple cards and therefore multiple
+    // Show work dialogs. Other lifecycle events remain standalone messages.
     if (block.kind === 'agent-event') {
-        return block.event.type === 'title-changed' ? 'assistant' : 'system'
+        return isInlineWorkEvent(block) ? 'assistant' : 'system'
     }
     if (block.kind === 'cli-output') return block.source === 'user' ? 'user' : 'assistant'
     return 'assistant'

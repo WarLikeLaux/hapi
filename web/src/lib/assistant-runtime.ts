@@ -13,7 +13,7 @@ import { renderEventLabel } from '@/chat/presentation'
 import type { ChatBlock, CliOutputBlock, CodexReview, RoundSummary, UsageData } from '@/chat/types'
 import type { AgentEvent, ToolCallBlock } from '@/chat/types'
 import type { ToolGroupBlock, VisibleChatBlock } from '@/chat/toolGroups'
-import { visibleBlockRole } from '@/chat/toolGroups'
+import { isInlineWorkEvent, visibleBlockRole } from '@/chat/toolGroups'
 import type { AttachmentMetadata, MessageStatus as HappyMessageStatus, Session } from '@/types/api'
 import { orderItemsById } from '@/lib/attachmentOrder'
 
@@ -593,7 +593,7 @@ export function toThreadMessageLike(
     }
 
     if (block.kind === 'agent-event') {
-        if (block.event.type === 'title-changed') {
+        if (isInlineWorkEvent(block)) {
             return {
                 role: 'assistant',
                 id: threadMessageId,
