@@ -287,6 +287,11 @@ export default {
   'session.action.delete': '删除',
   'session.action.copy': '复制',
   'session.action.copyReference': '复制引用',
+  'session.action.continueInFolder': '在其他文件夹中继续',
+  'newSession.continue.description': '从“{title}”继续。系统会自动发送上一段对话的引用。',
+  'newSession.continue.loading': '正在加载源会话…',
+  'newSession.continue.notFound': '无法加载源会话。',
+  'newSession.continue.sendFailed.title': '会话已创建，但上下文未发送',
 
   // Dialogs
   'dialog.uri.title': '打开此链接？',

@@ -12,6 +12,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
     spawnSession: vi.fn(),
+    sendMessage: vi.fn(),
     onSuccess: vi.fn(),
     notification: vi.fn(),
     checkPathsExists: vi.fn(),
@@ -275,13 +276,15 @@ vi.mock('./ActionButtons', () => ({
 import { NewSession } from './index'
 
 const machine = { id: 'machine-1' } as Machine
-const api = {} as ApiClient
+const api = { sendMessage: mocks.sendMessage } as unknown as ApiClient
 
 describe('NewSession launch preferences', () => {
     beforeEach(() => {
         localStorage.clear()
         sessionStorage.clear()
         mocks.spawnSession.mockReset()
+        mocks.sendMessage.mockReset()
+        mocks.sendMessage.mockResolvedValue(undefined)
         mocks.onSuccess.mockReset()
         mocks.notification.mockReset()
         mocks.checkPathsExists.mockReset()
@@ -1237,5 +1240,54 @@ describe('NewSession launch preferences', () => {
             agent: 'pi',
             model: 'opencode-go/deepseek-v4-pro',
         }))
+    })
+
+    it('reuses source settings and sends its reference when continuing in another folder', async () => {
+        savePreferredAgent('claude')
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'continued-session' })
+        const continueFromSession = {
+            id: '8d534fba-33d6-4ce4-9d96-64e9e38d61da',
+            metadata: {
+                path: 'C:\\code',
+                host: 'desktop',
+                name: 'HAPI interface work',
+                flavor: 'codex',
+                preferredPermissionMode: 'yolo',
+            },
+            model: 'gpt-5.6-sol',
+            modelReasoningEffort: 'high',
+            effort: null,
+            serviceTier: 'fast',
+            permissionMode: 'yolo',
+            collaborationMode: 'default',
+        } as unknown as import('@/types/api').Session
+
+        render(
+            <NewSession
+                api={api}
+                machines={[machine]}
+                initialMachineId="machine-1"
+                initialDirectory="C:\\repo"
+                continueFromSession={continueFromSession}
+                onSuccess={mocks.onSuccess}
+                onCancel={() => {}}
+            />
+        )
+
+        expect(screen.getByText('newSession.continue.description')).toBeInTheDocument()
+        await waitFor(() => expect(screen.getByDisplayValue('codex')).toBeChecked())
+        fireEvent.click(screen.getByTestId('create'))
+
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('continued-session'))
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'codex',
+            model: 'gpt-5.6-sol',
+            modelReasoningEffort: 'high',
+            permissionMode: 'yolo',
+        }))
+        expect(mocks.sendMessage).toHaveBeenCalledWith(
+            'continued-session',
+            expect.stringContaining('/sessions/8d534fba-33d6-4ce4-9d96-64e9e38d61da')
+        )
     })
 })

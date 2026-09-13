@@ -29,6 +29,7 @@ import { selectMobileSessionHeaderSecondary } from '@/lib/sessionHeaderMobileMet
 import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { markSessionUnread } from '@/lib/sessionLastSeen'
 import { usePlatform } from '@/hooks/usePlatform'
+import { useNavigate } from '@tanstack/react-router'
 
 /** Same preference order as session-list chips: display label → host → short id. */
 export function resolveSessionHeaderMachineLabel(
@@ -156,6 +157,7 @@ export function SessionHeader(props: {
     onSessionReopened?: (newSessionId: string) => void | Promise<void>
 }) {
     const { t, locale } = useTranslation()
+    const navigate = useNavigate()
     const { isTouch } = usePlatform()
     const queryClient = useQueryClient()
     const { addToast } = useToast()
@@ -561,6 +563,13 @@ export function SessionHeader(props: {
                 onOpenTermDeck={api && agentFlavor === 'codex' && !isTouch && session.metadata?.machineId
                     ? () => void handleOpenTermDeck()
                     : undefined}
+                onContinueInFolder={() => navigate({
+                    to: '/browse',
+                    search: {
+                        continueFromSessionId: session.id,
+                        ...(session.metadata?.machineId ? { machineId: session.metadata.machineId } : {}),
+                    },
+                })}
                 onRestart={props.canReopen === false ? undefined : () => setRestartOpen(true)}
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={props.canReopen === false ? undefined : handleReopen}

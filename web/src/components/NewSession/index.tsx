@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { ApiClient } from '@/api/client'
-import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary } from '@/types/api'
-import type { CodexCollaborationMode, GrokPermissionMode, PermissionMode, CopilotAgentMode } from '@hapi/protocol'
+import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary, Session } from '@/types/api'
+import { isKnownFlavor, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
 import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
@@ -82,6 +82,8 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { formatRunnerSpawnError } from '../../utils/formatRunnerSpawnError'
 import { markCodexSessionsImported } from '@/lib/codexImportedSessions'
 import { useToast } from '@/lib/toast-context'
+import { buildSessionReferenceText } from '@/lib/sessionReference'
+import { getSessionTitle } from '@/lib/sessionTitle'
 
 
 
@@ -95,6 +97,7 @@ export function NewSession(props: {
     onChooseFolder?: (args: { machineId: string | null; directory: string }) => void
     initialDirectory?: string
     initialMachineId?: string
+    continueFromSession?: Session
 }) {
     const { haptic, isTouch } = usePlatform()
     const { t } = useTranslation()
@@ -103,11 +106,15 @@ export function NewSession(props: {
     const { sessions, refetch: refetchSessions } = useSessions(props.api)
     const { getRecentPaths, addRecentPath, getLastUsedMachineId, setLastUsedMachineId } = useRecentPaths()
 
+    const continueFrom = props.continueFromSession
+    const continueAgent = isKnownFlavor(continueFrom?.metadata?.flavor)
+        ? continueFrom.metadata.flavor
+        : null
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
     const [suppressSuggestions, setSuppressSuggestions] = useState(false)
     const [isDirectoryFocused, setIsDirectoryFocused] = useState(false)
-    const [agent, setAgent] = useState<AgentType>(loadPreferredAgent)
+    const [agent, setAgent] = useState<AgentType>(() => continueAgent ?? loadPreferredAgent())
     // Snapshot taken once at mount, before any savePreferredAgent() call this
     // component makes can overwrite the stored agent. savePreferredAgent()
     // runs on every agent change (below), so reading loadPreferredAgent()
@@ -116,17 +123,17 @@ export function NewSession(props: {
     const [legacyYoloAgent] = useState(
         () => (loadPreferredYoloMode() ? loadPreferredAgent() : null)
     )
-    const [model, setModel] = useState('auto')
+    const [model, setModel] = useState(() => continueFrom?.model ?? 'auto')
     const [cursorSelectedBase, setCursorSelectedBase] = useState('auto')
     const pendingCursorBaseRef = useRef<string | null>(null)
-    const [effort, setEffort] = useState<LaunchEffort>('auto')
-    const [modelReasoningEffort, setModelReasoningEffort] = useState<CodexReasoningEffort>('default')
+    const [effort, setEffort] = useState<LaunchEffort>(() => continueFrom?.effort ?? 'auto')
+    const [modelReasoningEffort, setModelReasoningEffort] = useState<CodexReasoningEffort>(() => continueFrom?.modelReasoningEffort ?? 'default')
     const [opencodeSelectedModel, setOpencodeSelectedModel] = useState<string | null | undefined>(undefined)
-    const [serviceTier, setServiceTier] = useState<NewSessionServiceTier>('standard')
-    const [collaborationMode, setCollaborationMode] = useState<CodexCollaborationMode>('default')
-    const [copilotAgentMode, setCopilotAgentMode] = useState<CopilotAgentMode>('interactive')
+    const [serviceTier, setServiceTier] = useState<NewSessionServiceTier>(() => continueFrom?.serviceTier === 'fast' ? 'fast' : 'standard')
+    const [collaborationMode, setCollaborationMode] = useState<CodexCollaborationMode>(() => continueFrom?.collaborationMode ?? 'default')
+    const [copilotAgentMode, setCopilotAgentMode] = useState<CopilotAgentMode>(() => continueFrom?.copilotAgentMode ?? 'interactive')
     const [yoloMode, setYoloMode] = useState(loadPreferredYoloMode)
-    const [nativePermissionMode, setNativePermissionMode] = useState<PermissionMode>('default')
+    const [nativePermissionMode, setNativePermissionMode] = useState<PermissionMode>(() => continueFrom?.permissionMode ?? continueFrom?.metadata?.preferredPermissionMode ?? 'default')
     const [grokPermissionMode, setGrokPermissionMode] = useState<GrokPermissionMode>('default')
     const [sessionType, setSessionType] = useState<SessionType>('simple')
     const [worktreeName, setWorktreeName] = useState('')
@@ -168,7 +175,7 @@ export function NewSession(props: {
         || isBulkImportingPiSessions
     )
     const worktreeInputRef = useRef<HTMLInputElement>(null)
-    const preserveRestoredDraftRef = useRef(false)
+    const preserveRestoredDraftRef = useRef(Boolean(continueFrom))
 
     useEffect(() => {
         if (sessionType === 'worktree') {
@@ -227,6 +234,9 @@ export function NewSession(props: {
         if (restoredFromBrowseRef.current) {
             return
         }
+        if (continueFrom) {
+            return
+        }
         if (!shouldRestoreNewSessionFormDraft({
             initialDirectory: props.initialDirectory,
             initialMachineId: props.initialMachineId
@@ -266,6 +276,7 @@ export function NewSession(props: {
         setWorktreeName(draft.worktreeName)
         clearNewSessionFormDraft()
     }, [
+        continueFrom,
         props.initialDirectory,
         props.initialMachineId,
         machineId
@@ -1692,6 +1703,21 @@ export function NewSession(props: {
 
 
             if (result.type === 'success') {
+                if (continueFrom) {
+                    try {
+                        await props.api.sendMessage(
+                            result.sessionId,
+                            `${buildSessionReferenceText(getSessionTitle(continueFrom), continueFrom.id)} Continue the work from that session in this project directory.`
+                        )
+                    } catch (sendError) {
+                        addToast({
+                            title: t('newSession.continue.sendFailed.title'),
+                            body: sendError instanceof Error ? sendError.message : t('dialog.error.default'),
+                            sessionId: result.sessionId,
+                            url: `/sessions/${result.sessionId}`,
+                        })
+                    }
+                }
                 if (agent === 'codex' && termDeckEnabled && !isTouch) {
                     const ensureTermDeck = props.api.ensureTermDeckSession?.bind(props.api)
                     void ensureTermDeck?.(machineId, result.sessionId).then((linked) => {
@@ -1786,6 +1812,11 @@ export function NewSession(props: {
 
     return (
         <div className="flex flex-col divide-y divide-[var(--app-divider)] [&>div]:pr-[10px] lg:[&>div]:pr-3">
+            {continueFrom ? (
+                <div className="px-3 py-2 text-sm text-[var(--app-hint)]">
+                    {t('newSession.continue.description', { title: getSessionTitle(continueFrom) })}
+                </div>
+            ) : null}
             <MachineSelector
                 machines={props.machines}
                 machineId={machineId}
