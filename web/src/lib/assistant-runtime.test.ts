@@ -6,7 +6,8 @@ import {
     assignThreadMessageIdsWithStableWrappers,
     findLatestCompletedBoundaryId,
     getBlockPresentationTimestamp,
-    getResponseGroupTimestamps
+    getResponseGroupTimestamps,
+    toThreadMessageLike
 } from './assistant-runtime'
 import type { AgentEventBlock, AgentTextBlock, CliOutputBlock, ToolCallBlock, UserTextBlock } from '@/chat/types'
 import { buildVisibleChatBlocks, type ToolGroupBlock, type VisibleChatBlock } from '@/chat/toolGroups'
@@ -538,6 +539,31 @@ describe('aggregateResponseGroups', () => {
         expect(meta2?.invokedAt).toBe(200)
         expect(meta2?.usage?.input_tokens).toBe(5)
         expect(meta2?.usage?.output_tokens).toBe(9)
+    })
+
+    it('keeps title changes inside the surrounding assistant response group', () => {
+        const blocks: VisibleChatBlock[] = [
+            userText('u1'),
+            agentText('a1', {
+                localId: 'L1',
+                invokedAt: 100,
+                model: 'gpt-5',
+                usage: { input_tokens: 2, output_tokens: 3, service_tier: 'standard' }
+            }),
+            agentEvent('title', { type: 'title-changed', title: 'New title' }),
+            agentText('a2', {
+                localId: 'L2',
+                invokedAt: 200,
+                model: 'gpt-5',
+                usage: { input_tokens: 4, output_tokens: 5, service_tier: 'standard' }
+            })
+        ]
+
+        expect(aggregateResponseGroups(blocks).get('a1')?.turnCount).toBe(2)
+        expect(toThreadMessageLike(blocks[2]!, 'agent-event:title', 150)).toMatchObject({
+            role: 'assistant',
+            content: [{ type: 'reasoning', text: 'Title changed to "New title"' }]
+        })
     })
 
     it('does not aggregate user-role cli-output blocks (they do not belong to a response group)', () => {

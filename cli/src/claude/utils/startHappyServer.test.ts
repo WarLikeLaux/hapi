@@ -193,6 +193,44 @@ describe('startHappyServer skill_lookup', () => {
         ])
     })
 
+    it('persists direct platform change_title calls when launcher-side handling is disabled', async () => {
+        const updateMetadata = vi.fn()
+        const sessionClient = {
+            updateMetadata,
+            sendAgentMessage: vi.fn(),
+            sendClaudeSessionMessage: vi.fn()
+        } as unknown as ApiSessionClient
+        const server = await startHappyServer(sessionClient, { emitTitleSummary: false })
+        stopServer = server.stop
+        const mcp = new Client({ name: 'codex-platform-functions', version: '1.0.0' })
+        client = mcp
+        await mcp.connect(new StreamableHTTPClientTransport(new URL(server.url)))
+
+        await mcp.callTool({ name: 'change_title', arguments: { title: 'Useful title' } })
+
+        const titleUpdater = updateMetadata.mock.calls.at(-1)?.[0] as ((metadata: Record<string, unknown>) => Record<string, unknown>)
+        expect(titleUpdater({ path: '/repo' })).toEqual({ path: '/repo', name: 'Useful title' })
+    })
+
+    it('leaves stdio-bridge title persistence to the parent launcher', async () => {
+        const updateMetadata = vi.fn()
+        const sessionClient = {
+            updateMetadata,
+            sendAgentMessage: vi.fn(),
+            sendClaudeSessionMessage: vi.fn()
+        } as unknown as ApiSessionClient
+        const server = await startHappyServer(sessionClient, { emitTitleSummary: false })
+        stopServer = server.stop
+        const mcp = new Client({ name: 'hapi-stdio-bridge', version: '1.0.0' })
+        client = mcp
+        await mcp.connect(new StreamableHTTPClientTransport(new URL(server.url)))
+        const callsAfterServerSetup = updateMetadata.mock.calls.length
+
+        await mcp.callTool({ name: 'change_title', arguments: { title: 'Child title' } })
+
+        expect(updateMetadata).toHaveBeenCalledTimes(callsAfterServerSetup)
+    })
+
 })
 
 describe('toClaudeAllowedHapiMcpTools', () => {

@@ -48,7 +48,13 @@ export type VisibleChatBlockRole = 'user' | 'assistant' | 'system'
  */
 export function visibleBlockRole(block: VisibleChatBlock): VisibleChatBlockRole {
     if (block.kind === 'user-text') return 'user'
-    if (block.kind === 'agent-event') return 'system'
+    // A title change is work performed inside the current agent turn. Keeping
+    // it as a system boundary splits the surrounding assistant output into two
+    // cards, leaving pre-title reasoning outside the completed turn's Show work
+    // dialog. Other lifecycle events remain standalone system messages.
+    if (block.kind === 'agent-event') {
+        return block.event.type === 'title-changed' ? 'assistant' : 'system'
+    }
     if (block.kind === 'cli-output') return block.source === 'user' ? 'user' : 'assistant'
     return 'assistant'
 }

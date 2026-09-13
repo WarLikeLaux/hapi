@@ -251,6 +251,8 @@ export default {
   'session.action.markUnread': '标为未读',
   'session.action.syncCodex': '同步 Codex',
   'session.action.syncPi': '同步 Pi 历史',
+  'session.responseWork.open': '查看过程',
+  'session.responseWork.title': '智能体活动',
   'session.action.openTermDeck': '在 TermDeck 中打开',
   'session.action.archive': '停止会话',
   'session.action.reopen': '重新打开',

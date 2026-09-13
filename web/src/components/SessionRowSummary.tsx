@@ -80,12 +80,29 @@ function formatCodexImportedRelativeTime(
     return formatRelativeTime(value, t)
 }
 
+export type SessionActivityTimeBasis = 'default' | 'user' | 'agent'
+
+export function getSessionActivityTime(
+    session: SessionSummary,
+    basis: SessionActivityTimeBasis = 'default'
+): number | null {
+    if (basis === 'user') {
+        return session.lastUserMessageAt ?? session.createdAt ?? session.updatedAt ?? null
+    }
+    if (basis === 'agent') {
+        return session.lastAgentMessageAt ?? session.lastMessageAt ?? session.updatedAt ?? session.createdAt ?? null
+    }
+    return session.lastMessageAt ?? null
+}
+
 function getSessionTimeLabel(
     session: SessionSummary,
-    t: (key: string, params?: Record<string, string | number>) => string
+    t: (key: string, params?: Record<string, string | number>) => string,
+    basis: SessionActivityTimeBasis = 'default'
 ): string | null {
-    if (session.lastMessageAt !== undefined && session.lastMessageAt > 0) {
-        return formatRelativeTime(session.lastMessageAt, t)
+    const activityTime = getSessionActivityTime(session, basis)
+    if (activityTime !== null && activityTime > 0) {
+        return formatRelativeTime(activityTime, t)
     }
     const importedAt = session.metadata?.flavor === 'codex'
         ? getCodexImportedAt(session.metadata?.agentSessionId)
@@ -123,6 +140,8 @@ export function SessionRowSummary(props: {
     projectLabel?: string
     /** Machine label shown next to the project name (pinned "in progress" rows). */
     machineLabel?: string
+    /** Which activity timestamp this section is ordered by. */
+    activityTimeBasis?: SessionActivityTimeBasis
 }) {
     const {
         session: s,
@@ -137,6 +156,7 @@ export function SessionRowSummary(props: {
         inRunningSection = false,
         projectLabel,
         machineLabel,
+        activityTimeBasis = 'default',
     } = props
     const { t } = useTranslation()
     const sessionName = getSessionTitle(s)
@@ -165,7 +185,7 @@ export function SessionRowSummary(props: {
     const attentionId = attentionTooltipIdProp ?? ownedIds.attentionId
     const scheduleId = scheduleTooltipIdProp ?? ownedIds.scheduleId
     useMinuteTick(true)
-    const timeLabel = getSessionTimeLabel(s, t)
+    const timeLabel = getSessionTimeLabel(s, t, activityTimeBasis)
 
     return (
         <div className={`flex w-full min-w-0 flex-col gap-1 ${className ?? ''}`}>

@@ -66,12 +66,27 @@ function createHapiMcpServer(
     const handler = async (title: string) => {
         logger.debug('[hapiMCP] Changing title to:', title);
         try {
+            // Codex app-server normally reaches this HTTP server through our
+            // stdio bridge. Its parent launcher applies the title only after
+            // confirming that the tool call belongs to the parent thread, so
+            // child-agent title calls cannot rename the parent session.
+            // Platform-native `functions.hapi__change_title` calls connect to
+            // this HTTP server directly and have no launcher event to perform
+            // that write, so persist those calls here.
+            const callerName = mcp.server.getClientVersion()?.name;
+            const shouldPersistDirectly = emitTitleSummary || callerName !== 'hapi-stdio-bridge';
             if (emitTitleSummary) {
                 client.sendClaudeSessionMessage({
                     type: 'summary',
                     summary: title,
                     leafUuid: randomUUID()
                 });
+            }
+            if (shouldPersistDirectly) {
+                client.updateMetadata((metadata) => ({
+                    ...metadata,
+                    name: title
+                }));
             }
 
             return { success: true };

@@ -49,7 +49,7 @@ import { getMachinePlatform, presentMachineHealth } from '@/lib/machineHealth'
 import { MachineFilterBar, MachineFilterMenu } from '@/components/MachineFilterBar'
 import { useSessionListMachineFilter } from '@/hooks/useSessionListMachineFilter'
 import { useCursorChatStoreStatus } from '@/hooks/queries/useCursorChatStoreStatus'
-import { SessionRowSummary } from '@/components/SessionRowSummary'
+import { SessionRowSummary, type SessionActivityTimeBasis } from '@/components/SessionRowSummary'
 import { Spinner } from '@/components/Spinner'
 import { transferComposerDraftThenNavigate } from '@/lib/composer-draft-transfer'
 import { useToast } from '@/lib/toast-context'
@@ -913,6 +913,7 @@ function SessionItem(props: {
     inRunningSection?: boolean
     projectLabel?: string
     machineLabel?: string
+    activityTimeBasis?: SessionActivityTimeBasis
     lastSeenVersion: number
 }) {
     const { t } = useTranslation()
@@ -928,6 +929,7 @@ function SessionItem(props: {
         inRunningSection = false,
         projectLabel,
         machineLabel,
+        activityTimeBasis,
         lastSeenVersion
     } = props
     const { haptic, isTouch } = usePlatform()
@@ -1076,6 +1078,7 @@ function SessionItem(props: {
                     inRunningSection={inRunningSection}
                     projectLabel={projectLabel}
                     machineLabel={machineLabel}
+                    activityTimeBasis={activityTimeBasis}
                 />
             </button>
 
@@ -1518,12 +1521,14 @@ export function SessionList(props: {
         collapsed,
         onToggle,
         sessions,
+        activityTimeBasis,
     }: {
         sectionKey: string
         titleKey: string
         collapsed: boolean
         onToggle: () => void
         sessions: SessionSummary[]
+        activityTimeBasis: SessionActivityTimeBasis
     }) => {
         if (sessions.length === 0) {
             return null
@@ -1571,6 +1576,7 @@ export function SessionList(props: {
                                 inRunningSection
                                 projectLabel={getPathDisplayName(s.metadata?.worktree?.basePath ?? s.metadata?.path ?? 'Other')}
                                 machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
+                                activityTimeBasis={activityTimeBasis}
                                 lastSeenVersion={lastSeenVersion}
                             />
                         ))}
@@ -1634,6 +1640,7 @@ export function SessionList(props: {
                                     inRunningSection
                                     projectLabel={getPathDisplayName(session.metadata?.worktree?.basePath ?? session.metadata?.path ?? 'Other')}
                                     machineLabel={resolveMachineLabel(session.metadata?.machineId ?? null)}
+                                    activityTimeBasis="agent"
                                     lastSeenVersion={lastSeenVersion}
                                 />
                             ))}
@@ -1731,6 +1738,7 @@ export function SessionList(props: {
                                     titleSuggestionAvailable={titleSuggestionAvailable}
                                     selected={s.id === selectedSessionId}
                                     showDetailedStatus={showDetailedStatus}
+                                    activityTimeBasis="user"
                                     lastSeenVersion={lastSeenVersion}
                                 />
                             </div>
@@ -2108,6 +2116,7 @@ export function SessionList(props: {
                                             inRunningSection
                                             projectLabel={getPathDisplayName(s.metadata?.worktree?.basePath ?? s.metadata?.path ?? 'Other')}
                                             machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
+                                            activityTimeBasis="user"
                                             lastSeenVersion={lastSeenVersion}
                                         />
                                     ))}
@@ -2123,6 +2132,7 @@ export function SessionList(props: {
                     collapsed: workingSectionCollapsed,
                     onToggle: () => setWorkingSectionCollapsed((value) => !value),
                     sessions: workingSessions,
+                    activityTimeBasis: 'user',
                 })}
                 {renderSessionSection({
                     sectionKey: 'active-section',
@@ -2130,6 +2140,7 @@ export function SessionList(props: {
                     collapsed: activeSectionCollapsed,
                     onToggle: () => setActiveSectionCollapsed((value) => !value),
                     sessions: activeSessions,
+                    activityTimeBasis: 'agent',
                 })}
                 {renderRecentSessions()}
                 {groups.map(renderDirectoryGroup)}

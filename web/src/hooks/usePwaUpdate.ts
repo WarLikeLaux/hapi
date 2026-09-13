@@ -60,6 +60,11 @@ export async function requestPwaUpdateReload(
 export function setupRegistrationUpdateChecks(
     registration: ServiceWorkerRegistration,
 ): () => void {
+    // Browsers are allowed to throttle navigation-triggered service-worker
+    // checks. Ask explicitly on every app start so a long-lived HAPI tab does
+    // not remain pinned to a stale precache after a local deployment.
+    void registration.update()
+
     const intervalId = window.setInterval(() => {
         void registration.update()
     }, PWA_UPDATE_CHECK_INTERVAL_MS)

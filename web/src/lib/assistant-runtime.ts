@@ -236,7 +236,7 @@ function addUsage(target: UsageData, addend: UsageData): UsageData {
 
 /**
  * Walk the visible block list, identify response groups (runs of
- * assistant-role blocks separated by user-text / agent-event /
+ * assistant-role blocks separated by user-text / lifecycle agent-event /
  * user-source cli-output boundaries), and return a map keyed by the
  * id of each group's first visible block whose value is the summed
  * metadata for that group. Only groups spanning two or more distinct
@@ -490,7 +490,7 @@ function containsActiveAssistantOutput(
         ))
 }
 
-function toThreadMessageLike(
+export function toThreadMessageLike(
     block: VisibleChatBlock,
     threadMessageId: string,
     timestamp: number
@@ -593,6 +593,25 @@ function toThreadMessageLike(
     }
 
     if (block.kind === 'agent-event') {
+        if (block.event.type === 'title-changed') {
+            return {
+                role: 'assistant',
+                id: threadMessageId,
+                createdAt: new Date(timestamp),
+                content: [{
+                    type: 'reasoning',
+                    text: renderEventLabel(block.event)
+                }],
+                metadata: {
+                    custom: {
+                        kind: 'event',
+                        event: block.event,
+                        invokedAt: block.invokedAt,
+                        model: block.model
+                    } satisfies HappyChatMessageMetadata
+                }
+            }
+        }
         // Pi compaction summaries carry a real payload; surface them as a
         // dedicated system message so the chat can render an independent
         // block instead of a small status line.

@@ -478,6 +478,12 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 summary: title,
                 leafUuid: randomUUID()
             });
+            // `metadata.name` is the explicit title displayed by the web app
+            // and intentionally takes precedence over generated summaries.
+            session.client.updateMetadata((metadata) => ({
+                ...metadata,
+                name: title
+            }));
         };
 
         const formatOutputPreview = (value: unknown): string => {

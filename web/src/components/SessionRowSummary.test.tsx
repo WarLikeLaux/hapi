@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
-import { SessionRowSummary } from './SessionRowSummary'
+import { getSessionActivityTime, SessionRowSummary } from './SessionRowSummary'
 
 afterEach(() => cleanup())
 
@@ -40,6 +40,22 @@ function renderSummary(showDetailedStatus: boolean) {
         </I18nProvider>
     )
 }
+
+describe('SessionRowSummary activity time', () => {
+    it('uses the last user message for Working rows instead of agent churn', () => {
+        const session = makeSummary({
+            createdAt: 100,
+            updatedAt: 900,
+            lastUserMessageAt: 200,
+            lastMessageAt: 800,
+            lastAgentMessageAt: 800,
+        })
+
+        expect(getSessionActivityTime(session, 'user')).toBe(200)
+        expect(getSessionActivityTime(session, 'agent')).toBe(800)
+        expect(getSessionActivityTime(session)).toBe(800)
+    })
+})
 
 describe('SessionRowSummary background status', () => {
     beforeEach(() => {
