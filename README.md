@@ -1,66 +1,73 @@
-# HAPI
+[English](README.md) · [Русский](README-ru.md)
 
-Run official Claude Code / Codex / Cursor Agent / Grok Build / OpenCode / Kimi / Copilot / Antigravity / Pi / DeepSeek Harness sessions and control them remotely through native iOS / Android apps, Web / PWA, or Telegram Mini App.
+# HAPI custom fork
 
-> **Why HAPI?** HAPI is a local-first alternative to Happy. See [Why Not Happy?](docs/guide/why-hapi.md) for the key differences.
+This is a maintained downstream fork of [HAPI](https://github.com/tiann/hapi) for a local-first Codex workflow shared between a desktop terminal and a phone. It keeps the upstream agent, Hub, Web/PWA, native-client, and Telegram architecture while adapting session navigation, project launching, notifications, and optional TermDeck handoff.
 
-## Features
+For the complete product overview, supported agents, and architecture, read the **[canonical upstream README](https://github.com/tiann/hapi#readme)**. This page documents only the differences and operational rules of this fork.
 
-- **Seamless Handoff** - Work locally, switch to remote when needed, switch back anytime. No context loss, no session restart.
-- **Shared Codex Sessions** - Use Codex from your terminal and phone at the same time. Requires Codex 0.154.0+. [Usage and limits](docs/guide/codex-shared-sessions.md).
-- **Native First** - HAPI wraps your AI agent instead of replacing it. Same terminal, same experience, same muscle memory.
-- **AFK Without Stopping** - Step away from your desk? Approve AI requests from your phone with one tap.
-- **Your AI, Your Choice** - Claude Code, Codex, Cursor Agent, Grok Build, OpenCode, Kimi, Copilot, Antigravity, Pi, DeepSeek Harness—different agents, one unified workflow.
-- **Terminal Anywhere** - Run commands from your phone's browser or desktop web app, directly connected to the working machine.
-- **Voice Control** - Use dictation in native apps, or talk to your AI agent hands-free with the web voice assistant.
-- **Workspace Browser** - Opt-in via one or more `hapi runner start --workspace-root <path>` flags: browse scoped file trees from the web and start sessions in allowed subdirectories.
+## What this fork changes
 
-## Demo
+| Area | Fork behavior | Practical effect |
+| --- | --- | --- |
+| Session navigation | Separate Working, Active, and Recent sections; stable activity-based ordering; unread state; project/global pins; inactive-session filtering; and project-wide HAPI session cleanup that retains local agent transcripts. | The sessions that need attention stay visible without old sessions overwhelming the list. |
+| Projects and new sessions | Searchable, sortable, pinnable workspace roots, manual folder selection, Codex first in the picker, and the first configured workspace root as the initial directory. | A runner scoped to a multi-project directory can launch Codex in any allowed project without source-code path constants. |
+| Codex defaults and lifecycle | New Codex sessions initially use YOLO mode; explicit later choices are remembered. Stop, reopen, restart, and Codex history sync preserve clearer lifecycle and activity timestamps. | Starting work is faster, and switching between HAPI and a local Codex session is less disruptive. **YOLO bypasses approvals and sandboxing; change it before launch when that is not acceptable.** |
+| Chat and mobile UI | Intermediate reasoning and tool activity are grouped behind one `Show work` action. Mobile Enter inserts a newline, the send control is touch-friendly, and stale PWA/SSE state is repaired more aggressively. | The transcript stays compact and phone input behaves like a messaging app. |
+| Telegram | Notifications link directly to the session and are suppressed only while that exact chat is visibly open. | Alerts still arrive from the session list, another chat, or a backgrounded app without duplicating the chat currently being watched. |
+| TermDeck | Optional desktop-only, idempotent creation/opening of a TermDeck terminal attached to a Codex HAPI session. | The same session can be opened in the native terminal UI without making TermDeck a dependency for phone use or normal HAPI startup. |
+| Maintenance and releases | Upstream is reviewed and merged into `custom` with a real merge commit. Syncing never authorizes publishing, signing, deployment, or a force-push. | Fork behavior and security boundaries are reviewed instead of being overwritten by upstream updates. |
 
-https://github.com/user-attachments/assets/38230353-94c6-4dbe-9c29-b2a2cc457546
+No upstream product subsystem is intentionally presented as removed. The important operational difference is distribution: upstream npm packages, release downloads, and self-update instructions install upstream HAPI, not this fork.
 
-## Getting Started
+## Install and run this fork
 
-```bash
-npx @twsxtd/hapi hub --relay     # start hub with E2E encrypted relay
-npx @twsxtd/hapi                 # choose an agent and start a session
-```
-
-`hapi server` remains supported as an alias.
-
-Use `hapi <agent> [options]` to start an agent directly, for example `hapi claude`
-or `hapi codex`. Scripts must specify the agent explicitly. `hapi --help` shows
-HAPI's commands and supported agents.
-
-The hub displays a URL and two QR codes. Open the web URL in a browser, or pair a native app using the companion QR. See [Native apps](docs/guide/native-apps.md) for build and pairing instructions.
-
-> The relay uses WireGuard + TLS for end-to-end encryption. Your data is encrypted from your device to your machine.
-
-For self-hosted options (Cloudflare Tunnel, Tailscale), see [Installation](docs/guide/installation.md)
-
-## Docs
-
-- [Native apps (iOS / Android)](docs/guide/native-apps.md)
-- [Web / PWA](docs/guide/pwa.md)
-- [How it Works](docs/guide/how-it-works.md)
-- [Supported Agents](docs/guide/agents.md)
-- [Voice Assistant](docs/guide/voice-assistant.md)
-- [Why HAPI](docs/guide/why-hapi.md)
-- [FAQ](docs/guide/faq.md)
-
-## Native apps (iOS / Android)
-
-The repository includes SwiftUI/UIKit and Kotlin Compose clients with chat, approvals, session creation, files, dictation, and push notifications. See the [native app guide](docs/guide/native-apps.md) for capabilities, platform differences and pairing. Build instructions: [iOS](ios/README.md) and [Android](android/README.md). Developer protocol: [client contract](docs/api/client-contract/index.md).
-
-## Build from source
-
-Requires Bun 1.4.0.
+The default branch is `custom`. Build from source with Bun 1.4.0:
 
 ```bash
-bun install
+git clone --branch custom YOUR_FORK_CLONE_URL hapi
+cd hapi
+bun install --frozen-lockfile
 bun run build:single-exe
 ```
 
-## Credits
+Replace `YOUR_FORK_CLONE_URL` with the URL from this repository's **Code** menu. Do **not** use `npx @twsxtd/hapi` or upstream release binaries when you expect the custom behavior described above. Runner version handoff can activate a custom binary that you installed, but it does not download fork updates.
 
-HAPI means "哈皮" a Chinese transliteration of [Happy](https://github.com/slopus/happy). Great credit to the original project.
+For an existing Linux user-systemd installation configured to run the custom binary, this repository includes a guarded local deployment command:
+
+```bash
+bun run deploy:local-hub
+```
+
+It type-checks and tests the Hub, builds the embedded web client and executable, keeps the previous binary for rollback, restarts the Hub, and pins future runner launches to the same custom executable. Its defaults expect `hapi-hub.service`, `hapi-runner.service`, and `~/.local/lib/hapi-custom/current/hapi`; override them with `HAPI_SERVICE_NAME`, `HAPI_RUNNER_SERVICE_NAME`, and `HAPI_INSTALL_PATH`. Review [the deployment script](scripts/deploy-local-hub.sh) before using it on another machine.
+
+General upstream configuration still applies: [installation and environment](docs/guide/installation.md), [agents](docs/guide/agents.md), [Web/PWA](docs/guide/pwa.md), and [notifications](docs/guide/notifications.md).
+
+## Optional TermDeck integration
+
+Configure the runner process environment; the repository contains no default hosts, tokens, usernames, or machine paths:
+
+- `HAPI_TERMDECK_API_URL` — machine-local TermDeck API origin.
+- `HAPI_TERMDECK_PUBLIC_URL` — browser-visible TermDeck origin.
+- `HAPI_TERMDECK_TOKEN_FILE` — file containing the bearer token (preferred).
+- `HAPI_TERMDECK_TOKEN` — direct token alternative when a token file cannot be used.
+
+Both URLs and one token input are required for the integration. If TermDeck is unavailable, the HAPI session still starts. See the [runner documentation](cli/src/runner/README.md#optional-termdeck-integration).
+
+## Security and private configuration
+
+- Keep Hub tokens, Telegram bot tokens, TermDeck tokens, public/private hostnames, and local filesystem paths outside Git.
+- Workspace browsing is restricted to roots explicitly supplied with `hapi runner start --workspace-root <path>`.
+- Prefer `HAPI_TERMDECK_TOKEN_FILE` so the TermDeck secret is not embedded in a service definition.
+- Treat YOLO mode as dangerous: it bypasses the agent's normal approval and sandbox protections.
+- Exposing the Hub or enabling Telegram still requires the authentication, TLS, tunnel, and `HAPI_PUBLIC_URL` guidance from upstream; a local deployment does not make the Hub safely public by itself.
+
+See [SECURITY.md](SECURITY.md) and the [fork synchronization policy](FORK_SYNC.md) before changing authentication, namespaces, command execution, notifications, file access, runner control, external links, or release workflows.
+
+## Updating from upstream
+
+The permanent policy is documented in [FORK_SYNC.md](FORK_SYNC.md). In short, upstream changes are reviewed and merged from `upstream/main` into `custom` with `--no-ff`; fork features, security boundaries, restricted release workflows, and tests must survive the merge. Do not rebase or force-push the maintained branch.
+
+## License and upstream credit
+
+HAPI means “哈皮”, a Chinese transliteration of [Happy](https://github.com/slopus/happy). The original HAPI project and its contributors remain the source of the product; this repository maintains a focused downstream adaptation.
