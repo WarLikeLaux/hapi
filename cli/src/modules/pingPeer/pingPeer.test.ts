@@ -80,7 +80,7 @@ describe('pingPeer', () => {
                     return { status: 200, data: { token: 'jwt' } }
                 }
                 if (url.endsWith(`/api/sessions/${sessionId}/messages`)) {
-                    expect(body).toEqual({ text: 'hello peer' })
+                    expect(body).toEqual({ text: 'hello peer', localId: 'wake-42' })
                     return { status: 200, data: { ok: true } }
                 }
                 throw new Error(`unexpected POST ${url}`)
@@ -117,6 +117,7 @@ describe('pingPeer', () => {
         const result = await pingPeer({
             sessionIdPrefix: '05d9f0f2',
             message: 'hello peer',
+            localId: 'wake-42',
             accessToken: 'tok',
             apiUrl: 'http://127.0.0.1:3006',
             http: http as never

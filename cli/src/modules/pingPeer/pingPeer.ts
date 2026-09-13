@@ -52,6 +52,7 @@ export type PingPeerSessionSummary = {
 export type PingPeerOptions = {
     sessionIdPrefix: string
     message: string
+    localId?: string
     waitActiveSecs?: number
     apiUrl?: string
     accessToken?: string
@@ -345,11 +346,12 @@ async function sendMessage(
     jwt: string,
     sessionId: string,
     message: string,
+    localId: string | undefined,
     http: AxiosInstance
 ): Promise<void> {
     const response = await http.post(
         `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/messages`,
-        { text: message },
+        { text: message, ...(localId ? { localId } : {}) },
         {
             headers: authHeaders(jwt),
             timeout: 30_000,
@@ -516,7 +518,7 @@ export async function pingPeer(options: PingPeerOptions): Promise<PingPeerResult
     }
 
     onProgress?.(`sending message (${message.length} chars)...`)
-    await sendMessage(apiUrl, jwt, matched.id, message, http)
+    await sendMessage(apiUrl, jwt, matched.id, message, options.localId, http)
 
     return {
         sessionId: matched.id,

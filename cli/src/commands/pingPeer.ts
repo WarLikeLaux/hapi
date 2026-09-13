@@ -17,6 +17,7 @@ type ParsedPingPeerArgs = {
     sessionIdPrefix?: string
     message?: string
     messageFile?: string
+    localId?: string
     waitActiveSecs?: number
 }
 
@@ -28,6 +29,7 @@ ${chalk.bold('Usage:')}
   hapi ping-peer <session-id-prefix> <message-text>
   hapi ping-peer <session-id-prefix> --message-file <path>
   hapi ping-peer <session-id-prefix> --message-file -   # read message from stdin
+  hapi ping-peer <session-id-prefix> <message-text> --local-id <stable-id>
   hapi ping-peer --list
 
 ${chalk.bold('Notes:')}
@@ -75,6 +77,22 @@ export function parsePingPeerArgs(args: string[]): ParsedPingPeerArgs {
                 throw new PingPeerError('bad_args', '--message-file requires a path (or - for stdin)')
             }
             result.messageFile = value
+            continue
+        }
+        if (arg === '--local-id') {
+            const value = args[++i]
+            if (!value) {
+                throw new PingPeerError('bad_args', '--local-id requires a value')
+            }
+            result.localId = value
+            continue
+        }
+        if (arg.startsWith('--local-id=')) {
+            const value = arg.slice('--local-id='.length)
+            if (!value) {
+                throw new PingPeerError('bad_args', '--local-id requires a value')
+            }
+            result.localId = value
             continue
         }
         if (arg === '--wait') {
@@ -180,6 +198,7 @@ export async function handlePingPeerCommand(args: string[]): Promise<void> {
     const result = await pingPeer({
         sessionIdPrefix: parsed.sessionIdPrefix,
         message,
+        localId: parsed.localId,
         waitActiveSecs: parsed.waitActiveSecs ?? envWaitActiveSecs(),
         onProgress: (line) => console.log(`hapi ping-peer: ${line}`)
     })
