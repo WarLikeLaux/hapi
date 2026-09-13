@@ -1,6 +1,11 @@
 import { execFile, type ExecFileOptions } from 'child_process'
 import { promisify } from 'util'
-import type { CommandResponse } from '@hapi/protocol/apiTypes'
+import type {
+    CommandResponse,
+    GitComparisonFile,
+    GitComparisonResponse,
+    GitComparisonScope
+} from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager'
 import { validatePath } from '../pathSecurity'
@@ -23,6 +28,13 @@ interface GitDiffFileRequest {
     cwd?: string
     filePath: string
     staged?: boolean
+    comparison?: GitComparisonScope
+    timeout?: number
+}
+
+interface GitComparisonRequest {
+    cwd?: string
+    scope: GitComparisonScope
     timeout?: number
 }
 
@@ -86,6 +98,216 @@ async function runGitCommand(
     }
 }
 
+type GitNameStatusEntry = Pick<GitComparisonFile, 'path' | 'oldPath' | 'status'>
+type GitNumstatEntry = Pick<GitComparisonFile, 'path' | 'linesAdded' | 'linesRemoved' | 'binary'>
+
+function splitNullTerminated(output: string): string[] {
+    const fields = output.split('\0')
+    if (fields.at(-1) === '') fields.pop()
+    return fields
+}
+
+export function parseGitNameStatus(output: string): GitNameStatusEntry[] {
+    const fields = splitNullTerminated(output)
+    const entries: GitNameStatusEntry[] = []
+
+    for (let index = 0; index < fields.length;) {
+        const rawStatus = fields[index++] ?? ''
+        const code = rawStatus[0]
+        const renamed = code === 'R' || code === 'C'
+        const oldPath = renamed ? fields[index++] : undefined
+        const path = fields[index++]
+        if (!path) continue
+
+        const status: GitComparisonFile['status'] = code === 'A' || code === 'C'
+            ? 'added'
+            : code === 'D'
+                ? 'deleted'
+                : code === 'R'
+                    ? 'renamed'
+                    : 'modified'
+        entries.push({ path, ...(oldPath ? { oldPath } : {}), status })
+    }
+
+    return entries
+}
+
+export function parseGitNumstat(output: string): GitNumstatEntry[] {
+    const fields = splitNullTerminated(output)
+    const entries: GitNumstatEntry[] = []
+
+    for (let index = 0; index < fields.length;) {
+        const header = fields[index++] ?? ''
+        const [addedRaw = '0', removedRaw = '0', ...pathParts] = header.split('\t')
+        let path = pathParts.join('\t')
+        if (!path) {
+            index += 1 // old path for a rename/copy
+            path = fields[index++] ?? ''
+        }
+        if (!path) continue
+
+        const binary = addedRaw === '-' || removedRaw === '-'
+        entries.push({
+            path,
+            linesAdded: binary ? 0 : Number.parseInt(addedRaw, 10) || 0,
+            linesRemoved: binary ? 0 : Number.parseInt(removedRaw, 10) || 0,
+            ...(binary ? { binary: true } : {})
+        })
+    }
+
+    return entries
+}
+
+function mergeComparisonFiles(nameStatus: string, numstat: string): GitComparisonFile[] {
+    const stats = new Map(parseGitNumstat(numstat).map((entry) => [entry.path, entry]))
+    return parseGitNameStatus(nameStatus).map((entry) => {
+        const stat = stats.get(entry.path)
+        return {
+            ...entry,
+            linesAdded: stat?.linesAdded ?? 0,
+            linesRemoved: stat?.linesRemoved ?? 0,
+            ...(stat?.binary ? { binary: true } : {})
+        }
+    })
+}
+
+async function readGitOutput(args: string[], cwd: string, timeout?: number): Promise<GitCommandResponse> {
+    return await runGitCommand(args, cwd, timeout)
+}
+
+async function resolveDefaultBaseRef(
+    cwd: string,
+    timeout?: number
+): Promise<{ ref: string; label: string } | null> {
+    const configured = await readGitOutput(['config', '--get', 'hapi.baseBranch'], cwd, timeout)
+    const configuredRef = configured.success ? configured.stdout?.trim() : ''
+    if (configuredRef) return { ref: configuredRef, label: configuredRef }
+
+    const upstream = await readGitOutput(
+        ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
+        cwd,
+        timeout
+    )
+    const upstreamRef = upstream.success ? upstream.stdout?.trim() : ''
+    const remote = upstreamRef?.includes('/') ? upstreamRef.slice(0, upstreamRef.indexOf('/')) : 'origin'
+    const remoteHead = await readGitOutput(
+        ['symbolic-ref', '--quiet', '--short', `refs/remotes/${remote}/HEAD`],
+        cwd,
+        timeout
+    )
+    const ref = remoteHead.success ? remoteHead.stdout?.trim() : ''
+    if (!ref) return null
+    return { ref, label: ref.startsWith(`${remote}/`) ? ref.slice(remote.length + 1) : ref }
+}
+
+async function gitComparison(
+    scope: GitComparisonScope,
+    cwd: string,
+    timeout?: number
+): Promise<GitComparisonResponse> {
+    const head = await readGitOutput(['rev-parse', '--verify', 'HEAD'], cwd, timeout)
+    const headSha = head.success ? head.stdout?.trim() : ''
+    if (!headSha) {
+        return { success: false, scope, error: head.error ?? head.stderr ?? 'Repository has no commits' }
+    }
+
+    const [branchResult, subjectResult] = await Promise.all([
+        readGitOutput(['symbolic-ref', '--quiet', '--short', 'HEAD'], cwd, timeout),
+        readGitOutput(['log', '-1', '--format=%s', 'HEAD'], cwd, timeout)
+    ])
+    const branch = branchResult.success ? branchResult.stdout?.trim() || null : null
+    const headSubject = subjectResult.success ? subjectResult.stdout?.trim() ?? '' : ''
+
+    let diffPrefix: string[]
+    let baseRef: string | null = null
+    let baseBranch: string | null = null
+    let commitCount = 1
+
+    if (scope === 'last-commit') {
+        const parent = await readGitOutput(['rev-parse', '--verify', 'HEAD^1'], cwd, timeout)
+        const parentSha = parent.success ? parent.stdout?.trim() : ''
+        diffPrefix = parentSha
+            ? ['diff', '--no-ext-diff', '--find-renames', parentSha, headSha]
+            : ['diff-tree', '--root', '--no-commit-id', '-r', '--no-ext-diff', '--find-renames', headSha]
+    } else {
+        const base = await resolveDefaultBaseRef(cwd, timeout)
+        if (!base) {
+            return {
+                success: false,
+                scope,
+                branch,
+                headSha,
+                headSubject,
+                error: 'Default branch unavailable: origin/HEAD is not configured'
+            }
+        }
+        baseRef = base.ref
+        baseBranch = base.label
+        const verifiedBase = await readGitOutput(['rev-parse', '--verify', '--end-of-options', `${base.ref}^{commit}`], cwd, timeout)
+        const verifiedBaseSha = verifiedBase.success ? verifiedBase.stdout?.trim() : ''
+        if (!verifiedBaseSha) {
+            return {
+                success: false,
+                scope,
+                branch,
+                baseRef,
+                baseBranch,
+                headSha,
+                headSubject,
+                error: `Base branch '${base.ref}' is unavailable`
+            }
+        }
+        const mergeBase = await readGitOutput(['merge-base', verifiedBaseSha, headSha], cwd, timeout)
+        const mergeBaseSha = mergeBase.success ? mergeBase.stdout?.trim() : ''
+        if (!mergeBaseSha) {
+            return {
+                success: false,
+                scope,
+                branch,
+                baseRef,
+                baseBranch,
+                headSha,
+                headSubject,
+                error: `No merge base found for '${base.ref}' and HEAD`
+            }
+        }
+        const count = await readGitOutput(['rev-list', '--count', `${mergeBaseSha}..${headSha}`], cwd, timeout)
+        commitCount = count.success ? Number.parseInt(count.stdout?.trim() ?? '', 10) || 0 : 0
+        diffPrefix = ['diff', '--no-ext-diff', '--find-renames', mergeBaseSha, headSha]
+    }
+
+    const [nameStatus, numstat] = await Promise.all([
+        readGitOutput([...diffPrefix, '--name-status', '-z', '--'], cwd, timeout),
+        readGitOutput([...diffPrefix, '--numstat', '-z', '--'], cwd, timeout)
+    ])
+    if (!nameStatus.success || !numstat.success) {
+        const failed = !nameStatus.success ? nameStatus : numstat
+        return {
+            success: false,
+            scope,
+            branch,
+            baseRef,
+            baseBranch,
+            headSha,
+            headSubject,
+            commitCount,
+            error: failed.error ?? failed.stderr ?? 'Failed to compare Git revisions'
+        }
+    }
+
+    return {
+        success: true,
+        scope,
+        branch,
+        baseRef,
+        baseBranch,
+        headSha,
+        headSubject,
+        commitCount,
+        files: mergeComparisonFiles(nameStatus.stdout ?? '', numstat.stdout ?? '')
+    }
+}
+
 export function registerGitHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string): void {
     rpcHandlerManager.registerHandler<GitStatusRequest, GitCommandResponse>(RPC_METHODS.GitStatus, async (data) => {
         const resolved = resolveCwd(data.cwd, workingDirectory)
@@ -97,6 +319,17 @@ export function registerGitHandlers(rpcHandlerManager: RpcHandlerManager, workin
             resolved.cwd,
             data.timeout
         )
+    })
+
+    rpcHandlerManager.registerHandler<GitComparisonRequest, GitComparisonResponse>(RPC_METHODS.GitComparison, async (data) => {
+        const resolved = resolveCwd(data.cwd, workingDirectory)
+        if (resolved.error) {
+            return { success: false, scope: data.scope, error: resolved.error }
+        }
+        if (data.scope !== 'last-commit' && data.scope !== 'branch') {
+            return { success: false, scope: data.scope, error: 'Invalid Git comparison scope' }
+        }
+        return await gitComparison(data.scope, resolved.cwd, data.timeout)
     })
 
     rpcHandlerManager.registerHandler<GitDiffNumstatRequest, GitCommandResponse>(RPC_METHODS.GitDiffNumstat, async (data) => {
@@ -119,10 +352,35 @@ export function registerGitHandlers(rpcHandlerManager: RpcHandlerManager, workin
         if (fileError) {
             return rpcError(fileError)
         }
+        if (data.comparison !== undefined && data.comparison !== 'last-commit' && data.comparison !== 'branch') {
+            return rpcError('Invalid Git comparison scope')
+        }
 
-        const args = data.staged
-            ? ['diff', '--cached', '--no-ext-diff', '--', data.filePath]
-            : ['diff', '--no-ext-diff', '--', data.filePath]
+        let args: string[]
+        if (data.comparison === 'last-commit') {
+            const parent = await readGitOutput(['rev-parse', '--verify', 'HEAD^1'], resolved.cwd, data.timeout)
+            args = parent.success && parent.stdout?.trim()
+                ? ['diff', '--no-ext-diff', '--find-renames', parent.stdout.trim(), 'HEAD', '--', data.filePath]
+                : ['show', '--format=', '--no-ext-diff', '--find-renames', 'HEAD', '--', data.filePath]
+        } else if (data.comparison === 'branch') {
+            const base = await resolveDefaultBaseRef(resolved.cwd, data.timeout)
+            if (!base) return rpcError('Default branch unavailable: origin/HEAD is not configured')
+            const verifiedBase = await readGitOutput(
+                ['rev-parse', '--verify', '--end-of-options', `${base.ref}^{commit}`],
+                resolved.cwd,
+                data.timeout
+            )
+            const verifiedBaseSha = verifiedBase.success ? verifiedBase.stdout?.trim() : ''
+            if (!verifiedBaseSha) return rpcError(`Base branch '${base.ref}' is unavailable`)
+            const mergeBase = await readGitOutput(['merge-base', verifiedBaseSha, 'HEAD'], resolved.cwd, data.timeout)
+            const mergeBaseSha = mergeBase.success ? mergeBase.stdout?.trim() : ''
+            if (!mergeBaseSha) return rpcError(`No merge base found for '${base.ref}' and HEAD`)
+            args = ['diff', '--no-ext-diff', '--find-renames', mergeBaseSha, 'HEAD', '--', data.filePath]
+        } else {
+            args = data.staged
+                ? ['diff', '--cached', '--no-ext-diff', '--', data.filePath]
+                : ['diff', '--no-ext-diff', '--', data.filePath]
+        }
         return await runGitCommand(args, resolved.cwd, data.timeout)
     })
 }

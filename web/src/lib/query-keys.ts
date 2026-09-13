@@ -11,14 +11,15 @@ export const queryKeys = {
     machineAgentAvailability: (machineId: string) => ['machine-agent-availability', machineId] as const,
     sessionCodexModels: (sessionId: string) => ['session-codex-models', sessionId] as const,
     gitStatus: (sessionId: string) => ['git-status', sessionId] as const,
+    gitComparison: (sessionId: string, scope: string) => ['git-comparison', sessionId, scope] as const,
     sessionFiles: (sessionId: string, query: string) => ['session-files', sessionId, query] as const,
     sessionDirectory: (sessionId: string, path: string) => ['session-directory', sessionId, path] as const,
     sessionFile: (sessionId: string, path: string) => ['session-file', sessionId, path] as const,
-    gitFileDiff: (sessionId: string, path: string, staged?: boolean) => [
+    gitFileDiff: (sessionId: string, path: string, staged?: boolean, comparison?: string) => [
         'git-file-diff',
         sessionId,
         path,
-        staged ? 'staged' : 'unstaged'
+        comparison ?? (staged === true ? 'staged' : staged === false ? 'unstaged' : 'file')
     ] as const,
     slashCommands: (sessionId: string) => ['slash-commands', sessionId] as const,
     sessionCursorModels: (sessionId: string) => ['session-cursor-models', sessionId] as const,

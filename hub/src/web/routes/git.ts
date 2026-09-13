@@ -15,7 +15,12 @@ const directorySchema = z.object({
 })
 
 const filePathSchema = z.object({
-    path: z.string().min(1)
+    path: z.string().min(1),
+    comparison: z.enum(['last-commit', 'branch']).optional()
+})
+
+const comparisonSchema = z.object({
+    scope: z.enum(['last-commit', 'branch'])
 })
 
 const generatedImageSchema = z.object({
@@ -82,6 +87,34 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
         return c.json(result)
     })
 
+    app.get('/sessions/:id/git-comparison', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const sessionPath = sessionResult.session.metadata?.path
+        if (!sessionPath) {
+            return c.json({ success: false, error: 'Session path not available' })
+        }
+
+        const parsed = comparisonSchema.safeParse(c.req.query())
+        if (!parsed.success) {
+            return c.json({ success: false, error: 'Invalid Git comparison scope' }, 400)
+        }
+
+        const result = await runRpc(() => engine.getGitComparison(sessionResult.sessionId, {
+            cwd: sessionPath,
+            scope: parsed.data.scope
+        }))
+        return c.json(result)
+    })
+
     app.get('/sessions/:id/git-diff-numstat', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {
@@ -128,7 +161,8 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
         const result = await runRpc(() => engine.getGitDiffFile(sessionResult.sessionId, {
             cwd: sessionPath,
             filePath: parsed.data.path,
-            staged
+            staged,
+            comparison: parsed.data.comparison
         }))
         return c.json(result)
     })

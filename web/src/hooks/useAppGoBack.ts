@@ -12,14 +12,18 @@ export function getSettingsBackTarget(pathname: string): string | null {
 export function getSessionFilesBackSearch(search: unknown): {
     tab?: 'directories'
     query?: string
+    comparison?: 'last-commit' | 'branch'
 } {
     if (!search || typeof search !== 'object') return {}
 
-    const currentSearch = search as { tab?: unknown; query?: unknown }
+    const currentSearch = search as { tab?: unknown; query?: unknown; comparison?: unknown }
     return {
         ...(currentSearch.tab === 'directories' ? { tab: 'directories' as const } : {}),
         ...(typeof currentSearch.query === 'string' && currentSearch.query.length > 0
             ? { query: currentSearch.query }
+            : {}),
+        ...(currentSearch.comparison === 'last-commit' || currentSearch.comparison === 'branch'
+            ? { comparison: currentSearch.comparison }
             : {}),
     }
 }

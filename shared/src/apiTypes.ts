@@ -721,6 +721,30 @@ export type CommandResponse = {
 
 export type GitCommandResponse = CommandResponse
 
+export type GitComparisonScope = 'last-commit' | 'branch'
+
+export type GitComparisonFile = {
+    path: string
+    oldPath?: string
+    status: 'modified' | 'added' | 'deleted' | 'renamed'
+    linesAdded: number
+    linesRemoved: number
+    binary?: boolean
+}
+
+export type GitComparisonResponse = {
+    success: boolean
+    scope: GitComparisonScope
+    branch?: string | null
+    baseRef?: string | null
+    baseBranch?: string | null
+    headSha?: string
+    headSubject?: string
+    commitCount?: number
+    files?: GitComparisonFile[]
+    error?: string
+}
+
 export type FileReadResponse = {
     success: boolean
     content?: string

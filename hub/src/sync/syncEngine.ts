@@ -12,7 +12,7 @@ import {
     cliBinaryUpdatedOnDisk,
     isMachineCapabilitySkewed,
 } from '@hapi/protocol/runnerCapabilities'
-import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, MessageDeliveryMode, MessagesResponse, QueuedStateResponse, RewindConversationErrorCode, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, GitComparisonResponse, GitComparisonScope, MessageDeliveryMode, MessagesResponse, QueuedStateResponse, RewindConversationErrorCode, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
 import type { SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { ImplementCodexPlanResult } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
@@ -3943,11 +3943,15 @@ export class SyncEngine {
         return await this.rpcGateway.getGitStatus(sessionId, cwd)
     }
 
+    async getGitComparison(sessionId: string, options: { cwd?: string; scope: GitComparisonScope }): Promise<GitComparisonResponse> {
+        return await this.rpcGateway.getGitComparison(sessionId, options)
+    }
+
     async getGitDiffNumstat(sessionId: string, options: { cwd?: string; staged?: boolean }): Promise<RpcCommandResponse> {
         return await this.rpcGateway.getGitDiffNumstat(sessionId, options)
     }
 
-    async getGitDiffFile(sessionId: string, options: { cwd?: string; filePath: string; staged?: boolean }): Promise<RpcCommandResponse> {
+    async getGitDiffFile(sessionId: string, options: { cwd?: string; filePath: string; staged?: boolean; comparison?: GitComparisonScope }): Promise<RpcCommandResponse> {
         return await this.rpcGateway.getGitDiffFile(sessionId, options)
     }
 

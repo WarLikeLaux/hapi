@@ -20,15 +20,22 @@ export function getScrollRestorationKey(location: ParsedLocation): string {
     const search = location.search as {
         path?: unknown
         staged?: unknown
+        comparison?: unknown
         tab?: unknown
         machineId?: unknown
     }
     if (FILE_ROUTE.test(location.pathname) && typeof search.path === 'string') {
         const stagedSuffix = search.staged === true ? '&staged=true' : ''
-        return `${location.pathname}?path=${search.path}${stagedSuffix}`
+        const comparisonSuffix = search.comparison === 'last-commit' || search.comparison === 'branch'
+            ? `&comparison=${search.comparison}`
+            : ''
+        return `${location.pathname}?path=${search.path}${stagedSuffix}${comparisonSuffix}`
     }
     if (FILES_ROUTE.test(location.pathname) && search.tab === 'directories') {
         return `${location.pathname}?tab=directories`
+    }
+    if (FILES_ROUTE.test(location.pathname) && (search.comparison === 'last-commit' || search.comparison === 'branch')) {
+        return `${location.pathname}?comparison=${search.comparison}`
     }
     if (location.pathname === '/browse' && typeof search.machineId === 'string') {
         return `${location.pathname}?machineId=${search.machineId}`

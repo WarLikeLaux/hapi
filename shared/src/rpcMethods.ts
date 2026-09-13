@@ -14,6 +14,7 @@ export const RPC_METHODS = {
     AgentAvailability: 'agent-availability',
     CursorChatStoreStatus: 'cursor-chat-store-status',
     GitStatus: 'git-status',
+    GitComparison: 'git-comparison',
     GitDiffNumstat: 'git-diff-numstat',
     GitDiffFile: 'git-diff-file',
     ReadFile: 'readFile',

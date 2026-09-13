@@ -41,6 +41,8 @@ import type {
     DeleteUploadResponse,
     FileReadResponse,
     GitCommandResponse,
+    GitComparisonResponse,
+    GitComparisonScope,
     GrokModelsResponse,
     CopilotModelsResponse,
     GrokReasoningEffortResponse,
@@ -416,17 +418,25 @@ export class ApiClient {
         return await this.request<GitCommandResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-status`)
     }
 
+    async getGitComparison(sessionId: string, scope: GitComparisonScope): Promise<GitComparisonResponse> {
+        const params = new URLSearchParams({ scope })
+        return await this.request<GitComparisonResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-comparison?${params.toString()}`)
+    }
+
     async getGitDiffNumstat(sessionId: string, staged: boolean): Promise<GitCommandResponse> {
         const params = new URLSearchParams()
         params.set('staged', staged ? 'true' : 'false')
         return await this.request<GitCommandResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-diff-numstat?${params.toString()}`)
     }
 
-    async getGitDiffFile(sessionId: string, path: string, staged?: boolean): Promise<GitCommandResponse> {
+    async getGitDiffFile(sessionId: string, path: string, staged?: boolean, comparison?: GitComparisonScope): Promise<GitCommandResponse> {
         const params = new URLSearchParams()
         params.set('path', path)
         if (staged !== undefined) {
             params.set('staged', staged ? 'true' : 'false')
+        }
+        if (comparison !== undefined) {
+            params.set('comparison', comparison)
         }
         return await this.request<GitCommandResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-diff-file?${params.toString()}`)
     }

@@ -20,9 +20,16 @@ const mocks = vi.hoisted(() => ({
     sessionHeaderProps: null as null | {
         onSessionReopened?: (newSessionId: string) => void | Promise<void>
     },
-    search: {} as { tab?: 'changes' | 'directories'; query?: string },
+    search: {} as { tab?: 'changes' | 'directories'; query?: string; comparison?: 'last-commit' | 'branch' },
     gitStatus: {
         status: null as null | Record<string, unknown>,
+        error: null as null | string,
+        isLoading: false,
+        refetch: vi.fn(),
+    },
+    gitComparison: {
+        comparison: null as null | Record<string, unknown>,
+        files: [] as Array<Record<string, unknown>>,
         error: null as null | string,
         isLoading: false,
         refetch: vi.fn(),
@@ -58,6 +65,10 @@ vi.mock('@/hooks/queries/useSession', () => ({
 
 vi.mock('@/hooks/queries/useGitStatusFiles', () => ({
     useGitStatusFiles: () => mocks.gitStatus,
+}))
+
+vi.mock('@/hooks/queries/useGitComparisonFiles', () => ({
+    useGitComparisonFiles: () => mocks.gitComparison,
 }))
 
 vi.mock('@/hooks/queries/useSessionFileSearch', () => ({
@@ -107,6 +118,7 @@ function renderFilesPage() {
 // Most tests do not render git rows; only the changes-row suite installs a status.
 beforeEach(() => {
     mocks.gitStatus = { status: null, error: null, isLoading: false, refetch: vi.fn() }
+    mocks.gitComparison = { comparison: null, files: [], error: null, isLoading: false, refetch: vi.fn() }
 })
 
 describe('FilesPage search navigation', () => {
@@ -383,5 +395,66 @@ describe('FilesPage changes-row context menu', () => {
         } finally {
             vi.useRealTimers()
         }
+    })
+})
+
+describe('FilesPage committed comparisons', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        mocks.sessionId = 'session-1'
+        mocks.search = { comparison: 'branch' }
+        mocks.gitStatus = {
+            status: {
+                stagedFiles: [],
+                unstagedFiles: [],
+                branch: 'feature',
+                totalStaged: 0,
+                totalUnstaged: 0,
+            },
+            error: null,
+            isLoading: false,
+            refetch: vi.fn(),
+        }
+        mocks.gitComparison = {
+            comparison: {
+                success: true,
+                scope: 'branch',
+                branch: 'feature',
+                baseBranch: 'develop',
+                commitCount: 2,
+            },
+            files: [{
+                fileName: 'feature.ts',
+                filePath: 'src',
+                fullPath: 'src/feature.ts',
+                status: 'added',
+                isStaged: false,
+                linesAdded: 8,
+                linesRemoved: 0,
+            }],
+            error: null,
+            isLoading: false,
+            refetch: vi.fn(),
+        }
+        window.localStorage.clear()
+        window.sessionStorage.clear()
+    })
+
+    it('shows the branch comparison and carries its scope into file navigation', () => {
+        renderFilesPage()
+
+        expect(screen.getByRole('combobox', { name: 'Changes to show' })).toHaveValue('branch')
+        expect(screen.getByText('2 commits vs develop')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: /feature\.ts/ }))
+
+        expect(mocks.navigate).toHaveBeenCalledWith({
+            to: '/sessions/$sessionId/file',
+            params: { sessionId: 'session-1' },
+            search: {
+                path: encodeBase64('src/feature.ts'),
+                comparison: 'branch',
+            },
+            resetScroll: false,
+        })
     })
 })

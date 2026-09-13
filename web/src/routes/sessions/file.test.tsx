@@ -8,6 +8,8 @@ import FilePage from './file'
 
 const goBackMock = vi.fn()
 const copyMock = vi.hoisted(() => vi.fn())
+const getGitDiffFileMock = vi.hoisted(() => vi.fn(async () => ({ success: true, stdout: '' })))
+const routeSearchMock = vi.hoisted(() => ({ comparison: undefined as undefined | 'last-commit' | 'branch' }))
 
 const sampleMarkdown = '# Heading\n\n| Col A | Col B |\n| --- | --- |\n| one | two |'
 const filePath = 'docs/README.md'
@@ -21,13 +23,14 @@ vi.mock('@tanstack/react-router', () => ({
     useSearch: () => ({
         path: encodedPath,
         staged: undefined,
+        comparison: routeSearchMock.comparison,
     }),
 }))
 
 vi.mock('@/lib/app-context', () => ({
     useAppContext: () => ({
         api: {
-            getGitDiffFile: vi.fn(async () => ({ success: true, stdout: '' })),
+            getGitDiffFile: getGitDiffFileMock,
             readSessionFile: vi.fn(async () => ({
                 success: true,
                 content: encodedContent,
@@ -78,8 +81,23 @@ function renderWithProviders() {
 describe('FilePage markdown preview', () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        routeSearchMock.comparison = undefined
         window.localStorage.clear()
         window.sessionStorage.clear()
+    })
+
+    it('loads a committed file diff with the selected comparison scope', async () => {
+        routeSearchMock.comparison = 'branch'
+        renderWithProviders()
+
+        await waitFor(() => {
+            expect(getGitDiffFileMock).toHaveBeenCalledWith(
+                'session-1',
+                filePath,
+                undefined,
+                'branch'
+            )
+        })
     })
 
     it('renders markdown preview by default and toggles to source', async () => {
