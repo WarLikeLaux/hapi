@@ -148,7 +148,7 @@ describe('appServerConfig', () => {
         expect(params.approvalPolicy).toEqual({
             granular: {
                 sandbox_approval: false,
-                rules: false,
+                rules: true,
                 skill_approval: false,
                 request_permissions: false,
                 mcp_elicitations: true

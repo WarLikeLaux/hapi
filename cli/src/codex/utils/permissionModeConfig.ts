@@ -1,8 +1,18 @@
 import type { CodexPermissionMode } from '@hapi/protocol/types';
-import type { ApprovalPolicyPreset, SandboxMode, SandboxPolicy } from '../appServerTypes';
+import type { ApprovalPolicy, SandboxMode, SandboxPolicy } from '../appServerTypes';
+
+export const CODEX_YOLO_APPROVAL_POLICY = {
+    granular: {
+        sandbox_approval: false,
+        rules: true,
+        skill_approval: false,
+        request_permissions: false,
+        mcp_elicitations: true
+    }
+} as const satisfies ApprovalPolicy;
 
 export type CodexPermissionModeConfig = {
-    approvalPolicy: ApprovalPolicyPreset;
+    approvalPolicy: ApprovalPolicy;
     sandbox: SandboxMode;
     sandboxPolicy: SandboxPolicy;
 };
@@ -35,7 +45,9 @@ export function resolveCodexPermissionModeConfig(mode: CodexPermissionMode): Cod
             };
         case 'yolo':
             return {
-                approvalPolicy: 'never',
+                // Keep unrestricted execution, but respect explicit execpolicy
+                // prompt rules such as a project's git commit/push guard.
+                approvalPolicy: CODEX_YOLO_APPROVAL_POLICY,
                 sandbox: 'danger-full-access',
                 sandboxPolicy: { type: 'dangerFullAccess' }
             };
@@ -47,5 +59,8 @@ export function resolveCodexPermissionModeConfig(mode: CodexPermissionMode): Cod
 
 export function buildCodexPermissionModeCliArgs(mode: Exclude<CodexPermissionMode, 'default'>): string[] {
     const config = resolveCodexPermissionModeConfig(mode);
-    return ['--ask-for-approval', config.approvalPolicy, '--sandbox', config.sandbox];
+    const approvalArgs = typeof config.approvalPolicy === 'string'
+        ? ['--ask-for-approval', config.approvalPolicy]
+        : ['-c', `approval_policy=${JSON.stringify(config.approvalPolicy)}`];
+    return [...approvalArgs, '--sandbox', config.sandbox];
 }

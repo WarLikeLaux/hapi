@@ -113,7 +113,10 @@ export class CodexPermissionHandler extends BasePermissionHandler<PermissionResp
         const mode = this.getPermissionMode() ?? 'default';
         const requiresPlanApproval = this.options?.getCollaborationMode?.() === 'plan'
             && (toolName === 'exit_plan_mode' || toolName === 'ExitPlanMode');
-        const autoDecision = requiresPlanApproval
+        // Yolo exposes only explicit execpolicy rule prompts. Those rules are
+        // deliberate user/project gates and must reach HAPI instead of being
+        // auto-approved like ordinary sandbox requests.
+        const autoDecision = requiresPlanApproval || mode === 'yolo'
             ? null
             : this.resolveAutoApprovalDecision(mode, toolName, toolCallId);
         if (autoDecision) {

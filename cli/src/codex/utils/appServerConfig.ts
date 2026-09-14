@@ -41,10 +41,10 @@ const MCP_ELICITATION_ONLY_APPROVAL_POLICY = {
 } as const satisfies ApprovalPolicy;
 
 function resolveApprovalPolicy(mode: EnhancedMode): ApprovalPolicy {
-    if (mode.permissionMode === 'yolo' || mode.permissionMode === 'read-only') {
+    if (mode.permissionMode === 'read-only') {
         // Codex's `never` policy auto-declines MCP elicitations before app-server
-        // can forward them. Keep command/sandbox prompts disabled for Yolo and
-        // read-only while allowing auth and structured input to reach HAPI's UI.
+        // can forward them. Keep command/sandbox prompts disabled for read-only
+        // while allowing auth and structured input to reach HAPI's UI.
         return MCP_ELICITATION_ONLY_APPROVAL_POLICY;
     }
     return resolveCodexPermissionModeConfig(mode.permissionMode).approvalPolicy;

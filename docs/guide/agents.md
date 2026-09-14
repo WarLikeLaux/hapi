@@ -36,6 +36,8 @@ Most remote integrations speak the [Agent Client Protocol](https://agentclientpr
 
 Permission modes are per-agent — each flavor exposes its own set (see the matrix above). Set the mode at launch with `--permission-mode <mode>` or a shortcut flag (`--yolo`, `--plan`, `--auto-review`, depending on the agent), and switch it mid-session from the web UI. Semantics vary per agent; see the per-agent sections below.
 
+For Codex, `yolo` keeps the unrestricted `danger-full-access` sandbox and skips ordinary sandbox approval prompts, but still surfaces explicit project/user `execpolicy` rules whose decision is `prompt`. This allows a repository to require HAPI approval for selected commands such as `git commit` and `git push` without prompting for normal work.
+
 ### Local and remote mode
 
 Work **locally** in the terminal or **remotely** from web/phone, keeping the same conversation when you hand off. The support matrix shows which interfaces each agent offers; DSH, Pi, and Antigravity accept input only through HAPI's remote interface.
