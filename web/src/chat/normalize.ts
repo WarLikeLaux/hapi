@@ -21,6 +21,9 @@ export function normalizeDecryptedMessage(message: DecryptedMessage): Normalized
     }
 
     if (record.role === 'user') {
+        if (record.meta && typeof record.meta === 'object' && (record.meta as { isMeta?: unknown }).isMeta === true) {
+            return null
+        }
         const normalized = normalizeUserRecord(message.id, message.localId, message.createdAt, record.content, record.meta)
         return normalized
             ? { ...normalized, status: message.status, originalText: message.originalText, invokedAt: message.invokedAt, steered: message.steered }

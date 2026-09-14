@@ -13,6 +13,16 @@ function makeMessage(content: unknown): DecryptedMessage {
 }
 
 describe('normalizeDecryptedMessage', () => {
+    it('drops internal control prompts from the visible conversation', () => {
+        const message = makeMessage({
+            role: 'user',
+            content: { type: 'text', text: 'Regenerate the chat title now.' },
+            meta: { sentFrom: 'webapp', isMeta: true, internalControl: 'regenerate-title' }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toBeNull()
+    })
+
     it('drops unsupported Claude system output records', () => {
         const message = makeMessage({
             role: 'agent',

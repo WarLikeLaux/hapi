@@ -18,7 +18,7 @@ import { parseReasoningEffortValue } from '../utils/reasoningEffort';
 import { SharedCodexPermissions } from './permissions';
 import { SharedCodexQueue } from './queue';
 import { SharedCodexProjection, inputText } from './projection';
-import { getCodexSystemPrompt } from '../utils/systemPrompt';
+import { buildTitleTurnReminder, getCodexSystemPrompt } from '../utils/systemPrompt';
 import { record, string } from './gateway';
 import { initializeSharedClient, type SharedLaunchOptions } from './launch';
 import { inheritedSandbox, settingsMatch } from './settings';
@@ -119,6 +119,13 @@ export class SharedCodexRoot {
                 const text = formatMessageWithAttachments(message.content.text, message.content.attachments);
                 const resolved = text.trim().startsWith('/') ? await this.queue.command(id, () => this.command(text)) : text;
                 if (resolved === null) { this.session.emitMessagesConsumed([id], { clearQueuedThinkingGrace: true }); return; }
+                const metadata = this.session.getMetadata();
+                const displayedTitle = metadata?.name?.trim() || metadata?.summary?.text?.trim();
+                await this.client.request('thread/inject_items', { threadId: this.threadId, items: [{
+                    type: 'message', role: 'developer', content: [{ type: 'input_text', text: buildTitleTurnReminder(
+                        displayedTitle, message.meta?.internalControl === 'regenerate-title'
+                    ) }]
+                }] });
                 await this.queue.enqueue(id, buildUserInputFromMessage(resolved), this.interrupted);
             }).catch(error => this.notice(`Message not confirmed: ${error instanceof Error ? error.message : error}. Inspect the queue before retrying.`));
         });

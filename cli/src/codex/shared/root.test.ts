@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { ApiSessionClient } from '@/api/apiSession';
-import type { AgentState, Metadata } from '@/api/types';
+import type { AgentState, Metadata, UserMessage } from '@/api/types';
 import type { SessionBootstrapResult } from '@/agent/sessionFactory';
 import { SharedCodexRoot, type RootHost } from './root';
 import { codexPlanProposalId } from './plan';
@@ -28,6 +28,7 @@ vi.mock('../codexAppServerClient', () => ({
             if (method === 'thread/read' || method === 'thread/resume') return { ...this.settings, thread: structuredClone(this.thread) };
             if (method === 'thread/list') return { data: [] };
             if (method === 'thread/queue/list') return { data: this.queue };
+            if (method === 'thread/inject_items') return {};
             if (method === 'thread/settings/update') {
                 this.settings = { ...this.settings, ...params };
                 this.notify?.('thread/settings/updated', { threadId: 'thread', threadSettings: this.settings });
@@ -58,6 +59,7 @@ async function fixture() {
     let state: AgentState = { steeringActive: true };
     let metadata: Metadata = { path: directory, host: 'test', flavor: 'codex' };
     let reconnect: (() => void) | null = null;
+    let userMessage: ((message: UserMessage, localId?: string) => void) | null = null;
     const updateState = vi.fn((fn: (value: AgentState) => AgentState) => { state = fn(state); });
     const rpc = new Map<string, (raw: unknown) => Promise<unknown>>();
     const send = vi.fn();
@@ -65,7 +67,7 @@ async function fixture() {
         sessionId: 'sid', getMetadata: () => metadata,
         updateMetadata: (fn: (value: Metadata) => Metadata) => { metadata = fn(metadata); },
         updateAgentState: updateState, keepAlive() {},
-        onUserMessage() {}, onCancelQueuedMessage() {}, onRetryQueuedMessage() {},
+        onUserMessage: (fn: typeof userMessage) => { userMessage = fn; }, onCancelQueuedMessage() {}, onRetryQueuedMessage() {},
         onReconnect: (fn: (() => void) | null) => { reconnect = fn; },
         rpcHandlerManager: { registerHandler: (name: string, handler: (raw: unknown) => Promise<unknown>) => rpc.set(name, handler) },
         sendSessionEvent() {}, sendAgentMessage: send, emitSessionReady() {},
@@ -87,7 +89,8 @@ async function fixture() {
         notify(method: string, params: unknown): void;
         abandoned(): void;
     };
-    return { root, native, rpc, send, metadata: () => metadata, state: () => state, updateState, reconnect: () => reconnect?.() };
+    return { root, native, rpc, send, metadata: () => metadata, state: () => state, updateState,
+        postUser: (message: UserMessage, localId?: string) => userMessage?.(message, localId), reconnect: () => reconnect?.() };
 }
 
 async function completePlan(f: Awaited<ReturnType<typeof fixture>>, status = 'completed') {
@@ -104,6 +107,22 @@ async function completePlan(f: Awaited<ReturnType<typeof fixture>>, status = 'co
 }
 
 describe('shared plan actions', () => {
+    it('injects the hidden title reminder before enqueueing each HAPI user message', async () => {
+        const f = await fixture();
+        await f.root.activate();
+        f.root.session.updateMetadata(metadata => ({ ...metadata, name: 'Current title' }));
+        const request = vi.spyOn(f.root.client, 'request');
+        f.postUser({ role: 'user', content: { type: 'text', text: 'A new objective' } }, 'local');
+        await vi.waitFor(() => expect(f.native.queue).toHaveLength(1));
+        const injectIndex = request.mock.calls.findIndex(([method]) => method === 'thread/inject_items');
+        const queueIndex = request.mock.calls.findIndex(([method]) => method === 'thread/queue/add');
+        expect(injectIndex).toBeGreaterThanOrEqual(0);
+        expect(injectIndex).toBeLessThan(queueIndex);
+        expect(request.mock.calls[injectIndex][1]).toMatchObject({ threadId: 'thread', items: [{
+            role: 'developer', content: [{ type: 'input_text', text: expect.stringContaining('"Current title"') }]
+        }] });
+    });
+
     it('persists remote title tools while retaining native terminal rename events', async () => {
         const f = await fixture();
         const item = { id: 'title', type: 'mcpToolCall', server: 'hapi', tool: 'change_title',

@@ -93,6 +93,25 @@ describe('SessionActionMenu - Mark unread action', () => {
     })
 })
 
+describe('SessionActionMenu - regenerate title action', () => {
+    it('fires the regenerate handler and closes the menu', () => {
+        const onRegenerateTitle = vi.fn()
+        const onClose = vi.fn()
+        renderMenu({ onRegenerateTitle, onClose })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Regenerate title' }))
+
+        expect(onRegenerateTitle).toHaveBeenCalledOnce()
+        expect(onClose).toHaveBeenCalledOnce()
+    })
+
+    it('does not render the action when no handler is provided', () => {
+        renderMenu()
+
+        expect(screen.queryByRole('menuitem', { name: 'Regenerate title' })).toBeNull()
+    })
+})
+
 describe('SessionActionMenu - Continue in folder action', () => {
     it('fires the continuation handler and closes the menu', () => {
         const onContinueInFolder = vi.fn()

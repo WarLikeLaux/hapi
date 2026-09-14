@@ -152,5 +152,23 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         return c.json({ ok: true })
     })
 
+    app.post('/sessions/:id/title-regeneration', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+        if (sessionResult.session.metadata?.flavor !== 'codex') {
+            return c.json({ error: 'Title regeneration is only available for Codex sessions' }, 409)
+        }
+
+        await engine.regenerateSessionTitle(sessionResult.sessionId)
+        return c.json({ ok: true })
+    })
+
     return app
 }

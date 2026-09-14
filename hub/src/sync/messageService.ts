@@ -847,6 +847,7 @@ export class MessageService {
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
             deliveryMode?: MessageDeliveryMode
+            internalControl?: 'regenerate-title'
         }
     ): Promise<{ actualSessionId: string; createdAt: number }> {
         // Defence-in-depth invariant for non-REST callers (Telegram bot, MCP,
@@ -877,7 +878,11 @@ export class MessageService {
             },
             meta: {
                 sentFrom,
-                deliveryMode
+                deliveryMode,
+                ...(payload.internalControl ? {
+                    isMeta: true,
+                    internalControl: payload.internalControl
+                } : {})
             }
         }
 

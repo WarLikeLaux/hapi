@@ -71,6 +71,10 @@ export type {
 
 export const MessageMetaSchema = z.object({
     sentFrom: z.string().optional(),
+    // Internal control prompts are delivered to the agent but omitted from the
+    // user-visible HAPI transcript.
+    isMeta: z.boolean().optional(),
+    internalControl: z.enum(['regenerate-title']).optional(),
     // Shared Codex queue mirrors are replayable input, not transcript echoes.
     isNativeQueuedMessage: z.boolean().optional(),
     // Claude jsonl echoes the remote (web/telegram) prompt as a second user row.
