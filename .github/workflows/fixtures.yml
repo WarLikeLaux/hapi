@@ -3,7 +3,7 @@ name: fixtures
 on:
     push:
         branches:
-            - main
+            - custom
         paths:
             - 'web/src/chat/**'
             - 'web/src/lib/message-window-store.ts'
