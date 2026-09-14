@@ -17,4 +17,20 @@ describe('resolveCodexPermissionModeConfig', () => {
             sandboxPolicy: { type: 'workspaceWrite' }
         });
     });
+
+    it('allows only rule and MCP prompts in yolo mode', () => {
+        expect(resolveCodexPermissionModeConfig('yolo')).toEqual({
+            approvalPolicy: {
+                granular: {
+                    sandbox_approval: false,
+                    rules: true,
+                    skill_approval: false,
+                    request_permissions: false,
+                    mcp_elicitations: true
+                }
+            },
+            sandbox: 'danger-full-access',
+            sandboxPolicy: { type: 'dangerFullAccess' }
+        });
+    });
 });

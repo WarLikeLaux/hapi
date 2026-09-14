@@ -57,21 +57,25 @@ describe('CodexPermissionHandler', () => {
         });
     });
 
-    it('auto-approves yolo requests for the session', async () => {
-        const { handler, getAgentState } = createHarness('yolo');
+    it('keeps explicit rule prompts pending in yolo until the user approves them', async () => {
+        const { handler, rpcHandlers, getAgentState } = createHarness('yolo');
 
-        await expect(handler.handleToolCall('perm-1', 'CodexPatch', { grantRoot: '/tmp' })).resolves.toEqual({
-            decision: 'approved_for_session'
-        });
+        const resultPromise = handler.handleToolCall('perm-1', 'CodexBash', { command: 'git push' });
 
-        expect(getAgentState().requests).toEqual({});
-        expect(getAgentState().completedRequests).toMatchObject({
+        expect(getAgentState().requests).toMatchObject({
             'perm-1': {
-                tool: 'CodexPatch',
-                status: 'approved',
-                decision: 'approved_for_session'
+                tool: 'CodexBash',
+                arguments: { command: 'git push' }
             }
         });
+
+        await rpcHandlers.get('permission')?.({
+            id: 'perm-1',
+            approved: true,
+            decision: 'approved'
+        });
+
+        await expect(resultPromise).resolves.toEqual({ decision: 'approved', reason: undefined });
     });
 
     it('keeps plan exit pending in yolo until the user approves it', async () => {
