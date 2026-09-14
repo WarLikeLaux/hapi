@@ -294,7 +294,7 @@ describe('codexLocalLauncher', () => {
         expect(harness.launches).toHaveLength(1);
         expect(harness.launches[0]?.codexArgs).toEqual([
             '-c',
-            'approval_policy={"granular":{"sandbox_approval":false,"rules":true,"skill_approval":false,"request_permissions":false,"mcp_elicitations":true}}',
+            'approval_policy={ granular = { sandbox_approval = false, rules = true, skill_approval = false, request_permissions = false, mcp_elicitations = true } }',
             '--sandbox',
             'danger-full-access',
             '--model',

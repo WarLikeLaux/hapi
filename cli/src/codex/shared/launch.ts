@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { resolveCodexCommand, type CodexCommand } from '../utils/codexExecutable';
 import { parseCodexCliOverrides, stripCodexCliOverrides } from '../utils/codexCliOverrides';
-import { resolveCodexPermissionModeConfig } from '../utils/permissionModeConfig';
+import { resolveCodexPermissionModeConfig, serializeCodexApprovalPolicy } from '../utils/permissionModeConfig';
 import { getCodexSystemPrompt } from '../utils/systemPrompt';
 import type { CodexAppServerClient } from '../codexAppServerClient';
 
@@ -122,7 +122,12 @@ export function sharedLaunchConfig(options: SharedLaunchOptions, cwd: string): {
     tuiArgs = stripCodexCliOverrides(tuiArgs);
     // Launch-wide flags also apply to later native /new roots, not just the
     // initial HAPI-created root. Explicit config layers keep their order.
-    for (const [key, value] of Object.entries(config)) serverArgs.push('-c', `${key}=${JSON.stringify(value)}`);
+    for (const [key, value] of Object.entries(config)) {
+        const serialized = key === 'approval_policy'
+            ? serializeCodexApprovalPolicy(value as ReturnType<typeof resolveCodexPermissionModeConfig>['approvalPolicy'])
+            : JSON.stringify(value);
+        serverArgs.push('-c', `${key}=${serialized}`);
+    }
     return {
         cwd: directory, serverArgs, tuiArgs,
         threadParams: {

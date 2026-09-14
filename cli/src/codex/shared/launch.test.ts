@@ -20,7 +20,9 @@ describe('shared launch configuration', () => {
             expect(result.tuiArgs).toContain('--no-alt-screen');
             expect(result.tuiArgs.slice(0, -2)).not.toContain('--yolo');
             expect(result.serverArgs.slice(-6)).toEqual([
-                '-c', `approval_policy=${JSON.stringify(approvalPolicy)}`,
+                '-c', `approval_policy=${typeof approvalPolicy === 'string'
+                    ? JSON.stringify(approvalPolicy)
+                    : '{ granular = { sandbox_approval = false, rules = true, skill_approval = false, request_permissions = false, mcp_elicitations = true } }'}`,
                 '-c', `sandbox_mode=${JSON.stringify(sandbox)}`, '-c', 'approvals_reviewer="user"'
             ]);
         }

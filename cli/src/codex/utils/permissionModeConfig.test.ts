@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveCodexPermissionModeConfig } from './permissionModeConfig';
+import { buildCodexPermissionModeCliArgs, resolveCodexPermissionModeConfig } from './permissionModeConfig';
 
 describe('resolveCodexPermissionModeConfig', () => {
     it('uses on-request approvals for default mode', () => {
@@ -32,5 +32,11 @@ describe('resolveCodexPermissionModeConfig', () => {
             sandbox: 'danger-full-access',
             sandboxPolicy: { type: 'dangerFullAccess' }
         });
+        expect(buildCodexPermissionModeCliArgs('yolo')).toEqual([
+            '-c',
+            'approval_policy={ granular = { sandbox_approval = false, rules = true, skill_approval = false, request_permissions = false, mcp_elicitations = true } }',
+            '--sandbox',
+            'danger-full-access'
+        ]);
     });
 });
