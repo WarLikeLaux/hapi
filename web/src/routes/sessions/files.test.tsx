@@ -181,6 +181,74 @@ describe('FilesPage search navigation', () => {
             resetScroll: false,
         })
     })
+
+    it('searches the whole project only from Directories', () => {
+        renderFilesPage()
+
+        expect(screen.getByPlaceholderText('Search project files')).toBeInTheDocument()
+        expect(mocks.fileSearch).toHaveBeenCalledWith(
+            expect.anything(),
+            'session-1',
+            '感',
+            { enabled: true },
+        )
+        expect(screen.getByRole('button', { name: /感言\.ts/ })).toBeInTheDocument()
+    })
+})
+
+describe('FilesPage changed-file search', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        mocks.sessionId = 'session-1'
+        mocks.search = { query: 'channel' }
+        mocks.gitStatus = {
+            status: {
+                stagedFiles: [{
+                    fileName: 'AccessChannel.php',
+                    filePath: 'filters',
+                    fullPath: 'filters/AccessChannel.php',
+                    status: 'modified',
+                    isStaged: true,
+                    linesAdded: 3,
+                    linesRemoved: 1,
+                }],
+                unstagedFiles: [{
+                    fileName: 'README.md',
+                    filePath: '',
+                    fullPath: 'README.md',
+                    status: 'modified',
+                    isStaged: false,
+                    linesAdded: 1,
+                    linesRemoved: 0,
+                }],
+                branch: 'main',
+                totalStaged: 1,
+                totalUnstaged: 1,
+            },
+            error: null,
+            isLoading: false,
+            refetch: vi.fn(),
+        }
+        window.localStorage.clear()
+        window.sessionStorage.clear()
+    })
+
+    it('filters only files from the active Changes view without running project search', () => {
+        renderFilesPage()
+
+        expect(screen.getByPlaceholderText('Search changed files')).toBeInTheDocument()
+        expect(mocks.fileSearch).toHaveBeenCalledWith(
+            expect.anything(),
+            'session-1',
+            'channel',
+            { enabled: false },
+        )
+        expect(screen.getByText('AccessChannel.php')).toBeInTheDocument()
+        expect(screen.queryByText('README.md')).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /感言\.ts/ })).not.toBeInTheDocument()
+        expect(screen.getByRole('combobox', { name: 'Changes to show' })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Sort files' })).not.toBeInTheDocument()
+    })
 })
 
 describe('FilesPage tab preference', () => {
