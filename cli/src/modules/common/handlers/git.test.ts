@@ -53,6 +53,25 @@ describe('Git comparison parsing', () => {
 })
 
 describe('Git comparison handler', () => {
+    it('renders one working-tree diff including staged, unstaged, and untracked files', async () => {
+        const directory = await createRepository()
+        await writeFile(join(directory, 'tracked.txt'), 'base\n')
+        git(directory, 'add', 'tracked.txt')
+        git(directory, 'commit', '-m', 'Base')
+        await writeFile(join(directory, 'tracked.txt'), 'base\nstaged\n')
+        git(directory, 'add', 'tracked.txt')
+        await writeFile(join(directory, 'tracked.txt'), 'base\nstaged\nunstaged\n')
+        await writeFile(join(directory, 'untracked.txt'), 'new file\n')
+
+        const result = await gitHandlers(directory).get(RPC_METHODS.GitDiff)!({})
+
+        expect(result).toMatchObject({ success: true })
+        expect(result.stdout).toContain('+staged')
+        expect(result.stdout).toContain('+unstaged')
+        expect(result.stdout).toContain('untracked.txt')
+        expect(result.stdout).toContain('+new file')
+    })
+
     it('compares the current branch with the remote default branch merge base', async () => {
         const directory = await createRepository()
         await writeFile(join(directory, 'base.txt'), 'base\n')
@@ -79,8 +98,10 @@ describe('Git comparison handler', () => {
         })
 
         const diffHandler = gitHandlers(directory).get(RPC_METHODS.GitDiffFile)!
+        const fullDiffHandler = gitHandlers(directory).get(RPC_METHODS.GitDiff)!
         const branchDiff = await diffHandler({ filePath: 'feature.txt', comparison: 'branch' })
         const lastCommitDiff = await diffHandler({ filePath: 'feature.txt', comparison: 'last-commit' })
+        const fullBranchDiff = await fullDiffHandler({ comparison: 'branch' })
 
         expect(branchDiff).toMatchObject({ success: true })
         expect(branchDiff.stdout).toContain('+one')
@@ -88,6 +109,8 @@ describe('Git comparison handler', () => {
         expect(lastCommitDiff).toMatchObject({ success: true })
         expect(lastCommitDiff.stdout).toContain('+one')
         expect(lastCommitDiff.stdout).toContain('+two')
+        expect(fullBranchDiff.stdout).toContain('feature.txt')
+        expect(fullBranchDiff.stdout).toContain('+two')
     })
 
     it('shows a root commit and compares a merge commit with its first parent', async () => {

@@ -69,6 +69,23 @@ describe('SessionRowSummary background status', () => {
         expect(screen.queryByRole('tooltip', { hidden: true })).not.toBeInTheDocument()
     })
 
+    it('shows project and Git branch together in top-list metadata', () => {
+        render(
+            <I18nProvider>
+                <SessionRowSummary
+                    session={makeSummary()}
+                    projectLabel="hapi"
+                    projectPath="/home/user/code/hapi"
+                    branchLabel="custom"
+                />
+            </I18nProvider>
+        )
+
+        expect(screen.getByTitle('hapi — /home/user/code/hapi · custom')).toHaveTextContent(
+            'hapi · custom'
+        )
+    })
+
     it('shows a detailed background dot with the task-count tooltip in Extended mode', () => {
         renderSummary(true)
 

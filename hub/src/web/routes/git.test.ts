@@ -32,18 +32,25 @@ describe('Git comparison routes', () => {
             getGitDiffFile: async (...args: unknown[]) => {
                 calls.push(args)
                 return { success: true, stdout: 'diff' }
+            },
+            getGitDiff: async (...args: unknown[]) => {
+                calls.push(args)
+                return { success: true, stdout: 'full diff' }
             }
         } as unknown as Partial<SyncEngine>
         const app = buildApp(engine)
 
         const comparison = await app.request('/api/sessions/session-1/git-comparison?scope=branch')
         const file = await app.request('/api/sessions/session-1/git-diff-file?path=src%2Ffeature.ts&comparison=branch')
+        const fullDiff = await app.request('/api/sessions/session-1/git-diff?comparison=branch')
 
         expect(comparison.status).toBe(200)
         expect(file.status).toBe(200)
+        expect(fullDiff.status).toBe(200)
         expect(calls).toEqual([
             ['session-1', { cwd: '/project', scope: 'branch' }],
-            ['session-1', { cwd: '/project', filePath: 'src/feature.ts', staged: undefined, comparison: 'branch' }]
+            ['session-1', { cwd: '/project', filePath: 'src/feature.ts', staged: undefined, comparison: 'branch' }],
+            ['session-1', { cwd: '/project', comparison: 'branch' }]
         ])
     })
 

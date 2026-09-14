@@ -138,8 +138,12 @@ export function SessionRowSummary(props: {
     inRunningSection?: boolean
     /** Short project name shown under the title (pinned "in progress" rows). */
     projectLabel?: string
-    /** Machine label shown next to the project name (pinned "in progress" rows). */
+    /** Full project path retained as hover/long-press context for a compact label. */
+    projectPath?: string
+    /** Optional machine label shown in grouped session rows. */
     machineLabel?: string
+    /** Live Git branch shown after the machine label. */
+    branchLabel?: string
     /** Which activity timestamp this section is ordered by. */
     activityTimeBasis?: SessionActivityTimeBasis
 }) {
@@ -155,10 +159,15 @@ export function SessionRowSummary(props: {
         className,
         inRunningSection = false,
         projectLabel,
+        projectPath,
         machineLabel,
+        branchLabel,
         activityTimeBasis = 'default',
     } = props
     const { t } = useTranslation()
+    const projectTitle = projectPath && projectLabel
+        ? `${projectLabel} — ${projectPath}`
+        : projectLabel
     const sessionName = getSessionTitle(s)
     const worktreeLabel = getWorktreeSessionLabel(s)
     const todoProgress = getTodoProgress(s)
@@ -312,9 +321,9 @@ export function SessionRowSummary(props: {
                     ) : null}
                 </div>
             </div>
-            {projectLabel || machineLabel ? (
-                <div className="truncate text-xs text-[var(--app-hint)]" title={[projectLabel, machineLabel].filter(Boolean).join(' · ')}>
-                    {[projectLabel, machineLabel].filter(Boolean).join(' · ')}
+            {projectLabel || machineLabel || branchLabel ? (
+                <div className="truncate text-xs text-[var(--app-hint)]" title={[projectTitle, machineLabel, branchLabel].filter(Boolean).join(' · ')}>
+                    {[projectLabel, machineLabel, branchLabel].filter(Boolean).join(' · ')}
                 </div>
             ) : showPath || worktreeLabel ? (
                 <div

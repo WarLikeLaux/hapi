@@ -58,8 +58,9 @@ import { SessionRowSummary, type SessionActivityTimeBasis } from '@/components/S
 import { Spinner } from '@/components/Spinner'
 import { transferComposerDraftThenNavigate } from '@/lib/composer-draft-transfer'
 import { useToast } from '@/lib/toast-context'
-import { getPathDisplayName } from '@/utils/path'
+import { getPathDisplayName, getPathDisplayNames } from '@/utils/path'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
+import { useSessionGitBranch } from '@/hooks/queries/useSessionGitBranch'
 
 export { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
 
@@ -323,7 +324,10 @@ export function getPreviousSessionVisibleCount(current: number, step: number): n
     return Math.max(normalizedStep, current - normalizedStep)
 }
 
-function groupSessionsByDirectory(sessions: SessionSummary[]): SessionGroup[] {
+function groupSessionsByDirectory(
+    sessions: SessionSummary[],
+    displayNames?: ReadonlyMap<string, string>
+): SessionGroup[] {
     const groups = new Map<string, { directory: string; machineId: string | null; sessions: SessionSummary[] }>()
 
     sessions.forEach(session => {
@@ -351,7 +355,7 @@ function groupSessionsByDirectory(sessions: SessionSummary[]): SessionGroup[] {
                 (max, s) => Math.max(max, s.updatedAt),
                 -Infinity
             )
-            const displayName = getPathDisplayName(group.directory)
+            const displayName = displayNames?.get(group.directory) ?? getPathDisplayName(group.directory)
 
             return {
                 key,
@@ -1072,6 +1076,11 @@ function SessionItem(props: {
             : undefined
     const cursorReopenUnverifiedHint = cursorReopenGate.probeUnverified
         ? t('session.action.reopenCursorUnverified')
+            : undefined
+    const gitBranchScope = `${s.metadata?.machineId ?? s.id}:${s.metadata?.path ?? s.id}`
+    const liveGitBranch = useSessionGitBranch(api, s.id, s.active, inRunningSection, gitBranchScope)
+    const gitBranch = inRunningSection
+        ? liveGitBranch ?? s.metadata?.worktree?.branch?.trim() ?? undefined
         : undefined
 
     const { archiveSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, deleteSession, setPinMode, isPending } = useSessionActions(
@@ -1194,7 +1203,9 @@ function SessionItem(props: {
                     scheduleTooltipId={scheduleId}
                     inRunningSection={inRunningSection}
                     projectLabel={projectLabel}
-                    machineLabel={machineLabel}
+                    projectPath={projectLabel ? getSessionProjectDirectory(s) : undefined}
+                    machineLabel={inRunningSection ? undefined : machineLabel}
+                    branchLabel={gitBranch}
                     activityTimeBasis={activityTimeBasis}
                 />
             </button>
@@ -1437,6 +1448,14 @@ export function SessionList(props: {
         () => prepareSidebarSessions(props.sessions, selectedSessionId),
         [props.sessions, selectedSessionId]
     )
+    const projectDisplayNames = useMemo(
+        () => getPathDisplayNames(sidebarSessions.map(getSessionProjectDirectory)),
+        [sidebarSessions]
+    )
+    const getProjectDisplayName = (session: SessionSummary): string => {
+        const path = getSessionProjectDirectory(session)
+        return projectDisplayNames.get(path) ?? getPathDisplayName(path)
+    }
     const readableSessions = useMemo(
         () => props.sessions.filter(session => shouldShowSessionInSidebar(session, selectedSessionId)),
         [props.sessions, selectedSessionId]
@@ -1494,8 +1513,8 @@ export function SessionList(props: {
         [allSessions, hasTextQuery, isFiltering, normalizedQuery, searchScoreIndex, timeScopedSessions, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
     )
     const allGroups = useMemo(
-        () => groupSessionsByDirectory(sidebarSessions),
-        [sidebarSessions]
+        () => groupSessionsByDirectory(sidebarSessions, projectDisplayNames),
+        [projectDisplayNames, sidebarSessions]
     )
     const machineFilters = useMemo(
         () => groupByMachine(allGroups, resolveMachineLabel),
@@ -1618,9 +1637,10 @@ export function SessionList(props: {
     ), [projectHeaderSessions])
     const allDirectoryGroups = useMemo(
         () => groupSessionsByDirectory(
-            projectHeaderSessions.filter((session) => !session.globalPinned)
+            projectHeaderSessions.filter((session) => !session.globalPinned),
+            projectDisplayNames
         ),
-        [projectHeaderSessions]
+        [projectDisplayNames, projectHeaderSessions]
     )
     const groups = useMemo(() => {
         const grouped = allDirectoryGroups.flatMap((group) => {
@@ -1784,7 +1804,7 @@ export function SessionList(props: {
                                 selected={s.id === selectedSessionId}
                                 showDetailedStatus={showDetailedStatus}
                                 inRunningSection
-                                projectLabel={getPathDisplayName(s.metadata?.worktree?.basePath ?? s.metadata?.path ?? 'Other')}
+                                projectLabel={getProjectDisplayName(s)}
                                 machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
                                 activityTimeBasis={activityTimeBasis}
                                 lastSeenVersion={lastSeenVersion}
@@ -1852,7 +1872,7 @@ export function SessionList(props: {
                                     selected={session.id === selectedSessionId}
                                     showDetailedStatus={showDetailedStatus}
                                     inRunningSection
-                                    projectLabel={getPathDisplayName(session.metadata?.worktree?.basePath ?? session.metadata?.path ?? 'Other')}
+                                    projectLabel={getProjectDisplayName(session)}
                                     machineLabel={resolveMachineLabel(session.metadata?.machineId ?? null)}
                                     activityTimeBasis="agent"
                                     lastSeenVersion={lastSeenVersion}
@@ -2338,7 +2358,7 @@ export function SessionList(props: {
                                             selected={s.id === selectedSessionId}
                                             showDetailedStatus={showDetailedStatus}
                                             inRunningSection
-                                            projectLabel={getPathDisplayName(s.metadata?.worktree?.basePath ?? s.metadata?.path ?? 'Other')}
+                                            projectLabel={getProjectDisplayName(s)}
                                             machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
                                             activityTimeBasis="user"
                                             lastSeenVersion={lastSeenVersion}

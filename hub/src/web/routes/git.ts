@@ -23,6 +23,10 @@ const comparisonSchema = z.object({
     scope: z.enum(['last-commit', 'branch'])
 })
 
+const fullDiffSchema = z.object({
+    comparison: z.enum(['last-commit', 'branch']).optional()
+})
+
 const generatedImageSchema = z.object({
     imageId: z.string().min(1)
 })
@@ -133,6 +137,23 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
 
         const staged = parseBooleanParam(c.req.query('staged'))
         const result = await runRpc(() => engine.getGitDiffNumstat(sessionResult.sessionId, { cwd: sessionPath, staged }))
+        return c.json(result)
+    })
+
+    app.get('/sessions/:id/git-diff', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) return sessionResult
+        const sessionPath = sessionResult.session.metadata?.path
+        if (!sessionPath) return c.json({ success: false, error: 'Session path not available' })
+
+        const parsed = fullDiffSchema.safeParse(c.req.query())
+        if (!parsed.success) return c.json({ success: false, error: 'Invalid Git comparison scope' }, 400)
+        const result = await runRpc(() => engine.getGitDiff(sessionResult.sessionId, {
+            cwd: sessionPath,
+            comparison: parsed.data.comparison
+        }))
         return c.json(result)
     })
 

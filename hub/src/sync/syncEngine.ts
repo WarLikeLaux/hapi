@@ -3953,6 +3953,10 @@ export class SyncEngine {
         return await this.rpcGateway.getGitDiffNumstat(sessionId, options)
     }
 
+    async getGitDiff(sessionId: string, options: { cwd?: string; comparison?: GitComparisonScope }): Promise<RpcCommandResponse> {
+        return await this.rpcGateway.getGitDiff(sessionId, options)
+    }
+
     async getGitDiffFile(sessionId: string, options: { cwd?: string; filePath: string; staged?: boolean; comparison?: GitComparisonScope }): Promise<RpcCommandResponse> {
         return await this.rpcGateway.getGitDiffFile(sessionId, options)
     }

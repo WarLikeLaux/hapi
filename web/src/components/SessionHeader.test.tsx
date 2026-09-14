@@ -237,7 +237,7 @@ describe('SessionHeader', () => {
 
     it('shows an inherited catalog-default Fast tier', () => {
         renderHeader(baseSession(), { serviceTier: 'priority' })
-        expect(screen.getByText('fast')).toBeInTheDocument()
+        expect(screen.getByTestId('session-header-fast')).toHaveTextContent('fast')
         expect(screen.queryByText('reasoning default')).not.toBeInTheDocument()
     })
 
@@ -290,7 +290,8 @@ describe('SessionHeader', () => {
         expect(screen.queryByTestId('session-header-reasoning')).not.toBeInTheDocument()
     })
 
-    it('shows machine label and relative last-active age in the meta row', () => {
+    it('shows an opted-in machine label and relative last-active age in the meta row', () => {
+        localStorage.setItem('hapi-session-header-metadata', JSON.stringify({ branch: false, machine: true }))
         const fiveMinutesAgo = Date.now() - 5 * 60_000
         renderHeader(baseSession({
             activeAt: fiveMinutesAgo,
@@ -305,6 +306,30 @@ describe('SessionHeader', () => {
 
         expect(screen.getByTestId('session-header-machine')).toHaveTextContent(/oos-linux/)
         expect(screen.getByTestId('session-header-age')).toHaveTextContent(/5m ago|5分钟前/)
+    })
+
+    it('shows the live Git branch instead of the machine by default', async () => {
+        const api = {
+            getGitStatus: vi.fn().mockResolvedValue({
+                success: true,
+                stdout: '# branch.oid abcdef123456\n# branch.head feature/live-branch\n'
+            }),
+            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
+            getScratchlist: vi.fn().mockResolvedValue({ entries: [] })
+        } as unknown as ApiClient
+
+        render(
+            <QueryClientProvider client={new QueryClient()}>
+                <ToastProvider>
+                    <I18nProvider>
+                        <SessionHeader session={baseSession()} onBack={vi.fn()} api={api} />
+                    </I18nProvider>
+                </ToastProvider>
+            </QueryClientProvider>
+        )
+
+        expect(await screen.findByTestId('session-header-branch')).toHaveTextContent('branch: feature/live-branch')
+        expect(screen.queryByTestId('session-header-machine')).not.toBeInTheDocument()
     })
 
     it('advances relative age on the minute tick without a session prop change', () => {

@@ -30,6 +30,7 @@ import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { markSessionUnread } from '@/lib/sessionLastSeen'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useNavigate } from '@tanstack/react-router'
+import { useSessionGitBranch } from '@/hooks/queries/useSessionGitBranch'
 
 /** Same preference order as session-list chips: display label → host → short id. */
 export function resolveSessionHeaderMachineLabel(
@@ -165,6 +166,9 @@ export function SessionHeader(props: {
     const title = useMemo(() => getSessionTitle(session), [session])
     const worktreeBranch = session.metadata?.worktree?.branch?.trim() || null
     const { preferences: headerMetadata } = useSessionHeaderMetadata()
+    const gitBranchScope = `${session.metadata?.machineId ?? session.id}:${session.metadata?.path ?? session.id}`
+    const liveGitBranch = useSessionGitBranch(api, session.id, session.active, headerMetadata.branch, gitBranchScope)
+    const gitBranch = liveGitBranch ?? worktreeBranch
     const modelLabel = getSessionModelLabel(session)
     const isModelChanging = useIsMutating({
         mutationKey: sessionModelMutationKey(session.id),
@@ -208,6 +212,7 @@ export function SessionHeader(props: {
     const mobileSecondary = selectMobileSessionHeaderSecondary({
         model: headerMetadata.model && modelLabel !== null,
         reasoning: headerMetadata.reasoning && reasoningLabel !== null,
+        branch: headerMetadata.branch && gitBranch !== null,
         machine: headerMetadata.machine && machineLabel !== null,
         lastActive: ageLabel !== null,
         updatedAt: updatedAtLabel !== null,
@@ -442,6 +447,7 @@ export function SessionHeader(props: {
                                 ) : null}
                                 {mobileSecondary === 'model' && modelLabel ? <span className="inline-flex truncate items-center gap-1.5">{headerMetadata.showLabels ? `${t(modelLabel.key)}: ` : ''}{modelLabel.value}{isModelChanging ? <ModelChangingStatus /> : null}</span> : null}
                                 {mobileSecondary === 'reasoning' && reasoningLabel ? <span className="truncate">{reasoningLabel}</span> : null}
+                                {mobileSecondary === 'branch' && gitBranch ? <span className="truncate">{headerMetadata.showLabels ? `${t('session.item.branch')}: ` : ''}{gitBranch}</span> : null}
                                 {mobileSecondary === 'machine' && machineLabel ? <span className="truncate">{headerMetadata.showLabels ? `${t('session.item.machine')}: ` : ''}{machineLabel}</span> : null}
                                 {mobileSecondary === 'lastActive' && ageLabel ? <span className="truncate" title={ageAbsolute ?? undefined}>{ageLabel}</span> : null}
                                 {mobileSecondary === 'updatedAt' && updatedAtLabel ? <span className="truncate">{headerMetadata.showLabels ? `${t('session.header.updatedAt')}: ` : ''}{updatedAtLabel}</span> : null}
@@ -455,6 +461,11 @@ export function SessionHeader(props: {
                                 <span className="inline-flex items-center gap-1">
                                     <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" />
                                     {agentLabel}
+                                </span>
+                            ) : null}
+                            {headerMetadata.branch && gitBranch ? (
+                                <span data-testid="session-header-branch" className="max-w-[18rem] truncate" title={gitBranch}>
+                                    {headerMetadata.showLabels ? `${t('session.item.branch')}: ` : ''}{gitBranch}
                                 </span>
                             ) : null}
                             {headerMetadata.machine && machineLabel ? (

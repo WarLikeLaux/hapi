@@ -12,6 +12,7 @@ import { validatePath } from '../pathSecurity'
 import { rpcError } from '../rpcResponses'
 
 const execFileAsync = promisify(execFile)
+const MAX_GIT_OUTPUT_BYTES = 16 * 1024 * 1024
 
 interface GitStatusRequest {
     cwd?: string
@@ -28,6 +29,12 @@ interface GitDiffFileRequest {
     cwd?: string
     filePath: string
     staged?: boolean
+    comparison?: GitComparisonScope
+    timeout?: number
+}
+
+interface GitDiffRequest {
+    cwd?: string
     comparison?: GitComparisonScope
     timeout?: number
 }
@@ -60,12 +67,14 @@ function validateFilePath(filePath: string, workingDirectory: string): string | 
 async function runGitCommand(
     args: string[],
     cwd: string,
-    timeout?: number
+    timeout?: number,
+    successfulExitCodes: readonly number[] = [0]
 ): Promise<GitCommandResponse> {
     try {
         const options: ExecFileOptions = {
             cwd,
-            timeout: timeout ?? 10_000
+            timeout: timeout ?? 10_000,
+            maxBuffer: MAX_GIT_OUTPUT_BYTES
         }
         const { stdout, stderr } = await execFileAsync('git', args, options)
         return {
@@ -82,6 +91,15 @@ async function runGitCommand(
             killed?: boolean
         }
 
+        if (typeof execError.code === 'number' && successfulExitCodes.includes(execError.code)) {
+            return {
+                success: true,
+                stdout: execError.stdout ? execError.stdout.toString() : '',
+                stderr: execError.stderr ? execError.stderr.toString() : '',
+                exitCode: execError.code
+            }
+        }
+
         if (execError.code === 'ETIMEDOUT' || execError.killed) {
             return rpcError('Command timed out', {
                 stdout: execError.stdout ? execError.stdout.toString() : '',
@@ -95,6 +113,84 @@ async function runGitCommand(
             stderr: execError.stderr ? execError.stderr.toString() : execError.message || 'Command failed',
             exitCode: typeof execError.code === 'number' ? execError.code : 1
         })
+    }
+}
+
+async function getComparisonDiffArgs(
+    comparison: GitComparisonScope,
+    cwd: string,
+    timeout?: number
+): Promise<string[] | GitCommandResponse> {
+    if (comparison === 'last-commit') {
+        const parent = await readGitOutput(['rev-parse', '--verify', 'HEAD^1'], cwd, timeout)
+        return parent.success && parent.stdout?.trim()
+            ? ['diff', '--no-ext-diff', '--find-renames', '--binary', parent.stdout.trim(), 'HEAD', '--']
+            : ['show', '--format=', '--no-ext-diff', '--find-renames', '--binary', 'HEAD', '--']
+    }
+
+    const base = await resolveDefaultBaseRef(cwd, timeout)
+    if (!base) return rpcError('Default branch unavailable: origin/HEAD is not configured')
+    const verifiedBase = await readGitOutput(
+        ['rev-parse', '--verify', '--end-of-options', `${base.ref}^{commit}`],
+        cwd,
+        timeout
+    )
+    const verifiedBaseSha = verifiedBase.success ? verifiedBase.stdout?.trim() : ''
+    if (!verifiedBaseSha) return rpcError(`Base branch '${base.ref}' is unavailable`)
+    const mergeBase = await readGitOutput(['merge-base', verifiedBaseSha, 'HEAD'], cwd, timeout)
+    const mergeBaseSha = mergeBase.success ? mergeBase.stdout?.trim() : ''
+    if (!mergeBaseSha) return rpcError(`No merge base found for '${base.ref}' and HEAD`)
+    return ['diff', '--no-ext-diff', '--find-renames', '--binary', mergeBaseSha, 'HEAD', '--']
+}
+
+async function getFullGitDiff(data: GitDiffRequest, cwd: string): Promise<GitCommandResponse> {
+    if (data.comparison) {
+        const args = await getComparisonDiffArgs(data.comparison, cwd, data.timeout)
+        return Array.isArray(args) ? await runGitCommand(args, cwd, data.timeout) : args
+    }
+
+    const head = await readGitOutput(['rev-parse', '--verify', 'HEAD'], cwd, data.timeout)
+    const trackedResults = head.success && head.stdout?.trim()
+        ? [await runGitCommand(['diff', '--no-ext-diff', '--find-renames', '--binary', 'HEAD', '--'], cwd, data.timeout)]
+        : await Promise.all([
+            runGitCommand(['diff', '--cached', '--no-ext-diff', '--find-renames', '--binary', '--'], cwd, data.timeout),
+            runGitCommand(['diff', '--no-ext-diff', '--find-renames', '--binary', '--'], cwd, data.timeout)
+        ])
+    const trackedFailure = trackedResults.find((result) => !result.success)
+    if (trackedFailure) return trackedFailure
+
+    const untracked = await runGitCommand(['ls-files', '--others', '--exclude-standard', '-z'], cwd, data.timeout)
+    if (!untracked.success) return untracked
+    const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null'
+    const untrackedPatches: string[] = []
+    let outputBytes = trackedResults.reduce(
+        (total, result) => total + Buffer.byteLength(result.stdout ?? ''),
+        0
+    )
+    for (const path of splitNullTerminated(untracked.stdout ?? '')) {
+        const patch = await runGitCommand(
+            ['diff', '--no-index', '--no-ext-diff', '--binary', '--', nullDevice, path],
+            cwd,
+            data.timeout,
+            [0, 1]
+        )
+        if (!patch.success) return patch
+        if (patch.stdout) {
+            outputBytes += Buffer.byteLength(patch.stdout)
+            if (outputBytes > MAX_GIT_OUTPUT_BYTES) {
+                return rpcError('Full diff is too large to display')
+            }
+            untrackedPatches.push(patch.stdout)
+        }
+    }
+
+    return {
+        success: true,
+        stdout: [...trackedResults.map((result) => result.stdout ?? ''), ...untrackedPatches]
+            .filter(Boolean)
+            .join('\n'),
+        stderr: '',
+        exitCode: 0
     }
 }
 
@@ -341,6 +437,15 @@ export function registerGitHandlers(rpcHandlerManager: RpcHandlerManager, workin
             ? ['diff', '--cached', '--numstat']
             : ['diff', '--numstat']
         return await runGitCommand(args, resolved.cwd, data.timeout)
+    })
+
+    rpcHandlerManager.registerHandler<GitDiffRequest, GitCommandResponse>(RPC_METHODS.GitDiff, async (data) => {
+        const resolved = resolveCwd(data.cwd, workingDirectory)
+        if (resolved.error) return rpcError(resolved.error)
+        if (data.comparison !== undefined && data.comparison !== 'last-commit' && data.comparison !== 'branch') {
+            return rpcError('Invalid Git comparison scope')
+        }
+        return await getFullGitDiff(data, resolved.cwd)
     })
 
     rpcHandlerManager.registerHandler<GitDiffFileRequest, GitCommandResponse>(RPC_METHODS.GitDiffFile, async (data) => {

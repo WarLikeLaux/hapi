@@ -34,6 +34,10 @@ const mocks = vi.hoisted(() => ({
         isLoading: false,
         refetch: vi.fn(),
     },
+    getGitDiff: vi.fn(async () => ({
+        success: true,
+        stdout: 'diff --git a/src/feature.ts b/src/feature.ts\n+whole change'
+    })),
 }))
 
 vi.mock('@tanstack/react-router', () => ({
@@ -47,7 +51,7 @@ vi.mock('@/lib/composer-draft-transfer', () => ({
 }))
 
 vi.mock('@/lib/app-context', () => ({
-    useAppContext: () => ({ api: {} }),
+    useAppContext: () => ({ api: { getGitDiff: mocks.getGitDiff } }),
 }))
 
 vi.mock('@/hooks/useAppGoBack', () => ({
@@ -524,5 +528,14 @@ describe('FilesPage committed comparisons', () => {
             },
             resetScroll: false,
         })
+    })
+
+    it('opens the complete selected comparison without entering each file', async () => {
+        renderFilesPage()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Full diff' }))
+
+        expect(await screen.findByText('+whole change')).toBeInTheDocument()
+        expect(mocks.getGitDiff).toHaveBeenCalledWith('session-1', 'branch')
     })
 })

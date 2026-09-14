@@ -98,7 +98,8 @@ vi.mock('@/hooks/useSessionHeaderMetadata', () => ({
             model: true,
             reasoning: true,
             fastMode: true,
-            machine: true,
+            branch: true,
+            machine: false,
             lastActive: true,
             createdAt: false,
             updatedAt: false,
@@ -296,7 +297,8 @@ describe('responsive settings pages', () => {
         expect(setAppBadgeEnabled).toHaveBeenCalledWith(true)
         expect(screen.getByRole('checkbox', { name: 'Show field labels' })).toBeChecked()
         expect(screen.getByRole('checkbox', { name: 'Reasoning effort' })).toBeChecked()
-        expect(screen.getByRole('checkbox', { name: 'Machine' })).toBeChecked()
+        expect(screen.getByRole('checkbox', { name: 'Git branch' })).toBeChecked()
+        expect(screen.getByRole('checkbox', { name: 'Machine' })).not.toBeChecked()
         expect(screen.getByRole('checkbox', { name: 'Active time' })).toBeChecked()
         expect(screen.getByRole('checkbox', { name: 'Created time' })).not.toBeChecked()
         expect(screen.getByRole('checkbox', { name: 'Updated time' })).not.toBeChecked()
