@@ -23,6 +23,7 @@ on:
             - 'web/scripts/**'
             - 'shared/fixtures/**'
             - '.github/workflows/fixtures.yml'
+    workflow_dispatch:
 
 permissions:
     contents: read
