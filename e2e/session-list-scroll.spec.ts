@@ -31,15 +31,15 @@ for (const nativeAnchoring of [true, false]) {
             }
         })
 
-        test('keeps a neighboring row in place when the first visible project moves to pinned', async ({ page }) => {
+        test('keeps the neighboring project in place when the first visible project moves to pinned', async ({ page }) => {
             await page.goto('/e2e-fixtures/session-list-scroll-fixture.html')
-            const row = page.getByRole('button', { name: /^Session 20 / })
-            await row.waitFor()
+            const neighbor = page.locator('[title="/project-18"]')
+            await neighbor.waitFor()
             await page.locator('[title="/project-19"]').evaluate(element => element.scrollIntoView({ block: 'start' }))
-            const before = (await row.boundingBox())!.y
+            const before = (await neighbor.boundingBox())!.y
             await page.evaluate(() => window.updateSession('session-19', { pinned: false, active: true, thinking: true }))
             await page.waitForTimeout(350)
-            expect(Math.abs((await row.boundingBox())!.y - before)).toBeLessThan(2)
+            expect(Math.abs((await neighbor.boundingBox())!.y - before)).toBeLessThan(2)
         })
 
         test('does not follow a visible project when unpinning moves it to the bottom', async ({ page }) => {
