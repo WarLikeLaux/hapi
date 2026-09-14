@@ -20,9 +20,8 @@ export function usesCodexFamilyPermissionModes(
 
 /**
  * Flavors whose create-form permission control is the native-mode select.
- * Ports: `NewSessionLogic.usesNativePermissionSelect`
- * (`ios/Packages/HapiKit/Sources/HapiClient/NewSession/NewSessionForm.swift`,
- * `android/app/src/main/kotlin/app/hapi/companion/feature/newsession/NewSessionForm.kt`).
+ * External client ports may mirror this through
+ * `NewSessionLogic.usesNativePermissionSelect`.
  * claude and grok do not share the codex-family mode set, but they render
  * through the same native select.
  */

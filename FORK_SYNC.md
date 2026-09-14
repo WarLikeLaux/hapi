@@ -34,11 +34,18 @@ Upstream changes must preserve these user-visible extensions and their tests:
 - Assistant responses keep intermediate reasoning/tool events behind one
   `Show work` affordance, while title and compaction lifecycle events remain
   associated with the surrounding response.
+- This fork ships the Web/PWA client only. The upstream `ios/**` and `android/**`
+  trees, their GitHub Actions workflows, store-release automation, and local
+  native-app guide are intentionally absent and must be removed again during
+  every upstream synchronization if upstream reintroduces them.
 
 ## Security and data boundaries
 
 - Preserve HAPI namespace isolation, authentication checks, safe link handling,
   and versioned state-update invariants.
+- Without explicit runner workspace roots, directory browsing must remain
+  limited to the runner user's home directory; manual spawning may retain its
+  legacy behavior. Configured roots constrain both browsing and spawning.
 - Do not weaken tenant/Hub storage separation or expose Hub-only configuration
   to tenant namespaces.
 - Do not add committed secrets or machine-specific deployment configuration.
@@ -49,7 +56,7 @@ Upstream changes must preserve these user-visible extensions and their tests:
 ## CI and release policy
 
 - Preserve the fork's existing workflow trigger and permission restrictions.
-- Upstream release, publishing, Pages, mobile signing, image publishing, and
+- Upstream release, publishing, Pages, native-app build/signing, image publishing, and
   automated response workflows are not authorization to publish from this fork.
   Synchronization does not trigger a release or deployment unless separately
   requested.

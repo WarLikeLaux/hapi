@@ -287,6 +287,14 @@ bun run build:single-exe
 - `src/ui/` - User interface and diagnostics.
 - `src/modules/` - Tool implementations (ripgrep, difftastic, git).
 
+## Releasing
+
+From the repository root, `bun run release-all <version>` updates the CLI package,
+and shared app version before building and publishing. Use `--dry-run` to preview
+without changing files or publishing. This fork does not ship the upstream iOS
+or Android projects, so the release flow has no mobile app version or store-build
+steps.
+
 ## Related docs
 
 - `../hub/README.md`

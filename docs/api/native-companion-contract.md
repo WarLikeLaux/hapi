@@ -11,9 +11,9 @@ binding (requires Telegram `initData`).
 
 A companion implementing this contract is a **native client to the same hub the PWA talks to**, surfacing notifications and reply / approve actions on a phone or wearable. The hub may run on the operator's development machine or a separate host; agents execute on their CLI/Runner machines.
 
-This page specifies background push. The repository's iOS and Android phone
-apps also provide interactive sessions and chat; see the [native app guide](../guide/native-apps.md)
-and [client contract](./client-contract/index.md). The hub retains direct-FCM
+This page specifies background push. This fork does not ship the upstream iOS
+or Android applications; see the [client contract](./client-contract/index.md)
+for interactive protocol details. The hub retains direct-FCM
 support for `wear` registrations; the repository does not include a Wear OS app.
 
 ---

@@ -3,11 +3,11 @@ import { getPathDisplayName, getPathDisplayNames } from './path'
 
 describe('getPathDisplayName', () => {
     it('keeps the final two segments for nested POSIX paths', () => {
-        expect(getPathDisplayName('/home/user/coding/hapi')).toBe('hapi')
+        expect(getPathDisplayName('/home/user/coding/hapi')).toBe('coding/hapi')
     })
 
     it('supports Windows path separators', () => {
-        expect(getPathDisplayName('C:\\Users\\Ananovo\\Downloads\\Agent\\Hapi')).toBe('Hapi')
+        expect(getPathDisplayName('C:\\Users\\Ananovo\\Downloads\\Agent\\Hapi')).toBe('Agent/Hapi')
     })
 
     it('keeps short paths and the fallback group unchanged', () => {

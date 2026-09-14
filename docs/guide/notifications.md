@@ -1,12 +1,14 @@
 # Notifications
 
-Get notified when sessions need input, request permissions, fail, or complete — via native app notifications, Telegram, Server酱 (ServerChan), Web Push, or voice.
+Get notified when sessions need input, request permissions, fail, or complete — via Telegram, Server酱 (ServerChan), Web Push, or voice.
 
 Web Push needs no provider configuration: [install the PWA](./pwa.md) and allow notifications. The channels below are optional.
 
-## Native app notifications
+## Upstream native-client compatibility
 
-See [Native apps](./native-apps.md) for build, pairing and platform requirements.
+This fork does not ship the upstream iOS or Android source/build workflows. The
+hub retains its encrypted native push protocol for compatibility with separately
+obtained upstream clients.
 
 For official Android and iOS apps, pair an updated hub and allow notifications.
 No Firebase project or Apple developer account is needed. Notification content

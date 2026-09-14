@@ -1,12 +1,11 @@
 # Native client contract
 
-**Audience:** Implementers of native HAPI clients — the iOS app (`ios/`), the Android app (`android/`), and any other non-web client that talks to a hub's client API. These pages are the primary spec for that work: every claim is grounded in hub/web source, and each section names its source file so implementers (human or AI agent) can verify against code.
+**Audience:** Implementers of non-web HAPI clients that talk to a hub's client API. This fork does not ship the upstream iOS or Android projects; these pages retain the protocol specification for compatibility. Every claim is grounded in hub/web source, and each section names its source file so implementers can verify against code.
 
 **Scope:** The HTTP contract between a client and one hub — pairing and auth, REST endpoints, SSE streaming, message pagination, message decoding, and error semantics. Core session/chat features use **REST + SSE**. Web terminals additionally use the JWT-authenticated Socket.IO `/terminal` namespace, outside this contract; `/cli` is the internal CLI↔hub namespace and is not a native-client API.
 
-For installation, pairing and the features exposed by each app, see the
-[native app guide](../../guide/native-apps.md). An endpoint documented here
-does not imply that both apps expose a corresponding UI.
+An endpoint documented here does not imply that any external client exposes a
+corresponding UI.
 
 ## Pages
 

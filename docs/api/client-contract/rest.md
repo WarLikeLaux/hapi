@@ -2,9 +2,8 @@
 
 Endpoint tables for native clients, grouped by feature. Request/response shapes reference the Zod schemas in `shared/src/schemas.ts` and `shared/src/apiTypes.ts` (package `@hapi/protocol`) — those schemas, not the prose here, are the field-level source of truth. Route behavior is grounded in `hub/src/web/routes/*.ts`; `web/src/api/client.ts` is the reference consumer.
 
-These tables describe the hub interface. The [native app guide](../../guide/native-apps.md#sessions-and-everyday-use)
-records current iOS/Android UI support; an API wrapper or wire field alone
-does not mean the app offers that feature.
+These tables describe the hub interface. An API wrapper or wire field alone
+does not mean an external client offers that feature.
 
 ## Conventions
 
@@ -166,6 +165,16 @@ the authoritative availability check as part of spawning, covering changes
 after the form-level query without requiring a duplicate client RPC.
 Availability checks executables and static runner configuration only; it does
 not execute the Agent or verify account/login state.
+
+Explicit workspace roots restrict both directory listing and spawning after
+canonical symlink resolution. With no `metadata.workspaceRoots`, manual spawning
+retains its legacy unrestricted behavior while directory listing is confined to
+the runner's home directory (`metadata.homeDir`, or the runner process home).
+Listings classify allowed directory symlinks as directories and omit links
+whose targets escape the configured roots. Dot-prefixed entries require
+`includeHidden: true`. Autocomplete clients can suggest known workspace roots
+from metadata while a user types their prefix, without listing a root's
+out-of-bounds parent.
 
 ### Git & files (RPC-wrapped)
 

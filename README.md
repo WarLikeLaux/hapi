@@ -2,7 +2,7 @@
 
 # HAPI custom fork
 
-This is a maintained downstream fork of [HAPI](https://github.com/tiann/hapi) for a local-first Codex workflow shared between a desktop terminal and a phone. It keeps the upstream agent, Hub, Web/PWA, native-client, and Telegram architecture while adapting session navigation, project launching, notifications, and optional TermDeck handoff.
+This is a maintained downstream fork of [HAPI](https://github.com/tiann/hapi) for a local-first Codex workflow shared between a desktop terminal and a phone through the Web/PWA client. It keeps the upstream agent, Hub, Web/PWA, and Telegram architecture while adapting session navigation, project launching, notifications, and optional TermDeck handoff.
 
 For the complete product overview, supported agents, and architecture, read the **[canonical upstream README](https://github.com/tiann/hapi#readme)**. This page documents only the differences and operational rules of this fork.
 
@@ -17,8 +17,9 @@ For the complete product overview, supported agents, and architecture, read the 
 | Telegram | Notifications link directly to the session and are suppressed only while that exact chat is visibly open. | Alerts still arrive from the session list, another chat, or a backgrounded app without duplicating the chat currently being watched. |
 | TermDeck | Optional desktop-only, idempotent creation/opening of a TermDeck terminal attached to a Codex HAPI session. | The same session can be opened in the native terminal UI without making TermDeck a dependency for phone use or normal HAPI startup. |
 | Maintenance and releases | Upstream is reviewed and merged into `custom` with a real merge commit. Syncing never authorizes publishing, signing, deployment, or a force-push. | Fork behavior and security boundaries are reviewed instead of being overwritten by upstream updates. |
+| Client scope | The upstream `ios/` and `android/` projects, their CI/release workflows, and native-app build guide are intentionally removed. | This fork is Web/PWA-only and does not download or build mobile SDK projects. |
 
-No upstream product subsystem is intentionally presented as removed. The important operational difference is distribution: upstream npm packages, release downloads, and self-update instructions install upstream HAPI, not this fork.
+The important operational difference is distribution: upstream npm packages, release downloads, and self-update instructions install upstream HAPI, not this fork. Upstream native-app build instructions do not apply here.
 
 ## Install and run this fork
 
@@ -57,7 +58,7 @@ Both URLs and one token input are required for the integration. If TermDeck is u
 ## Security and private configuration
 
 - Keep Hub tokens, Telegram bot tokens, TermDeck tokens, public/private hostnames, and local filesystem paths outside Git.
-- Workspace browsing is restricted to roots explicitly supplied with `hapi runner start --workspace-root <path>`.
+- Workspace browsing is restricted to roots explicitly supplied with `hapi runner start --workspace-root <path>`; without them it falls back to the runner user's home directory rather than the whole filesystem.
 - Prefer `HAPI_TERMDECK_TOKEN_FILE` so the TermDeck secret is not embedded in a service definition.
 - Treat YOLO mode as dangerous: it bypasses the agent's normal approval and sandbox protections.
 - Exposing the Hub or enabling Telegram still requires the authentication, TLS, tunnel, and `HAPI_PUBLIC_URL` guidance from upstream; a local deployment does not make the Hub safely public by itself.

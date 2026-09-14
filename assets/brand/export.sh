@@ -91,25 +91,6 @@ for size in 192 512; do
     render_rgb "$SVG/hapi-maskable.svg" "$size" "$OUT/web/hapi-maskable-${size}x${size}.png"
 done
 
-# Android legacy launcher assets. API 26+ adaptive and Android 13+ themed
-# vector layers remain native resources under android/app/src/main/res/.
-while IFS=: read -r density size; do
-    directory="$OUT/native/android/mipmap-$density"
-    mkdir -p "$directory"
-    render "$SVG/hapi-small.svg" "$size" "$directory/ic_launcher.png"
-    render_round "$SVG/hapi-app-icon.svg" "$size" "$directory/ic_launcher_round.png"
-done <<'EOF'
-mdpi:48
-hdpi:72
-xhdpi:96
-xxhdpi:144
-xxxhdpi:192
-EOF
-
-# Legacy iOS/App Store fallback: opaque RGB, no alpha channel. Xcode 26 uses
-# the layered AppIcon.icon package copied below instead.
-render_rgb "$SVG/hapi-small.svg" 1024 "$OUT/native/ios/AppIcon.png"
-
 # Web application.
 copy_asset "$OUT/web/favicon.ico" "$REPO_ROOT/web/public/favicon.ico"
 copy_asset "$SVG/hapi-small.svg" "$REPO_ROOT/web/public/icon.svg"
@@ -128,26 +109,5 @@ copy_asset "$OUT/web/favicon.ico" "$REPO_ROOT/website/public/favicon.ico"
 copy_asset "$SVG/hapi-small.svg" "$REPO_ROOT/website/public/icon.svg"
 copy_asset "$SVG/hapi-mark.svg" "$REPO_ROOT/website/public/logo.svg"
 copy_asset "$OUT/web/hapi-pwa-180x180.png" "$REPO_ROOT/website/public/apple-touch-icon-180x180.png"
-
-# Native application assets.
-while IFS=: read -r density _size; do
-    source="$OUT/native/android/mipmap-$density"
-    target="$REPO_ROOT/android/app/src/main/res/mipmap-$density"
-    copy_asset "$source/ic_launcher.png" "$target/ic_launcher.png"
-    copy_asset "$source/ic_launcher_round.png" "$target/ic_launcher_round.png"
-done <<'EOF'
-mdpi:48
-hdpi:72
-xhdpi:96
-xxhdpi:144
-xxxhdpi:192
-EOF
-
-copy_asset \
-    "$OUT/native/ios/AppIcon.png" \
-    "$REPO_ROOT/ios/Hapi/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
-copy_asset \
-    "$SVG/hapi-optical-mark.svg" \
-    "$REPO_ROOT/ios/Hapi/AppIcon.icon/Assets/hapi-optical-mark.svg"
 
 echo "Synced HAPI brand assets from $ROOT"

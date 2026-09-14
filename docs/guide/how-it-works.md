@@ -1,6 +1,6 @@
 # How it Works
 
-HAPI connects coding agents, a self-hosted hub, and web/native clients for remote control.
+HAPI connects coding agents, a self-hosted hub, and Web/PWA clients for remote control.
 
 ## Architecture Overview
 
@@ -10,12 +10,11 @@ Runner       <---- Socket.IO /cli ---->       |
   |                                          | REST + SSE
   +-- spawns CLI sessions                    |
                                      Web / PWA / Mini App
-                                     Native iOS / Android
 ```
 
 The hub can run on your local desktop or a remote host (VPS, cloud, etc.).
 Clients reach it directly or through an optional tunnel/reverse proxy. Use an
-HTTPS hub origin for native pairing; see [Deployment](./deployment.md).
+HTTPS hub origin for secure remote access; see [Deployment](./deployment.md).
 
 ## Components
 
@@ -44,7 +43,7 @@ The hub is the central service that connects everything:
 
 - **HTTP API** - RESTful endpoints for sessions, messages, permissions
 - **Socket.IO** - Real-time bidirectional communication with CLI
-- **SSE (Server-Sent Events)** - Live updates pushed to web and native clients
+- **SSE (Server-Sent Events)** - Live updates pushed to Web/PWA clients
 - **SQLite Database** - Persistent storage for sessions and messages
 - **Telegram Bot** - Notifications and Mini App integration
 
@@ -60,19 +59,6 @@ A React-based PWA usable in a browser, as an installed PWA, or as a Telegram Min
 - **Voice Assistant** - Talk to your agent and approve permissions by voice (see [Voice input and assistant](./voice-assistant.md))
 - **Session References** - Copy a session reference or mention another conversation for context
 - **Remote Spawn** - Start new sessions on any connected machine
-
-### Native apps
-
-The iOS SwiftUI/UIKit and Android Kotlin Compose apps are independent clients
-of the hub. Both support sessions/chat, approvals and questions, new sessions,
-attachments, files/Git, Scratchlist, dictation and native push. Their interactive
-traffic uses the same REST + SSE client API; background notifications use
-FCM/APNs with the [native push contract](../api/native-companion-contract.md).
-
-The apps have their own navigation and rendering. Protocol fixture conformance
-does not imply web UI parity: the terminal, Work Graph and realtime voice
-controls remain web features. See [Native apps](./native-apps.md) for current
-capabilities, platform differences and build/pairing instructions.
 
 ## Data Flow
 

@@ -8,6 +8,7 @@ import {
     join,
     relative,
     resolve,
+    sep,
 } from 'node:path'
 
 export function normalizeWindowsDriveRoot(path: string): string {
@@ -31,17 +32,16 @@ function normalizeRoots(paths: readonly string[]): string[] {
 function isPathWithinRoots(path: string, roots: readonly string[]): boolean {
     return roots.some((root) => {
         const child = relative(root, path)
-        return child === '' || (!child.startsWith('..') && !isAbsolute(child))
+        return child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child)
     })
 }
 
 /**
  * Single authority for machine-scoped path access.
  *
- * Spawn paths are unrestricted when the runner has no configured workspace
- * roots, preserving the legacy manual-entry contract. Browse paths instead
- * fall back to the runner's home directory so native autocomplete/pickers can
- * remain useful without exposing the whole filesystem.
+ * Explicit workspace roots constrain both browsing and spawning. Without
+ * explicit roots, spawning preserves the legacy unrestricted manual-entry
+ * contract while browsing falls back to the runner's home directory.
  */
 export class MachinePathPolicy {
     readonly workspaceRoots: readonly string[]

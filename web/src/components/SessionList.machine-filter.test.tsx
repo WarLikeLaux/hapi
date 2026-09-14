@@ -109,8 +109,8 @@ describe('SessionList machine filter', () => {
         // Mobile (below md) counterpart: a compact filter icon button in the header
         expect(screen.getByRole('button', { name: 'Filter sessions by machine' })).toBeTruthy()
         expect(screen.getByRole('button', { name: /All \(2\)/ })).toBeTruthy()
-        expect(screen.getByText('work/hapi · Mint')).toBeTruthy()
-        expect(screen.getByText('work/docs · Teemo')).toBeTruthy()
+        expect(screen.getByText('hapi · Mint')).toBeTruthy()
+        expect(screen.getByText('docs · Teemo')).toBeTruthy()
     })
 
     it('filters directory groups when a machine chip is selected', () => {
@@ -119,9 +119,10 @@ describe('SessionList machine filter', () => {
         fireEvent.click(screen.getByRole('button', { name: /Teemo \(1\)/ }))
 
         expect(screen.queryByTitle('/work/hapi')).toBeNull()
-        expect(screen.getByTitle('/work/docs')).toBeTruthy()
+        const docsGroupTitle = screen.getByTitle('/work/docs')
         // Suffix disappears once a single machine is selected
-        expect(screen.getByText('work/docs')).toBeTruthy()
+        expect(docsGroupTitle).toHaveTextContent('docs')
+        expect(docsGroupTitle).not.toHaveTextContent('Teemo')
         expect(window.localStorage.getItem('hapi-session-list-machine-filter')).toBe('machine-2')
     })
 

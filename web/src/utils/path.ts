@@ -24,12 +24,13 @@ export function basename(path: string): string {
     return parts.length > 0 ? parts[parts.length - 1] : path
 }
 
-/** Format a path like the compact project labels used by the session list. */
+/** Format an individual path with enough parent context for compact pickers. */
 export function getPathDisplayName(path: string): string {
     if (path === 'Other') return path
     const parts = path.split(/[\\/]+/).filter(Boolean)
     if (parts.length === 0) return path
-    return parts[parts.length - 1]
+    if (parts.length === 1) return parts[0]
+    return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`
 }
 
 /** Use the shortest path suffix that distinguishes same-named projects. */

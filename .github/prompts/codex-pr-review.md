@@ -19,19 +19,19 @@ comments or reviews yourself. This is an advisory review, not a merge approval.
 
 ## Project context
 
-HAPI runs coding agents locally with remote control through web and native clients.
+HAPI runs coding agents locally with remote control through Web/PWA clients.
 The CLI wraps agents and connects to the hub using Socket.IO; clients use REST/SSE.
 
 - `cli/`: wrappers, runner, commands, MCP tooling.
 - `hub/`: APIs, auth, synchronization, notifications.
 - `web/`: React UI and the chat pipeline.
 - `shared/`: protocol types and runtime schemas.
-- `ios/`, `android/`: native clients; `relay/`: native push relay.
+- `relay/`: optional native push compatibility relay.
 - `docs/`, `website/`: documentation and site.
 
 Start with the task's files and the base `AGENTS.md`; read only relevant parts of
 `README.md`, package READMEs, and linked contracts. Respect strict TypeScript,
-Bun workspaces, namespace isolation, versioned state updates, and generated native
+Bun workspaces, namespace isolation, versioned state updates, and generated
 conformance fixtures. Do not request compatibility layers where repo rules do not
 require them.
 
