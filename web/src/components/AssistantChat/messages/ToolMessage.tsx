@@ -54,6 +54,44 @@ function isGeneratedImageBlock(value: unknown): value is GeneratedImageBlock {
 
 const MIN_INLINE_IMAGE_DIMENSION = 64
 
+export function isHtmlFileName(fileName: string): boolean {
+    return /\.html?$/i.test(fileName)
+}
+
+function escapeHtmlAttribute(value: string): string {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('"', '&quot;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+}
+
+function readBlobAsText(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+        reader.onerror = () => reject(reader.error ?? new Error('Failed to read HTML file'))
+        reader.readAsText(blob)
+    })
+}
+
+/** Keep displayed HTML interactive without giving it HAPI's authenticated origin. */
+export async function createSandboxedHtmlPreviewBlob(source: Blob, fileName: string): Promise<Blob> {
+    const sourceHtml = await readBlobAsText(source)
+    const title = escapeHtmlAttribute(fileName)
+    const srcdoc = escapeHtmlAttribute(sourceHtml)
+    return new Blob([
+        '<!doctype html><html><head>',
+        '<meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width,initial-scale=1">',
+        `<title>${title}</title>`,
+        '<style>html,body,iframe{box-sizing:border-box;width:100%;height:100%;margin:0;border:0}body{overflow:hidden}</style>',
+        '</head><body>',
+        `<iframe title="${title}" sandbox="allow-scripts allow-forms allow-modals allow-downloads" referrerpolicy="no-referrer" srcdoc="${srcdoc}"></iframe>`,
+        '</body></html>',
+    ], { type: 'text/html' })
+}
+
 /** Scale tiny icons up for readability without exploding skinny/tall images. */
 export function computeTinyImageScale(width: number, height: number): number {
     const maxDim = Math.max(width, height)
@@ -76,10 +114,11 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     const isAudio = isInlineAudioMimeType(props.block.mimeType)
     const isImage = isInlineImageMimeType(props.block.mimeType)
     const isFile = !isVideo && !isAudio && !isImage
+    const isHtml = isFile && isHtmlFileName(props.block.fileName)
     const mediaLabel = t(inlineMediaLabelKey(props.block.mimeType))
     const mediaHeader = t('media.displayed.header', { label: mediaLabel, fileName: props.block.fileName })
     // Non-image media can be tens of MB; wait for explicit user intent before downloading.
-    const shouldFetch = isImage || loadMedia
+    const shouldFetch = isImage || isHtml || loadMedia
 
     useEffect(() => {
         return () => {
@@ -106,9 +145,15 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
         setError(null)
 
         void ctx.api.getGeneratedImageBlob(ctx.sessionId, props.block.imageId)
-            .then((blob) => {
-                if (disposed) return
-                const nextObjectUrl = URL.createObjectURL(blob)
+            .then(async (blob) => {
+                const displayBlob = isHtml
+                    ? await createSandboxedHtmlPreviewBlob(blob, props.block.fileName)
+                    : blob
+                const nextObjectUrl = URL.createObjectURL(displayBlob)
+                if (disposed) {
+                    URL.revokeObjectURL(nextObjectUrl)
+                    return
+                }
                 if (objectUrlRef.current) {
                     URL.revokeObjectURL(objectUrlRef.current)
                 }
@@ -133,7 +178,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
         return () => {
             disposed = true
         }
-    }, [ctx.api, ctx.sessionId, props.block.imageId, isImage, shouldFetch])
+    }, [ctx.api, ctx.sessionId, props.block.fileName, props.block.imageId, isHtml, isImage, shouldFetch])
 
     return (
         <div className="max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3">
@@ -160,11 +205,13 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                 ) : isFile ? (
                     <a
                         href={objectUrl}
-                        download={props.block.fileName}
+                        download={isHtml ? undefined : props.block.fileName}
+                        target={isHtml ? '_blank' : undefined}
+                        rel={isHtml ? 'noopener noreferrer' : undefined}
                         className="flex items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-4 py-3 text-sm font-medium text-[var(--app-fg)]"
                     >
                         <FileIcon fileName={props.block.fileName} size={24} />
-                        <span className="min-w-0 truncate">Download {props.block.fileName}</span>
+                        <span className="min-w-0 truncate">{isHtml ? 'Open' : 'Download'} {props.block.fileName}</span>
                     </a>
                 ) : (
                     <div className="flex min-h-32 min-w-[12rem] items-center justify-center rounded-xl bg-[var(--app-subtle-bg)]">

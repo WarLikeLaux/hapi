@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { HappyChatProvider } from '@/components/AssistantChat/context'
-import { GeneratedImageCard } from '@/components/AssistantChat/messages/ToolMessage'
+import {
+    createSandboxedHtmlPreviewBlob,
+    GeneratedImageCard,
+} from '@/components/AssistantChat/messages/ToolMessage'
 import { I18nProvider } from '@/lib/i18n-context'
 import type { ApiClient } from '@/api/client'
 import type { HappyChatContextValue } from '@/components/AssistantChat/context'
 
 function renderCard(options: {
     mimeType: string | null
+    fileName?: string
     locale?: 'en' | 'zh-CN'
     getGeneratedImageBlob?: ReturnType<typeof vi.fn>
 }) {
@@ -43,7 +47,7 @@ function renderCard(options: {
                         localId: null,
                         createdAt: 1,
                         imageId: 'img-1',
-                        fileName: 'clip.mp4',
+                        fileName: options.fileName ?? 'clip.mp4',
                         mimeType: options.mimeType,
                     }}
                 />
@@ -113,5 +117,39 @@ describe('GeneratedImageCard video fetch', () => {
         await waitFor(() => {
             expect(screen.getByRole('link', { name: /Download clip\.mp4/ })).toHaveAttribute('download', 'clip.mp4')
         })
+    })
+
+    it('fetches HTML on mount and renders a one-tap browser link', async () => {
+        const { getGeneratedImageBlob } = renderCard({
+            mimeType: 'application/octet-stream',
+            fileName: 'diagram.html',
+            getGeneratedImageBlob: vi.fn(async () => new Blob(['<h1>Diagram</h1>'])),
+        })
+
+        await waitFor(() => {
+            expect(getGeneratedImageBlob).toHaveBeenCalledWith('session-1', 'img-1')
+        })
+        const link = await screen.findByRole('link', { name: 'Open diagram.html' })
+        expect(link).toHaveAttribute('target', '_blank')
+        expect(link).not.toHaveAttribute('download')
+        expect(screen.queryByRole('button', { name: 'Prepare download' })).not.toBeInTheDocument()
+    })
+
+    it('isolates interactive HTML from the HAPI origin', async () => {
+        const preview = await createSandboxedHtmlPreviewBlob(
+            new Blob(['<script>document.body.textContent = localStorage.token</script>']),
+            'unsafe.html'
+        )
+        const wrapper = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+            reader.onerror = () => reject(reader.error)
+            reader.readAsText(preview)
+        })
+
+        expect(preview.type).toBe('text/html')
+        expect(wrapper).toContain('sandbox="allow-scripts allow-forms allow-modals allow-downloads"')
+        expect(wrapper).not.toContain('allow-same-origin')
+        expect(wrapper).toContain('&lt;script&gt;')
     })
 })
