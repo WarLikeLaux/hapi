@@ -55,6 +55,10 @@ function pickToolName(record: Record<string, unknown>): string {
         ?? 'CodexTool';
 }
 
+function isPlanExitTool(toolName: string): boolean {
+    return toolName === 'exit_plan_mode' || toolName === 'ExitPlanMode';
+}
+
 function mapDecision(decision: PermissionDecision): { decision: string } {
     switch (decision) {
         case 'approved':
@@ -451,6 +455,14 @@ export function registerAppServerPermissionHandlers(args: {
         const record = asRecord(params) ?? {};
         const toolCallId = asString(record.itemId) ?? asString(record.item_id) ?? randomUUID();
         const toolName = pickToolName(record);
+
+        // App and MCP tool approvals use this generic app-server request rather
+        // than MCP elicitation on recent Codex versions. Execpolicy rules arrive
+        // through commandExecution/requestApproval, while leaving plan mode is a
+        // deliberate collaboration checkpoint and must remain interactive.
+        if (getPermissionMode?.() === 'yolo' && !isPlanExitTool(toolName)) {
+            return { decision: 'accept' };
+        }
 
         const result = await permissionHandler.handleToolCall(
             toolCallId,
