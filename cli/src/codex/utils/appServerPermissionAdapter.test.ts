@@ -107,6 +107,79 @@ describe('registerAppServerPermissionHandlers', () => {
         );
     });
 
+    it('auto-approves generic app and MCP tool requests in yolo mode', async () => {
+        const { client, handlers } = createClient();
+        const permissionHandler = { handleToolCall: vi.fn() };
+
+        registerAppServerPermissionHandlers({
+            client: client as never,
+            permissionHandler: permissionHandler as never,
+            getPermissionMode: () => 'yolo'
+        });
+
+        const handler = handlers.get('item/tool/requestApproval');
+        await expect(handler?.({
+            itemId: 'tool-456',
+            toolName: 'windows-power',
+            input: { action: 'schedule' }
+        })).resolves.toEqual({ decision: 'accept' });
+
+        expect(permissionHandler.handleToolCall).not.toHaveBeenCalled();
+    });
+
+    it('keeps plan-exit tool requests interactive in yolo mode', async () => {
+        const { client, handlers } = createClient();
+        const permissionHandler = {
+            handleToolCall: vi.fn(async () => ({ decision: 'approved' as const }))
+        };
+
+        registerAppServerPermissionHandlers({
+            client: client as never,
+            permissionHandler: permissionHandler as never,
+            getPermissionMode: () => 'yolo'
+        });
+
+        const handler = handlers.get('item/tool/requestApproval');
+        await expect(handler?.({
+            itemId: 'plan-exit',
+            toolName: 'ExitPlanMode',
+            input: { plan: '1. Edit files' }
+        })).resolves.toEqual({ decision: 'accept' });
+
+        expect(permissionHandler.handleToolCall).toHaveBeenCalledOnce();
+    });
+
+    it('keeps command approvals interactive in yolo mode for execpolicy rules', async () => {
+        const { client, handlers } = createClient();
+        const permissionHandler = {
+            handleToolCall: vi.fn(async () => ({ decision: 'approved' as const }))
+        };
+
+        registerAppServerPermissionHandlers({
+            client: client as never,
+            permissionHandler: permissionHandler as never,
+            getPermissionMode: () => 'yolo'
+        });
+
+        const handler = handlers.get('item/commandExecution/requestApproval');
+        await expect(handler?.({
+            itemId: 'command-1',
+            reason: 'Project rule requires approval',
+            command: ['git', 'push'],
+            cwd: '/workspace/project'
+        })).resolves.toEqual({ decision: 'accept' });
+
+        expect(permissionHandler.handleToolCall).toHaveBeenCalledWith(
+            'command-1',
+            'CodexBash',
+            {
+                message: 'Project rule requires approval',
+                command: ['git', 'push'],
+                cwd: '/workspace/project'
+            }
+        );
+    });
+
     it('maps latest permissions approval requests to granted permission profiles', async () => {
         const { client, handlers } = createClient();
         const permissions = {
