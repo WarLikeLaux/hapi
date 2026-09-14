@@ -3,7 +3,7 @@ const FILE_PATH_HREF_PREFIX = 'hapi-file:'
 // which breaks drive detection. Candidate scheme preserves the path through hast.
 const FILE_PATH_CANDIDATE_HREF_PREFIX = 'hapi-file-candidate:'
 
-const PATH_PATTERN = /(?:[A-Za-z]:[\\/]|\.\/|[A-Za-z0-9_.-]+\/)[^\s`"\'<>]*?\.(?:[A-Za-z0-9]{1,12}|lock)(?::\d+(?::\d+)?)?|(?:[A-Za-z0-9_.-]+\.(?:[A-Za-z0-9]{1,12}|lock))(?::\d+(?::\d+)?)?/g
+const PATH_PATTERN = /(?:[A-Za-z]:[\\/]|\.\/|[A-Za-z0-9_.-]+\/)[^\s`"\'<>]*?\.(?:[A-Za-z0-9]{1,12}|lock)(?::\d+(?::\d+)?|#[Ll]\d+(?:[Cc]\d+)?)?|(?:[A-Za-z0-9_.-]+\.(?:[A-Za-z0-9]{1,12}|lock))(?::\d+(?::\d+)?|#[Ll]\d+(?:[Cc]\d+)?)?/g
 
 const TRAILING_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?'])
 // Extensions that autolink to the session file viewer. Kept intentionally
@@ -30,20 +30,58 @@ type MarkdownNode = {
     children?: MarkdownNode[]
 }
 
+export type FilePathReference = {
+    path: string
+    line?: number
+    column?: number
+}
+
+export function parseFilePathReference(value: string): FilePathReference {
+    const match = /(?::(\d+)(?::(\d+))?|#[Ll](\d+)(?:[Cc](\d+))?)$/.exec(value)
+    if (!match) return { path: value }
+
+    const line = Number(match[1] ?? match[3])
+    const columnText = match[2] ?? match[4]
+    const column = columnText === undefined ? undefined : Number(columnText)
+    if (!Number.isSafeInteger(line) || line < 1) return { path: value }
+    if (column !== undefined && (!Number.isSafeInteger(column) || column < 1)) {
+        return { path: value }
+    }
+
+    return {
+        path: value.slice(0, match.index),
+        line,
+        ...(column === undefined ? {} : { column }),
+    }
+}
+
+export function formatFilePathReference(reference: FilePathReference): string {
+    if (reference.line === undefined) return reference.path
+    return `${reference.path}:${reference.line}${reference.column === undefined ? '' : `:${reference.column}`}`
+}
+
 function createFileHref(path: string): string {
     return `${FILE_PATH_HREF_PREFIX}${encodeURIComponent(path)}`
 }
 
 export function decodeFilePathHref(href: string): string | null {
+    return decodeFilePathReferenceHref(href)?.path ?? null
+}
+
+export function decodeFilePathReferenceHref(href: string): FilePathReference | null {
     if (!href.startsWith(FILE_PATH_HREF_PREFIX)) return null
     try {
-        return decodeURIComponent(href.slice(FILE_PATH_HREF_PREFIX.length))
+        return parseFilePathReference(decodeURIComponent(href.slice(FILE_PATH_HREF_PREFIX.length)))
     } catch {
         return null
     }
 }
 
 export function decodeFilePathCandidateHref(href: string): string | null {
+    return decodeFilePathCandidateReferenceHref(href)?.path ?? null
+}
+
+export function decodeFilePathCandidateReferenceHref(href: string): FilePathReference | null {
     // Decode scheme bypass spellings (`HAPI-FILE-CANDIDATE:`, percent-encoded)
     // before extracting the payload. Empty payload → null (caller fails closed).
     let value = href.trimStart()
@@ -62,9 +100,9 @@ export function decodeFilePathCandidateHref(href: string): string | null {
     if (!payload) return null
     try {
         // Payload may already be decoded by the loop above; retry is a no-op.
-        return decodeURIComponent(payload)
+        return parseFilePathReference(decodeURIComponent(payload))
     } catch {
-        return payload
+        return parseFilePathReference(payload)
     }
 }
 
@@ -100,7 +138,7 @@ function splitTrailingPunctuation(value: string): { path: string; trailing: stri
 }
 
 function stripLineSuffix(value: string): string {
-    return value.replace(/:\d+(?::\d+)?$/, '')
+    return parseFilePathReference(value).path
 }
 
 function hasKnownFileExtension(value: string): boolean {
@@ -146,9 +184,9 @@ function linkTextNode(node: MarkdownNode): MarkdownNode[] {
             continue
         }
         const { path: displayPath, trailing } = splitTrailingPunctuation(rawMatch)
-        const filePath = stripLineSuffix(displayPath)
+        const reference = parseFilePathReference(displayPath)
 
-        if (!shouldLinkPath(filePath)) {
+        if (!shouldLinkPath(reference.path)) {
             continue
         }
 
@@ -157,7 +195,7 @@ function linkTextNode(node: MarkdownNode): MarkdownNode[] {
         }
         parts.push({
             type: 'link',
-            url: createAutolinkHref(filePath),
+            url: createAutolinkHref(formatFilePathReference(reference)),
             title: null,
             children: [{ type: 'text', value: displayPath }]
         })
@@ -192,12 +230,12 @@ function linkInlineCodeNode(node: MarkdownNode): MarkdownNode | null {
     // Require the pattern to cover the whole value — rejects `a=b.js`, `x.md#y`, etc.
     if (!match || match[0] !== trimmed) return null
 
-    const filePath = stripLineSuffix(trimmed)
-    if (!shouldLinkPath(filePath)) return null
+    const reference = parseFilePathReference(trimmed)
+    if (!shouldLinkPath(reference.path)) return null
 
     return {
         type: 'link',
-        url: createAutolinkHref(filePath),
+        url: createAutolinkHref(formatFilePathReference(reference)),
         title: null,
         children: [{ type: 'inlineCode', value: trimmed }]
     }
@@ -207,7 +245,8 @@ function linkInlineCodeNode(node: MarkdownNode): MarkdownNode | null {
 // so it opens the session file viewer instead of dead-ending in the SPA router.
 //
 // Accepts:
-// - repo-relative allowlisted paths (including `./` and `#fragment` / `:line` stripped)
+// - repo-relative allowlisted paths (including `./`; ordinary fragments are
+//   stripped, while `:line[:column]` and `#Lline[Ccolumn]` are preserved)
 //
 // Still rejects: POSIX/Windows abs / `~/` (need session cwd — handled fail-closed in <A>),
 // `../`, scheme-bearing URLs, and non-file targets (`/settings`, `#section`).
@@ -217,23 +256,22 @@ function rewriteFileLinkNode(node: MarkdownNode): void {
     if (!url) return
     if (url.startsWith(FILE_PATH_HREF_PREFIX)) return
 
-    // Strip #fragment / ?query so `file.md#section` can still rewrite.
-    const hashIdx = url.indexOf('#')
     const queryIdx = url.indexOf('?')
-    let cut = -1
-    if (hashIdx >= 0 && queryIdx >= 0) cut = Math.min(hashIdx, queryIdx)
-    else if (hashIdx >= 0) cut = hashIdx
-    else if (queryIdx >= 0) cut = queryIdx
-    const withoutMeta = cut >= 0 ? url.slice(0, cut) : url
-
-    const target = stripLineSuffix(withoutMeta)
+    const withoutQuery = queryIdx >= 0 ? url.slice(0, queryIdx) : url
+    let reference = parseFilePathReference(withoutQuery)
+    if (reference.line === undefined) {
+        const hashIdx = withoutQuery.indexOf('#')
+        reference = parseFilePathReference(hashIdx >= 0 ? withoutQuery.slice(0, hashIdx) : withoutQuery)
+    }
+    const target = reference.path
+    const encodedTarget = formatFilePathReference(reference)
 
     // Absolute paths (POSIX or Windows) need chat workspace metadata for
     // containment — leave POSIX for <A>; encode Windows as candidate so
     // backslashes survive mdast→hast URI normalization.
     if (isWindowsAbsolutePath(target)) {
         if (!hasKnownFileExtension(target)) return
-        node.url = createFileCandidateHref(target)
+        node.url = createFileCandidateHref(encodedTarget)
         return
     }
     if (target.startsWith('/') && !target.startsWith('//')) return
@@ -241,7 +279,7 @@ function rewriteFileLinkNode(node: MarkdownNode): void {
 
     if (!shouldLinkPath(target)) return
 
-    node.url = createFileHref(target)
+    node.url = createFileHref(encodedTarget)
 }
 
 export type RemarkFilePathLinksOptions = {

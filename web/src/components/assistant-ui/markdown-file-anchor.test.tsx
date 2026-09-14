@@ -38,4 +38,15 @@ describe('chat file anchors', () => {
         expect(link).toHaveAttribute('target', '_blank')
         expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     })
+
+    it('passes a referenced line and column to the file viewer', () => {
+        const filePath = 'src/app.ts:42:7'
+        renderFileAnchor(filePath)
+        const link = screen.getByRole('link', { name: filePath })
+        const href = new URL(link.getAttribute('href')!, 'https://hapi.example')
+
+        expect(href.searchParams.get('path')).toBe(encodeBase64('src/app.ts'))
+        expect(href.searchParams.get('line')).toBe('42')
+        expect(href.searchParams.get('column')).toBe('7')
+    })
 })

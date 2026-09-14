@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { decodeFilePathHref, remarkFilePathLinks } from '@/lib/remark-file-path-links'
+import {
+    decodeFilePathHref,
+    decodeFilePathReferenceHref,
+    remarkFilePathLinks,
+} from '@/lib/remark-file-path-links'
 
 type TestNode = {
     type: string
@@ -33,12 +37,16 @@ function linkedPath(node: TestNode): string | null {
 }
 
 describe('remarkFilePathLinks', () => {
-    it('links relative code paths and strips line suffixes from the target path', () => {
+    it('links relative code paths and preserves line locations', () => {
         const nodes = transform('Open web/src/router.tsx:42 please')
         const link = nodes.find((node) => node.type === 'link')
 
         expect(link?.children?.[0]?.value).toBe('web/src/router.tsx:42')
         expect(linkedPath(link!)).toBe('web/src/router.tsx')
+        expect(decodeFilePathReferenceHref(link!.url!)).toEqual({
+            path: 'web/src/router.tsx',
+            line: 42,
+        })
     })
 
     it('links image and markdown filenames for preview', () => {
@@ -54,7 +62,7 @@ describe('remarkFilePathLinks', () => {
 
         expect(links.map((n) => n.url)).toEqual([
             'hapi-file-candidate:' + encodeURIComponent('C:\\Users\\dev\\project\\handoff.md'),
-            'hapi-file-candidate:' + encodeURIComponent('D:/work/app/src/main.ts'),
+            'hapi-file-candidate:' + encodeURIComponent('D:/work/app/src/main.ts:12'),
         ])
         for (const link of links) {
             expect(decodeFilePathHref(link.url as string)).toBeNull()
@@ -106,11 +114,12 @@ describe('remarkFilePathLinks — inlineCode', () => {
         expect(link?.children?.[0]?.value).toBe('web/src/router.tsx')
     })
 
-    it('links a bare filename inlineCode and strips line suffix from target', () => {
+    it('links a bare filename inlineCode and preserves its line location', () => {
         const nodes = transformNodes([{ type: 'inlineCode', value: 'README.md:12' }])
         const link = nodes.find((node) => node.type === 'link')
 
         expect(linkedPath(link!)).toBe('README.md')
+        expect(decodeFilePathReferenceHref(link!.url!)).toEqual({ path: 'README.md', line: 12 })
         expect(link?.children?.[0]?.value).toBe('README.md:12')
     })
 
@@ -125,8 +134,7 @@ describe('remarkFilePathLinks — inlineCode', () => {
     ])('autolinks Windows absolute inlineCode path %s as hapi-file-candidate', (value) => {
         const nodes = transformNodes([{ type: 'inlineCode', value }])
         const link = nodes.find((node) => node.type === 'link')!
-        const expected = value.replace(/:\d+(?::\d+)?$/, '')
-        expect(link.url).toBe('hapi-file-candidate:' + encodeURIComponent(expected))
+        expect(link.url).toBe('hapi-file-candidate:' + encodeURIComponent(value))
         expect(decodeFilePathHref(link.url as string)).toBeNull()
         expect(link.children?.[0]?.type).toBe('inlineCode')
         expect(link.children?.[0]?.value).toBe(value)
@@ -169,9 +177,23 @@ describe('remarkFilePathLinks — explicit markdown links', () => {
         expect(link?.children?.[0]?.value).toBe('the docs')
     })
 
-    it('rewrites a relative link with a line suffix, stripping it from the target', () => {
+    it('rewrites a relative link with a line suffix and preserves the location', () => {
         const nodes = transformNodes([linkNode('web/src/router.tsx:42')])
-        expect(linkedPath(nodes.find((n) => n.type === 'link')!)).toBe('web/src/router.tsx')
+        const link = nodes.find((n) => n.type === 'link')!
+        expect(decodeFilePathReferenceHref(link.url!)).toEqual({
+            path: 'web/src/router.tsx',
+            line: 42,
+        })
+    })
+
+    it('rewrites GitHub-style line and column fragments as a file location', () => {
+        const nodes = transformNodes([linkNode('web/src/router.tsx#L42C7')])
+        const link = nodes.find((n) => n.type === 'link')!
+        expect(decodeFilePathReferenceHref(link.url!)).toEqual({
+            path: 'web/src/router.tsx',
+            line: 42,
+            column: 7,
+        })
     })
 
     it('rewrites ./ prefixed relative file links', () => {
@@ -198,8 +220,9 @@ describe('remarkFilePathLinks — explicit markdown links', () => {
     ])('rewrites Windows absolute file link %s to hapi-file-candidate (not premature hapi-file)', (url) => {
         const nodes = transformNodes([linkNode(url)])
         const link = nodes.find((node) => node.type === 'link')!
-        const withoutMeta = url.replace(/#.*$/, '').replace(/\?.*$/, '')
-        const expectedPath = withoutMeta.replace(/:\d+(?::\d+)?$/, '')
+        const expectedPath = url === 'D:/outside/secret.ts#L1'
+            ? 'D:/outside/secret.ts:1'
+            : url
         expect(decodeFilePathHref(link.url as string)).toBeNull()
         expect(link.url).toBe('hapi-file-candidate:' + encodeURIComponent(expectedPath))
     })

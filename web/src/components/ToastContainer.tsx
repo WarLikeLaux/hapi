@@ -5,7 +5,7 @@ import { useToast } from '@/lib/toast-context'
 
 export function ToastContainer() {
     const navigate = useNavigate()
-    const { toasts, removeToast } = useToast()
+    const { toasts, dismissToast } = useToast()
 
     if (toasts.length === 0) {
         return null
@@ -23,7 +23,7 @@ export function ToastContainer() {
                     body={toast.body}
                     className="cursor-pointer"
                     onClick={() => {
-                        removeToast(toast.id)
+                        dismissToast(toast.id)
                         if (toast.sessionId) {
                             void navigate({
                                 to: '/sessions/$sessionId',
@@ -36,7 +36,7 @@ export function ToastContainer() {
                             void navigate({ to: toast.url })
                         }
                     }}
-                    onClose={() => removeToast(toast.id)}
+                    onClose={() => dismissToast(toast.id)}
                 />
             ))}
         </div>
