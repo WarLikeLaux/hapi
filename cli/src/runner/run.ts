@@ -51,6 +51,7 @@ export function createSpawnDeduplicator(
 ): SpawnDeduplicator {
   const completedOrInFlight = new Map<string, Promise<SpawnSessionResult>>();
   const childState = new Map<string, 'alive' | 'stopping'>();
+  const generationReleaseWaiters = new Map<string, Set<() => void>>();
 
   const dedupe = async (options: SpawnSessionOptions): Promise<SpawnSessionResult> => {
     const key = options.existingSessionId;
@@ -59,6 +60,34 @@ export function createSpawnDeduplicator(
     }
     const existing = completedOrInFlight.get(key);
     if (existing) {
+      if (options.freshGeneration) {
+        // Archive acknowledgement and the runner-facing archived webhook travel
+        // over different sockets. Reopen can therefore arrive a few milliseconds
+        // before the webhook releases the old child. Wait for that exact
+        // generation instead of returning its cached successful spawn result.
+        await new Promise<void>((resolve) => {
+          const waiters = generationReleaseWaiters.get(key) ?? new Set<() => void>();
+          let timeout: ReturnType<typeof setTimeout>;
+          const done = () => {
+            clearTimeout(timeout);
+            waiters.delete(done);
+            if (waiters.size === 0) generationReleaseWaiters.delete(key);
+            resolve();
+          };
+          waiters.add(done);
+          generationReleaseWaiters.set(key, waiters);
+          timeout = setTimeout(done, 5_000);
+        });
+        if (completedOrInFlight.has(key)) {
+          return {
+            type: 'error',
+            errorMessage: 'Previous session process did not finish before restart'
+          };
+        }
+        // Another waiter may win the new spawn race; normal dedupe should join
+        // that new generation instead of waiting for it to finish as well.
+        return await dedupe({ ...options, freshGeneration: false });
+      }
       return await existing;
     }
 
@@ -93,6 +122,11 @@ export function createSpawnDeduplicator(
   dedupe.onChildExited = (existingSessionId: string) => {
     childState.delete(existingSessionId);
     completedOrInFlight.delete(existingSessionId);
+    const waiters = generationReleaseWaiters.get(existingSessionId);
+    if (waiters) {
+      generationReleaseWaiters.delete(existingSessionId);
+      for (const release of waiters) release();
+    }
   };
   return dedupe;
 }
