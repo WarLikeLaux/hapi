@@ -2,10 +2,9 @@
 
 Run the hub and runner as persistent background services, and configure remote access tunnels.
 
-[Native iOS / Android apps](./native-apps.md#pair-with-your-hub) connect to the
-same hub as the web app. Provide an HTTPS hub origin for pairing; Android
-rejects cleartext URLs. The push relay used for native notifications is a
-separate service from the network tunnels described here.
+Provide an HTTPS hub origin when exposing the Web/PWA client outside a trusted
+LAN. The optional push relay compatibility service is separate from the network
+tunnels described here.
 
 ## Relay tunnel details
 

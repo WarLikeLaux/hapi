@@ -28,19 +28,16 @@ HAPI includes an embedded hub. Just run `hapi hub` on your machine - no external
 
 ### How do I access HAPI from my phone?
 
-Use the [native iOS / Android apps](./native-apps.md) or open the web app in
-your browser/PWA. Native apps pair with the hub's URL and access token; the
-guide covers building an app and scanning the companion QR.
+Open the web app in your phone browser and install it as a PWA.
 
 For local network access:
 ```
 http://<your-computer-ip>:3006
 ```
 
-That cleartext URL is for a browser/PWA on your trusted LAN. Use HTTPS for
-native pairing: Android rejects HTTP, and iOS HTTP input remains subject to
-system network policy. Run `hapi hub --relay` or place an HTTPS reverse
-proxy/tunnel in front of the hub.
+That cleartext URL is for a browser/PWA on your trusted LAN. For internet
+access, run `hapi hub --relay` or place an HTTPS reverse proxy/tunnel in front
+of the hub.
 
 If your phone cannot connect, make sure the hub is not only listening on `127.0.0.1`. For LAN access, set `listenHost` to `0.0.0.0` in `~/.hapi/settings.json` or set `HAPI_LISTEN_HOST=0.0.0.0`, then restart `hapi hub`.
 
@@ -54,7 +51,6 @@ For internet access:
 The `CLI_API_TOKEN` is a shared secret that authenticates:
 - CLI connections to the hub
 - Web app logins
-- Native app pairing and authentication
 - Telegram account binding
 
 It's auto-generated on first hub start and saved to `~/.hapi/settings.json`.
@@ -65,7 +61,7 @@ Yes. We support lightweight multi-account access via namespaces for shared team 
 
 ### Can I use HAPI without Telegram?
 
-Yes. Telegram is optional. You can use a native iOS/Android app, open the web app in a browser, or install the PWA.
+Yes. Telegram is optional. You can open the web app in a browser or install the PWA.
 
 ## Usage
 
@@ -82,21 +78,19 @@ HAPI supports these notification channels:
 
 1. **PWA Push Notifications** - Enable when prompted, works even when app is closed
 2. **Telegram Bot** - See [Telegram Setup](./notifications.md#telegram-setup)
-3. **Native app notifications** - Official Android and iOS apps use encrypted push delivery; pair your hub and allow notifications, with no push-provider setup required
-4. **ServerChan (Server酱)** - Send notifications to WeChat and other channels; see [ServerChan Setup](./notifications.md#serverchan-server酱-setup)
+3. **ServerChan (Server酱)** - Send notifications to WeChat and other channels; see [ServerChan Setup](./notifications.md#serverchan-server酱-setup)
 
 ### Can I start sessions remotely?
 
 Yes, with runner mode:
 
 1. Run `hapi runner start` on your computer
-2. Open New Session in a native app or the web app
+2. Open New Session in the web app
 3. Select the online machine, directory and available agent, then create the session
 
 ### How do I see what files were changed?
 
-In the web session view, open **Files**. In native apps, open **Session files**
-from the chat menu to:
+In the web session view, open **Files** to:
 
 - Browse project files
 - View git status
@@ -119,8 +113,6 @@ Linux and macOS hosts use Bun's POSIX PTY support. Windows hosts use Bun's ConPT
 ### How do I use voice control?
 
 The web voice assistant supports ElevenLabs, Gemini Live, and Qwen Realtime.
-Native apps support standard dictation: configure a transcription provider on
-the hub, record in the composer, then review and send the inserted text.
 See [Voice input and assistant](./voice-assistant.md) for setup details.
 
 ## Security

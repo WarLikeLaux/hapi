@@ -26,11 +26,11 @@ The hub terminal (when started with `--relay`) prints two QR codes; the web app'
 
 Native clients register the `hapicompanion://` scheme and parse `bind` links: `hub` is the hub base URL, `code` is the access token. Note the param-name mismatch: the web QR carries the same value under `token=`, the companion deeplink under `code=`. A robust scanner may accept both forms; the deeplink form is the canonical one for natives. Always provide a manual fallback (type hub URL + access token) for `--relay`-less local hubs.
 
-Both repository apps accept both QR forms in their in-app scanners. Android
+The upstream apps accept both QR forms in their in-app scanners. Android
 requires HTTPS for the hub and web-QR URL, and disables cleartext traffic in
 its manifest. iOS parses HTTP and HTTPS URLs, but transport remains subject
 to system network policy; its project has no ATS exceptions. Use HTTPS for
-the pairing examples. See [Native apps → Pairing](../../guide/native-apps.md#pair-with-your-hub).
+the pairing examples. Their source and build workflows are not shipped by this fork.
 
 Both apps normalize hub identities to `scheme://host[:port]`, lowercasing
 scheme/host and removing default ports, paths, queries and fragments. Reverse

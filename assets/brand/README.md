@@ -34,12 +34,9 @@ and iOS applications.
 
 - `svg/hapi-mark.svg` — transparent primary brand mark.
 - `svg/hapi-app-icon.svg` — full-bleed app icon master.
-- `svg/hapi-optical-mark.svg` — transparent iOS launcher foreground matching
-  the small-size optical geometry.
 - `svg/hapi-tiny.svg` — simplified 16 px favicon master.
 - `svg/hapi-small.svg` — optically corrected 24–64 px master.
 - `svg/hapi-maskable.svg` — safe-area-scaled PWA optical master.
-- `svg/hapi-adaptive-foreground.svg` — Android adaptive foreground master.
 - `svg/hapi-monochrome.svg` — one-color mark.
 - `svg/hapi-lockup-horizontal.svg` — tightened horizontal lockup.
 
@@ -50,9 +47,5 @@ and iOS applications.
 ```
 
 The script renders into a temporary directory, then updates only the files used
-by `web/`, `docs/`, `website/`, `android/`, and `ios/`. Generated intermediates
-are deliberately not stored in the repository.
-
-Android adaptive, themed, and notification icons remain native VectorDrawable
-resources under `android/app/src/main/res/`; keep them aligned with
-`svg/hapi-adaptive-foreground.svg` when changing the geometry.
+by `web/`, `docs/`, and `website/`. Generated intermediates are deliberately
+not stored in the repository.

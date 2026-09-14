@@ -4,9 +4,8 @@ Machine-generated conformance fixtures for the HAPI client protocol. The
 **web implementation is the source of truth**: every `expected*` value in
 every file is produced by running the real web implementation over
 hand-authored wire inputs, then applying the normative projection each suite
-documents below. Native clients (iOS `HapiProtocol`, Android
-`:core:protocol`) port the same logic and must reproduce the expectations
-from the inputs exactly.
+documents below. External clients can port the same logic and reproduce the
+expectations from the inputs exactly.
 
 Three suites:
 
@@ -34,17 +33,10 @@ shared/fixtures/
 
 ## How to consume (all suites)
 
-- **iOS** (`ios/`, SPM test target): resolve the repo checkout from the test
-  file's own location and load every `<suite>/*.json`, e.g.
-  `URL(fileURLWithPath: #filePath)` → walk up to the package root →
-  `../../shared/fixtures`. Decode the inputs, run the ported implementation,
-  project, and compare against the stored expectations.
-- **Android** (`android/`, `:core:protocol` JVM tests): pass the directory via
-  Gradle — `tasks.withType<Test> { systemProperty("hapi.fixtures.dir",
-  rootDir.resolve("../shared/fixtures")) }` — and read it with
-  `System.getProperty("hapi.fixtures.dir")` in the test.
-- Iterate **all** files in a suite directory (fail on zero files) so newly
-  added fixtures are picked up without native-side changes.
+External client implementations should load every `<suite>/*.json`, decode the
+inputs, run the ported implementation, project the result, and compare it with
+the stored expectation. Iterate **all** files in a suite directory and fail on
+zero files so newly added fixtures are picked up automatically.
 
 ### Acceptance bar
 
@@ -316,8 +308,8 @@ serialization and drift gate. Never edit them by hand.
   - `codexCollaborationModes`: the codex-only collaboration axis as
     `{ mode, label }` pairs.
 
-  Natives port this table (mode ids, order, labels, tones) and should compare
-  their port against the file in tests the same way as the chat fixtures:
+  External clients can port this table (mode ids, order, labels, tones) and
+  compare their port against the file in tests the same way as the chat fixtures:
   canonical-JSON equality.
 
 ---
@@ -332,8 +324,7 @@ Output is byte-deterministic (canonical serialization), so `git status` after
 a regeneration is the drift signal: when `web/src/chat/**`,
 `web/src/lib/sessionPatch.ts`, `web/src/lib/message-window-store.ts` or
 `web/src/lib/messages.ts` change behavior, regenerated fixtures differ, the
-diff gets committed, and the native conformance suites go red until the ports
-catch up. The web-side self-checks (all in `bun run test:web`) re-run every
+diff gets committed. The web-side self-checks (all in `bun run test:web`) re-run every
 stored input against the live implementation and fail on any divergence from
 the stored expectations or from canonical serialization:
 

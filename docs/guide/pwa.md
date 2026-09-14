@@ -2,8 +2,8 @@
 
 HAPI's web interface is a fully-featured PWA that can be installed on your phone for a native app-like experience.
 
-This page covers browser installation. For the SwiftUI/UIKit and Kotlin
-Compose clients, see [Native apps (iOS / Android)](./native-apps.md).
+This fork uses the PWA as its phone client; the upstream native app projects are
+intentionally not included.
 
 ## What is PWA?
 
@@ -124,10 +124,11 @@ HAPI supports push notifications to alert you when agents need attention.
 | Ready | Agent finished and awaits input |
 | Task completed / Task failed | A background task finishes (success or failure) |
 
-### Native app notifications
+### Upstream native-client compatibility
 
-The [native Android and iOS apps](./native-apps.md#notifications) use FCM and
-APNs. Official builds use encrypted push relay delivery by default; private
+The hub retains protocol compatibility with upstream Android and iOS clients,
+but this fork does not ship their source or build workflows. Those clients use
+FCM and APNs. Official builds use encrypted push relay delivery by default; private
 builds need matching provider configuration. If a native provider accepts a
 notification for any device in your namespace, the hub skips the Web Push
 duplicate for that dispatch. Missing registrations or failed sends retain the
