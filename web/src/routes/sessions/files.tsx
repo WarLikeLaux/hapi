@@ -434,14 +434,31 @@ export default function FilesPage() {
         refetch: refetchComparison
     } = useGitComparisonFiles(api, sessionId, comparisonScope)
 
-    const shouldSearch = Boolean(searchQuery)
+    const shouldSearchProject = activeTab === 'directories' && Boolean(searchQuery)
 
     const searchResults = useSessionFileSearch(api, sessionId, searchQuery, {
-        enabled: shouldSearch
+        enabled: shouldSearchProject
     })
     const sortedSearchResults = useMemo(
         () => sortFileSearchItems(searchResults.files, directorySort, locale),
         [directorySort, locale, searchResults.files]
+    )
+    const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase(locale)
+    const matchesSearchQuery = useCallback((file: GitFileStatus) => {
+        if (!normalizedSearchQuery) return true
+        return file.fullPath.toLocaleLowerCase(locale).includes(normalizedSearchQuery)
+    }, [locale, normalizedSearchQuery])
+    const filteredStagedFiles = useMemo(
+        () => gitStatus?.stagedFiles.filter(matchesSearchQuery) ?? [],
+        [gitStatus?.stagedFiles, matchesSearchQuery]
+    )
+    const filteredUnstagedFiles = useMemo(
+        () => gitStatus?.unstagedFiles.filter(matchesSearchQuery) ?? [],
+        [gitStatus?.unstagedFiles, matchesSearchQuery]
+    )
+    const filteredComparisonFiles = useMemo(
+        () => comparisonFiles.filter(matchesSearchQuery),
+        [comparisonFiles, matchesSearchQuery]
     )
 
     const handleOpenFile = useCallback((path: string, staged?: boolean) => {
@@ -509,7 +526,7 @@ export default function FilesPage() {
             : null
 
     const handleRefresh = useCallback(() => {
-        if (searchQuery) {
+        if (shouldSearchProject) {
             void queryClient.invalidateQueries({
                 queryKey: queryKeys.sessionFiles(sessionId, searchQuery)
             })
@@ -528,7 +545,7 @@ export default function FilesPage() {
         } else {
             void refetchGit()
         }
-    }, [activeTab, comparisonScope, queryClient, refetchComparison, refetchGit, searchQuery, sessionId])
+    }, [activeTab, comparisonScope, queryClient, refetchComparison, refetchGit, searchQuery, sessionId, shouldSearchProject])
 
     const handleChangesViewChange = useCallback((nextView: ChangesView) => {
         navigate({
@@ -617,8 +634,10 @@ export default function FilesPage() {
                         <input
                             value={searchQuery}
                             onChange={(event) => setSearchQuery(event.target.value)}
-                            placeholder={t('files.page.searchPlaceholder')}
-                            className="h-9 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] py-2 pl-9 pr-20 text-sm text-[var(--app-fg)] outline-none placeholder:text-[var(--app-hint)] focus:border-[var(--app-link)] focus:ring-1 focus:ring-[var(--app-link)]"
+                            placeholder={t(activeTab === 'changes'
+                                ? 'files.page.searchChangesPlaceholder'
+                                : 'files.page.searchProjectPlaceholder')}
+                            className={`h-9 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] py-2 pl-9 text-sm text-[var(--app-fg)] outline-none placeholder:text-[var(--app-hint)] focus:border-[var(--app-link)] focus:ring-1 focus:ring-[var(--app-link)] ${activeTab === 'directories' ? 'pr-20' : 'pr-10'}`}
                             autoCapitalize="none"
                             autoCorrect="off"
                         />
@@ -633,7 +652,7 @@ export default function FilesPage() {
                                 <CloseIcon className="h-3.5 w-3.5" />
                             </button>
                         ) : null}
-                        {activeTab === 'directories' || searchQuery ? (
+                        {activeTab === 'directories' ? (
                             <div className="absolute inset-y-0 right-0 flex items-stretch">
                                 <DirectorySortMenu sort={directorySort} onChange={setDirectorySort} embedded />
                             </div>
@@ -681,7 +700,7 @@ export default function FilesPage() {
                 </div>
             </div>
 
-            {(gitStatus || comparison) && !searchQuery && activeTab === 'changes' ? (
+            {(gitStatus || comparison) && activeTab === 'changes' ? (
                 <div className="bg-[var(--app-bg)]">
                     <div className="mx-auto flex w-full max-w-content items-start gap-3 border-b border-[var(--app-divider)] px-3 py-2">
                         <div className="min-w-0 flex-1">
@@ -724,7 +743,7 @@ export default function FilesPage() {
                             {gitErrorMessage}
                         </div>
                     ) : null}
-                    {shouldSearch ? (
+                    {activeTab === 'directories' && searchQuery ? (
                         searchResults.isLoading ? (
                             <FileListSkeleton label={t('loading.files')} />
                         ) : searchResults.error ? (
@@ -760,47 +779,47 @@ export default function FilesPage() {
                         <FileListSkeleton label={t('loading.git')} />
                     ) : (
                         <div>
-                            {!comparisonScope && gitStatus?.stagedFiles.length ? (
+                            {!comparisonScope && filteredStagedFiles.length ? (
                                 <div>
                                     <div className="border-b border-[var(--app-divider)] bg-[var(--app-bg)] px-3 py-2 text-xs font-semibold text-[var(--app-git-staged-color)]">
-                                        {t('files.changes.section.staged', { n: gitStatus.stagedFiles.length })}
+                                        {t('files.changes.section.staged', { n: filteredStagedFiles.length })}
                                     </div>
-                                    {gitStatus.stagedFiles.map((file, index) => (
+                                    {filteredStagedFiles.map((file, index) => (
                                         <GitFileRow
                                             key={`staged-${file.fullPath}-${index}`}
                                             file={file}
                                             onOpen={() => handleOpenFile(file.fullPath, file.isStaged)}
                                             onOpenMenu={(point) => openFileMenu(file.fullPath, point)}
-                                            showDivider={index < gitStatus.stagedFiles.length - 1 || gitStatus.unstagedFiles.length > 0}
+                                            showDivider={index < filteredStagedFiles.length - 1 || filteredUnstagedFiles.length > 0}
                                         />
                                     ))}
                                 </div>
                             ) : null}
 
-                            {!comparisonScope && gitStatus?.unstagedFiles.length ? (
+                            {!comparisonScope && filteredUnstagedFiles.length ? (
                                 <div>
                                     <div className="border-b border-[var(--app-divider)] bg-[var(--app-bg)] px-3 py-2 text-xs font-semibold text-[var(--app-git-unstaged-color)]">
-                                        {t('files.changes.section.unstaged', { n: gitStatus.unstagedFiles.length })}
+                                        {t('files.changes.section.unstaged', { n: filteredUnstagedFiles.length })}
                                     </div>
-                                    {gitStatus.unstagedFiles.map((file, index) => (
+                                    {filteredUnstagedFiles.map((file, index) => (
                                         <GitFileRow
                                             key={`unstaged-${file.fullPath}-${index}`}
                                             file={file}
                                             onOpen={() => handleOpenFile(file.fullPath, file.isStaged)}
                                             onOpenMenu={(point) => openFileMenu(file.fullPath, point)}
-                                            showDivider={index < gitStatus.unstagedFiles.length - 1}
+                                            showDivider={index < filteredUnstagedFiles.length - 1}
                                         />
                                     ))}
                                 </div>
                             ) : null}
 
-                            {comparisonScope && comparisonFiles.map((file, index) => (
+                            {comparisonScope && filteredComparisonFiles.map((file, index) => (
                                 <GitFileRow
                                     key={`${comparisonScope}-${file.fullPath}-${index}`}
                                     file={file}
                                     onOpen={() => handleOpenFile(file.fullPath)}
                                     onOpenMenu={(point) => openFileMenu(file.fullPath, point)}
-                                    showDivider={index < comparisonFiles.length - 1}
+                                    showDivider={index < filteredComparisonFiles.length - 1}
                                 />
                             ))}
 
@@ -810,13 +829,25 @@ export default function FilesPage() {
                                 </div>
                             ) : null}
 
-                            {!comparisonScope && gitStatus && gitStatus.stagedFiles.length === 0 && gitStatus.unstagedFiles.length === 0 ? (
+                            {!comparisonScope && gitStatus && searchQuery && filteredStagedFiles.length === 0 && filteredUnstagedFiles.length === 0 ? (
+                                <div className="p-6 text-sm text-[var(--app-hint)]">
+                                    {t('files.search.changesEmpty')}
+                                </div>
+                            ) : null}
+
+                            {!comparisonScope && gitStatus && !searchQuery && gitStatus.stagedFiles.length === 0 && gitStatus.unstagedFiles.length === 0 ? (
                                 <div className="p-6 text-sm text-[var(--app-hint)]">
                                     {t('files.changes.empty.none')}
                                 </div>
                             ) : null}
 
-                            {comparisonScope && !activeGitError && comparison?.success && comparisonFiles.length === 0 ? (
+                            {comparisonScope && !activeGitError && comparison?.success && searchQuery && filteredComparisonFiles.length === 0 ? (
+                                <div className="p-6 text-sm text-[var(--app-hint)]">
+                                    {t('files.search.changesEmpty')}
+                                </div>
+                            ) : null}
+
+                            {comparisonScope && !activeGitError && comparison?.success && !searchQuery && comparisonFiles.length === 0 ? (
                                 <div className="p-6 text-sm text-[var(--app-hint)]">
                                     {comparisonScope === 'last-commit'
                                         ? t('files.comparison.empty.lastCommit')
