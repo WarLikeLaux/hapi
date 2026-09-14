@@ -191,7 +191,7 @@ describe('registerAppServerPermissionHandlers', () => {
         });
     });
 
-    it('keeps structured MCP tool approval forms interactive even in yolo mode', async () => {
+    it('auto-approves structured MCP tool approval forms in yolo mode', async () => {
         const { client, handlers } = createClient();
         const permissionHandler = {
             handleToolCall: vi.fn()
@@ -245,27 +245,52 @@ describe('registerAppServerPermissionHandlers', () => {
             _meta: null
         });
 
-        expect(onUserInputRequest).toHaveBeenCalledWith({
-            id: expect.any(String),
-            input: {
-                questions: [{
-                    id: 'approval',
-                    header: 'approval',
-                    question: 'Allow the qmd MCP server to run tool "status"?\n\napproval',
-                    required: true,
-                    options: [{ label: 'allow', description: '' }, { label: 'deny', description: '' }]
-                }, {
-                    id: 'comment',
-                    header: 'Optional comment',
-                    question: 'Allow the qmd MCP server to run tool "status"?\n\nOptional comment',
-                    required: false,
-                    options: []
-                }]
-            }
-        });
+        expect(permissionHandler.handleToolCall).not.toHaveBeenCalled();
+        expect(onUserInputRequest).not.toHaveBeenCalled();
     });
 
-    it('routes message-only MCP tool approvals through the permission handler in yolo mode', async () => {
+    it('keeps structured MCP tool approval forms interactive outside yolo mode', async () => {
+        const { client, handlers } = createClient();
+        const permissionHandler = { handleToolCall: vi.fn() };
+        const onUserInputRequest = vi.fn(async () => ({
+            decision: 'accept' as const,
+            answers: { approval: { answers: ['allow'] } }
+        }));
+
+        registerAppServerPermissionHandlers({
+            client: client as never,
+            permissionHandler: permissionHandler as never,
+            getPermissionMode: () => 'default',
+            onUserInputRequest
+        });
+
+        const handler = handlers.get('mcpServer/elicitation/request');
+        await expect(handler?.({
+            serverName: 'external',
+            mode: 'form',
+            message: 'Allow tool?',
+            _meta: {
+                codex_approval_kind: 'mcp_tool_call',
+                tool_name: 'external_tool'
+            },
+            requestedSchema: {
+                type: 'object',
+                properties: {
+                    approval: { type: 'string', enum: ['allow', 'deny'] }
+                },
+                required: ['approval']
+            }
+        })).resolves.toEqual({
+            action: 'accept',
+            content: { approval: 'allow' },
+            _meta: null
+        });
+
+        expect(permissionHandler.handleToolCall).not.toHaveBeenCalled();
+        expect(onUserInputRequest).toHaveBeenCalledOnce();
+    });
+
+    it('auto-approves message-only MCP tool approvals in yolo mode', async () => {
         const { client, handlers } = createClient();
         const permissionHandler = {
             handleToolCall: vi.fn(async () => ({ decision: 'approved_for_session' as const }))
@@ -306,18 +331,7 @@ describe('registerAppServerPermissionHandlers', () => {
             _meta: { persist: 'session' }
         });
 
-        expect(permissionHandler.handleToolCall).toHaveBeenCalledWith(
-            'approval-1',
-            'search_issues',
-            {
-                message: 'Allow GitHub search?',
-                serverName: 'github',
-                toolTitle: 'Search issues',
-                toolDescription: 'Search GitHub issues',
-                toolParams: { query: 'is:open bug' },
-                toolParamsDisplay: { query: 'is:open bug' }
-            }
-        );
+        expect(permissionHandler.handleToolCall).not.toHaveBeenCalled();
         expect(onUserInputRequest).not.toHaveBeenCalled();
     });
 
@@ -350,6 +364,7 @@ describe('registerAppServerPermissionHandlers', () => {
             content: null,
             _meta: null
         });
+        expect(permissionHandler.handleToolCall).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -388,6 +403,7 @@ describe('registerAppServerPermissionHandlers', () => {
         registerAppServerPermissionHandlers({
             client: client as never,
             permissionHandler: { handleToolCall: vi.fn() } as never,
+            getPermissionMode: () => 'yolo',
             onUserInputRequest: vi.fn(async () => ({
                 decision: 'accept' as const,
                 answers: { approval: { answers: ['allow', 'user_note: approved for this task'] } }

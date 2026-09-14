@@ -180,11 +180,14 @@ function getMcpToolApprovalMeta(params: unknown): Record<string, unknown> | null
     const mode = asString(request.mode) ?? 'form';
     if (mode !== 'form') return null;
 
+    return meta;
+}
+
+function isMessageOnlyMcpToolApproval(params: unknown): boolean {
+    const request = unwrapElicitationRequest(params);
     const schema = asRecord(request.requestedSchema);
     const properties = asRecord(schema?.properties);
-    if (properties && Object.keys(properties).length > 0) return null;
-
-    return meta;
+    return !properties || Object.keys(properties).length === 0;
 }
 
 function mcpApprovalSupportsSessionPersistence(meta: Record<string, unknown>): boolean {
@@ -493,7 +496,20 @@ export function registerAppServerPermissionHandlers(args: {
         }
 
         const approvalMeta = getMcpToolApprovalMeta(params);
-        if (approvalMeta) {
+        if (approvalMeta && getPermissionMode?.() === 'yolo') {
+            // Keep MCP elicitations enabled in Codex so HAPI can distinguish a
+            // tool-call approval from a form or sign-in flow that needs user input.
+            const content = buildAcceptedElicitationContent(request);
+            return {
+                action: 'accept',
+                content: Object.keys(content).length > 0 ? content : null,
+                _meta: mcpApprovalSupportsSessionPersistence(approvalMeta)
+                    ? { persist: 'session' as const }
+                    : null
+            };
+        }
+
+        if (approvalMeta && isMessageOnlyMcpToolApproval(params)) {
             const requestId = asString(request.elicitationId) ?? randomUUID();
             const approval = buildMcpToolApprovalInput(params, approvalMeta);
             const result = await permissionHandler.handleToolCall(
