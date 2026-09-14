@@ -3,7 +3,13 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildCliArgs, classifyRecoveredProcessGeneration, createSpawnDeduplicator, releaseRecoveredSpawnDedupe } from './run'
+import {
+    buildCliArgs,
+    classifyRecoveredProcessGeneration,
+    createSpawnDeduplicator,
+    releaseArchivedSpawnDedupe,
+    releaseRecoveredSpawnDedupe,
+} from './run'
 
 describe('buildCliArgs', () => {
     it('adds --permission-mode for valid permission mode', () => {
@@ -505,5 +511,39 @@ describe('releaseRecoveredSpawnDedupe', () => {
 
         expect(calls).toBe(1)
         expect(recovered.has(123)).toBe(false)
+    })
+})
+
+describe('releaseArchivedSpawnDedupe', () => {
+    it('allows immediate reopen when the matching child archives but its shared wrapper stays alive', async () => {
+        let calls = 0
+        const dedupe = createSpawnDeduplicator(async () => {
+            calls += 1
+            return { type: 'success' as const, sessionId: 'session-1' }
+        })
+        dedupe.recoverChild('session-1', { type: 'success', sessionId: 'session-1' })
+        const recovered = new Map([[123, 'session-1']])
+
+        expect(releaseArchivedSpawnDedupe(123, 'session-1', recovered, dedupe)).toBe(true)
+        await dedupe({ directory: '/tmp', existingSessionId: 'session-1' })
+
+        expect(calls).toBe(1)
+        expect(recovered.has(123)).toBe(false)
+    })
+
+    it('does not release a different session generation sharing the same wrapper', async () => {
+        let calls = 0
+        const dedupe = createSpawnDeduplicator(async () => {
+            calls += 1
+            return { type: 'success' as const, sessionId: 'primary-session' }
+        })
+        dedupe.recoverChild('primary-session', { type: 'success', sessionId: 'primary-session' })
+        const recovered = new Map([[123, 'primary-session']])
+
+        expect(releaseArchivedSpawnDedupe(123, 'sibling-session', recovered, dedupe)).toBe(false)
+        await dedupe({ directory: '/tmp', existingSessionId: 'primary-session' })
+
+        expect(calls).toBe(0)
+        expect(recovered.get(123)).toBe('primary-session')
     })
 })

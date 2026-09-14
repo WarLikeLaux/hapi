@@ -118,6 +118,24 @@ export function releaseRecoveredSpawnDedupe(
   existingSessionIdByChildPid.delete(pid);
 }
 
+/**
+ * Release a spawn generation when that exact runner child reports its HAPI
+ * row archived. Shared Codex runtimes can keep the wrapper PID alive for
+ * sibling roots, so waiting for process exit would leave an immediate
+ * archive -> reopen stuck behind a stale successful dedupe result.
+ */
+export function releaseArchivedSpawnDedupe(
+  pid: number,
+  sessionId: string,
+  existingSessionIdByChildPid: Map<number, string>,
+  spawnSession: SpawnDeduplicator
+): boolean {
+  if (existingSessionIdByChildPid.get(pid) !== sessionId) return false;
+  spawnSession.onChildExited(sessionId);
+  existingSessionIdByChildPid.delete(pid);
+  return true;
+}
+
 export async function startRunner(options: { workspaceRoots?: string[] } = {}): Promise<void> {
   // We don't have cleanup function at the time of server construction
   // Control flow is:
@@ -435,12 +453,31 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       // Check if we already have this PID (runner-spawned)
       const existingSession = pidToTrackedSession.get(pid);
 
+      if (sessionMetadata.lifecycleState === 'archived') {
+        if (existingSession?.sharedSessions) delete existingSession.sharedSessions[sessionId];
+        if (releaseArchivedSpawnDedupe(pid, sessionId, existingSessionIdByChildPid, spawnSession)) {
+          // The HAPI row has detached from this generation. Do not let the old
+          // wrapper's eventual exit tombstone a replacement generation that may
+          // start immediately with the same session id.
+          pidToRequestedSessionId.delete(pid);
+          pidToConfirmedSessionId.delete(pid);
+          if (persistedResumeProcesses.delete(pid)) persistResumeProcesses();
+          if (existingSession?.requestedHappySessionId === sessionId) {
+            delete existingSession.requestedHappySessionId;
+          }
+          if (existingSession?.happySessionId === sessionId) {
+            delete existingSession.happySessionId;
+            delete existingSession.happySessionMetadataFromLocalWebhook;
+          }
+          logger.debug(`[RUNNER RUN] Released archived spawn generation for session ${sessionId}, PID ${pid}`);
+        }
+        // An archived report is a terminal lifecycle notification, never a
+        // successful start webhook for either runner or terminal children.
+        return;
+      }
+
       if (existingSession && sessionMetadata.capabilities?.concurrentClients) {
         existingSession.sharedSessions ??= {};
-        if (sessionMetadata.lifecycleState === 'archived') {
-          delete existingSession.sharedSessions[sessionId];
-          return;
-        }
         existingSession.sharedSessions[sessionId] = sessionMetadata;
         invalidateVerifiedExit(sessionId);
         // Native /new or /fork cannot replace the primary spawn confirmation.
