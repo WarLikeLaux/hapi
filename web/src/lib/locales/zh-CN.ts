@@ -246,6 +246,10 @@ export default {
 
   // Session actions
   'session.action.rename': '重命名',
+  'session.action.regenerateTitle': '重新生成标题',
+  'session.action.regenerateTitleQueued': '标题重新生成已加入队列',
+  'session.action.regenerateTitleQueuedBody': 'Codex 将在当前轮次结束后更新标题。',
+  'session.action.regenerateTitleFailed': '无法重新生成标题',
   'session.action.pinProject': '项目置顶',
   'session.action.unpinProject': '取消项目置顶',
   'session.action.pinGlobal': '全局置顶',

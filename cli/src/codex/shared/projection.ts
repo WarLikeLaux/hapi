@@ -69,7 +69,7 @@ export class SharedCodexProjection {
                         this.completedTitles.add(key);
                         const revision = ++this.titleRevision;
                         this.session.updateMetadata(metadata => revision !== this.titleRevision ? metadata : {
-                            ...metadata, summary: { text: completedTitle, updatedAt: Date.now() }
+                            ...metadata, name: completedTitle, summary: { text: completedTitle, updatedAt: Date.now() }
                         });
                     }
                 }

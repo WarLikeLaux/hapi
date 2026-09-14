@@ -1032,6 +1032,7 @@ export class SyncEngine {
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
             deliveryMode?: MessageDeliveryMode
+            internalControl?: 'regenerate-title'
         }
     ): Promise<void> {
         if (this.historyActionsInFlight.has(sessionId)) {
@@ -1040,6 +1041,21 @@ export class SyncEngine {
         const { actualSessionId, createdAt: activeTurnStartedAt } = await this.messageService.sendMessage(sessionId, payload)
         this.sessionCache.markMessageQueued(actualSessionId, Date.now(), activeTurnStartedAt)
         this.sessionCache.recordSessionActivity(actualSessionId, Date.now())
+    }
+
+    async regenerateSessionTitle(sessionId: string): Promise<void> {
+        await this.sendMessage(sessionId, {
+            text: [
+                'Regenerate the chat title now from the full conversation context.',
+                'Call the HAPI change_title tool even if a title was set manually.',
+                'The title must be in Russian, specific and understandable without opening the chat, preferably 3-7 words.',
+                'Do not include task or ticket IDs, Git branch names, commit hashes, machine names, or bare repository names.',
+                'Do not send any user-facing text; finish immediately after the title tool call.'
+            ].join(' '),
+            localId: `title-regeneration:${randomUUID()}`,
+            sentFrom: 'webapp',
+            internalControl: 'regenerate-title'
+        })
     }
 
     async cancelQueuedMessage(

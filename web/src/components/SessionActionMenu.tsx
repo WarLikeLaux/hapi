@@ -14,6 +14,7 @@ type SessionActionMenuProps = {
     sessionTitle: string
     sessionActive: boolean
     onRename: () => void
+    onRegenerateTitle?: () => void
     sessionPinned?: boolean
     sessionGlobalPinned?: boolean
     onSetPinMode?: (mode: 'none' | 'project' | 'global') => void
@@ -219,6 +220,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         sessionTitle,
         sessionActive,
         onRename,
+        onRegenerateTitle,
         sessionPinned = false,
         sessionGlobalPinned = false,
         onSetPinMode,
@@ -245,6 +247,11 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const handleRename = () => {
         onClose()
         onRename()
+    }
+
+    const handleRegenerateTitle = () => {
+        onClose()
+        onRegenerateTitle?.()
     }
 
     const handleCopyReference = async () => {
@@ -346,6 +353,18 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     <EditIcon className="text-[var(--app-hint)]" />
                     {t('session.action.rename')}
                 </button>
+
+                {onRegenerateTitle ? (
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={handleRegenerateTitle}
+                    >
+                        <SyncIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.regenerateTitle')}
+                    </button>
+                ) : null}
 
                 <button
                     type="button"

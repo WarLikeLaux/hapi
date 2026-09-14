@@ -22,6 +22,7 @@ type GetMessagesPage = SyncEngine['getMessagesPage']
 
 function createApp(opts: {
     active?: boolean
+    flavor?: string
     sendMessage?: (sessionId: string, payload: unknown) => Promise<void>
     getMessagesPage?: GetMessagesPage
     getQueuedState?: (sessionId: string, localIds: string[]) => {
@@ -67,9 +68,17 @@ function createApp(opts: {
         resolveSessionAccess: () => ({
             ok: true,
             sessionId: 'session-1',
-            session: { id: 'session-1', active: opts.active !== false }
+            session: { id: 'session-1', active: opts.active !== false, metadata: { flavor: opts.flavor ?? 'codex' } }
         }),
         sendMessage,
+        regenerateSessionTitle: async (sessionId: string) => {
+            await sendMessage(sessionId, {
+                text: 'Regenerate the chat title now.',
+                localId: 'title-regeneration:test',
+                sentFrom: 'webapp',
+                internalControl: 'regenerate-title'
+            })
+        },
         getQueuedState,
         cancelQueuedMessage: async () => ({ status: 'cancelled' }),
         steerQueuedMessage: opts.steerQueuedMessage ?? (async () => ({ status: 'failed', error: 'Steer failed', localId: null })),
@@ -85,6 +94,37 @@ function createApp(opts: {
 
     return { app, sentMessages, queuedStateCalls }
 }
+
+describe('POST /api/sessions/:id/title-regeneration', () => {
+    it('queues a hidden title-control prompt for an active Codex session', async () => {
+        const { app, sentMessages } = createApp({ flavor: 'codex' })
+
+        const response = await app.request('/api/sessions/session-1/title-regeneration', {
+            method: 'POST'
+        })
+
+        expect(response.status).toBe(200)
+        expect(sentMessages).toHaveLength(1)
+        expect(sentMessages[0]?.sessionId).toBe('session-1')
+        expect(sentMessages[0]?.payload).toMatchObject({
+            sentFrom: 'webapp',
+            internalControl: 'regenerate-title'
+        })
+        expect((sentMessages[0]?.payload as { localId?: string }).localId)
+            .toStartWith('title-regeneration:')
+    })
+
+    it('rejects non-Codex sessions', async () => {
+        const { app, sentMessages } = createApp({ flavor: 'claude' })
+
+        const response = await app.request('/api/sessions/session-1/title-regeneration', {
+            method: 'POST'
+        })
+
+        expect(response.status).toBe(409)
+        expect(sentMessages).toHaveLength(0)
+    })
+})
 
 describe('GET /api/sessions/:id/messages', () => {
     it('uses latest mode by default and returns the full page metadata', async () => {

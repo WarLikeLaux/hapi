@@ -233,6 +233,7 @@ export function SessionHeader(props: {
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [isSyncingCodex, setIsSyncingCodex] = useState(false)
     const [isSyncingPi, setIsSyncingPi] = useState(false)
+    const [isRegeneratingTitle, setIsRegeneratingTitle] = useState(false)
 
     const { archiveSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, setPinMode, deleteSession, isPending } = useSessionActions(
         api,
@@ -251,6 +252,29 @@ export function SessionHeader(props: {
                 sessionId: session.id,
                 url: `/sessions/${session.id}`
             })
+        }
+    }
+
+    const handleRegenerateTitle = async () => {
+        if (!api || isRegeneratingTitle) return
+        setIsRegeneratingTitle(true)
+        try {
+            await api.regenerateSessionTitle(session.id)
+            addToast({
+                title: t('session.action.regenerateTitleQueued'),
+                body: t('session.action.regenerateTitleQueuedBody'),
+                sessionId: session.id,
+                url: `/sessions/${session.id}`
+            })
+        } catch (error) {
+            addToast({
+                title: t('session.action.regenerateTitleFailed'),
+                body: error instanceof Error ? error.message : t('dialog.error.default'),
+                sessionId: session.id,
+                url: `/sessions/${session.id}`
+            })
+        } finally {
+            setIsRegeneratingTitle(false)
         }
     }
     // tiann/hapi#893: surface the scratchlist entry count in the
@@ -566,6 +590,9 @@ export function SessionHeader(props: {
                 sessionPinned={Boolean(session.pinned)}
                 sessionGlobalPinned={Boolean(session.globalPinned)}
                 onRename={() => setRenameOpen(true)}
+                onRegenerateTitle={api && session.active && agentFlavor === 'codex' && !isRegeneratingTitle
+                    ? () => void handleRegenerateTitle()
+                    : undefined}
                 onMarkUnread={() => markSessionUnread(session.id, session.lastAgentMessageAt ?? 0)}
                 onSetPinMode={api ? (mode) => void handleSetPinMode(mode) : undefined}
                 onExport={() => setExportOpen(true)}

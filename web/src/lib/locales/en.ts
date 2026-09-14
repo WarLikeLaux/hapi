@@ -246,6 +246,10 @@ export default {
 
   // Session actions
   'session.action.rename': 'Rename',
+  'session.action.regenerateTitle': 'Regenerate title',
+  'session.action.regenerateTitleQueued': 'Title regeneration queued',
+  'session.action.regenerateTitleQueuedBody': 'Codex will update it after the current turn.',
+  'session.action.regenerateTitleFailed': 'Could not regenerate title',
   'session.action.pinProject': 'Pin in project',
   'session.action.unpinProject': 'Unpin from project',
   'session.action.pinGlobal': 'Pin globally',

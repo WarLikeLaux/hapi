@@ -31,14 +31,14 @@ function params(item: unknown, turnId = 'turn') { return { threadId: 'thread', t
 function history(...items: unknown[]) { return { turns: [{ id: 'turn', status: 'completed', items }] }; }
 
 describe('shared Codex titles', () => {
-    it('persists a successful root tool title while preserving the manual name and transcript', async () => {
+    it('persists a successful root tool title as the displayed name without adding transcript text', async () => {
         const f = fixture();
         const item = titleItem('title', ' Remote title ');
         await f.projection.notification('item/started', params(item));
         expect(f.update).not.toHaveBeenCalled();
         // Completion may omit the arguments already sent at start.
         await f.projection.notification('item/completed', params({ ...item, arguments: undefined }));
-        expect(f.metadata()).toMatchObject({ name: 'Manual name', summary: { text: 'Remote title', updatedAt: expect.any(Number) } });
+        expect(f.metadata()).toMatchObject({ name: 'Remote title', summary: { text: 'Remote title', updatedAt: expect.any(Number) } });
         expect(f.send.mock.calls.map(([body]) => body.type)).toEqual(['tool-call', 'tool-call-result']);
         expect(f.update).toHaveBeenCalledTimes(1);
         await f.projection.notification('item/completed', params(item));

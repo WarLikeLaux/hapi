@@ -560,6 +560,12 @@ export class ApiClient {
         })
     }
 
+    async regenerateSessionTitle(sessionId: string): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/title-regeneration`, {
+            method: 'POST'
+        })
+    }
+
     async getQueuedState(sessionId: string, localIds: string[]): Promise<QueuedStateResponse> {
         return await this.request<QueuedStateResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/messages/queued-state`,
