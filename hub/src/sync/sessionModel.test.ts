@@ -4385,7 +4385,11 @@ describe('session model', () => {
                 )
                 engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
 
-                ;(engine as any).rpcGateway.spawnSession = async () => ({ type: 'success', sessionId: session.id })
+                let spawnArgs: unknown[] | undefined
+                ;(engine as any).rpcGateway.spawnSession = async (...args: unknown[]) => {
+                    spawnArgs = args
+                    return { type: 'success', sessionId: session.id }
+                }
                 ;(engine as any).waitForSessionActive = async () => true
 
                 const result = await engine.reopenSession(session.id, 'default')
@@ -4394,6 +4398,7 @@ describe('session model', () => {
                 if (result.type === 'success') {
                     expect(result.resumed).toBe(true)
                 }
+                expect(spawnArgs?.at(-1)).toBe(true)
 
                 const after = engine.getSessionByNamespace(session.id, 'default')?.metadata as Record<string, unknown> | null | undefined
                 expect(after?.lifecycleState).toBeUndefined()

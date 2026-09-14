@@ -27,6 +27,8 @@ export interface SpawnSessionOptions {
     startingMode?: 'remote' | 'pty'
     /** Claude: spawn with --fork-session after --resume. */
     forkSession?: boolean
+    /** Reopen: wait for the previous child generation to detach before spawning. */
+    freshGeneration?: boolean
     /** Runner-internal post-create containment revalidation. Never serialized. */
     validateDirectory?: (path: string) => Promise<boolean>
 }

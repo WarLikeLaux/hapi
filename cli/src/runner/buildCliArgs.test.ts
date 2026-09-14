@@ -428,6 +428,27 @@ describe('createSpawnDeduplicator', () => {
         expect(calls).toBe(1)
     })
 
+    it('waits for an archived generation before an explicit reopen spawn', async () => {
+        let calls = 0
+        const dedupe = createSpawnDeduplicator(async () => {
+            calls += 1
+            return { type: 'success' as const, sessionId: 'session-1' }
+        })
+        dedupe.recoverChild('session-1', { type: 'success', sessionId: 'session-1' })
+
+        const reopen = dedupe({
+            directory: '/tmp',
+            existingSessionId: 'session-1',
+            freshGeneration: true,
+        })
+        await Promise.resolve()
+        expect(calls).toBe(0)
+
+        dedupe.onChildExited('session-1')
+        await expect(reopen).resolves.toEqual({ type: 'success', sessionId: 'session-1' })
+        expect(calls).toBe(1)
+    })
+
     it('retries immediately when spawning fails before a child PID is registered', async () => {
         let calls = 0
         const dedupe = createSpawnDeduplicator(async () => {
