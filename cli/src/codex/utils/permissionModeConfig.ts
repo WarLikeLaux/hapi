@@ -11,6 +11,17 @@ export const CODEX_YOLO_APPROVAL_POLICY = {
     }
 } as const satisfies ApprovalPolicy;
 
+export function serializeCodexApprovalPolicy(policy: ApprovalPolicy): string {
+    if (typeof policy === 'string') {
+        return JSON.stringify(policy);
+    }
+
+    const granular = Object.entries(policy.granular)
+        .map(([key, value]) => `${key} = ${value}`)
+        .join(', ');
+    return `{ granular = { ${granular} } }`;
+}
+
 export type CodexPermissionModeConfig = {
     approvalPolicy: ApprovalPolicy;
     sandbox: SandboxMode;
@@ -61,6 +72,6 @@ export function buildCodexPermissionModeCliArgs(mode: Exclude<CodexPermissionMod
     const config = resolveCodexPermissionModeConfig(mode);
     const approvalArgs = typeof config.approvalPolicy === 'string'
         ? ['--ask-for-approval', config.approvalPolicy]
-        : ['-c', `approval_policy=${JSON.stringify(config.approvalPolicy)}`];
+        : ['-c', `approval_policy=${serializeCodexApprovalPolicy(config.approvalPolicy)}`];
     return [...approvalArgs, '--sandbox', config.sandbox];
 }
