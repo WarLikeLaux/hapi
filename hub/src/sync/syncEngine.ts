@@ -3429,9 +3429,11 @@ export class SyncEngine {
         }
 
         // Not active and not archived (e.g. brand-new session that has not yet connected,
-        // or one that ended without writing archive metadata). Forward to resume so the
-        // operator still gets one-click revival.
-        const resumeResult = await this.resumeSession(access.sessionId, namespace)
+        // one that ended without writing archive metadata, or an archive whose lifecycle
+        // webhook is still in flight). A reopen always requests a fresh runner generation:
+        // otherwise an archive -> reopen race can reuse the old child's cached spawn result
+        // and wait forever for that already-stopped generation to become active again.
+        const resumeResult = await this.resumeSession(access.sessionId, namespace, { freshGeneration: true })
         if (resumeResult.type === 'error') {
             return resumeResult
         }
