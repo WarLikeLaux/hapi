@@ -27,11 +27,12 @@ import { encodeBase64 } from '@/lib/utils'
 import { queryKeys } from '@/lib/query-keys'
 import { transferComposerDraftThenNavigate } from '@/lib/composer-draft-transfer'
 import { formatFileMetadata } from '@/lib/file-metadata'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from '@/lib/use-translation'
 import * as Popover from '@radix-ui/react-popover'
 import { CheckIcon, CloseIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
+import { UnifiedDiffDisplay } from '@/components/UnifiedDiffDisplay'
 import {
     DEFAULT_DIRECTORY_SORT,
     type DirectorySort,
@@ -74,6 +75,7 @@ const FILES_TAB_STORAGE_KEY = 'hapi-files-tab'
 
 type FilesTab = 'changes' | 'directories'
 type ChangesView = 'working' | GitComparisonScope
+type ChangesDisplay = 'files' | 'diff'
 
 function readFilesTab(): FilesTab {
     try {
@@ -359,6 +361,7 @@ export default function FilesPage() {
     const scrollRef = useRef<HTMLDivElement>(null)
 
     const [activeTab, setActiveTab] = useState<FilesTab>(() => search.tab ?? readFilesTab())
+    const [changesDisplay, setChangesDisplay] = useState<ChangesDisplay>('files')
     const [directorySort, setDirectorySort] = useState<DirectorySort>(readDirectorySort)
     const [fileMenu, setFileMenu] = useState<{ path: string; point: AnchoredMenuPoint } | null>(null)
     const searchQuery = search.query ?? ''
@@ -403,7 +406,7 @@ export default function FilesPage() {
     useEffect(() => {
         const el = scrollRef.current
         if (!el) return
-        const key = `${SCROLL_KEY_PREFIX}${sessionId}:${activeTab}:${comparisonScope ?? 'working'}`
+        const key = `${SCROLL_KEY_PREFIX}${sessionId}:${activeTab}:${comparisonScope ?? 'working'}:${changesDisplay}`
         try {
             const saved = sessionStorage.getItem(key)
             if (saved !== null) el.scrollTop = Number(saved)
@@ -418,7 +421,7 @@ export default function FilesPage() {
             }
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab, comparisonScope, sessionId])
+    }, [activeTab, changesDisplay, comparisonScope, sessionId])
 
     const {
         status: gitStatus,
@@ -433,6 +436,17 @@ export default function FilesPage() {
         isLoading: comparisonLoading,
         refetch: refetchComparison
     } = useGitComparisonFiles(api, sessionId, comparisonScope)
+    const fullDiffQuery = useQuery({
+        queryKey: queryKeys.gitDiff(sessionId, comparisonScope ?? 'working'),
+        queryFn: async () => {
+            if (!api) throw new Error('Session unavailable')
+            const result = await api.getGitDiff(sessionId, comparisonScope ?? undefined)
+            if (!result.success) throw new Error(result.error ?? result.stderr ?? 'Full diff unavailable')
+            return result.stdout ?? ''
+        },
+        enabled: Boolean(api && activeTab === 'changes' && changesDisplay === 'diff'),
+        retry: false,
+    })
 
     const shouldSearchProject = activeTab === 'directories' && Boolean(searchQuery)
 
@@ -545,7 +559,10 @@ export default function FilesPage() {
         } else {
             void refetchGit()
         }
-    }, [activeTab, comparisonScope, queryClient, refetchComparison, refetchGit, searchQuery, sessionId, shouldSearchProject])
+        if (changesDisplay === 'diff') {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.gitDiff(sessionId, comparisonScope ?? 'working') })
+        }
+    }, [activeTab, changesDisplay, comparisonScope, queryClient, refetchComparison, refetchGit, searchQuery, sessionId, shouldSearchProject])
 
     const handleChangesViewChange = useCallback((nextView: ChangesView) => {
         navigate({
@@ -732,6 +749,32 @@ export default function FilesPage() {
                 </div>
             ) : null}
 
+            {activeTab === 'changes' ? (
+                <div className="border-b border-[var(--app-divider)] bg-[var(--app-bg)]">
+                    <div className="mx-auto flex w-full max-w-content gap-1 px-3 py-2" role="group" aria-label={t('files.display.label')}>
+                        <button
+                            type="button"
+                            onClick={() => setChangesDisplay('files')}
+                            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${changesDisplay === 'files' ? 'bg-[var(--app-button)] text-[var(--app-button-text)]' : 'text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]'}`}
+                            aria-pressed={changesDisplay === 'files'}
+                        >
+                            {t('files.display.files')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setChangesDisplay('diff')
+                                if (searchQuery) setSearchQuery('')
+                            }}
+                            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${changesDisplay === 'diff' ? 'bg-[var(--app-button)] text-[var(--app-button-text)]' : 'text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]'}`}
+                            aria-pressed={changesDisplay === 'diff'}
+                        >
+                            {t('files.display.fullDiff')}
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+
             <div
                 ref={scrollRef}
                 data-hapi-session-files-scroll="true"
@@ -743,7 +786,21 @@ export default function FilesPage() {
                             {gitErrorMessage}
                         </div>
                     ) : null}
-                    {activeTab === 'directories' && searchQuery ? (
+                    {activeTab === 'changes' && changesDisplay === 'diff' ? (
+                        <div className="p-3">
+                            {fullDiffQuery.isLoading ? (
+                                <FileListSkeleton label={t('files.fullDiff.loading')} />
+                            ) : fullDiffQuery.error ? (
+                                <div className="rounded-md bg-amber-500/10 p-3 text-sm text-[var(--app-hint)]">
+                                    {fullDiffQuery.error instanceof Error ? fullDiffQuery.error.message : t('files.fullDiff.error')}
+                                </div>
+                            ) : fullDiffQuery.data ? (
+                                <UnifiedDiffDisplay diffContent={fullDiffQuery.data} showToolbar />
+                            ) : (
+                                <div className="p-6 text-sm text-[var(--app-hint)]">{t('files.fullDiff.empty')}</div>
+                            )}
+                        </div>
+                    ) : activeTab === 'directories' && searchQuery ? (
                         searchResults.isLoading ? (
                             <FileListSkeleton label={t('loading.files')} />
                         ) : searchResults.error ? (

@@ -351,6 +351,10 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.GitDiffNumstat, options) as RpcCommandResponse
     }
 
+    async getGitDiff(sessionId: string, options: { cwd?: string; comparison?: GitComparisonScope }): Promise<RpcCommandResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.GitDiff, options) as RpcCommandResponse
+    }
+
     async getGitDiffFile(sessionId: string, options: { cwd?: string; filePath: string; staged?: boolean; comparison?: GitComparisonScope }): Promise<RpcCommandResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.GitDiffFile, options) as RpcCommandResponse
     }

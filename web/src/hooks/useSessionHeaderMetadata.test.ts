@@ -12,7 +12,8 @@ describe('parseSessionHeaderMetadata', () => {
             model: true,
             reasoning: true,
             fastMode: true,
-            machine: true,
+            branch: true,
+            machine: false,
             lastActive: true,
             createdAt: false,
             updatedAt: false,
@@ -26,6 +27,17 @@ describe('parseSessionHeaderMetadata', () => {
             showLabels: false,
             reasoning: false,
             createdAt: true,
+        })
+    })
+
+    it('replaces the legacy default machine field with the Git branch field', () => {
+        expect(parseSessionHeaderMetadata(JSON.stringify({ machine: true }))).toMatchObject({
+            branch: true,
+            machine: false,
+        })
+        expect(parseSessionHeaderMetadata(JSON.stringify({ branch: true, machine: true }))).toMatchObject({
+            branch: true,
+            machine: true,
         })
     })
 

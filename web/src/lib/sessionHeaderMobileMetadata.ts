@@ -1,6 +1,7 @@
 export type SessionHeaderSecondaryMetadataKey =
     | 'model'
     | 'reasoning'
+    | 'branch'
     | 'machine'
     | 'lastActive'
     | 'updatedAt'
@@ -9,6 +10,7 @@ export type SessionHeaderSecondaryMetadataKey =
     | 'fastMode'
 
 const MOBILE_SECONDARY_PRIORITY: ReadonlyArray<SessionHeaderSecondaryMetadataKey> = [
+    'branch',
     'machine',
     'lastActive',
     'model',

@@ -6,6 +6,7 @@ export type SessionHeaderMetadataKey =
     | 'model'
     | 'reasoning'
     | 'fastMode'
+    | 'branch'
     | 'machine'
     | 'lastActive'
     | 'createdAt'
@@ -20,7 +21,8 @@ export const DEFAULT_SESSION_HEADER_METADATA: SessionHeaderMetadataPreferences =
     model: true,
     reasoning: true,
     fastMode: true,
-    machine: true,
+    branch: true,
+    machine: false,
     lastActive: true,
     createdAt: false,
     updatedAt: false,
@@ -43,10 +45,13 @@ export function parseSessionHeaderMetadata(raw: string | null): SessionHeaderMet
         }
 
         const record = parsed as Record<string, unknown>
+        const isPreBranchPreference = typeof record.branch !== 'boolean'
         return Object.fromEntries(
             Object.entries(DEFAULT_SESSION_HEADER_METADATA).map(([key, fallback]) => [
                 key,
-                typeof record[key] === 'boolean' ? record[key] : fallback,
+                key === 'machine' && isPreBranchPreference
+                    ? false
+                    : typeof record[key] === 'boolean' ? record[key] : fallback,
             ])
         ) as SessionHeaderMetadataPreferences
     } catch {

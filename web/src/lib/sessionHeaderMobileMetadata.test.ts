@@ -3,6 +3,7 @@ import { selectMobileSessionHeaderSecondary } from './sessionHeaderMobileMetadat
 
 describe('selectMobileSessionHeaderSecondary', () => {
     it('follows the upstream-first display order', () => {
+        expect(selectMobileSessionHeaderSecondary({ branch: true, machine: true, model: true, updatedAt: true })).toBe('branch')
         expect(selectMobileSessionHeaderSecondary({ machine: true, model: true, updatedAt: true })).toBe('machine')
         expect(selectMobileSessionHeaderSecondary({ model: true, updatedAt: true, worktree: true })).toBe('model')
     })

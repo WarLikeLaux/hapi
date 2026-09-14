@@ -215,7 +215,7 @@ describe('SessionList directory action', () => {
         fireEvent.click(screen.getByRole('menuitem', { name: 'Delete all sessions' }))
 
         expect(screen.getByRole('heading', { name: 'Delete project sessions?' })).toBeInTheDocument()
-        expect(screen.getByText(/Delete all HAPI sessions from “ubuntu\/project · Mint”\? Sessions to delete: 2/)).toBeInTheDocument()
+        expect(screen.getByText(/Delete all HAPI sessions from “project · Mint”\? Sessions to delete: 2/)).toBeInTheDocument()
         expect(screen.getByText(/Local agent transcripts are kept/)).toBeInTheDocument()
 
         fireEvent.click(screen.getByRole('button', { name: 'Delete all' }))

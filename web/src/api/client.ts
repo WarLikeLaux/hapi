@@ -429,6 +429,13 @@ export class ApiClient {
         return await this.request<GitCommandResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-diff-numstat?${params.toString()}`)
     }
 
+    async getGitDiff(sessionId: string, comparison?: GitComparisonScope): Promise<GitCommandResponse> {
+        const params = new URLSearchParams()
+        if (comparison) params.set('comparison', comparison)
+        const query = params.toString()
+        return await this.request<GitCommandResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-diff${query ? `?${query}` : ''}`)
+    }
+
     async getGitDiffFile(sessionId: string, path: string, staged?: boolean, comparison?: GitComparisonScope): Promise<GitCommandResponse> {
         const params = new URLSearchParams()
         params.set('path', path)

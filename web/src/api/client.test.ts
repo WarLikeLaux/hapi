@@ -141,14 +141,17 @@ describe('ApiClient error mapping', () => {
     it('requests committed comparisons and scoped file diffs', async () => {
         fetchMock
             .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, scope: 'branch', files: [] }), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, stdout: 'full diff' }), { status: 200 }))
             .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, stdout: 'diff' }), { status: 200 }))
 
         const api = new ApiClient('test-token')
         await api.getGitComparison('session /?#', 'branch')
+        await api.getGitDiff('session /?#', 'branch')
         await api.getGitDiffFile('session /?#', 'src/a b.ts', undefined, 'branch')
 
         expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/sessions/session%20%2F%3F%23/git-comparison?scope=branch')
-        expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/sessions/session%20%2F%3F%23/git-diff-file?path=src%2Fa+b.ts&comparison=branch')
+        expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/sessions/session%20%2F%3F%23/git-diff?comparison=branch')
+        expect(fetchMock.mock.calls[2]?.[0]).toBe('/api/sessions/session%20%2F%3F%23/git-diff-file?path=src%2Fa+b.ts&comparison=branch')
     })
 
     it('generates a title and saves the summary through separate session endpoints', async () => {
