@@ -66,6 +66,7 @@ import { ingestNotifySummaryFromMessage } from './workGraphNotifyIngest'
 
 type PiResumeAttempt = NonNullable<NonNullable<Session['metadata']>['piResumeAttempt']>
 type PtyResumeAttempt = NonNullable<NonNullable<Session['metadata']>['ptyResumeAttempt']>
+const SESSION_ACTIVE_WAIT_TIMEOUT_MS = 60_000
 
 export type { Session, SyncEvent } from '@hapi/protocol/types'
 export type { Machine } from './machineCache'
@@ -3106,7 +3107,10 @@ export class SyncEngine {
                 }
             }
 
-            const becameActive = await this.waitForSessionActive(spawnResult.sessionId)
+            const becameActive = await this.waitForSessionActive(
+                spawnResult.sessionId,
+                SESSION_ACTIVE_WAIT_TIMEOUT_MS
+            )
             if (!becameActive) {
                 if (resumedStartingMode === 'pty') {
                     const current = this.sessionCache.getSessionByNamespace(access.sessionId, namespace)
