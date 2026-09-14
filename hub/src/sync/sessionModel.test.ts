@@ -1275,6 +1275,7 @@ describe('session model', () => {
             let capturedModel: string | undefined
             let capturedModelReasoningEffort: string | undefined
             let capturedEffort: string | undefined
+            let capturedActiveTimeout: number | undefined
             ;(engine as any).rpcGateway.spawnSession = async (
                 _machineId: string,
                 _directory: string,
@@ -1292,7 +1293,10 @@ describe('session model', () => {
                 capturedEffort = effort
                 return { type: 'success', sessionId: session.id }
             }
-            ;(engine as any).waitForSessionActive = async () => true
+            ;(engine as any).waitForSessionActive = async (_sessionId: string, timeoutMs: number) => {
+                capturedActiveTimeout = timeoutMs
+                return true
+            }
 
             const result = await engine.resumeSession(session.id, 'default')
 
@@ -1300,6 +1304,7 @@ describe('session model', () => {
             expect(capturedModel).toBe('gpt-5.4')
             expect(capturedModelReasoningEffort).toBeUndefined()
             expect(capturedEffort).toBeUndefined()
+            expect(capturedActiveTimeout).toBe(60_000)
         } finally {
             engine.stop()
         }
