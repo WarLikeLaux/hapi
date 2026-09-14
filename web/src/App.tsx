@@ -387,7 +387,13 @@ function AppInner() {
             title: localized.title,
             body: localized.body,
             sessionId: event.data.sessionId,
-            url: event.data.url
+            url: event.data.url,
+            dedupeKey: [
+                'sse',
+                event.data.sessionId,
+                event.data.title.trim(),
+                event.data.body.trim(),
+            ].join('\u0000'),
         })
     }, [addToast, translateIncomingToast])
 

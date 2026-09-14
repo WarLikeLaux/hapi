@@ -99,6 +99,11 @@ registerRoute(
     })
 )
 
+// Activate a newly deployed shell without depending on the currently loaded
+// (possibly stale) application bundle to send SKIP_WAITING. Existing clients
+// are claimed below, and usePwaUpdate reloads them on controllerchange.
+void self.skipWaiting()
+
 self.addEventListener('message', (event) => {
     if (event.data?.type === 'SKIP_WAITING') {
         self.skipWaiting()

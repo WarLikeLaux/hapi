@@ -25,7 +25,12 @@ import { useCodeWrap } from '@/hooks/useCodeWrap'
 import { CopyIcon, CheckIcon, WrapIcon } from '@/components/icons'
 import { useTranslation } from '@/lib/use-translation'
 import { useOptionalHappyChatContext } from '@/components/AssistantChat/context'
-import { decodeFilePathCandidateHref, decodeFilePathHref, remarkFilePathLinks } from '@/lib/remark-file-path-links'
+import {
+    decodeFilePathCandidateReferenceHref,
+    decodeFilePathReferenceHref,
+    formatFilePathReference,
+    remarkFilePathLinks,
+} from '@/lib/remark-file-path-links'
 import { classifyNoSchemeHref } from '@/lib/markdown-href-policy'
 import { remarkSessionPathLinks } from '@/lib/remark-session-path-links'
 import { buildSessionReferencePath, parseSessionPathHref } from '@/lib/sessionReference'
@@ -512,9 +517,17 @@ function newTabRel(rel: string | undefined): string {
     return Array.from(tokens).join(' ')
 }
 
-function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & { filePath: string; sessionId: string }) {
-    const { filePath, sessionId, ...anchorProps } = props
-    const search = new URLSearchParams({ path: encodeBase64(filePath), origin: 'chat' }).toString()
+function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & {
+    filePath: string
+    sessionId: string
+    line?: number
+    column?: number
+}) {
+    const { filePath, sessionId, line, column, ...anchorProps } = props
+    const searchParams = new URLSearchParams({ path: encodeBase64(filePath), origin: 'chat' })
+    if (line !== undefined) searchParams.set('line', String(line))
+    if (column !== undefined) searchParams.set('column', String(column))
+    const search = searchParams.toString()
     const href = `/sessions/${encodeURIComponent(sessionId)}/file?${search}`
 
     return (
@@ -590,16 +603,37 @@ function A(props: ComponentPropsWithoutRef<'a'>) {
     // Removing it requires tests that render <A> directly to wrap with
     // <UriConfirmProvider> (or supply a mock UriConfirmContext.Provider).
     const ctx = useContext(UriConfirmContext)
-    const filePath = typeof props.href === 'string' ? decodeFilePathHref(props.href) : null
-    const candidatePath =
-        typeof props.href === 'string' ? decodeFilePathCandidateHref(props.href) : null
+    const fileReference = typeof props.href === 'string'
+        ? decodeFilePathReferenceHref(props.href)
+        : null
+    const candidateReference = typeof props.href === 'string'
+        ? decodeFilePathCandidateReferenceHref(props.href)
+        : null
     const targetSessionId = typeof props.href === 'string' ? parseSessionPathHref(props.href) : null
 
-    if (filePath) {
+    const isFileHref = typeof props.href === 'string'
+        && normalizedScheme(props.href) === 'hapi-file'
+    if (isFileHref && !fileReference?.path) {
+        return (
+            <InertMarkdownHref href={props.href ?? ''} className={props.className}>
+                {props.children}
+            </InertMarkdownHref>
+        )
+    }
+
+    if (fileReference?.path) {
         if (!chat) {
             return <>{props.children}</>
         }
-        return <FilePathAnchor {...props} filePath={filePath} sessionId={chat.sessionId} />
+        return (
+            <FilePathAnchor
+                {...props}
+                filePath={fileReference.path}
+                line={fileReference.line}
+                column={fileReference.column}
+                sessionId={chat.sessionId}
+            />
+        )
     }
 
     if (targetSessionId) {
@@ -613,7 +647,7 @@ function A(props: ComponentPropsWithoutRef<'a'>) {
     // Candidates are Windows-only; reject empty / non-drive payloads fail-closed
     // (do not fall through to custom-scheme confirmation for this scheme).
     const isCandidateHref = href ? normalizedScheme(href) === 'hapi-file-candidate' : false
-    if (isCandidateHref && (!candidatePath || !/^[A-Za-z]:[\\/]/.test(candidatePath))) {
+    if (isCandidateHref && (!candidateReference || !/^[A-Za-z]:[\\/]/.test(candidateReference.path))) {
         return (
             <InertMarkdownHref href={href ?? ''} className={props.className}>
                 {props.children}
@@ -622,7 +656,9 @@ function A(props: ComponentPropsWithoutRef<'a'>) {
     }
 
     const windowsPathFromHref = (() => {
-        if (candidatePath) return candidatePath
+        if (candidateReference) {
+            return formatFilePathReference(candidateReference)
+        }
         if (!href) return null
         if (/^[A-Za-z]:[\\/]/.test(href)) return href
         // mdast→hast may percent-encode backslashes before props.href arrives.
@@ -644,7 +680,15 @@ function A(props: ComponentPropsWithoutRef<'a'>) {
             if (!chat) {
                 return <InertMarkdownHref href={href ?? windowsPathFromHref ?? ''} className={props.className}>{props.children}</InertMarkdownHref>
             }
-            return <FilePathAnchor {...props} filePath={decision.path} sessionId={chat.sessionId} />
+            return (
+                <FilePathAnchor
+                    {...props}
+                    filePath={decision.path}
+                    line={decision.line}
+                    column={decision.column}
+                    sessionId={chat.sessionId}
+                />
+            )
         }
         if (decision.action === 'inert') {
             return <InertMarkdownHref href={href ?? windowsPathFromHref ?? ''} className={props.className}>{props.children}</InertMarkdownHref>

@@ -123,11 +123,33 @@ export function usePwaUpdate() {
     const [needRefresh, setNeedRefresh] = useState(false)
     const updateSWRef = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null)
     const cleanupRef = useRef<(() => void) | null>(null)
+    const updateReloadRequestedRef = useRef(false)
 
     useEffect(() => {
+        const applyWaitingUpdate = () => {
+            if (updateReloadRequestedRef.current) {
+                return
+            }
+
+            updateReloadRequestedRef.current = true
+
+            // registerSW may invoke onRegistered synchronously before returning
+            // its update function. Defer activation until the ref is populated.
+            queueMicrotask(() => {
+                const updateSW = updateSWRef.current
+                if (!updateSW) {
+                    updateReloadRequestedRef.current = false
+                    setNeedRefresh(true)
+                    return
+                }
+
+                void requestPwaUpdateReload(updateSW)
+            })
+        }
+
         const updateSW = registerSW({
             onNeedRefresh() {
-                setNeedRefresh(true)
+                applyWaitingUpdate()
             },
             onOfflineReady() {
                 console.log('App ready for offline use')
@@ -142,7 +164,7 @@ export function usePwaUpdate() {
 
                 cleanupRef.current = setupRegistrationUpdateChecks(
                     registration,
-                    () => setNeedRefresh(true),
+                    applyWaitingUpdate,
                 )
             },
             onRegisterError(error) {
@@ -156,6 +178,7 @@ export function usePwaUpdate() {
             cleanupRef.current?.()
             cleanupRef.current = null
             updateSWRef.current = null
+            updateReloadRequestedRef.current = false
         }
     }, [])
 

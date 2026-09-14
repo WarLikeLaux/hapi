@@ -1135,6 +1135,17 @@ type SessionFileSearch = {
     tab?: 'changes' | 'directories'
     query?: string
     origin?: 'chat'
+    line?: number
+    column?: number
+}
+
+function positiveSearchInteger(value: unknown): number | undefined {
+    const number = typeof value === 'number'
+        ? value
+        : typeof value === 'string' && /^\d+$/.test(value)
+            ? Number(value)
+            : Number.NaN
+    return Number.isSafeInteger(number) && number > 0 ? number : undefined
 }
 
 const sessionFileRoute = createRoute({
@@ -1161,6 +1172,8 @@ const sessionFileRoute = createRoute({
             ? search.query
             : undefined
         const origin = search.origin === 'chat' ? 'chat' : undefined
+        const line = positiveSearchInteger(search.line)
+        const column = positiveSearchInteger(search.column)
 
         const result: SessionFileSearch = { path }
         if (staged !== undefined) {
@@ -1177,6 +1190,12 @@ const sessionFileRoute = createRoute({
         }
         if (origin !== undefined) {
             result.origin = origin
+        }
+        if (line !== undefined) {
+            result.line = line
+        }
+        if (line !== undefined && column !== undefined) {
+            result.column = column
         }
         return result
     },

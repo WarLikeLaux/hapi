@@ -39,11 +39,11 @@ export function Toast({ title, body, onClose, className, variant, ...props }: To
                 {onClose ? (
                     <button
                         type="button"
-                        className="text-xs text-[var(--app-hint)] hover:text-[var(--app-fg)]"
+                        className="-m-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg leading-none text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
                         onClick={handleClose}
                         aria-label="Dismiss"
                     >
-                        x
+                        ×
                     </button>
                 ) : null}
             </div>

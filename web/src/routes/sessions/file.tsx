@@ -9,7 +9,7 @@ import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { formatDiffError, formatReadFileError } from '@/lib/files-i18n'
 import { queryKeys } from '@/lib/query-keys'
-import { langAlias, useShikiHighlighter } from '@/lib/shiki'
+import { langAlias, splitCodeLines, useShikiHighlightedLines } from '@/lib/shiki'
 import { useTranslation } from '@/lib/use-translation'
 import { decodeBase64 } from '@/lib/utils'
 import { ImagePreview } from '@/components/ImagePreview'
@@ -209,6 +209,8 @@ export default function FilePage() {
     const encodedPath = typeof search.path === 'string' ? search.path : ''
     const staged = search.staged
     const comparison = search.comparison
+    const targetLine = search.line
+    const targetColumn = search.column
 
     const filePath = useMemo(() => decodePath(encodedPath), [encodedPath])
     const fileName = filePath.split('/').pop() || filePath || t('file.page.fallbackName')
@@ -255,12 +257,17 @@ export default function FilePage() {
         : null
 
     const language = useMemo(() => imageMimeType ? undefined : resolveLanguage(filePath), [filePath, imageMimeType])
-    const [markdownMode, setMarkdownMode] = useState<MarkdownPreviewMode>(getInitialMarkdownPreviewMode)
+    const [markdownMode, setMarkdownMode] = useState<MarkdownPreviewMode>(() =>
+        targetLine === undefined ? getInitialMarkdownPreviewMode() : 'source'
+    )
     const showMarkdownSource = !markdownFile || markdownMode === 'source'
-    const highlighted = useShikiHighlighter(
+    const highlightedLines = useShikiHighlightedLines(
         imageMimeType || (markdownFile && !showMarkdownSource) ? '' : decodedContent,
         language
     )
+    const sourceLines = useMemo(() => splitCodeLines(decodedContent), [decodedContent])
+    const renderedSourceLines = highlightedLines ?? sourceLines
+    const sourceLineNumberWidth = Math.max(String(renderedSourceLines.length).length, 3)
     const contentSizeBytes = useMemo(
         () => (decodedContent ? getUtf8ByteLength(decodedContent) : 0),
         [decodedContent]
@@ -272,9 +279,13 @@ export default function FilePage() {
 
     const canDownload = fileContentResult?.success === true && Boolean(fileContentResult.content)
 
-    const [displayMode, setDisplayMode] = useState<'diff' | 'file'>('diff')
+    const [displayMode, setDisplayMode] = useState<'diff' | 'file'>(
+        targetLine === undefined ? 'diff' : 'file'
+    )
     const { codeWrap, setCodeWrap } = useCodeWrap()
     const fileScrollRef = useRef<HTMLDivElement>(null)
+    const targetLineRef = useRef<HTMLSpanElement>(null)
+    const scrolledTargetKeyRef = useRef<string | null>(null)
     const restoredScrollKeyRef = useRef<string | null>(null)
     const fileScrollKey = useMemo(
         () => getFileScrollStorageKey(sessionId, filePath, staged),
@@ -292,8 +303,8 @@ export default function FilePage() {
     }, [fileScrollKey])
 
     useLayoutEffect(() => {
-        restoreFileScroll()
-        const frame = typeof requestAnimationFrame === 'function'
+        if (targetLine === undefined) restoreFileScroll()
+        const frame = targetLine === undefined && typeof requestAnimationFrame === 'function'
             ? requestAnimationFrame(() => restoreFileScroll())
             : undefined
         return () => {
@@ -308,17 +319,55 @@ export default function FilePage() {
                 // Ignore unavailable storage.
             }
         }
-    }, [fileScrollKey, restoreFileScroll])
+    }, [fileScrollKey, restoreFileScroll, targetLine])
 
     // Query results can arrive after the route first renders. Re-apply the
     // saved position once content has been mounted, but do not overwrite
     // user scrolling when a query refreshes the same file.
     useEffect(() => {
         if (diffQuery.isLoading || fileQuery.isLoading) return
+        if (targetLine !== undefined) return
         if (restoredScrollKeyRef.current === fileScrollKey) return
         restoreFileScroll()
         restoredScrollKeyRef.current = fileScrollKey
-    }, [diffQuery.isLoading, fileQuery.isLoading, fileScrollKey, restoreFileScroll])
+    }, [diffQuery.isLoading, fileQuery.isLoading, fileScrollKey, restoreFileScroll, targetLine])
+
+    useEffect(() => {
+        if (targetLine === undefined) return
+        setDisplayMode('file')
+        if (markdownFile) setMarkdownMode('source')
+    }, [filePath, markdownFile, targetLine])
+
+    useEffect(() => {
+        if (targetLine === undefined || diffQuery.isLoading || fileQuery.isLoading) return
+        if (displayMode !== 'file' || !showMarkdownSource) return
+        const renderStage = highlightedLines === null ? 'plain' : 'highlighted'
+        const targetKey = `${sessionId}:${filePath}:${targetLine}:${targetColumn ?? ''}:${renderStage}`
+        if (scrolledTargetKeyRef.current === targetKey) return
+
+        let frame: number | undefined
+        let attempts = 0
+        const scrollToTarget = () => {
+            const element = targetLineRef.current
+            if (element) {
+                // Let the browser scroll every relevant ancestor. Android standalone
+                // PWAs may put vertical scrolling on the outer shell, while desktop
+                // layouts keep it on fileScrollRef.
+                element.scrollIntoView({ block: 'center', inline: 'nearest' })
+            }
+
+            attempts += 1
+            if (attempts >= 8) {
+                scrolledTargetKeyRef.current = targetKey
+                return
+            }
+            frame = requestAnimationFrame(scrollToTarget)
+        }
+        frame = requestAnimationFrame(scrollToTarget)
+        return () => {
+            if (frame !== undefined) cancelAnimationFrame(frame)
+        }
+    }, [diffQuery.isLoading, displayMode, fileContentResult, filePath, fileQuery.isLoading, highlightedLines, sessionId, showMarkdownSource, targetColumn, targetLine])
 
     const setMarkdownPreviewMode = (mode: MarkdownPreviewMode) => {
         setMarkdownMode(mode)
@@ -399,14 +448,14 @@ export default function FilePage() {
                                 <button
                                     type="button"
                                     onClick={() => setDisplayMode('diff')}
-                                    className={`rounded px-3 py-1 text-xs font-semibold ${displayMode === 'diff' ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                                    className={`rounded px-3 py-1 text-xs font-semibold ${displayMode === 'diff' ? 'bg-[var(--app-secondary-bg)] text-[var(--app-fg)] ring-1 ring-inset ring-[var(--app-border)]' : 'text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]'}`}
                                 >
                                     {t('file.page.tab.diff')}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setDisplayMode('file')}
-                                    className={`rounded px-3 py-1 text-xs font-semibold ${displayMode === 'file' ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                                    className={`rounded px-3 py-1 text-xs font-semibold ${displayMode === 'file' ? 'bg-[var(--app-secondary-bg)] text-[var(--app-fg)] ring-1 ring-inset ring-[var(--app-border)]' : 'text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]'}`}
                                 >
                                     {t('file.page.tab.file')}
                                 </button>
@@ -418,14 +467,14 @@ export default function FilePage() {
                                 <button
                                     type="button"
                                     onClick={() => setMarkdownPreviewMode('source')}
-                                    className={`rounded px-3 py-1 text-xs font-semibold ${showMarkdownSource ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                                    className={`rounded px-3 py-1 text-xs font-semibold ${showMarkdownSource ? 'bg-[var(--app-secondary-bg)] text-[var(--app-fg)] ring-1 ring-inset ring-[var(--app-border)]' : 'text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]'}`}
                                 >
                                     {t('file.page.tab.source')}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setMarkdownPreviewMode('preview')}
-                                    className={`rounded px-3 py-1 text-xs font-semibold ${!showMarkdownSource ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                                    className={`rounded px-3 py-1 text-xs font-semibold ${!showMarkdownSource ? 'bg-[var(--app-secondary-bg)] text-[var(--app-fg)] ring-1 ring-inset ring-[var(--app-border)]' : 'text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]'}`}
                                 >
                                     {t('file.page.tab.preview')}
                                 </button>
@@ -494,15 +543,52 @@ export default function FilePage() {
                                             wrapDisableLabel={t('code.wrap.disable')}
                                             onToggleWrap={() => setCodeWrap(!codeWrap)}
                                         />
-                                        <pre
-                                            className={`shiki m-0 overflow-y-auto bg-[var(--app-code-bg)] p-3 text-xs font-mono ${codeWrap ? 'overflow-x-hidden' : 'overflow-x-auto'}`}
-                                            style={{
-                                                whiteSpace: codeWrap ? 'pre-wrap' : 'pre',
-                                                ...(codeWrap ? { wordBreak: 'break-word' as const } : {})
-                                            }}
-                                        >
-                                            <code>{highlighted ?? decodedContent}</code>
-                                        </pre>
+                                        <div className={`min-w-0 w-full max-w-full ${codeWrap ? '' : 'overflow-x-auto'}`}>
+                                            <pre
+                                                className={`shiki m-0 grid bg-[var(--app-code-bg)] text-xs font-mono ${codeWrap ? 'w-full' : 'w-max min-w-full'}`}
+                                                style={{
+                                                    gridTemplateColumns: `calc(${sourceLineNumberWidth}ch + 1.5rem) ${codeWrap ? 'minmax(0, 1fr)' : 'max-content'}`,
+                                                    whiteSpace: codeWrap ? 'pre-wrap' : 'pre',
+                                                    ...(codeWrap ? { wordBreak: 'break-word' as const } : {})
+                                                }}
+                                            >
+                                                <code className="contents">
+                                                    {renderedSourceLines.map((line, index) => {
+                                                        const lineNumber = index + 1
+                                                        const isTarget = lineNumber === targetLine
+                                                        const rowPad = `${index === 0 ? 'pt-3' : ''} ${index === renderedSourceLines.length - 1 ? 'pb-3' : ''}`
+                                                        const targetStyle = isTarget
+                                                            ? { backgroundColor: 'color-mix(in srgb, #fbbf24 15%, transparent)' }
+                                                            : undefined
+                                                        return (
+                                                            <span key={lineNumber} className="contents">
+                                                                <span
+                                                                    data-line-number
+                                                                    aria-hidden="true"
+                                                                    className={`select-none bg-[var(--app-code-header-bg)] px-3 text-right text-[var(--app-hint)]/70 ${rowPad}`}
+                                                                    style={targetStyle}
+                                                                >
+                                                                    {lineNumber}
+                                                                </span>
+                                                                <span
+                                                                    ref={isTarget ? targetLineRef : undefined}
+                                                                    data-code-cell
+                                                                    data-hapi-target-line={isTarget ? 'true' : undefined}
+                                                                    aria-current={isTarget ? 'location' : undefined}
+                                                                    className={`pl-4 pr-8 ${rowPad}`}
+                                                                    style={{
+                                                                        ...(codeWrap ? { minWidth: 0 } : { minWidth: 'max-content' }),
+                                                                        ...targetStyle,
+                                                                    }}
+                                                                >
+                                                                    {line}
+                                                                </span>
+                                                            </span>
+                                                        )
+                                                    })}
+                                                </code>
+                                            </pre>
+                                        </div>
                                     </div>
                                 )
                             ) : (

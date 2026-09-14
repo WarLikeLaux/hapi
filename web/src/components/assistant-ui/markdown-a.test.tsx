@@ -363,7 +363,7 @@ describe('markdown <A> component — fail-closed path-like hrefs (#1452)', () =>
     })
 
     it('routes hapi-file-candidate Windows href through containment to FilePathAnchor', () => {
-        const path = 'C:\\Users\\ada\\coding\\hapi\\docs\\a.md'
+        const path = 'C:\\Users\\ada\\coding\\hapi\\docs\\a.md:19:3'
         renderA(
             {
                 href: 'hapi-file-candidate:' + encodeURIComponent(path),
@@ -376,6 +376,9 @@ describe('markdown <A> component — fail-closed path-like hrefs (#1452)', () =>
         const link = document.querySelector('a')
         expect(link).not.toBeNull()
         expect(link!.getAttribute('href')).toContain('/sessions/session-1/file?')
+        const href = new URL(link!.getAttribute('href')!, 'https://hapi.example')
+        expect(href.searchParams.get('line')).toBe('19')
+        expect(href.searchParams.get('column')).toBe('3')
     })
 
     it('renders non-Windows hapi-file-candidate payloads as inert (no SPA navigate bypass)', () => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@/lib/i18n-context'
 import { formatFileMetadata } from '@/lib/file-metadata'
@@ -8,8 +8,13 @@ import FilePage from './file'
 
 const goBackMock = vi.fn()
 const copyMock = vi.hoisted(() => vi.fn())
+const scrollIntoViewMock = vi.hoisted(() => vi.fn())
 const getGitDiffFileMock = vi.hoisted(() => vi.fn(async () => ({ success: true, stdout: '' })))
-const routeSearchMock = vi.hoisted(() => ({ comparison: undefined as undefined | 'last-commit' | 'branch' }))
+const routeSearchMock = vi.hoisted(() => ({
+    comparison: undefined as undefined | 'last-commit' | 'branch',
+    line: undefined as number | undefined,
+    column: undefined as number | undefined,
+}))
 
 const sampleMarkdown = '# Heading\n\n| Col A | Col B |\n| --- | --- |\n| one | two |'
 const filePath = 'docs/README.md'
@@ -24,6 +29,8 @@ vi.mock('@tanstack/react-router', () => ({
         path: encodedPath,
         staged: undefined,
         comparison: routeSearchMock.comparison,
+        line: routeSearchMock.line,
+        column: routeSearchMock.column,
     }),
 }))
 
@@ -54,7 +61,8 @@ vi.mock('@/hooks/useCopyToClipboard', () => ({
 
 vi.mock('@/lib/shiki', () => ({
     langAlias: { md: 'markdown' },
-    useShikiHighlighter: (content: string) => content,
+    splitCodeLines: (content: string) => content.split('\n'),
+    useShikiHighlightedLines: () => null,
 }))
 
 vi.mock('@/components/MarkdownRenderer', () => ({
@@ -82,6 +90,13 @@ describe('FilePage markdown preview', () => {
     beforeEach(() => {
         vi.clearAllMocks()
         routeSearchMock.comparison = undefined
+        routeSearchMock.line = undefined
+        routeSearchMock.column = undefined
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+            configurable: true,
+            value: scrollIntoViewMock,
+        })
+        scrollIntoViewMock.mockReset()
         window.localStorage.clear()
         window.sessionStorage.clear()
     })
@@ -113,7 +128,10 @@ describe('FilePage markdown preview', () => {
         expect(previewCopyButton).not.toHaveClass('absolute')
         fireEvent.click(previewCopyButton)
         expect(copyMock).toHaveBeenCalledWith(sampleMarkdown)
-        expect(screen.getByRole('button', { name: 'Preview' })).toHaveClass('opacity-80')
+        expect(screen.getByRole('button', { name: 'Preview' })).toHaveClass(
+            'bg-[var(--app-secondary-bg)]',
+            'text-[var(--app-fg)]'
+        )
 
         fireEvent.click(screen.getByRole('button', { name: 'Source' }))
 
@@ -177,5 +195,40 @@ describe('FilePage markdown preview', () => {
         })
         const secondScrollRegion = document.querySelector('[data-hapi-file-scroll="true"]') as HTMLElement
         expect(secondScrollRegion.scrollTop).toBe(123)
+    })
+
+    it('opens source, highlights the requested line, and ignores saved scroll', async () => {
+        routeSearchMock.line = 3
+        routeSearchMock.column = 2
+        let resolveDiff: ((value: { success: true; stdout: string }) => void) | undefined
+        getGitDiffFileMock.mockImplementationOnce(() => new Promise((resolve) => {
+            resolveDiff = resolve
+        }))
+        window.sessionStorage.setItem(
+            `hapi-file-scroll-session-1:${encodeURIComponent(filePath)}:unstaged`,
+            '123'
+        )
+        renderWithProviders()
+
+        await waitFor(() => {
+            expect(getGitDiffFileMock).toHaveBeenCalled()
+        })
+        expect(document.querySelector('[data-hapi-target-line="true"]')).toBeNull()
+        await act(async () => {
+            resolveDiff?.({ success: true, stdout: '' })
+        })
+
+        await waitFor(() => {
+            expect(document.querySelector('[data-hapi-target-line="true"]')).not.toBeNull()
+        })
+        expect(screen.queryByTestId('markdown-preview')).not.toBeInTheDocument()
+        const target = document.querySelector('[data-hapi-target-line="true"]')
+        expect(target).toHaveAttribute('aria-current', 'location')
+        const scrollRegion = document.querySelector('[data-hapi-file-scroll="true"]') as HTMLElement
+        expect(scrollRegion.scrollTop).not.toBe(123)
+        await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalledWith({
+            block: 'center',
+            inline: 'nearest',
+        }))
     })
 })

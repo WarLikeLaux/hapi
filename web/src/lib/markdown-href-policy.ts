@@ -6,11 +6,15 @@
  * known in-app routes stay navigable; everything else path-like is inert text.
  */
 
-import { COMMON_FILE_EXTENSIONS } from '@/lib/remark-file-path-links'
+import {
+    COMMON_FILE_EXTENSIONS,
+    parseFilePathReference,
+    type FilePathReference,
+} from '@/lib/remark-file-path-links'
 
 export type MarkdownHrefDecision =
     | { action: 'navigate' }
-    | { action: 'file'; path: string }
+    | ({ action: 'file' } & FilePathReference)
     | { action: 'inert' }
 
 const STATIC_SPA_PATHS = new Set([
@@ -47,7 +51,11 @@ export function splitHrefMeta(href: string): { path: string; suffix: string } {
 }
 
 function stripLineSuffix(value: string): string {
-    return value.replace(/:\d+(?::\d+)?$/, '')
+    return parseFilePathReference(value).path
+}
+
+function fileDecision(reference: FilePathReference): MarkdownHrefDecision {
+    return { action: 'file', ...reference }
 }
 
 function isWindowsAbsolutePath(value: string): boolean {
@@ -179,19 +187,27 @@ export function classifyNoSchemeHref(
 
     if (isKnownSpaHref(trimmed)) return { action: 'navigate' }
 
-    const { path: rawPath } = splitHrefMeta(trimmed)
+    const queryIdx = trimmed.indexOf('?')
+    const rawWithoutQuery = queryIdx >= 0 ? trimmed.slice(0, queryIdx) : trimmed
     // mdast→hast percent-encodes spaces etc.; compare against literal workspace.
-    let decodedPath: string
+    let decodedReference: string
     try {
-        decodedPath = decodeURIComponent(rawPath)
+        decodedReference = decodeURIComponent(rawWithoutQuery)
     } catch {
         return { action: 'inert' }
     }
-    const path = stripLineSuffix(decodedPath)
+    let reference = parseFilePathReference(decodedReference)
+    if (reference.line === undefined) {
+        const hashIdx = decodedReference.indexOf('#')
+        reference = parseFilePathReference(
+            hashIdx >= 0 ? decodedReference.slice(0, hashIdx) : decodedReference
+        )
+    }
+    const path = reference.path
     const workspacePath = options.workspacePath ?? null
 
     if (isRepoRelativeCandidate(path)) {
-        return { action: 'file', path }
+        return fileDecision(reference)
     }
 
     // Absolute / tilde targets need workspace metadata so we can fail closed on
@@ -200,14 +216,14 @@ export function classifyNoSchemeHref(
         if (!workspacePath || !isWithinWorkspace(path, workspacePath)) {
             return { action: 'inert' }
         }
-        return { action: 'file', path }
+        return fileDecision(reference)
     }
 
     if (path.startsWith('/') && hasKnownFileExtension(path)) {
         if (!workspacePath || !isWithinWorkspace(path, workspacePath)) {
             return { action: 'inert' }
         }
-        return { action: 'file', path }
+        return fileDecision(reference)
     }
 
     if (path.startsWith('~/') || path === '~') {
@@ -217,7 +233,7 @@ export function classifyNoSchemeHref(
         if (!workspacePath || !isWithinWorkspace(expanded, workspacePath)) {
             return { action: 'inert' }
         }
-        return { action: 'file', path: expanded }
+        return fileDecision({ ...reference, path: expanded })
     }
 
     if (looksPathLike(path)) return { action: 'inert' }

@@ -7,16 +7,19 @@ export type Toast = {
     body: string
     sessionId: string
     url: string
+    dedupeKey?: string
 }
 
 export type ToastContextValue = {
     toasts: Toast[]
     addToast: (toast: Omit<Toast, 'id'>) => void
     removeToast: (id: string) => void
+    dismissToast: (id: string) => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
 const TOAST_DURATION_MS = 6000
+const TOAST_DISMISS_SUPPRESSION_MS = 5 * 60 * 1000
 
 function createToastId(): string {
     return randomId()
@@ -25,6 +28,7 @@ function createToastId(): string {
 export function ToastProvider({ children }: { children: ReactNode }) {
     const [toasts, setToasts] = useState<Toast[]>([])
     const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+    const dismissedUntilRef = useRef<Map<string, number>>(new Map())
 
     useEffect(() => {
         return () => {
@@ -44,7 +48,31 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         }
     }, [])
 
+    const dismissToast = useCallback((id: string) => {
+        setToasts((prev) => {
+            const toast = prev.find((candidate) => candidate.id === id)
+            if (toast?.dedupeKey) {
+                dismissedUntilRef.current.set(
+                    toast.dedupeKey,
+                    Date.now() + TOAST_DISMISS_SUPPRESSION_MS,
+                )
+            }
+            return prev.filter((candidate) => candidate.id !== id)
+        })
+        const timer = timersRef.current.get(id)
+        if (timer) {
+            clearTimeout(timer)
+            timersRef.current.delete(id)
+        }
+    }, [])
+
     const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
+        if (toast.dedupeKey) {
+            const dismissedUntil = dismissedUntilRef.current.get(toast.dedupeKey) ?? 0
+            if (dismissedUntil > Date.now()) return
+            dismissedUntilRef.current.delete(toast.dedupeKey)
+        }
+
         const id = createToastId()
         setToasts((prev) => [...prev, { id, ...toast }])
         const timer = setTimeout(() => {
@@ -56,8 +84,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     const value = useMemo<ToastContextValue>(() => ({
         toasts,
         addToast,
-        removeToast
-    }), [toasts, addToast, removeToast])
+        removeToast,
+        dismissToast,
+    }), [toasts, addToast, removeToast, dismissToast])
 
     return (
         <ToastContext.Provider value={value}>

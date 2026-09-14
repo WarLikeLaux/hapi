@@ -182,32 +182,31 @@ describe('usePwaUpdate', () => {
 
     beforeEach(() => {
         capturedOptions = {}
-        updateSW.mockClear()
+        updateSW.mockReset()
+        updateSW.mockImplementation(() => new Promise(() => {}))
         registerSWMock.mockImplementation((options) => {
             capturedOptions = options
             return updateSW
         })
     })
 
-    it('registers the service worker and exposes refresh state', () => {
+    it('automatically activates an update reported by registerSW', async () => {
         const { result } = renderHook(() => usePwaUpdate())
 
         expect(registerSWMock).toHaveBeenCalledTimes(1)
         expect(result.current.needRefresh).toBe(false)
 
-        act(() => {
+        await act(async () => {
             capturedOptions.onNeedRefresh?.()
+            await Promise.resolve()
         })
 
-        expect(result.current.needRefresh).toBe(true)
+        expect(updateSW).toHaveBeenCalledWith(true)
+        expect(result.current.needRefresh).toBe(false)
     })
 
     it('reloads through updateSW when reload is called', async () => {
-        const updateSW = vi.fn().mockImplementation(async () => {
-            for (const listener of serviceWorkerListeners.get('controllerchange') ?? []) {
-                listener(new Event('controllerchange'))
-            }
-        })
+        const updateSW = vi.fn().mockImplementation(() => new Promise(() => {}))
         registerSWMock.mockImplementation((options) => {
             capturedOptions = options
             return updateSW
@@ -222,21 +221,18 @@ describe('usePwaUpdate', () => {
         expect(updateSW).toHaveBeenCalledWith(true)
     })
 
-    it('keeps needRefresh true until a successful reload clears the page', () => {
+    it('only requests one automatic reload for duplicate update signals', async () => {
         const { result } = renderHook(() => usePwaUpdate())
 
-        act(() => {
+        await act(async () => {
             capturedOptions.onNeedRefresh?.()
-        })
-
-        expect(result.current.needRefresh).toBe(true)
-
-        act(() => {
-            result.current.reload()
+            capturedOptions.onNeedRefresh?.()
+            await Promise.resolve()
         })
 
         expect(updateSW).toHaveBeenCalledWith(true)
-        expect(result.current.needRefresh).toBe(true)
+        expect(updateSW).toHaveBeenCalledTimes(1)
+        expect(result.current.needRefresh).toBe(false)
     })
 
     it('wires registration update checks from onRegistered', () => {
@@ -262,7 +258,7 @@ describe('usePwaUpdate', () => {
         vi.useRealTimers()
     })
 
-    it('shows the refresh prompt when onRegistered finds a waiting update', () => {
+    it('automatically activates an update already waiting on registration', async () => {
         const registration = {
             waiting: {} as ServiceWorker,
             update: vi.fn().mockResolvedValue(undefined),
@@ -272,10 +268,12 @@ describe('usePwaUpdate', () => {
 
         const { result } = renderHook(() => usePwaUpdate())
 
-        act(() => {
+        await act(async () => {
             capturedOptions.onRegistered?.(registration)
+            await Promise.resolve()
         })
 
-        expect(result.current.needRefresh).toBe(true)
+        expect(updateSW).toHaveBeenCalledWith(true)
+        expect(result.current.needRefresh).toBe(false)
     })
 })

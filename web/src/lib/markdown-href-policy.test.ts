@@ -102,6 +102,14 @@ describe('classifyNoSchemeHref — fail-closed (#1452)', () => {
         })
     })
 
+    it.each([
+        ['docs/foo.md:42', { action: 'file', path: 'docs/foo.md', line: 42 }],
+        ['docs/foo.md:42:7', { action: 'file', path: 'docs/foo.md', line: 42, column: 7 }],
+        ['docs/foo.md#L42C7', { action: 'file', path: 'docs/foo.md', line: 42, column: 7 }],
+    ])('preserves source locations in %s', (href, expected) => {
+        expect(classifyNoSchemeHref(href)).toEqual(expected)
+    })
+
     it('routes in-workspace absolute paths to file preview', () => {
         expect(classifyNoSchemeHref('/home/ada/coding/hapi/docs/a.md', { workspacePath: workspace })).toEqual({
             action: 'file',
@@ -165,6 +173,19 @@ describe('classifyNoSchemeHref — fail-closed (#1452)', () => {
         ).toEqual({
             action: 'file',
             path: 'C:\\Users\\ada\\coding\\hapi\\docs\\a.md',
+        })
+    })
+
+    it('preserves a line on an in-workspace Windows absolute path', () => {
+        const winWorkspace = 'C:\\Users\\ada\\coding\\hapi'
+        expect(
+            classifyNoSchemeHref('C:\\Users\\ada\\coding\\hapi\\docs\\a.md#L9', {
+                workspacePath: winWorkspace,
+            })
+        ).toEqual({
+            action: 'file',
+            path: 'C:\\Users\\ada\\coding\\hapi\\docs\\a.md',
+            line: 9,
         })
     })
 

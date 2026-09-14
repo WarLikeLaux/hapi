@@ -105,7 +105,8 @@ export default defineConfig({
         spaFallback(),
         copyKaTeXFonts(),
         VitePWA({
-            // User-controlled reload avoids mid-session surprise reloads (autoUpdate reloads all tabs).
+            // The app activates waiting updates itself after update discovery. Keep prompt mode so
+            // activation remains coordinated by usePwaUpdate instead of two competing reload paths.
             registerType: 'prompt',
             includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png', 'mask-icon.svg'],
             strategies: 'injectManifest',
@@ -124,8 +125,10 @@ export default defineConfig({
                 // resulting "theme_color is missing" build warning is wrong: theme_color is
                 // optional for installability.
                 theme_color: undefined,
-                // Splash background stays light; only the status bar needed to become adaptive.
-                background_color: '#ffffff',
+                // Android's launch splash cannot follow the in-app theme dynamically.
+                // This fork is primarily used in dark mode, so avoid a bright flash while
+                // Android starts a new standalone PWA window for chat file links.
+                background_color: '#1c1c1e',
                 display: 'standalone',
                 orientation: 'portrait',
                 scope: base,

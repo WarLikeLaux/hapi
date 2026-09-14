@@ -138,7 +138,7 @@ export function NewSession(props: {
     const [grokPermissionMode, setGrokPermissionMode] = useState<GrokPermissionMode>('default')
     const [sessionType, setSessionType] = useState<SessionType>('simple')
     const [worktreeName, setWorktreeName] = useState('')
-    const [termDeckEnabled, setTermDeckEnabled] = useState(true)
+    const [termDeckEnabled, setTermDeckEnabled] = useState(false)
     const [directoryCreationConfirmed, setDirectoryCreationConfirmed] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [codexImportSessions, setCodexImportSessions] = useState<CodexLocalSessionSummary[]>([])
