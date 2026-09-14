@@ -9,6 +9,7 @@ import { normalizeCodexModel } from '@/modules/common/codexModels';
 import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import { ImplementCodexPlanRequestSchema, type ImplementCodexPlanResult } from '@hapi/protocol/apiTypes';
+import type { CodexPermissionMode } from '@hapi/protocol/types';
 import { CodexAppServerClient, isIndeterminateError } from '../codexAppServerClient';
 import { buildHapiMcpBridge, type HapiMcpBridge } from '../utils/buildHapiMcpBridge';
 import { buildUserInputFromMessage } from '../utils/appServerConfig';
@@ -73,6 +74,13 @@ export class SharedCodexRoot {
     private readonly settingsListeners = new Set<() => void>();
     private ready!: () => void;
     private readonly bound = new Promise<void>(resolve => { this.ready = resolve; });
+
+    private getPermissionMode = (): CodexPermissionMode | undefined => {
+        const mode = this.settings.permissionMode;
+        return mode === 'default' || mode === 'read-only' || mode === 'safe-yolo' || mode === 'yolo'
+            ? mode
+            : undefined;
+    };
 
     constructor(readonly bootstrap: SessionBootstrapResult, private readonly host: RootHost) {
         this.session = bootstrap.session;
@@ -155,7 +163,12 @@ export class SharedCodexRoot {
         this.bridge = await buildHapiMcpBridge(this.session, { exportSessionEnv: false, emitTitleSummary: false,
             skillLookup: { workingDirectory: this.bootstrap.workingDirectory, flavor: 'codex' } });
         await initializeSharedClient(this.client);
-        this.permissions = new SharedCodexPermissions(this.session, this.client, this.host.generation);
+        this.permissions = new SharedCodexPermissions(
+            this.session,
+            this.client,
+            this.host.generation,
+            this.getPermissionMode
+        );
         this.client.setServerRequestHandler(request => { void this.receiveRequest(request); });
     }
     private async receiveRequest(request: { id: string | number; method: string; params: unknown }): Promise<void> {
@@ -355,7 +368,12 @@ export class SharedCodexRoot {
                 try {
                     await initializeSharedClient(this.client);
                     if (this.stopping) return;
-                    this.permissions = new SharedCodexPermissions(this.session, this.client, `${this.host.generation}:${randomUUID()}`);
+                    this.permissions = new SharedCodexPermissions(
+                        this.session,
+                        this.client,
+                        `${this.host.generation}:${randomUUID()}`,
+                        this.getPermissionMode
+                    );
                     this.client.setServerRequestHandler(request => { void this.receiveRequest(request); });
                     const settingsRevision = this.settingsRevision;
                     const response = record(await this.client.request('thread/resume', { threadId: this.threadId }));
