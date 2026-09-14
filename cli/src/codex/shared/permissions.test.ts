@@ -4,7 +4,7 @@ import type { AgentState } from '@/api/types';
 import type { CodexAppServerClient } from '../codexAppServerClient';
 import { SharedCodexPermissions } from './permissions';
 
-function fixture() {
+function fixture(permissionMode: 'default' | 'yolo' = 'default') {
     let state: AgentState = {};
     const handlers = new Map<string, (raw: unknown) => Promise<unknown>>();
     const send = vi.fn();
@@ -12,12 +12,35 @@ function fixture() {
         updateAgentState: (fn: (state: AgentState) => AgentState) => { state = fn(state); },
         rpcHandlerManager: { registerHandler: (key: string, fn: (raw: unknown) => Promise<unknown>) => handlers.set(key, fn) } } as unknown as ApiSessionClient;
     const respond = vi.fn();
-    const permissions = new SharedCodexPermissions(session, { respond } as unknown as CodexAppServerClient, 'generation');
+    const permissions = new SharedCodexPermissions(
+        session,
+        { respond } as unknown as CodexAppServerClient,
+        'generation',
+        () => permissionMode
+    );
     const request = { id: 1, method: 'item/tool/requestUserInput', params: { threadId: 'thread', turnId: 'turn', itemId: 'call',
         questions: [{ id: 'choice', header: 'Choose', question: 'Which?', options: [{ label: 'A', description: 'A' }, { label: 'B', description: 'B' }] }] } };
     return { permissions, request, respond, handlers, send, state: () => state };
 }
 describe('shared request arbitration', () => {
+    it('auto-approves generic app tool requests in yolo mode without publishing a prompt', async () => {
+        const f = fixture('yolo');
+        f.permissions.receive({
+            id: 2,
+            method: 'item/tool/requestApproval',
+            params: {
+                threadId: 'thread',
+                itemId: 'power-call',
+                toolName: 'windows-power',
+                input: { action: 'schedule' }
+            }
+        });
+
+        await vi.waitFor(() => expect(f.respond).toHaveBeenCalledWith(2, { decision: 'accept' }));
+        expect(f.state().requests).toBeUndefined();
+        expect(f.send).not.toHaveBeenCalled();
+    });
+
     it.each([{ notes: [] }, { notes: ['user_note: custom answer'] }])('preserves isOther and canonical other answers (%j) without claiming a winner', async ({ notes }) => {
         const f = fixture();
         const request = { ...f.request, params: { ...f.request.params, isBlocking: true,

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ApiSessionClient } from '@/api/apiSession';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
+import type { CodexPermissionMode } from '@hapi/protocol/types';
 import type { CodexAppServerClient } from '../codexAppServerClient';
 import { registerAppServerPermissionHandlers, IGNORE_SHARED_REQUEST } from '../utils/appServerPermissionAdapter';
 import { record, string } from './gateway';
@@ -30,7 +31,12 @@ export class SharedCodexPermissions {
             scope: { role: 'child', threadId: request.threadId, parentThreadId: rootThreadId }, scope_role: 'child'
         } : message, id);
     }
-    constructor(private readonly session: ApiSessionClient, private readonly client: CodexAppServerClient, private readonly generation: string) {
+    constructor(
+        private readonly session: ApiSessionClient,
+        private readonly client: CodexAppServerClient,
+        private readonly generation: string,
+        private readonly getPermissionMode?: () => CodexPermissionMode | undefined
+    ) {
         session.rpcHandlerManager.registerHandler(RPC_METHODS.Permission, async (raw: unknown) => {
             const reply = ReplySchema.parse(raw);
             const request = this.pending.get(reply.id);
@@ -59,8 +65,10 @@ export class SharedCodexPermissions {
         if (!threadId) return;
         const key = `${this.generation}:${threadId}:${typeof request.id}:${request.id}`;
         if (this.closed || this.pending.has(key) || this.retired.has(key)) return;
+        let awaitsUserDecision = false;
         const handlers = new Map<string, (params: unknown) => unknown>();
         const ask = (tool: string, input: unknown): Promise<Reply> => new Promise((answer, cancel) => {
+            awaitsUserDecision = true;
             const pending: Pending = { nativeId: request.id, threadId, turnId: string(record(request.params).turnId),
                 toolCallId: string(record(request.params).itemId) ?? key,
                 userInput: request.method === 'item/tool/requestUserInput', input, answer, cancel, submitted: false };
@@ -75,6 +83,7 @@ export class SharedCodexPermissions {
         registerAppServerPermissionHandlers({
             client: { registerRequestHandler: (method, handler) => { handlers.set(method, handler); } },
             shared: true,
+            getPermissionMode: this.getPermissionMode,
             permissionHandler: { handleToolCall: async (_id, name, input) => {
                 const reply = await ask(name, input);
                 return { decision: reply.approved ? (reply.decision === 'approved_for_session' ? 'approved_for_session' : 'approved') : reply.decision === 'denied' ? 'denied' : 'abort' };
@@ -91,8 +100,10 @@ export class SharedCodexPermissions {
         void Promise.resolve(response).then(result => {
             if (result === IGNORE_SHARED_REQUEST) return;
             if (this.closed || this.retired.has(key)) return;
-            // No pending entry means a native client already resolved the displayed request.
-            if (this.pending.has(key) || request.method === 'mcpServer/elicitation/request' && record(request.params).serverName === 'hapi') {
+            // A displayed request must still be pending: otherwise another native
+            // client won the race. Automatic adapter decisions never create a
+            // pending entry and should be returned immediately.
+            if (!awaitsUserDecision || this.pending.has(key)) {
                 // The adapter's decision envelope is HAPI-internal, not the
                 // native request_user_input response schema. An invalid first
                 // response would consume Codex's callback even if it cannot decode.
