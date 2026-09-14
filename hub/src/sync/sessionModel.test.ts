@@ -4313,6 +4313,53 @@ describe('session model', () => {
     })
 
     describe('reopenSession rollback', () => {
+        it('requests a fresh generation while archive lifecycle metadata is still in flight', async () => {
+            const store = new Store(':memory:')
+            const engine = new SyncEngine(
+                store,
+                {} as never,
+                new RpcRegistry(),
+                { broadcast() {} } as never
+            )
+
+            try {
+                const session = engine.getOrCreateSession(
+                    'session-reopen-archive-race',
+                    {
+                        path: '/tmp/project',
+                        host: 'localhost',
+                        machineId: 'machine-1',
+                        flavor: 'codex',
+                        codexSessionId: 'codex-thread-archive-race',
+                        lifecycleState: 'running'
+                    },
+                    null,
+                    'default'
+                )
+                engine.getOrCreateMachine(
+                    'machine-1',
+                    { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
+                    null,
+                    'default'
+                )
+                engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+
+                let spawnArgs: unknown[] | undefined
+                ;(engine as any).rpcGateway.spawnSession = async (...args: unknown[]) => {
+                    spawnArgs = args
+                    return { type: 'success', sessionId: session.id }
+                }
+                ;(engine as any).waitForSessionActive = async () => true
+
+                const result = await engine.reopenSession(session.id, 'default')
+
+                expect(result).toEqual({ type: 'success', sessionId: session.id, resumed: true })
+                expect(spawnArgs?.at(-1)).toBe(true)
+            } finally {
+                engine.stop()
+            }
+        })
+
         it('restores archive metadata when resumeSession fails after the clear', async () => {
             const store = new Store(':memory:')
             const engine = new SyncEngine(
