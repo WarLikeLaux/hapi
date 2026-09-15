@@ -92,6 +92,7 @@ describe('SessionHeader', () => {
                 difitReview: {
                     id: 'review-1',
                     url: 'https://difit.local/reviews/review-1/',
+                    reviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1',
                     branch: 'feature/review',
                     attachedAt: 1
                 }
@@ -102,11 +103,20 @@ describe('SessionHeader', () => {
         expect(link).toHaveAttribute('href', 'https://difit.local/reviews/review-1/')
         expect(link).toHaveAttribute('target', '_blank')
         expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+
+        const reviewLink = screen.getByRole('link', { name: 'Open merge request' })
+        expect(reviewLink).toHaveAttribute(
+            'href',
+            'https://gitlab.example.test/group/project/-/merge_requests/1'
+        )
+        expect(reviewLink).toHaveAttribute('target', '_blank')
+        expect(reviewLink).toHaveAttribute('rel', 'noopener noreferrer')
     })
 
     it('does not reserve header space when no DIFIT review is attached', () => {
         renderHeader(baseSession())
         expect(screen.queryByRole('link', { name: 'Open in DIFIT' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: 'Open merge request' })).not.toBeInTheDocument()
     })
 
     it('queues Codex title regeneration from the session menu', async () => {

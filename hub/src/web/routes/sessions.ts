@@ -925,11 +925,21 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
             return c.json({ error: 'DIFIT review URL must use HTTP or HTTPS without credentials' }, 400)
         }
+        const externalReviewUrl = parsed.data.reviewUrl ? new URL(parsed.data.reviewUrl) : null
+        if (
+            externalReviewUrl
+            && (!['http:', 'https:'].includes(externalReviewUrl.protocol)
+                || externalReviewUrl.username
+                || externalReviewUrl.password)
+        ) {
+            return c.json({ error: 'External review URL must use HTTP or HTTPS without credentials' }, 400)
+        }
 
         try {
             await engine.attachDifitReview(sessionResult.sessionId, {
                 id: parsed.data.reviewId,
                 url: url.toString(),
+                ...(externalReviewUrl ? { reviewUrl: externalReviewUrl.toString() } : {}),
                 ...(parsed.data.branch ? { branch: parsed.data.branch } : {}),
                 attachedAt: Date.now()
             })

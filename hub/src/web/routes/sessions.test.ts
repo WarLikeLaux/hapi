@@ -321,6 +321,7 @@ describe('sessions routes', () => {
             body: JSON.stringify({
                 reviewId: 'review-1',
                 url: 'https://difit.local/reviews/review-1/',
+                reviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1',
                 branch: 'feature/review'
             })
         })
@@ -330,6 +331,7 @@ describe('sessions routes', () => {
         expect(attached[0]?.[1]).toMatchObject({
             id: 'review-1',
             url: 'https://difit.local/reviews/review-1/',
+            reviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1',
             branch: 'feature/review'
         })
         expect(typeof (attached[0]?.[1] as { attachedAt?: unknown }).attachedAt).toBe('number')
@@ -353,6 +355,24 @@ describe('sessions routes', () => {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reviewId: 'review-1', url: 'javascript:alert(1)' })
+        })
+        expect(response.status).toBe(400)
+        expect(called).toBe(false)
+    })
+
+    it('rejects unsafe external review URLs', async () => {
+        let called = false
+        const { app } = createApp(createSession(), {
+            attachDifitReview: async () => { called = true }
+        })
+        const response = await app.request('/api/sessions/session-1/difit-review', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                reviewId: 'review-1',
+                url: 'https://difit.local/reviews/review-1/',
+                reviewUrl: 'javascript:alert(1)'
+            })
         })
         expect(response.status).toBe(400)
         expect(called).toBe(false)

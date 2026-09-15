@@ -55,6 +55,7 @@ export type WorktreeMetadata = z.infer<typeof WorktreeMetadataSchema>
 export const DifitReviewMetadataSchema = z.object({
     id: z.string().trim().min(1).max(255),
     url: z.string().trim().url().max(2048),
+    reviewUrl: z.string().trim().url().max(2048).optional(),
     branch: z.string().trim().min(1).max(512).optional(),
     attachedAt: z.number().int().nonnegative()
 })

@@ -9,6 +9,7 @@ type ParsedDifitReviewArgs = {
     sessionId?: string
     reviewId?: string
     url?: string
+    reviewUrl?: string
     branch?: string
 }
 
@@ -17,7 +18,7 @@ function showHelp(): void {
 ${chalk.bold('hapi difit-review')} - Attach a DIFIT review to the current HAPI session
 
 ${chalk.bold('Usage:')}
-  hapi difit-review attach --review-id <id> --url <public-url> [--branch <branch>]
+  hapi difit-review attach --review-id <id> --url <public-url> [--review-url <url>] [--branch <branch>]
   hapi difit-review detach --review-id <id>
 
 The session defaults to HAPI_SESSION_ID. --session-id is reserved for a DIFIT hub
@@ -38,7 +39,7 @@ export function parseDifitReviewArgs(args: string[]): ParsedDifitReviewArgs {
             continue
         }
         const key = arg.startsWith('--') ? arg.slice(2) : ''
-        if (!['session-id', 'review-id', 'url', 'branch'].includes(key)) {
+        if (!['session-id', 'review-id', 'url', 'review-url', 'branch'].includes(key)) {
             throw new Error(`Unexpected argument: ${arg}`)
         }
         const value = args[index + 1]
@@ -47,6 +48,7 @@ export function parseDifitReviewArgs(args: string[]): ParsedDifitReviewArgs {
         if (key === 'session-id') parsed.sessionId = value
         else if (key === 'review-id') parsed.reviewId = value
         else if (key === 'url') parsed.url = value
+        else if (key === 'review-url') parsed.reviewUrl = value
         else parsed.branch = value
     }
     return parsed
@@ -72,6 +74,7 @@ export async function handleDifitReviewCommand(args: string[]): Promise<void> {
             sessionId,
             reviewId: parsed.reviewId.trim(),
             ...(parsed.url ? { url: parsed.url.trim() } : {}),
+            ...(parsed.reviewUrl ? { reviewUrl: parsed.reviewUrl.trim() } : {}),
             ...(parsed.branch ? { branch: parsed.branch.trim() } : {})
         }
     })

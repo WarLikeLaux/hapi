@@ -50,6 +50,7 @@ describe('SessionCache.setSessionDifitReview', () => {
         const review = {
             id: 'review-current',
             url: 'https://difit.local/reviews/review-current/',
+            reviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1',
             branch: 'feature/review',
             attachedAt: 123
         }

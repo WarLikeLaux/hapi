@@ -363,6 +363,7 @@ export type SessionPinMode = SetSessionPinnedRequest['mode']
 export const AttachDifitReviewRequestSchema = z.object({
     reviewId: z.string().trim().min(1).max(255),
     url: z.string().trim().url().max(2048),
+    reviewUrl: z.string().trim().url().max(2048).optional(),
     branch: z.string().trim().min(1).max(512).optional()
 })
 

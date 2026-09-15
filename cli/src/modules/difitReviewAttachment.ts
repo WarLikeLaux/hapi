@@ -7,6 +7,7 @@ export type DifitReviewAttachment = {
     sessionId: string
     reviewId: string
     url?: string
+    reviewUrl?: string
     branch?: string
 }
 
@@ -59,6 +60,7 @@ export async function updateDifitReviewAttachment(
             ? {
                 reviewId: attachment.reviewId,
                 url: attachment.url,
+                ...(attachment.reviewUrl ? { reviewUrl: attachment.reviewUrl } : {}),
                 ...(attachment.branch ? { branch: attachment.branch } : {})
             }
             : { reviewId: attachment.reviewId },
