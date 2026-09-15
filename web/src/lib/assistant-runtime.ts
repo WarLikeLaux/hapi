@@ -319,7 +319,16 @@ export function aggregateResponseGroups(
             : block.kind === 'user-text' || block.kind === 'agent-event'
                 ? undefined
                 : block.roundSummary
-        groupRoundSummary ??= roundSummary
+        if (roundSummary) {
+            groupRoundSummary = groupRoundSummary
+                ? {
+                    ...groupRoundSummary,
+                    ...(roundSummary.workspaceChanges
+                        ? { workspaceChanges: roundSummary.workspaceChanges }
+                        : {}),
+                }
+                : roundSummary
+        }
 
         for (const turn of turnSourcesFromBlock(block)) {
             // Prefer the CLI-stamped `localId` when present. When it is null

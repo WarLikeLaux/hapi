@@ -48,6 +48,19 @@ function areRoundModelUsagesEqual(left: RoundModelUsage, right: RoundModelUsage)
         && left.cacheCreationInputTokens === right.cacheCreationInputTokens
 }
 
+function areWorkspaceChangesEqual(
+    left?: RoundSummary['workspaceChanges'],
+    right?: RoundSummary['workspaceChanges']
+): boolean {
+    if (left === right) return true
+    if (!left || !right) return false
+    return left.diff === right.diff
+        && left.filesChanged === right.filesChanged
+        && left.additions === right.additions
+        && left.deletions === right.deletions
+        && left.truncated === right.truncated
+}
+
 function areRoundSummariesEqual(left?: RoundSummary, right?: RoundSummary): boolean {
     if (left === right) return true
     if (!left || !right) return false
@@ -57,6 +70,7 @@ function areRoundSummariesEqual(left?: RoundSummary, right?: RoundSummary): bool
         && left.numTurns === right.numTurns
         && left.durationMs === right.durationMs
         && areUsageDataEqual(left.usage, right.usage)
+        && areWorkspaceChangesEqual(left.workspaceChanges, right.workspaceChanges)
         && leftModels.length === rightModels.length
         && leftModels.every(model => right.modelUsage[model] !== undefined
             && areRoundModelUsagesEqual(left.modelUsage[model], right.modelUsage[model]))

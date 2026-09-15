@@ -544,4 +544,35 @@ describe('reduceChatBlocks', () => {
         const assistant = reconciled.blocks.find(block => block.kind === 'agent-text')
         expect(assistant?.kind === 'agent-text' ? assistant.roundSummary : undefined).toEqual(summary)
     })
+
+    it('keeps late workspace changes when reconciling an existing assistant block', () => {
+        const changes = {
+            diff: 'diff --git a/a.ts b/a.ts\n-old\n+new\n',
+            filesChanged: 1,
+            additions: 1,
+            deletions: 1,
+        }
+        const baseMessages: NormalizedMessage[] = [
+            userMessage('u1', 'change it', 1),
+            {
+                id: 'a1', localId: 'turn-1', createdAt: 2, role: 'agent', isSidechain: false,
+                content: [{ type: 'text', text: 'done', uuid: 'a1', parentUUID: null }]
+            }
+        ]
+        const before = reduceChatBlocks(baseMessages, null)
+        const previousById = new Map(before.blocks.map(block => [block.id, block]))
+        const after = reduceChatBlocks([
+            ...baseMessages,
+            {
+                id: 'changes', localId: null, createdAt: 3, role: 'event', isSidechain: false,
+                content: { type: 'workspace-changes', changes }
+            }
+        ], null)
+
+        const reconciled = reconcileChatBlocks(after.blocks, previousById)
+        const assistant = reconciled.blocks.find(block => block.kind === 'agent-text')
+        expect(assistant?.kind === 'agent-text'
+            ? assistant.roundSummary?.workspaceChanges
+            : undefined).toEqual(changes)
+    })
 })
