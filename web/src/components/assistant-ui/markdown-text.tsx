@@ -1,7 +1,7 @@
 import '@assistant-ui/react-markdown/styles/dot.css'
 
 import type { ComponentPropsWithoutRef, ComponentType, ReactNode } from 'react'
-import { useState, useCallback, useEffect, useMemo, createContext, useContext } from 'react'
+import { useState, useCallback, useEffect, useMemo, createContext, useContext, useRef } from 'react'
 import {
     MarkdownTextPrimitive,
     unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
@@ -761,14 +761,39 @@ function Paragraph(props: ComponentPropsWithoutRef<'p'>) {
 }
 
 function Blockquote(props: ComponentPropsWithoutRef<'blockquote'>) {
+    const { className, children, ...rest } = props
+    const contentRef = useRef<HTMLDivElement>(null)
+    const { copied, copy } = useCopyToClipboard()
+    const { t } = useTranslation()
+
+    const copyQuote = () => {
+        const content = contentRef.current
+        if (!content) return
+        void copy(content.innerText || content.textContent || '')
+    }
+
     return (
         <blockquote
-            {...props}
+            {...rest}
             className={cn(
                 'aui-md-blockquote my-3 rounded-r-2xl border-l-[3px] border-[var(--app-md-quote-border)] bg-[var(--app-md-quote-bg)] px-4 py-3 text-[var(--app-md-quote-fg)]',
-                props.className
+                className
             )}
-        />
+        >
+            <div className="mb-1 flex justify-end" data-hapi-share-export-exclude="true">
+                <button
+                    type="button"
+                    onClick={copyQuote}
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--app-divider)] px-2 text-[11px] font-medium text-[var(--app-hint)] transition-colors hover:text-[var(--app-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)]"
+                    title={copied ? t('message.copied') : t('message.copy')}
+                    aria-label={copied ? t('message.copied') : t('message.copy')}
+                >
+                    {copied ? <CheckIcon className="h-3.5 w-3.5 text-green-500" /> : <CopyIcon className="h-3.5 w-3.5" />}
+                    <span>{copied ? t('message.copied') : t('message.copy')}</span>
+                </button>
+            </div>
+            <div ref={contentRef}>{children}</div>
+        </blockquote>
     )
 }
 
