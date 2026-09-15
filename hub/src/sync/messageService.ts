@@ -141,6 +141,8 @@ export type RetryIndeterminateMessageResult =
     | { status: 'invoked'; message: DecryptedMessage }
     | { status: 'not-found' }
 
+const INDETERMINATE_FORCE_DISCARD_AFTER_MS = 5 * 60 * 1000
+
 function contentForDeferredDelivery(content: unknown): unknown {
     if (!isObject(content) || content.role !== 'user' || !isObject(content.meta)) {
         return content
@@ -550,8 +552,10 @@ export class MessageService {
             if (ackResult === 'consumed') {
                 return this.recordConsumedAcknowledgement(sessionId, localId)
             }
-            if (ackResult === 'in-flight' || ackResult === 'indeterminate' || (ackResult === 'timeout' && cliCount > 0)
-                || (shared && ackResult !== 'removed')) {
+            const staleEnoughForExplicitDiscard = Date.now() - lookup.createdAt >= INDETERMINATE_FORCE_DISCARD_AFTER_MS
+            if (ackResult === 'in-flight' || (!staleEnoughForExplicitDiscard
+                && (ackResult === 'indeterminate' || (ackResult === 'timeout' && cliCount > 0)
+                    || (shared && ackResult !== 'removed')))) {
                 return { status: 'busy', localId }
             }
             this.store.messages.deleteQueuedMessageById(sessionId, resolvedId)

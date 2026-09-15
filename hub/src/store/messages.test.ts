@@ -590,6 +590,7 @@ describe('content codec integration', () => {
             status: 'indeterminate',
             localId: 'lid-uncertain',
             resolvedId: msg.id,
+            createdAt: msg.createdAt,
             scheduledAt: null
         })
 

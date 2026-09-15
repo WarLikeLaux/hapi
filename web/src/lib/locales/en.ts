@@ -725,7 +725,7 @@ export default {
   'queuedMessages.retryOutcome': 'Retry uncertain delivery',
   'queuedMessages.retryFailed': 'Retry failed',
   'queuedMessages.retryMissing': 'The message is no longer available',
-  'queuedMessages.retryUnavailable': 'The agent is still resolving this delivery',
+  'queuedMessages.retryUnavailable': 'Cannot retry safely — wait or discard it with ×',
   'queuedMessages.steeredBadge': '↳ Steered',
   'queuedMessages.steeredBadgeTitle': 'Steered into the active turn',
 
