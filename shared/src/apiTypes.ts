@@ -360,6 +360,20 @@ export const SetSessionPinnedRequestSchema = z.object({
 export type SetSessionPinnedRequest = z.infer<typeof SetSessionPinnedRequestSchema>
 export type SessionPinMode = SetSessionPinnedRequest['mode']
 
+export const AttachDifitReviewRequestSchema = z.object({
+    reviewId: z.string().trim().min(1).max(255),
+    url: z.string().trim().url().max(2048),
+    branch: z.string().trim().min(1).max(512).optional()
+})
+
+export type AttachDifitReviewRequest = z.infer<typeof AttachDifitReviewRequestSchema>
+
+export const DetachDifitReviewRequestSchema = z.object({
+    reviewId: z.string().trim().min(1).max(255)
+})
+
+export type DetachDifitReviewRequest = z.infer<typeof DetachDifitReviewRequestSchema>
+
 /**
  * An empty string clears the custom name, so unlike session rename there is no
  * `min(1)`: the machine falls back to its hostname. The length ceiling is

@@ -261,6 +261,7 @@ export default {
   'session.action.syncCodex': 'Sync Codex',
   'session.action.syncPi': 'Sync Pi history',
   'session.action.openTermDeck': 'Open in TermDeck',
+  'session.action.openDifit': 'Open in DIFIT',
   'session.responseWork.open': 'Show work',
   'session.responseWork.title': 'Agent activity',
   'session.action.archive': 'Stop session',
