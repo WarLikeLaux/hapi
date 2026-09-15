@@ -723,7 +723,7 @@ export default {
   'queuedMessages.retryOutcome': '重试不确定的消息发送',
   'queuedMessages.retryFailed': '重试失败',
   'queuedMessages.retryMissing': '消息已不存在',
-  'queuedMessages.retryUnavailable': '代理仍在处理这条消息的发送结果',
+  'queuedMessages.retryUnavailable': '无法安全重试——请等待，或使用 × 丢弃',
   'queuedMessages.steeredBadge': '↳ 已介入',
   'queuedMessages.steeredBadgeTitle': '已介入当前进行中的回合',
 

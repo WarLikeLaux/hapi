@@ -794,9 +794,9 @@ export function cancelQueuedMessage(
 export type LookupQueuedMessageResult =
     | { status: 'absent' }
     | { status: 'invoked'; message: StoredMessage }
-    | { status: 'queued'; localId: string | null; resolvedId: string; scheduledAt: number | null }
-    | { status: 'dispatching'; localId: string | null; resolvedId: string; scheduledAt: number | null }
-    | { status: 'indeterminate'; localId: string | null; resolvedId: string; scheduledAt: number | null }
+    | { status: 'queued'; localId: string | null; resolvedId: string; createdAt: number; scheduledAt: number | null }
+    | { status: 'dispatching'; localId: string | null; resolvedId: string; createdAt: number; scheduledAt: number | null }
+    | { status: 'indeterminate'; localId: string | null; resolvedId: string; createdAt: number; scheduledAt: number | null }
 
 /** Look up a queued message without deleting it.
  *
@@ -827,13 +827,13 @@ export function lookupQueuedMessage(
     }
 
     if (row.delivery_state === 'dispatching') {
-        return { status: 'dispatching' as const, localId: row.local_id, resolvedId: row.id, scheduledAt: row.scheduled_at }
+        return { status: 'dispatching' as const, localId: row.local_id, resolvedId: row.id, createdAt: row.created_at, scheduledAt: row.scheduled_at }
     }
     if (row.delivery_state === 'indeterminate') {
-        return { status: 'indeterminate' as const, localId: row.local_id, resolvedId: row.id, scheduledAt: row.scheduled_at }
+        return { status: 'indeterminate' as const, localId: row.local_id, resolvedId: row.id, createdAt: row.created_at, scheduledAt: row.scheduled_at }
     }
 
-    return { status: 'queued' as const, localId: row.local_id, resolvedId: row.id, scheduledAt: row.scheduled_at }
+    return { status: 'queued' as const, localId: row.local_id, resolvedId: row.id, createdAt: row.created_at, scheduledAt: row.scheduled_at }
 }
 
 /** Delete a queued (invoked_at IS NULL) message by id or local_id.

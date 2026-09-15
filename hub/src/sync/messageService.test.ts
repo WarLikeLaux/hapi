@@ -599,6 +599,38 @@ describe('MessageService.cancelQueuedMessage race scenarios', () => {
             expect(store.messages.lookupQueuedMessage(session.id, msg.id)).toEqual({ status: 'absent' })
             expect(publisher.events.some((event) => event.type === 'message-cancelled')).toBe(true)
         })
+
+        it('permanently discards a stale unknown delivery when the CLI no longer recognizes it', async () => {
+            const store = makeStore()
+            const session = store.sessions.getOrCreateSession(
+                'stale-shared-indeterminate',
+                { capabilities: { concurrentClients: true } },
+                null,
+                'default'
+            )
+            const msg = store.messages.addMessage(
+                session.id,
+                { role: 'user', content: { type: 'text', text: 'already handled' } },
+                'local-stale-indeterminate',
+                null,
+                Date.now() - 10 * 60 * 1000
+            )
+            store.messages.markMessagesIndeterminate(session.id, [msg.localId!])
+            const publisher = makePublisher()
+            const service = new MessageService(store, makeIo((callback) => {
+                callback(null, [{ removed: false, indeterminate: true }])
+            }), publisher as any)
+
+            const result = await service.cancelQueuedMessage(session.id, msg.id)
+
+            expect(result).toEqual({ status: 'cancelled', localId: 'local-stale-indeterminate' })
+            expect(store.messages.lookupQueuedMessage(session.id, msg.id)).toEqual({ status: 'absent' })
+            expect(publisher.events).toContainEqual(expect.objectContaining({
+                type: 'message-cancelled',
+                sessionId: session.id,
+                localId: 'local-stale-indeterminate'
+            }))
+        })
     })
 
     describe('Race-A: CLI ack removed:true → DELETE + status=cancelled', () => {
