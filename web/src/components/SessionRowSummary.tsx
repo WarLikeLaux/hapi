@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type CSSProperties } from 'react'
 import type { SessionSummary } from '@/types/api'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { ScheduleIcon } from '@/components/icons'
@@ -56,6 +56,22 @@ const ATTENTION_DOT_CLASS = {
     background: 'bg-blue-400',
     unread: 'bg-[var(--app-link)]',
 } as const
+
+const PROJECT_LABEL_HUES = [0, 30, 50, 90, 135, 170, 190, 210, 230, 260, 290, 325] as const
+
+export function getProjectLabelHue(projectIdentity: string): number {
+    let hash = 2_166_136_261
+    for (let index = 0; index < projectIdentity.length; index += 1) {
+        hash ^= projectIdentity.charCodeAt(index)
+        hash = Math.imul(hash, 16_777_619)
+    }
+    hash += hash << 13
+    hash ^= hash >>> 7
+    hash += hash << 3
+    hash ^= hash >>> 17
+    hash += hash << 5
+    return PROJECT_LABEL_HUES[(hash >>> 0) % PROJECT_LABEL_HUES.length]
+}
 
 function getTodoProgress(session: SessionSummary): { completed: number; total: number } | null {
     if (!session.todoProgress) return null
@@ -168,6 +184,9 @@ export function SessionRowSummary(props: {
     const projectTitle = projectPath && projectLabel
         ? `${projectLabel} — ${projectPath}`
         : projectLabel
+    const projectLabelHue = projectLabel
+        ? getProjectLabelHue(projectPath ?? projectLabel)
+        : undefined
     const sessionName = getSessionTitle(s)
     const worktreeLabel = getWorktreeSessionLabel(s)
     const todoProgress = getTodoProgress(s)
@@ -323,7 +342,23 @@ export function SessionRowSummary(props: {
             </div>
             {projectLabel || machineLabel || branchLabel ? (
                 <div className="truncate text-xs text-[var(--app-hint)]" title={[projectTitle, machineLabel, branchLabel].filter(Boolean).join(' · ')}>
-                    {[projectLabel, machineLabel, branchLabel].filter(Boolean).join(' · ')}
+                    {projectLabel ? (
+                        <span
+                            data-testid="session-project-label"
+                            className="inline-block max-w-full truncate rounded-[5px] border border-[var(--session-project-border)] bg-[var(--session-project-bg)] px-1.5 py-px font-medium leading-tight text-[var(--session-project-fg)] align-bottom"
+                            style={{
+                                '--session-project-fg': `light-dark(hsl(${projectLabelHue} 78% 27%), hsl(${projectLabelHue} 95% 88%))`,
+                                '--session-project-bg': `light-dark(hsl(${projectLabelHue} 92% 89%), hsl(${projectLabelHue} 68% 30%))`,
+                                '--session-project-border': `light-dark(hsl(${projectLabelHue} 70% 72%), hsl(${projectLabelHue} 68% 45%))`,
+                            } as CSSProperties}
+                        >
+                            {projectLabel}
+                        </span>
+                    ) : null}
+                    {projectLabel && (machineLabel || branchLabel) ? ' · ' : null}
+                    {machineLabel}
+                    {machineLabel && branchLabel ? ' · ' : null}
+                    {branchLabel}
                 </div>
             ) : showPath || worktreeLabel ? (
                 <div
