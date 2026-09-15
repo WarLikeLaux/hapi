@@ -1146,6 +1146,8 @@ export default {
   'settings.about.description': 'HAPI links and version information.',
   'settings.about.website': 'Website',
   'settings.about.appVersion': 'App Version',
+  'settings.about.buildId': 'Build ID',
+  'settings.about.buildTime': 'Build Time',
   'settings.about.protocolVersion': 'Protocol Version',
 
   // Browse / Workspace

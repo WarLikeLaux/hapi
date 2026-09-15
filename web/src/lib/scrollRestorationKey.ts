@@ -23,13 +23,21 @@ export function getScrollRestorationKey(location: ParsedLocation): string {
         comparison?: unknown
         tab?: unknown
         machineId?: unknown
+        line?: unknown
+        column?: unknown
     }
     if (FILE_ROUTE.test(location.pathname) && typeof search.path === 'string') {
         const stagedSuffix = search.staged === true ? '&staged=true' : ''
         const comparisonSuffix = search.comparison === 'last-commit' || search.comparison === 'branch'
             ? `&comparison=${search.comparison}`
             : ''
-        return `${location.pathname}?path=${search.path}${stagedSuffix}${comparisonSuffix}`
+        const lineSuffix = typeof search.line === 'number' && Number.isSafeInteger(search.line) && search.line > 0
+            ? `&line=${search.line}`
+            : ''
+        const columnSuffix = lineSuffix && typeof search.column === 'number' && Number.isSafeInteger(search.column) && search.column > 0
+            ? `&column=${search.column}`
+            : ''
+        return `${location.pathname}?path=${search.path}${stagedSuffix}${comparisonSuffix}${lineSuffix}${columnSuffix}`
     }
     if (FILES_ROUTE.test(location.pathname) && search.tab === 'directories') {
         return `${location.pathname}?tab=directories`

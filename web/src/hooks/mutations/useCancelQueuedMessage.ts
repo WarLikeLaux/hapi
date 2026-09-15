@@ -9,6 +9,7 @@ import {
     removeOptimisticMessage,
 } from '@/lib/message-window-store'
 import { usePlatform } from '@/hooks/usePlatform'
+import { clearIndeterminateMessageDismissal } from '@/lib/queued-message-dismissals'
 
 type CancelQueuedMessageInput = {
     sessionId: string
@@ -82,6 +83,7 @@ export function useCancelQueuedMessage(api: ApiClient | null) {
                     // Steer may have failed and returned the row to FIFO while DELETE
                     // was still in flight. Clear the hidden hold so Edit/Cancel return.
                     if (state.queuedLocalIds.includes(input.localId)) {
+                        clearIndeterminateMessageDismissal(input.sessionId, input.localId)
                         markMessagesRequeued(input.sessionId, [input.localId])
                     }
                 } catch {

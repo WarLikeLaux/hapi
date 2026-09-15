@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@/lib/i18n-context'
 import { formatFileMetadata } from '@/lib/file-metadata'
 import { encodeBase64 } from '@/lib/utils'
+import { scrollFileLineToCenter } from '@/lib/fileLineScroll'
 import FilePage from './file'
 
 const goBackMock = vi.fn()
@@ -230,5 +231,37 @@ describe('FilePage markdown preview', () => {
             block: 'center',
             inline: 'nearest',
         }))
+    })
+
+    it('uses the final source line when a stale link points past end of file', async () => {
+        routeSearchMock.line = 150
+        renderWithProviders()
+
+        await waitFor(() => {
+            expect(document.querySelector('[data-hapi-target-line="true"]')).not.toBeNull()
+        })
+
+        const target = document.querySelector('[data-hapi-target-line="true"]')
+        expect(target?.previousElementSibling).toHaveTextContent('5')
+        await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalled())
+    })
+})
+
+describe('scrollFileLineToCenter', () => {
+    it('centers the target in the file viewport after scrolling its ancestors', () => {
+        const container = document.createElement('div')
+        const target = document.createElement('span')
+        Object.defineProperties(container, {
+            clientHeight: { configurable: true, value: 400 },
+            scrollHeight: { configurable: true, value: 2_000 },
+        })
+        container.scrollTop = 0
+        container.getBoundingClientRect = () => ({ top: 100, height: 400 } as DOMRect)
+        target.getBoundingClientRect = () => ({ top: 1_100, height: 20 } as DOMRect)
+
+        scrollFileLineToCenter(container, target)
+
+        expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: 'center', inline: 'nearest' })
+        expect(container.scrollTop).toBe(810)
     })
 })

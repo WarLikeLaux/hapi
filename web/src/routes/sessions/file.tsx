@@ -24,6 +24,7 @@ import {
 import { downloadBase64File } from '@/lib/file-download'
 import { useCodeWrap } from '@/hooks/useCodeWrap'
 import { UnifiedDiffDisplay } from '@/components/UnifiedDiffDisplay'
+import { scrollFileLineToCenter } from '@/lib/fileLineScroll'
 
 const MAX_COPYABLE_FILE_BYTES = 1_000_000
 const FILE_SCROLL_KEY_PREFIX = 'hapi-file-scroll-'
@@ -267,6 +268,9 @@ export default function FilePage() {
     )
     const sourceLines = useMemo(() => splitCodeLines(decodedContent), [decodedContent])
     const renderedSourceLines = highlightedLines ?? sourceLines
+    const resolvedTargetLine = targetLine !== undefined && renderedSourceLines.length > 0
+        ? Math.min(targetLine, renderedSourceLines.length)
+        : targetLine
     const sourceLineNumberWidth = Math.max(String(renderedSourceLines.length).length, 3)
     const contentSizeBytes = useMemo(
         () => (decodedContent ? getUtf8ByteLength(decodedContent) : 0),
@@ -284,7 +288,7 @@ export default function FilePage() {
     )
     const { codeWrap, setCodeWrap } = useCodeWrap()
     const fileScrollRef = useRef<HTMLDivElement>(null)
-    const targetLineRef = useRef<HTMLSpanElement>(null)
+    const [targetLineElement, setTargetLineElement] = useState<HTMLSpanElement | null>(null)
     const scrolledTargetKeyRef = useRef<string | null>(null)
     const restoredScrollKeyRef = useRef<string | null>(null)
     const fileScrollKey = useMemo(
@@ -342,23 +346,23 @@ export default function FilePage() {
         if (targetLine === undefined || diffQuery.isLoading || fileQuery.isLoading) return
         if (displayMode !== 'file' || !showMarkdownSource) return
         const renderStage = highlightedLines === null ? 'plain' : 'highlighted'
-        const targetKey = `${sessionId}:${filePath}:${targetLine}:${targetColumn ?? ''}:${renderStage}`
+        const targetKey = `${sessionId}:${filePath}:${resolvedTargetLine}:${targetColumn ?? ''}:${renderStage}`
         if (scrolledTargetKeyRef.current === targetKey) return
 
         let frame: number | undefined
         let attempts = 0
         const scrollToTarget = () => {
-            const element = targetLineRef.current
-            if (element) {
+            const scrollContainer = fileScrollRef.current
+            if (targetLineElement && scrollContainer) {
                 // Let the browser scroll every relevant ancestor. Android standalone
                 // PWAs may put vertical scrolling on the outer shell, while desktop
                 // layouts keep it on fileScrollRef.
-                element.scrollIntoView({ block: 'center', inline: 'nearest' })
+                scrollFileLineToCenter(scrollContainer, targetLineElement)
             }
 
             attempts += 1
             if (attempts >= 8) {
-                scrolledTargetKeyRef.current = targetKey
+                if (targetLineElement) scrolledTargetKeyRef.current = targetKey
                 return
             }
             frame = requestAnimationFrame(scrollToTarget)
@@ -367,7 +371,7 @@ export default function FilePage() {
         return () => {
             if (frame !== undefined) cancelAnimationFrame(frame)
         }
-    }, [diffQuery.isLoading, displayMode, fileContentResult, filePath, fileQuery.isLoading, highlightedLines, sessionId, showMarkdownSource, targetColumn, targetLine])
+    }, [diffQuery.isLoading, displayMode, fileContentResult, filePath, fileQuery.isLoading, highlightedLines, resolvedTargetLine, sessionId, showMarkdownSource, targetColumn, targetLine, targetLineElement])
 
     const setMarkdownPreviewMode = (mode: MarkdownPreviewMode) => {
         setMarkdownMode(mode)
@@ -555,7 +559,7 @@ export default function FilePage() {
                                                 <code className="contents">
                                                     {renderedSourceLines.map((line, index) => {
                                                         const lineNumber = index + 1
-                                                        const isTarget = lineNumber === targetLine
+                                                        const isTarget = lineNumber === resolvedTargetLine
                                                         const rowPad = `${index === 0 ? 'pt-3' : ''} ${index === renderedSourceLines.length - 1 ? 'pb-3' : ''}`
                                                         const targetStyle = isTarget
                                                             ? { backgroundColor: 'color-mix(in srgb, #fbbf24 15%, transparent)' }
@@ -571,7 +575,7 @@ export default function FilePage() {
                                                                     {lineNumber}
                                                                 </span>
                                                                 <span
-                                                                    ref={isTarget ? targetLineRef : undefined}
+                                                                    ref={isTarget ? setTargetLineElement : undefined}
                                                                     data-code-cell
                                                                     data-hapi-target-line={isTarget ? 'true' : undefined}
                                                                     aria-current={isTarget ? 'location' : undefined}
