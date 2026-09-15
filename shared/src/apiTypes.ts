@@ -16,6 +16,14 @@ import type {
 } from './schemas'
 import type { SessionSummary } from './sessionSummary'
 
+export type WorkspaceChanges = {
+    diff: string | null
+    filesChanged: number
+    additions: number
+    deletions: number
+    truncated?: boolean
+}
+
 export const CreateOrLoadMachineRequestSchema = z.object({
     id: z.string().min(1),
     metadata: z.unknown(),
