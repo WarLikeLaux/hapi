@@ -186,6 +186,7 @@ On first run, HAPI:
 | `FCM_SERVICE_ACCOUNT_PATH` | - | `fcmServiceAccountPath` | Direct FCM credentials for private builds using the same Firebase project |
 | `HAPI_HOME` | `~/.hapi` | - | Config directory path |
 | `DB_PATH` | `~/.hapi/hapi.db` | - | Database file path |
+| `HAPI_AUTO_RESTORE_SESSIONS` | `true` | - | Restore runner-started sessions that were still marked running when a runner reconnects; set to `0` to disable |
 | `HAPI_EXPERIMENTAL` | - | - | CLI: enable experimental features (`true`/`1`/`yes`) |
 | `ELEVENLABS_API_KEY` | - | Settings / env | ElevenLabs API key for voice + dictation |
 | `ELEVENLABS_AGENT_ID` | Auto-created | - | Custom ElevenLabs agent ID |

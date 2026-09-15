@@ -46,6 +46,7 @@ Dictation and voice-assistant provider keys can also be added from **Settings â†
 - `CORS_ORIGINS` - Comma-separated origins, or `*`.
 - `HAPI_HOME` - Data directory (default: ~/.hapi).
 - `DB_PATH` - SQLite database path (default: HAPI_HOME/hapi.db).
+- `HAPI_AUTO_RESTORE_SESSIONS` - Restore runner-started sessions left in the running lifecycle state after a cold runner start (default: enabled; set to `0` to disable).
 - `TELEGRAM_NOTIFICATION` - Enable/disable Telegram notifications (default: true).
 - `HAPI_RELAY_API` - Relay API domain (default: relay.hapi.run).
 - `HAPI_RELAY_AUTH` - Explicit relay auth key. By default the hub obtains and persists an individually revocable key from the relay. A persisted key rejected with HTTP 403 is discarded and reissued once; an explicitly configured environment key must be updated manually.
