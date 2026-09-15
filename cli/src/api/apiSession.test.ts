@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Session } from './types'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const socketHarness = vi.hoisted(() => ({
     sockets: [] as Array<{
@@ -164,6 +168,50 @@ function triggerIncomingUserMessage(
 }
 
 describe('ApiSessionClient lazy materialization', () => {
+    it('emits workspace changes immediately before the ready event', () => {
+        socketHarness.sockets.length = 0
+        const directory = mkdtempSync(join(tmpdir(), 'hapi-api-session-changes-'))
+        execFileSync('git', ['init', '-q'], { cwd: directory })
+        execFileSync('git', ['config', 'user.name', 'HAPI Test'], { cwd: directory })
+        execFileSync('git', ['config', 'user.email', 'hapi@example.test'], { cwd: directory })
+        writeFileSync(join(directory, 'file.txt'), 'before\n')
+        execFileSync('git', ['add', 'file.txt'], { cwd: directory })
+        execFileSync('git', ['commit', '-qm', 'Initial'], { cwd: directory })
+
+        const client = new ApiSessionClient('token', createSession({
+            namespace: 'default',
+            metadata: { path: directory, host: 'localhost' },
+            metadataVersion: 1,
+        }))
+
+        try {
+            client.emitMessagesConsumed(['turn-1'])
+            writeFileSync(join(directory, 'file.txt'), 'after\n')
+            client.sendAgentMessage({ type: 'message', message: 'done' })
+            client.sendSessionEvent({ type: 'ready' })
+
+            const sentMessages = socketHarness.sockets[0]?.emitted
+                .filter((entry) => entry.event === 'message')
+                .map((entry) => (entry.args[0] as {
+                    message: { content: { data: Record<string, unknown> } }
+                }).message.content.data)
+
+            expect(sentMessages?.map((message) => message.type)).toEqual([
+                'message',
+                'workspace-changes',
+                'ready',
+            ])
+            expect(sentMessages?.[1]).toMatchObject({
+                type: 'workspace-changes',
+                changes: { filesChanged: 1, additions: 1, deletions: 1 },
+            })
+            expect((sentMessages?.[1]?.changes as { diff?: string }).diff).toContain('+after')
+        } finally {
+            client.close()
+            rmSync(directory, { recursive: true, force: true })
+        }
+    })
+
     it('does not connect or materialize without a real user message', async () => {
         socketHarness.sockets.length = 0
         const materialize = vi.fn(async () => createSession())

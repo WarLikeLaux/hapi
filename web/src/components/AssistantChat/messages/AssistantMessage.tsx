@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
 import { partitionCompletedResponseParts, shouldCompactResponse } from './responseDisplay'
+import { ResponseChanges } from './ResponseChanges'
 
 const TOOL_COMPONENTS = {
     Fallback: HappyToolMessage
@@ -118,6 +119,7 @@ export function HappyAssistantMessage() {
     const messageModel = useAuiState(({ message }) => (message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined)?.model)
     const turnCount = useAuiState(({ message }) => (message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined)?.turnCount)
     const roundSummary = useAuiState(({ message }) => (message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined)?.roundSummary)
+    const workspaceChanges = roundSummary?.workspaceChanges
 
     const metadata = { durationMs, usage, model: messageModel ?? null, turnCount, roundSummary }
 
@@ -155,27 +157,31 @@ export function HappyAssistantMessage() {
                             />
                         )
                         : <MessagePrimitive.Content components={MESSAGE_PART_COMPONENTS} />}
-            {compactParts ? (
+            {compactParts || workspaceChanges ? (
                 <>
-                    <button
-                        type="button"
-                        onClick={() => setWorkOpen(true)}
-                        aria-haspopup="dialog"
-                        className={cn(
-                            'mt-2 inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium',
-                            'text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]',
-                            'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
-                        )}
-                        data-hapi-share-exclude="true"
-                    >
-                        <WorkIcon className="h-4 w-4" />
-                        <span>{t('session.responseWork.open')}</span>
-                        <span aria-hidden="true" className="tabular-nums opacity-70">
-                            · {compactParts.detailIndices.length}
-                        </span>
-                    </button>
+                    <div className="mt-2 flex flex-wrap items-center gap-1" data-hapi-share-exclude="true">
+                        {compactParts ? (
+                            <button
+                                type="button"
+                                onClick={() => setWorkOpen(true)}
+                                aria-haspopup="dialog"
+                                className={cn(
+                                    'inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium',
+                                    'text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]',
+                                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
+                                )}
+                            >
+                                <WorkIcon className="h-4 w-4" />
+                                <span>{t('session.responseWork.open')}</span>
+                                <span aria-hidden="true" className="tabular-nums opacity-70">
+                                    · {compactParts.detailIndices.length}
+                                </span>
+                            </button>
+                        ) : null}
+                        {workspaceChanges ? <ResponseChanges changes={workspaceChanges} /> : null}
+                    </div>
 
-                    <Dialog open={workOpen} onOpenChange={setWorkOpen}>
+                    {compactParts ? <Dialog open={workOpen} onOpenChange={setWorkOpen}>
                         <DialogContent className="flex max-h-[calc(100dvh-24px)] max-w-3xl flex-col overflow-hidden p-0 sm:max-h-[82vh]">
                             <DialogHeader className="shrink-0 border-b border-[var(--app-divider)] px-4 py-4 pr-14 text-left">
                                 <DialogTitle>{t('session.responseWork.title')}</DialogTitle>
@@ -190,7 +196,7 @@ export function HappyAssistantMessage() {
                                 />
                             </div>
                         </DialogContent>
-                    </Dialog>
+                    </Dialog> : null}
                 </>
             ) : null}
             <MessageActions

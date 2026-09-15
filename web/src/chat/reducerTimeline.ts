@@ -5,6 +5,7 @@ import { parseMessageAsEvent } from '@/chat/reducerEvents'
 import { collectTitleChanges, ensureToolBlock, extractTitleFromChangeTitleInput, isChangeTitleToolName, type PermissionEntry } from '@/chat/reducerTools'
 import { isSubagentToolName } from '@/chat/subagentTool'
 import { asString, isObject } from '@hapi/protocol'
+import type { WorkspaceChanges } from '@hapi/protocol'
 
 function getEventString(event: Record<string, unknown>, key: string): string | null {
     return asString(event[key])
@@ -94,7 +95,50 @@ function attachCodexRoundSummaryToLatestGroup(blocks: ChatBlock[], summary: Roun
 
     const firstBlock = blocks[firstIndex]
     if (isSummaryTarget(firstBlock)) {
-        firstBlock.roundSummary = summary
+        firstBlock.roundSummary = {
+            ...summary,
+            ...(firstBlock.roundSummary?.workspaceChanges
+                ? { workspaceChanges: firstBlock.roundSummary.workspaceChanges }
+                : {}),
+        }
+    }
+}
+
+function parseWorkspaceChanges(value: unknown): WorkspaceChanges | null {
+    if (!isObject(value)) return null
+    const diff = typeof value.diff === 'string' || value.diff === null ? value.diff : null
+    const filesChanged = getEventNumber(value, 'filesChanged')
+    const additions = getEventNumber(value, 'additions')
+    const deletions = getEventNumber(value, 'deletions')
+    if (filesChanged === null || additions === null || deletions === null) return null
+    return {
+        diff,
+        filesChanged,
+        additions,
+        deletions,
+        ...(value.truncated === true ? { truncated: true } : {}),
+    }
+}
+
+function attachWorkspaceChangesToLatestGroup(blocks: ChatBlock[], changes: WorkspaceChanges): void {
+    type ChangesTargetBlock = Exclude<ChatBlock, UserTextBlock | AgentEventBlock>
+    const isChangesTarget = (block: ChatBlock): block is ChangesTargetBlock =>
+        block.kind !== 'user-text'
+        && block.kind !== 'agent-event'
+        && !(block.kind === 'cli-output' && block.source === 'user')
+
+    let firstIndex = -1
+    for (let index = blocks.length - 1; index >= 0; index -= 1) {
+        if (!isChangesTarget(blocks[index])) break
+        firstIndex = index
+    }
+    if (firstIndex === -1) return
+
+    const firstBlock = blocks[firstIndex]
+    if (!isChangesTarget(firstBlock)) return
+    firstBlock.roundSummary = {
+        ...(firstBlock.roundSummary ?? { modelUsage: {} }),
+        workspaceChanges: changes,
     }
 }
 
@@ -558,9 +602,19 @@ export function reduceTimeline(
                 if (firstIndex !== -1) {
                     const firstBlock = blocks[firstIndex]
                     if (isSummaryTarget(firstBlock)) {
-                        firstBlock.roundSummary = summary
+                        firstBlock.roundSummary = {
+                            ...summary,
+                            ...(firstBlock.roundSummary?.workspaceChanges
+                                ? { workspaceChanges: firstBlock.roundSummary.workspaceChanges }
+                                : {}),
+                        }
                     }
                 }
+                continue
+            }
+            if (msg.content.type === 'workspace-changes') {
+                const changes = parseWorkspaceChanges(msg.content.changes)
+                if (changes) attachWorkspaceChangesToLatestGroup(blocks, changes)
                 continue
             }
             if (msg.content.type === 'turn-duration') {

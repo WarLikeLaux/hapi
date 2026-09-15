@@ -14,6 +14,7 @@ import { extractUserRequest } from '@/agy/utils/agyMessageText'
 import { AGENT_MESSAGE_PAYLOAD_TYPE } from "@hapi/protocol"
 import type { SessionEndReason } from '@hapi/protocol'
 import type { ClientToServerEvents, ServerToClientEvents, TerminalOutputPayload, Update } from '@hapi/protocol'
+import type { WorkspaceChanges } from '@hapi/protocol'
 import {
     AgentTerminalInputPayloadSchema,
     AgentTerminalRefreshPayloadSchema,
@@ -41,6 +42,7 @@ import { cleanupUploadDir, preserveUploadDirOnExit } from '../modules/common/han
 import { TerminalManager } from '@/terminal/TerminalManager'
 import { applyVersionedAck } from './versionedUpdate'
 import { buildHubRequestHeaders, buildSocketIoExtraHeaderOptions } from './hubExtraHeaders'
+import { WorkspaceChangesTracker } from '@/modules/common/workspaceChanges'
 
 /**
  * XML tags that Claude Code injects as `type:'user'` messages.
@@ -281,6 +283,7 @@ export class ApiSessionClient extends EventEmitter {
     private agentStateChangedDuringAttempt = false
     private readonly pendingOutboundEvents: PendingOutboundEvent[] = []
     private didWarnPendingQueueFull = false
+    private readonly workspaceChangesTracker = new WorkspaceChangesTracker()
 
     constructor(token: string, session: Session, options: ApiSessionClientOptions = {}) {
         super()
@@ -1099,6 +1102,9 @@ export class ApiSessionClient extends EventEmitter {
     } | {
         type: 'ready'
     } | {
+        type: 'workspace-changes'
+        changes: WorkspaceChanges
+    } | {
         // Emitted on abort so the web composer can restore the aborted prompt.
         // Carries the exact in-flight prompt text the web should restore.
         type: 'abort-restore'
@@ -1111,6 +1117,13 @@ export class ApiSessionClient extends EventEmitter {
         tokensBefore?: number
         estimatedTokensAfter?: number
     }, id?: string): void {
+        if (event.type === 'ready') {
+            const changes = this.workspaceChangesTracker.finish(this.metadata?.path)
+            if (changes) {
+                this.sendSessionEvent({ type: 'workspace-changes', changes })
+            }
+        }
+
         const content = {
             role: 'agent',
             content: {
@@ -1237,6 +1250,9 @@ export class ApiSessionClient extends EventEmitter {
 
     emitMessagesConsumed(localIds: string[], options?: { clearQueuedThinkingGrace?: boolean; steered?: boolean }): void {
         if (localIds.length === 0) return
+        if (!options?.clearQueuedThinkingGrace) {
+            this.workspaceChangesTracker.begin(this.metadata?.path)
+        }
         // `clearQueuedThinkingGrace` is an opt-in signal for the hub to drop
         // the 15s queued-thinking grace immediately. Only synchronous handlers
         // that will never call `onThinkingChange(true)` (slash commands handled
