@@ -262,6 +262,7 @@ export default {
   'session.action.syncPi': 'Sync Pi history',
   'session.action.openTermDeck': 'Open in TermDeck',
   'session.action.openDifit': 'Open in DIFIT',
+  'session.action.openExternalReview': 'Open merge request',
   'session.responseWork.open': 'Show work',
   'session.responseWork.title': 'Agent activity',
   'session.action.archive': 'Stop session',

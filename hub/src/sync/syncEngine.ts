@@ -1965,7 +1965,7 @@ export class SyncEngine {
 
     async attachDifitReview(
         sessionId: string,
-        review: { id: string; url: string; branch?: string; attachedAt: number }
+        review: { id: string; url: string; reviewUrl?: string; branch?: string; attachedAt: number }
     ): Promise<void> {
         await this.sessionCache.setSessionDifitReview(sessionId, review)
     }

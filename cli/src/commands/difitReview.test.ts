@@ -7,12 +7,14 @@ describe('difit-review command arguments', () => {
             'attach',
             '--review-id', 'review-1',
             '--url', 'https://difit.local/reviews/review-1/',
+            '--review-url', 'https://gitlab.example.test/group/project/-/merge_requests/1',
             '--branch', 'feature/review'
         ])).toEqual({
             help: false,
             action: 'attach',
             reviewId: 'review-1',
             url: 'https://difit.local/reviews/review-1/',
+            reviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1',
             branch: 'feature/review'
         })
     })
