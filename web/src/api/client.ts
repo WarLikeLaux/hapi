@@ -904,19 +904,6 @@ export class ApiClient {
         })
     }
 
-    async ensureTermDeckSession(
-        machineId: string,
-        sessionId: string
-    ): Promise<import('@hapi/protocol/apiTypes').EnsureTermDeckSessionResponse> {
-        return await this.request<import('@hapi/protocol/apiTypes').EnsureTermDeckSessionResponse>(
-            `/api/machines/${encodeURIComponent(machineId)}/termdeck`,
-            {
-                method: 'POST',
-                body: JSON.stringify({ sessionId })
-            }
-        )
-    }
-
     async getMachineAgyModels(
         machineId: string,
         options?: { refresh?: boolean }

@@ -200,19 +200,6 @@ export class RpcGateway {
         await this.sessionRpc(sessionId, RPC_METHODS.HandoffLocal, {})
     }
 
-    async ensureTermDeckSession(
-        machineId: string,
-        sessionId: string,
-        directory: string,
-        title?: string
-    ): Promise<unknown> {
-        return await this.machineRpc(machineId, RPC_METHODS.EnsureTermDeckSession, {
-            sessionId,
-            directory,
-            title
-        })
-    }
-
     async spawnSession(
         machineId: string,
         directory: string,

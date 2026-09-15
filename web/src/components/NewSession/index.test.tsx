@@ -320,23 +320,6 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('codex')
     })
 
-    it('keeps TermDeck disabled by default for a new Codex session', async () => {
-        render(
-            <NewSession
-                api={api}
-                machines={[machine]}
-                initialMachineId="machine-1"
-                initialDirectory="C:\\repo"
-                onSuccess={mocks.onSuccess}
-                onCancel={() => {}}
-            />
-        )
-
-        await waitFor(() => expect(screen.getByRole('checkbox', {
-            name: /newSession\.termdeck\.title/,
-        })).not.toBeChecked())
-    })
-
     it('hides unavailable Agents and falls back to the first available Agent', async () => {
         savePreferredAgent('claude')
         mocks.availableAgents.splice(
