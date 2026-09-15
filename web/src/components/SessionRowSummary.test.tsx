@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
-import { getSessionActivityTime, SessionRowSummary } from './SessionRowSummary'
+import { getProjectLabelHue, getSessionActivityTime, SessionRowSummary } from './SessionRowSummary'
 
 afterEach(() => cleanup())
 
@@ -84,6 +84,22 @@ describe('SessionRowSummary background status', () => {
         expect(screen.getByTitle('hapi — /home/shandori/code/hapi · custom')).toHaveTextContent(
             'hapi · custom'
         )
+        const projectLabel = screen.getByTestId('session-project-label')
+        expect(projectLabel).toHaveTextContent('hapi')
+        expect(projectLabel.style.getPropertyValue('--session-project-bg')).toContain(
+            `${getProjectLabelHue('/home/shandori/code/hapi')}`
+        )
+        expect(projectLabel).toHaveClass('bg-[var(--session-project-bg)]')
+        expect(projectLabel).toHaveClass('rounded-[5px]')
+        expect(projectLabel.parentElement).toHaveClass('text-[var(--app-hint)]')
+    })
+
+    it('assigns stable distinct colors from full project paths', () => {
+        const apiHue = getProjectLabelHue('/home/shandori/code/teletypeapp-api')
+        const php8Hue = getProjectLabelHue('/home/shandori/code/teletypeapp-api-php8')
+
+        expect(apiHue).toBe(getProjectLabelHue('/home/shandori/code/teletypeapp-api'))
+        expect(apiHue).not.toBe(php8Hue)
     })
 
     it('shows a detailed background dot with the task-count tooltip in Extended mode', () => {
