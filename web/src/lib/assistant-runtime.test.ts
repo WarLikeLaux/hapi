@@ -875,6 +875,35 @@ describe('aggregateResponseGroups', () => {
         expect(aggregateResponseGroups([userText('u2'), groupedTurn, tool]).get('grouped')?.roundSummary).toEqual(summary)
     })
 
+    it('preserves workspace changes from a later block in a joined response', () => {
+        const usageSummary = {
+            provider: 'codex' as const,
+            modelUsage: { 'gpt-5.4': { inputTokens: 100, outputTokens: 20 } },
+            numTurns: 1,
+        }
+        const workspaceChanges = {
+            diff: 'diff --git a/a.ts b/a.ts\n-old\n+new\n',
+            filesChanged: 1,
+            additions: 1,
+            deletions: 1,
+        }
+        const first = Object.assign(agentText('first', { localId: 'L1' }), {
+            roundSummary: usageSummary,
+        })
+        const later = Object.assign(agentText('later', { localId: 'L1' }), {
+            roundSummary: { modelUsage: {}, workspaceChanges },
+        })
+
+        expect(aggregateResponseGroups([
+            userText('u1'),
+            first,
+            later,
+        ]).get('first')?.roundSummary).toEqual({
+            ...usageSummary,
+            workspaceChanges,
+        })
+    })
+
     it('derives Codex Round duration from invocation to response completion', () => {
         const summary = {
             provider: 'codex' as const,
