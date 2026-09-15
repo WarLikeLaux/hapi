@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { I18nProvider } from '@/lib/i18n-context'
 import { MarkdownRenderer } from './MarkdownRenderer'
 
@@ -52,5 +52,27 @@ E = mc^2
 
         expect(container.querySelector('.katex')).toBeTruthy()
         expect(container.querySelector('.katex-display')).toBeFalsy()
+    })
+
+    it('copies only the rendered blockquote content from its visible copy button', async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { writeText },
+        })
+
+        render(
+            <I18nProvider>
+                <MarkdownRenderer standalone content={'Before\n\n> Report text\n>\n> #report'} />
+            </I18nProvider>
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+
+        await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+        expect(writeText.mock.calls[0]?.[0]).toContain('Report text')
+        expect(writeText.mock.calls[0]?.[0]).toContain('#report')
+        expect(writeText.mock.calls[0]?.[0]).not.toContain('Before')
+        expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
     })
 })
