@@ -67,6 +67,13 @@ import { ingestNotifySummaryFromMessage } from './workGraphNotifyIngest'
 type PiResumeAttempt = NonNullable<NonNullable<Session['metadata']>['piResumeAttempt']>
 type PtyResumeAttempt = NonNullable<NonNullable<Session['metadata']>['ptyResumeAttempt']>
 const SESSION_ACTIVE_WAIT_TIMEOUT_MS = 60_000
+const AUTO_RESTORE_DELAY_MS = 5_000
+const AUTO_RESTORE_STALE_RECHECK_MS = 31_000
+
+type SyncEngineOptions = {
+    autoRestoreSessions?: boolean
+    autoRestoreDelayMs?: number
+}
 
 export type { Session, SyncEvent } from '@hapi/protocol/types'
 export type { Machine } from './machineCache'
@@ -201,6 +208,12 @@ export class SyncEngine {
     private readonly opencodeClearTails = new Map<string, Promise<ClearOpencodeSessionResult>>()
     /** Serialize fork/rewind per session so concurrent native rollbacks cannot stack. */
     private readonly historyActionsInFlight = new Set<string>()
+    /** Runner generations already considered for cold session restoration. */
+    private readonly autoRestoreGenerationByMachineId = new Map<string, string>()
+    /** Delayed restores give surviving session clients time to reconnect first. */
+    private readonly autoRestoreTimers = new Map<string, NodeJS.Timeout>()
+    private readonly autoRestoreSessions: boolean
+    private readonly autoRestoreDelayMs: number
     /**
      * Hub owner id for accountable work-graph principals (A2A P1/P3).
      * Defaults to "1" for unit tests; startHub overwrites with getOrCreateOwnerId().
@@ -212,7 +225,11 @@ export class SyncEngine {
         private readonly io: Server,
         rpcRegistry: RpcRegistry,
         sseManager: SSEManager,
+        options: SyncEngineOptions = {},
     ) {
+        this.autoRestoreSessions = options.autoRestoreSessions
+            ?? process.env.HAPI_AUTO_RESTORE_SESSIONS !== '0'
+        this.autoRestoreDelayMs = options.autoRestoreDelayMs ?? AUTO_RESTORE_DELAY_MS
         this.eventPublisher = new EventPublisher(sseManager, (event) => this.resolveNamespace(event))
         this.sessionCache = new SessionCache(store, this.eventPublisher)
         this.eventPublisher.subscribe((event) => {
@@ -250,6 +267,10 @@ export class SyncEngine {
             clearInterval(this.inactivityTimer)
             this.inactivityTimer = null
         }
+        for (const timer of this.autoRestoreTimers.values()) {
+            clearTimeout(timer)
+        }
+        this.autoRestoreTimers.clear()
     }
 
     subscribe(listener: SyncEventListener): () => void {
@@ -905,6 +926,122 @@ export class SyncEngine {
 
     handleMachineAlive(payload: { machineId: string; time: number; health?: unknown }): void {
         this.machineCache.handleMachineAlive(payload)
+        this.scheduleColdSessionRestore(payload.machineId)
+    }
+
+    private getRunnerGeneration(machine: Machine): string | null {
+        const { pid, startedAt, status } = machine.runnerState ?? {}
+        if (status !== 'running' || pid === undefined || startedAt === undefined) return null
+        return `${pid}:${startedAt}`
+    }
+
+    private scheduleColdSessionRestore(machineId: string): void {
+        if (!this.autoRestoreSessions) return
+
+        const machine = this.machineCache.getMachine(machineId)
+        if (!machine?.active) return
+
+        const generation = this.getRunnerGeneration(machine)
+        if (!generation || this.autoRestoreGenerationByMachineId.get(machineId) === generation) return
+
+        this.autoRestoreGenerationByMachineId.set(machineId, generation)
+        const previousTimer = this.autoRestoreTimers.get(machineId)
+        if (previousTimer) clearTimeout(previousTimer)
+
+        const timer = setTimeout(() => {
+            this.autoRestoreTimers.delete(machineId)
+            void this.restoreColdSessions(machineId, generation)
+        }, this.autoRestoreDelayMs)
+        timer.unref?.()
+        this.autoRestoreTimers.set(machineId, timer)
+    }
+
+    private hasColdRestoreIntent(session: Session, machine: Machine): boolean {
+        const metadata = session.metadata
+        if (
+            metadata?.machineId !== machine.id
+            || (metadata.startedBy !== 'runner' && metadata.startedFromRunner !== true)
+        ) {
+            return false
+        }
+        if (metadata.lifecycleState === 'running') return true
+
+        // A graceful OS shutdown archives children before the replacement
+        // runner starts. Do not confuse a later runner-internal stop (which can
+        // carry the same legacy reason) with a cold-start restore request.
+        return metadata.lifecycleState === 'archived'
+            && metadata.archivedBy === 'cli'
+            && metadata.archiveReason === 'Hub restart'
+            && typeof metadata.lifecycleStateSince === 'number'
+            && typeof machine.runnerState?.startedAt === 'number'
+            && metadata.lifecycleStateSince <= machine.runnerState.startedAt
+    }
+
+    private isColdRestoreCandidate(session: Session, machine: Machine): boolean {
+        return !session.active && this.hasColdRestoreIntent(session, machine)
+    }
+
+    private async restoreColdSessions(
+        machineId: string,
+        generation: string,
+        allowStaleRecheck: boolean = true,
+    ): Promise<void> {
+        const machine = this.machineCache.getMachine(machineId)
+        if (!machine?.active || this.getRunnerGeneration(machine) !== generation) return
+
+        // A Hub restart may reload a stale active bit. Surviving session clients
+        // refresh activeAt during the grace period; dead processes eventually fail
+        // this inactivity check and become safe restore candidates.
+        this.sessionCache.expireInactive(Date.now())
+
+        const sessions = this.sessionCache.getSessionsByNamespace(machine.namespace)
+        if (allowStaleRecheck && sessions.some(
+            (session) => session.active && this.hasColdRestoreIntent(session, machine)
+        )) {
+            // Handles a fast OS reboot where SQLite's last activeAt is not yet
+            // old enough at the first pass. A genuinely reconnected process
+            // keeps refreshing activeAt and remains excluded on this final pass.
+            const timer = setTimeout(() => {
+                this.autoRestoreTimers.delete(machineId)
+                void this.restoreColdSessions(machineId, generation, false)
+            }, AUTO_RESTORE_STALE_RECHECK_MS)
+            timer.unref?.()
+            this.autoRestoreTimers.set(machineId, timer)
+        }
+
+        const candidates = sessions
+            .filter((session) => this.isColdRestoreCandidate(session, machine))
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+
+        for (const candidate of candidates) {
+            const currentMachine = this.machineCache.getMachine(machineId)
+            if (!currentMachine?.active || this.getRunnerGeneration(currentMachine) !== generation) return
+
+            const current = this.sessionCache.getSessionByNamespace(candidate.id, machine.namespace)
+            if (!current || !this.isColdRestoreCandidate(current, currentMachine)) continue
+
+            try {
+                const result = current.metadata?.lifecycleState === 'archived'
+                    ? await this.reopenSession(candidate.id, machine.namespace)
+                    : await this.resumeSession(candidate.id, machine.namespace, { freshGeneration: true })
+                if (result.type !== 'success') {
+                    console.warn('[auto-restore] Failed to restore session', {
+                        sessionId: candidate.id,
+                        machineId,
+                        code: result.type === 'error' ? result.code : result.type,
+                        message: result.message,
+                    })
+                } else {
+                    console.log('[auto-restore] Restored session', { sessionId: candidate.id, machineId })
+                }
+            } catch (error) {
+                console.warn('[auto-restore] Failed to restore session', {
+                    sessionId: candidate.id,
+                    machineId,
+                    message: error instanceof Error ? error.message : String(error),
+                })
+            }
+        }
     }
 
     /**
