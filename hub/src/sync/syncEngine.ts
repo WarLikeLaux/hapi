@@ -3967,6 +3967,10 @@ export class SyncEngine {
         return await this.rpcGateway.getGitStatus(sessionId, cwd)
     }
 
+    async getMachineGitStatus(machineId: string, cwd: string): Promise<RpcCommandResponse> {
+        return await this.rpcGateway.getMachineGitStatus(machineId, cwd)
+    }
+
     async getGitComparison(sessionId: string, options: { cwd?: string; scope: GitComparisonScope }): Promise<GitComparisonResponse> {
         return await this.rpcGateway.getGitComparison(sessionId, options)
     }

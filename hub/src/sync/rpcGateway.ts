@@ -343,6 +343,10 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.GitStatus, { cwd }) as RpcCommandResponse
     }
 
+    async getMachineGitStatus(machineId: string, cwd: string): Promise<RpcCommandResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.GitStatus, { cwd }) as RpcCommandResponse
+    }
+
     async getGitComparison(sessionId: string, options: { cwd?: string; scope: GitComparisonScope }): Promise<GitComparisonResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.GitComparison, options) as GitComparisonResponse
     }

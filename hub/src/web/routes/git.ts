@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
+import { readStoredGeneratedMedia, writeStoredGeneratedMedia } from '../generatedMediaStorage'
+import { MAX_GENERATED_IMAGE_BYTES } from '../../socket/socketLimits'
 
 const fileSearchSchema = z.object({
     query: z.string().optional(),
@@ -68,7 +70,10 @@ function ifNoneMatchMatches(header: string | undefined, etag: string): boolean {
     })
 }
 
-export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
+export function createGitRoutes(
+    getSyncEngine: () => SyncEngine | null,
+    options: { dataDir?: string } = {}
+): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
     app.get('/sessions/:id/git-status', async (c) => {
@@ -87,7 +92,12 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return c.json({ success: false, error: 'Session path not available' })
         }
 
-        const result = await runRpc(() => engine.getGitStatus(sessionResult.sessionId, sessionPath))
+        const machineId = sessionResult.session.metadata?.machineId
+        const result = await runRpc(() => (
+            !sessionResult.session.active && machineId
+                ? engine.getMachineGitStatus(machineId, sessionPath)
+                : engine.getGitStatus(sessionResult.sessionId, sessionPath)
+        ))
         return c.json(result)
     })
 
@@ -240,22 +250,56 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             })
         }
 
-        const result = await runRpc(() => engine.readGeneratedImage(sessionResult.sessionId, parsed.data.imageId))
-        if (!result.success || !result.content) {
-            return c.json({ success: false, error: result.error ?? 'Generated image not found' }, 404)
+        const namespace = c.get('namespace')
+        const stored = options.dataDir
+            ? await readStoredGeneratedMedia(
+                options.dataDir,
+                namespace,
+                sessionResult.sessionId,
+                parsed.data.imageId
+            )
+            : null
+        let bytes: Buffer
+        let mimeType: string
+        let fileName: string
+
+        if (stored) {
+            bytes = stored.bytes
+            mimeType = stored.mimeType
+            fileName = stored.fileName
+        } else {
+            const result = await runRpc(() => engine.readGeneratedImage(sessionResult.sessionId, parsed.data.imageId))
+            if (!result.success || !result.content) {
+                return c.json({ success: false, error: result.error ?? 'Generated image not found' }, 404)
+            }
+
+            const decoded = Buffer.from(result.content, 'base64')
+            if (decoded.byteLength > MAX_GENERATED_IMAGE_BYTES) {
+                return c.json({ success: false, error: 'Generated media is too large' }, 413)
+            }
+            bytes = decoded
+            mimeType = result.mimeType ?? 'application/octet-stream'
+            fileName = result.fileName ?? 'generated-media'
+            if (options.dataDir) {
+                await writeStoredGeneratedMedia(
+                    options.dataDir,
+                    namespace,
+                    sessionResult.sessionId,
+                    parsed.data.imageId,
+                    { bytes: decoded, mimeType, fileName }
+                ).catch(() => {})
+            }
         }
 
-        const bytes = Uint8Array.from(Buffer.from(result.content, 'base64'))
-        const mimeType = result.mimeType ?? 'application/octet-stream'
-        const disposition = !result.mimeType || mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/')
+        const disposition = mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/')
             ? 'inline'
             : 'attachment'
         // Generated images are content-addressed by an immutable random id, so the bytes for a
         // given id never change. Cache aggressively so remounts/scroll/session reopen don't
         // re-run the full HTTP -> socket.io RPC -> base64 round-trip every time (issue #927).
-        return c.body(bytes, 200, {
+        return c.body(Uint8Array.from(bytes), 200, {
             'Content-Type': mimeType,
-            'Content-Disposition': `${disposition}; filename="${encodeURIComponent(result.fileName ?? 'generated-media')}"`,
+            'Content-Disposition': `${disposition}; filename="${encodeURIComponent(fileName)}"`,
             'X-Content-Type-Options': 'nosniff',
             'Cache-Control': GENERATED_IMAGE_CACHE_CONTROL,
             ETag: etag
