@@ -1,18 +1,97 @@
 import { describe, expect, it } from 'bun:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Hono } from 'hono'
 import type { Session, SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { createGitRoutes } from './git'
 
-function buildApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
+function buildApp(engine: Partial<SyncEngine>, dataDir?: string): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
     app.use('*', async (c, next) => {
         c.set('namespace', 'default')
         await next()
     })
-    app.route('/api', createGitRoutes(() => engine as SyncEngine))
+    app.route('/api', createGitRoutes(() => engine as SyncEngine, { dataDir }))
     return app
 }
+
+describe('Git status route', () => {
+    it('uses the active session RPC for a running session', async () => {
+        const session = {
+            id: 'session-1',
+            namespace: 'default',
+            active: true,
+            metadata: { path: '/project', machineId: 'machine-1' }
+        } as unknown as Session
+        const calls: unknown[] = []
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            getGitStatus: async (...args: unknown[]) => {
+                calls.push(['session', ...args])
+                return { success: true, stdout: '# branch.head custom' }
+            },
+            getMachineGitStatus: async (...args: unknown[]) => {
+                calls.push(['machine', ...args])
+                return { success: true, stdout: '# branch.head custom' }
+            }
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/git-status')
+
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([['session', 'session-1', '/project']])
+    })
+
+    it('uses the machine RPC for a recent inactive session', async () => {
+        const session = {
+            id: 'session-1',
+            namespace: 'default',
+            active: false,
+            metadata: { path: '/project', machineId: 'machine-1' }
+        } as unknown as Session
+        const calls: unknown[] = []
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            getGitStatus: async (...args: unknown[]) => {
+                calls.push(['session', ...args])
+                return { success: true, stdout: '# branch.head stale' }
+            },
+            getMachineGitStatus: async (...args: unknown[]) => {
+                calls.push(['machine', ...args])
+                return { success: true, stdout: '# branch.head custom' }
+            }
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/git-status')
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toMatchObject({ success: true })
+        expect(calls).toEqual([['machine', 'machine-1', '/project']])
+    })
+
+    it('falls back to the session RPC when legacy metadata has no machine id', async () => {
+        const session = {
+            id: 'session-1',
+            namespace: 'default',
+            active: false,
+            metadata: { path: '/project' }
+        } as unknown as Session
+        const calls: unknown[] = []
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            getGitStatus: async (...args: unknown[]) => {
+                calls.push(args)
+                return { success: true, stdout: '# branch.head custom' }
+            }
+        } as unknown as Partial<SyncEngine>
+
+        await buildApp(engine).request('/api/sessions/session-1/git-status')
+
+        expect(calls).toEqual([['session-1', '/project']])
+    })
+})
 
 describe('Git comparison routes', () => {
     it('forwards a validated comparison scope and session path', async () => {
@@ -72,6 +151,37 @@ describe('Git comparison routes', () => {
 })
 
 describe('generated images route', () => {
+    it('serves displayed files from durable hub storage after the session RPC disappears', async () => {
+        const dataDir = await mkdtemp(join(tmpdir(), 'hapi-generated-media-'))
+        const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
+        let rpcAvailable = true
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            readGeneratedImage: async () => rpcAvailable
+                ? {
+                    success: true,
+                    content: Buffer.from('<h1>Persistent diagram</h1>').toString('base64'),
+                    mimeType: 'application/octet-stream',
+                    fileName: 'diagram.html'
+                }
+                : { success: false, error: 'RPC handler not registered' }
+        } as unknown as Partial<SyncEngine>
+
+        try {
+            const first = await buildApp(engine, dataDir).request('/api/sessions/session-1/generated-images/file-1')
+            expect(first.status).toBe(200)
+            expect(await first.text()).toBe('<h1>Persistent diagram</h1>')
+
+            rpcAvailable = false
+            const afterRestart = await buildApp(engine, dataDir).request('/api/sessions/session-1/generated-images/file-1')
+            expect(afterRestart.status).toBe(200)
+            expect(await afterRestart.text()).toBe('<h1>Persistent diagram</h1>')
+            expect(afterRestart.headers.get('content-disposition')).toContain('diagram.html')
+        } finally {
+            await rm(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('serves generated images with an immutable cache header instead of no-store', async () => {
         const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
