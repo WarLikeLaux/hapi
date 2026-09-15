@@ -15,11 +15,11 @@ function createEngine(): SyncEngine {
     )
 }
 
-function addMachine(engine: SyncEngine): void {
+function addMachine(engine: SyncEngine, pid: number = 123, startedAt: number = 1_000): void {
     engine.getOrCreateMachine(
         'machine-1',
         { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
-        { status: 'running', pid: 123, startedAt: 1_000 },
+        { status: 'running', pid, startedAt },
         NAMESPACE,
     )
 }
@@ -161,6 +161,36 @@ describe('cold session auto-restore', () => {
             await waitForCalls(calls, 2)
 
             expect(calls).toHaveLength(2)
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('does not repeat cold restoration for a later runner generation', async () => {
+        const engine = createEngine()
+        try {
+            addMachine(engine)
+            addInactiveSession(engine, 'cold-session', {
+                lifecycleState: 'running',
+                startedBy: 'runner',
+            })
+
+            const calls: string[] = []
+            ;(engine as unknown as { resumeSession: (...args: unknown[]) => Promise<unknown> }).resumeSession = async (
+                sessionId: unknown,
+            ) => {
+                calls.push(String(sessionId))
+                return { type: 'success', sessionId }
+            }
+
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+            await waitForCalls(calls, 1)
+
+            addMachine(engine, 456, 2_000)
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+            await Bun.sleep(20)
+
+            expect(calls).toHaveLength(1)
         } finally {
             engine.stop()
         }

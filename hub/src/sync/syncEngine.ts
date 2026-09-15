@@ -210,6 +210,8 @@ export class SyncEngine {
     private readonly historyActionsInFlight = new Set<string>()
     /** Runner generations already considered for cold session restoration. */
     private readonly autoRestoreGenerationByMachineId = new Map<string, string>()
+    /** Machines whose one cold-start restore pass has already begun for this Hub process. */
+    private readonly autoRestoreAttemptedMachineIds = new Set<string>()
     /** Delayed restores give surviving session clients time to reconnect first. */
     private readonly autoRestoreTimers = new Map<string, NodeJS.Timeout>()
     private readonly autoRestoreSessions: boolean
@@ -936,7 +938,7 @@ export class SyncEngine {
     }
 
     private scheduleColdSessionRestore(machineId: string): void {
-        if (!this.autoRestoreSessions) return
+        if (!this.autoRestoreSessions || this.autoRestoreAttemptedMachineIds.has(machineId)) return
 
         const machine = this.machineCache.getMachine(machineId)
         if (!machine?.active) return
@@ -988,6 +990,11 @@ export class SyncEngine {
     ): Promise<void> {
         const machine = this.machineCache.getMachine(machineId)
         if (!machine?.active || this.getRunnerGeneration(machine) !== generation) return
+
+        // Cold restoration belongs to the Hub startup, not to every later
+        // runner restart. Once a valid generation reaches the restore pass,
+        // do not resurrect old sessions again during this Hub process.
+        this.autoRestoreAttemptedMachineIds.add(machineId)
 
         // A Hub restart may reload a stale active bit. Surviving session clients
         // refresh activeAt during the grace period; dead processes eventually fail
