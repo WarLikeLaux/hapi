@@ -1,6 +1,7 @@
 import type { AttachmentMetadata, MessageStatus } from '@/types/api'
 import type { ThreadGoal } from '@/types/api'
 import type { InlineMediaSource } from '@/chat/inlineMediaSource'
+import type { WorkspaceChanges } from '@hapi/protocol'
 
 export type UsageData = {
     input_tokens: number
@@ -28,6 +29,7 @@ export type RoundSummary = {
     totalCostUsd?: number
     numTurns?: number
     durationMs?: number
+    workspaceChanges?: WorkspaceChanges
 }
 
 export type AgentEvent =
@@ -41,6 +43,7 @@ export type AgentEvent =
     | { type: 'api-error'; retryAttempt: number; maxRetries: number; error: unknown }
     | { type: 'turn-duration'; durationMs: number; targetMessageId?: string }
     | { type: 'turn-summary'; summary: RoundSummary }
+    | { type: 'workspace-changes'; changes: WorkspaceChanges }
     | { type: 'token-count'; info: unknown; provider?: 'codex'; model?: string | null }
     | { type: 'microcompact'; trigger: string; preTokens: number; tokensSaved: number }
     | { type: 'compact'; trigger: string; preTokens: number }

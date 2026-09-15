@@ -236,6 +236,32 @@ describe('reduceTimeline', () => {
         }])
     })
 
+    it('attaches workspace changes to the preceding assistant response without a visible event', () => {
+        const assistant = makeAgentMessage('Implemented the change.', { id: 'answer-with-changes' })
+        const changes = {
+            diff: 'diff --git a/a.ts b/a.ts\n-old\n+new\n',
+            filesChanged: 1,
+            additions: 1,
+            deletions: 1,
+        }
+        const changesEvent: TracedMessage = {
+            id: 'workspace-changes',
+            localId: null,
+            createdAt: 1_700_000_002_000,
+            role: 'event',
+            content: { type: 'workspace-changes', changes },
+            isSidechain: false,
+        } as TracedMessage
+
+        const { blocks } = reduceTimeline([assistant, changesEvent], makeContext())
+
+        expect(blocks).toHaveLength(1)
+        expect(blocks[0]).toMatchObject({
+            kind: 'agent-text',
+            roundSummary: { workspaceChanges: changes },
+        })
+    })
+
     it('does not derive a Round summary from unmarked token usage', () => {
         const assistant = makeAgentMessage('Imported Codex answer', {
             id: 'imported-codex-answer',
