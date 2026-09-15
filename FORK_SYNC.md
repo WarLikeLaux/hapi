@@ -26,9 +26,6 @@ Upstream changes must preserve these user-visible extensions and their tests:
   user-specific paths being hardcoded.
 - Session lifecycle additions remain intact: stop/reopen/restart, Codex sync time
   preservation, and project-level session cleanup.
-- Optional TermDeck integration remains desktop-only, idempotent, and driven by
-  local runtime configuration. Private hosts, tokens, usernames, and local paths
-  must never be committed.
 - Mobile composer behavior and session-aware Telegram notification suppression
   remain intact.
 - Assistant responses keep intermediate reasoning/tool events behind one

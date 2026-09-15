@@ -149,36 +149,6 @@ describe('SessionHeader', () => {
         expect(await screen.findByText(/Title regeneration queued/)).toBeInTheDocument()
     })
 
-    it('offers TermDeck from the open Codex session menu on desktop', () => {
-        const api = {
-            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
-            getScratchlist: vi.fn().mockResolvedValue({ entries: [] })
-        } as unknown as ApiClient
-        render(
-            <QueryClientProvider client={new QueryClient()}>
-                <ToastProvider>
-                    <I18nProvider>
-                        <SessionHeader
-                            session={baseSession({
-                                metadata: {
-                                    flavor: 'codex',
-                                    path: '/repo',
-                                    host: 'machine',
-                                    machineId: 'machine-1'
-                                }
-                            })}
-                            onBack={vi.fn()}
-                            api={api}
-                        />
-                    </I18nProvider>
-                </ToastProvider>
-            </QueryClientProvider>
-        )
-
-        fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        expect(screen.getByRole('menuitem', { name: 'Open in TermDeck' })).toBeInTheDocument()
-    })
-
     it('hides title generation when the Hub does not advertise the capability', () => {
         const api = {
             getMachines: vi.fn().mockResolvedValue({ machines: [] }),

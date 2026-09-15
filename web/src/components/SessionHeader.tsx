@@ -442,29 +442,6 @@ export function SessionHeader(props: {
         }
     }
 
-    const handleOpenTermDeck = async () => {
-        if (!api || !session.metadata?.machineId || !session.metadata.path) return
-        const tab = window.open('about:blank', '_blank')
-        if (tab) tab.opener = null
-        try {
-            const result = await api.ensureTermDeckSession(
-                session.metadata.machineId,
-                session.id
-            )
-            if (!result.success) throw new Error(result.error)
-            if (tab) tab.location.replace(result.url)
-            else window.open(result.url, '_blank', 'noopener,noreferrer')
-        } catch (error) {
-            tab?.close()
-            addToast({
-                title: t('termdeck.openFailed'),
-                body: error instanceof Error ? error.message : t('dialog.error.default'),
-                sessionId: session.id,
-                url: `/sessions/${session.id}`
-            })
-        }
-    }
-
     const handleMenuToggle = () => {
         if (!menuOpen && menuAnchorRef.current) {
             const rect = menuAnchorRef.current.getBoundingClientRect()
@@ -673,9 +650,6 @@ export function SessionHeader(props: {
                 onExport={() => setExportOpen(true)}
                 onSyncCodex={api && codexSessionId ? handleSyncCodex : undefined}
                 onSyncPi={api && piSessionId && !session.active ? handleSyncPi : undefined}
-                onOpenTermDeck={api && agentFlavor === 'codex' && !isTouch && session.metadata?.machineId
-                    ? () => void handleOpenTermDeck()
-                    : undefined}
                 onContinueInFolder={() => navigate({
                     to: '/browse',
                     search: {
