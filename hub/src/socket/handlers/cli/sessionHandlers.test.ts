@@ -487,7 +487,7 @@ describe('cli session handlers', () => {
         expect(uuids).toEqual(['msg-1', 'msg-2'])
     })
 
-    it.each(['supersededBySessionId', 'opencodeClearOperation'] as const)(
+    it.each(['supersededBySessionId', 'opencodeClearOperation', 'difitReview'] as const)(
         'ignores a forged hub-owned %s addition from CLI metadata',
         (field) => {
             const store = new Store(':memory:')
@@ -505,7 +505,9 @@ describe('cli session handlers', () => {
                     path: '/tmp/project',
                     [field]: field === 'supersededBySessionId'
                         ? 'foreign-session'
-                        : { replacementSessionId: 'foreign-session', state: 'reserved', updatedAt: Date.now() }
+                        : field === 'opencodeClearOperation'
+                            ? { replacementSessionId: 'foreign-session', state: 'reserved', updatedAt: Date.now() }
+                            : { id: 'review-forged', url: 'https://evil.invalid/', attachedAt: Date.now() }
                 }
             }, () => {})
             expect(store.sessions.getSessionByNamespace(session.id, 'default')?.metadata).not.toHaveProperty(field)
@@ -515,8 +517,9 @@ describe('cli session handlers', () => {
     it('preserves existing hub-owned clear metadata across CLI metadata updates', () => {
         const store = new Store(':memory:')
         const operation = { replacementSessionId: 'owned-target', state: 'completed', updatedAt: Date.now() }
+        const difitReview = { id: 'review-owned', url: 'https://difit.local/reviews/review-owned/', attachedAt: Date.now() }
         const session = store.sessions.getOrCreateSession('preserve-clear-link', {
-            supersededBySessionId: 'owned-target', opencodeClearOperation: operation
+            supersededBySessionId: 'owned-target', opencodeClearOperation: operation, difitReview
         }, null, 'default')
         const socket = new FakeSocket()
         registerSessionHandlers(socket as unknown as CliSocketWithData, {
@@ -530,11 +533,12 @@ describe('cli session handlers', () => {
             metadata: {
                 lifecycleState: 'archived',
                 supersededBySessionId: 'forged-target',
-                opencodeClearOperation: { replacementSessionId: 'forged-target', state: 'reserved', updatedAt: 0 }
+                opencodeClearOperation: { replacementSessionId: 'forged-target', state: 'reserved', updatedAt: 0 },
+                difitReview: { id: 'review-forged', url: 'https://evil.invalid/', attachedAt: 0 }
             }
         }, () => {})
         expect(store.sessions.getSessionByNamespace(session.id, 'default')?.metadata).toMatchObject({
-            supersededBySessionId: 'owned-target', opencodeClearOperation: operation, lifecycleState: 'archived'
+            supersededBySessionId: 'owned-target', opencodeClearOperation: operation, difitReview, lifecycleState: 'archived'
         })
     })
 })

@@ -83,6 +83,32 @@ describe('resolveSessionHeaderMachineLabel', () => {
 })
 
 describe('SessionHeader', () => {
+    it('shows a direct desktop link for an attached DIFIT review', () => {
+        renderHeader(baseSession({
+            metadata: {
+                flavor: 'codex',
+                path: '/repo',
+                host: 'machine',
+                difitReview: {
+                    id: 'review-1',
+                    url: 'https://difit.local/reviews/review-1/',
+                    branch: 'feature/review',
+                    attachedAt: 1
+                }
+            }
+        }))
+
+        const link = screen.getByRole('link', { name: 'Open in DIFIT' })
+        expect(link).toHaveAttribute('href', 'https://difit.local/reviews/review-1/')
+        expect(link).toHaveAttribute('target', '_blank')
+        expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    it('does not reserve header space when no DIFIT review is attached', () => {
+        renderHeader(baseSession())
+        expect(screen.queryByRole('link', { name: 'Open in DIFIT' })).not.toBeInTheDocument()
+    })
+
     it('queues Codex title regeneration from the session menu', async () => {
         const regenerateSessionTitle = vi.fn().mockResolvedValue(undefined)
         const api = {

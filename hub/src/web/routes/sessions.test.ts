@@ -71,6 +71,8 @@ function createApp(session: Session, opts?: {
     rewindConversation?: SyncEngine['rewindConversation']
     suggestSessionTitle?: SyncEngine['suggestSessionTitle']
     updateSessionSummary?: SyncEngine['updateSessionSummary']
+    attachDifitReview?: SyncEngine['attachDifitReview']
+    detachDifitReview?: SyncEngine['detachDifitReview']
     setSessionPinned?: (sessionId: string, pinned: boolean) => void
     setSessionPinMode?: (sessionId: string, mode: 'none' | 'project' | 'global') => void
 }) {
@@ -168,7 +170,9 @@ function createApp(session: Session, opts?: {
         implementCodexPlan: opts?.implementCodexPlan,
         rewindConversation: opts?.rewindConversation ?? (async () => ({ type: 'success' })),
         suggestSessionTitle: opts?.suggestSessionTitle ?? (async () => 'Generated title'),
-        updateSessionSummary: opts?.updateSessionSummary ?? (async () => {})
+        updateSessionSummary: opts?.updateSessionSummary ?? (async () => {}),
+        attachDifitReview: opts?.attachDifitReview ?? (async () => {}),
+        detachDifitReview: opts?.detachDifitReview ?? (async () => false)
     } as Partial<SyncEngine>
 
     const app = new Hono<WebAppEnv>()
@@ -301,6 +305,57 @@ describe('sessions routes', () => {
         })
 
         expect(response.status).toBe(400)
+    })
+
+    it('attaches and conditionally detaches a DIFIT review', async () => {
+        const attached: unknown[][] = []
+        const detached: unknown[][] = []
+        const { app } = createApp(createSession(), {
+            attachDifitReview: async (...args) => { attached.push(args) },
+            detachDifitReview: async (...args) => { detached.push(args); return true }
+        })
+
+        const attach = await app.request('/api/sessions/session-1/difit-review', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                reviewId: 'review-1',
+                url: 'https://difit.local/reviews/review-1/',
+                branch: 'feature/review'
+            })
+        })
+        expect(attach.status).toBe(200)
+        expect(attached).toHaveLength(1)
+        expect(attached[0]?.[0]).toBe('session-1')
+        expect(attached[0]?.[1]).toMatchObject({
+            id: 'review-1',
+            url: 'https://difit.local/reviews/review-1/',
+            branch: 'feature/review'
+        })
+        expect(typeof (attached[0]?.[1] as { attachedAt?: unknown }).attachedAt).toBe('number')
+
+        const detach = await app.request('/api/sessions/session-1/difit-review', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reviewId: 'review-1' })
+        })
+        expect(detach.status).toBe(200)
+        expect(await detach.json()).toEqual({ ok: true, detached: true })
+        expect(detached).toEqual([['session-1', 'review-1']])
+    })
+
+    it('rejects unsafe DIFIT review URLs', async () => {
+        let called = false
+        const { app } = createApp(createSession(), {
+            attachDifitReview: async () => { called = true }
+        })
+        const response = await app.request('/api/sessions/session-1/difit-review', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reviewId: 'review-1', url: 'javascript:alert(1)' })
+        })
+        expect(response.status).toBe(400)
+        expect(called).toBe(false)
     })
 
     it('updates the persisted pin mode', async () => {

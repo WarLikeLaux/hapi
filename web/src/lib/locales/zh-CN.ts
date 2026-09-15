@@ -263,6 +263,7 @@ export default {
   'session.responseWork.open': '查看过程',
   'session.responseWork.title': '智能体活动',
   'session.action.openTermDeck': '在 TermDeck 中打开',
+  'session.action.openDifit': '在 DIFIT 中打开',
   'session.action.archive': '停止会话',
   'session.action.reopen': '重新打开',
   'session.action.restart': '重启会话',

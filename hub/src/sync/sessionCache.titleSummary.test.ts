@@ -35,3 +35,31 @@ describe('SessionCache.updateSessionSummary', () => {
         })
     })
 })
+
+describe('SessionCache.setSessionDifitReview', () => {
+    it('persists the link and only detaches the review that still owns the button', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const created = cache.getOrCreateSession(
+            'difit-session',
+            { path: '/tmp', host: 'localhost' },
+            null,
+            'default'
+        )
+        const review = {
+            id: 'review-current',
+            url: 'https://difit.local/reviews/review-current/',
+            branch: 'feature/review',
+            attachedAt: 123
+        }
+
+        expect(await cache.setSessionDifitReview(created.id, review)).toBe(true)
+        expect(cache.getSession(created.id)?.metadata?.difitReview).toEqual(review)
+        expect(await cache.setSessionDifitReview(created.id, null, 'review-old')).toBe(false)
+        expect(cache.getSession(created.id)?.metadata?.difitReview).toEqual(review)
+        expect(await cache.setSessionDifitReview(created.id, null, review.id)).toBe(true)
+        expect(cache.getSession(created.id)?.metadata?.difitReview).toBeUndefined()
+        expect(events.some((event) => event.type === 'session-updated')).toBe(true)
+    })
+})

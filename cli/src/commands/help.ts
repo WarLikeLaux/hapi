@@ -24,6 +24,7 @@ Commands:
   hapi doctor                Run diagnostics and troubleshooting
   hapi ping-peer             List peers or message another session
   hapi inspect-peer <id>     Read another session's metadata and messages
+  hapi difit-review          Attach or detach a DIFIT review
   hapi mcp                   Start the MCP stdio bridge
 
 Options:
