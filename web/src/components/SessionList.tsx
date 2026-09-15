@@ -1045,7 +1045,7 @@ function SessionItem(props: {
         activityTimeBasis,
         lastSeenVersion
     } = props
-    const { haptic, isTouch } = usePlatform()
+    const { haptic } = usePlatform()
     const [menuOpen, setMenuOpen] = useState(false)
     const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
     const [renameOpen, setRenameOpen] = useState(false)
@@ -1129,29 +1129,6 @@ function SessionItem(props: {
         await followReopenedSession(await restartSession())
     }
 
-    const handleOpenTermDeck = async () => {
-        if (!api || !s.metadata?.machineId || !s.metadata.path) return
-        const tab = window.open('about:blank', '_blank')
-        if (tab) tab.opener = null
-        try {
-            const result = await api.ensureTermDeckSession(
-                s.metadata.machineId,
-                s.id
-            )
-            if (!result.success) throw new Error(result.error)
-            if (tab) tab.location.replace(result.url)
-            else window.open(result.url, '_blank', 'noopener,noreferrer')
-        } catch (error) {
-            tab?.close()
-            addToast({
-                title: t('termdeck.openFailed'),
-                body: error instanceof Error ? error.message : t('dialog.error.default'),
-                sessionId: s.id,
-                url: `/sessions/${s.id}`
-            })
-        }
-    }
-
     const longPressHandlers = useLongPress({
         onLongPress: (point) => {
             haptic.impact('medium')
@@ -1222,9 +1199,6 @@ function SessionItem(props: {
                 onRename={() => setRenameOpen(true)}
                 onExport={() => setExportOpen(true)}
                 onMarkUnread={() => markSessionUnread(s.id, getSessionUnreadActivityAt(s))}
-                onOpenTermDeck={s.metadata?.flavor === 'codex' && !isTouch
-                    ? () => void handleOpenTermDeck()
-                    : undefined}
                 onContinueInFolder={onContinueInFolder ? () => onContinueInFolder(s) : undefined}
                 onRestart={cursorReopenDisabledReason ? undefined : () => setRestartOpen(true)}
                 onArchive={() => setArchiveOpen(true)}

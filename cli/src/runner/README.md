@@ -6,19 +6,6 @@ the new binary; it does not download or install updates.
 
 Source paths below are relative to `cli/` unless prefixed with another package.
 
-## Optional TermDeck integration
-
-The runner can create an idempotent TermDeck terminal for a Codex session. Configure all three values in the
-runner process environment; none has a source-code default:
-
-- `HAPI_TERMDECK_API_URL`: machine-local TermDeck API origin.
-- `HAPI_TERMDECK_PUBLIC_URL`: browser-visible TermDeck origin used for the returned open link.
-- `HAPI_TERMDECK_TOKEN_FILE`: file containing the TermDeck bearer token. `HAPI_TERMDECK_TOKEN` is also accepted,
-  but the file form avoids placing the secret directly in a service definition.
-
-If the integration is absent or unavailable, Codex session creation still succeeds and the web client reports
-the TermDeck error separately.
-
 ## 1. Runner Lifecycle
 
 ### Starting the Runner

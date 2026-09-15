@@ -2071,10 +2071,6 @@ export class SyncEngine {
         )
     }
 
-    async ensureTermDeckSession(machineId: string, sessionId: string, directory: string, title?: string) {
-        return await this.rpcGateway.ensureTermDeckSession(machineId, sessionId, directory, title)
-    }
-
     /**
      * Spawn a fresh OpenCode HAPI session from a source that its own CLI has
      * already archived with the `cleared` lifecycle. Deliberately accepts only

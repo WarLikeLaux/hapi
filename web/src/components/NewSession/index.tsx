@@ -100,7 +100,7 @@ export function NewSession(props: {
     initialMachineId?: string
     continueFromSession?: Session
 }) {
-    const { haptic, isTouch } = usePlatform()
+    const { haptic } = usePlatform()
     const { t } = useTranslation()
     const { addToast } = useToast()
     const { spawnSession, isPending, error: spawnError } = useSpawnSession(props.api)
@@ -138,7 +138,6 @@ export function NewSession(props: {
     const [grokPermissionMode, setGrokPermissionMode] = useState<GrokPermissionMode>('default')
     const [sessionType, setSessionType] = useState<SessionType>('simple')
     const [worktreeName, setWorktreeName] = useState('')
-    const [termDeckEnabled, setTermDeckEnabled] = useState(false)
     const [directoryCreationConfirmed, setDirectoryCreationConfirmed] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [codexImportSessions, setCodexImportSessions] = useState<CodexLocalSessionSummary[]>([])
@@ -1720,26 +1719,6 @@ export function NewSession(props: {
                         })
                     }
                 }
-                if (agent === 'codex' && termDeckEnabled && !isTouch) {
-                    const ensureTermDeck = props.api.ensureTermDeckSession?.bind(props.api)
-                    void ensureTermDeck?.(machineId, result.sessionId).then((linked) => {
-                        if (!linked.success) {
-                            addToast({
-                                title: t('termdeck.linkFailed'),
-                                body: linked.error,
-                                sessionId: result.sessionId,
-                                url: `/sessions/${result.sessionId}`
-                            })
-                        }
-                    }).catch((linkError: unknown) => {
-                        addToast({
-                            title: t('termdeck.linkFailed'),
-                            body: linkError instanceof Error ? linkError.message : t('dialog.error.default'),
-                            sessionId: result.sessionId,
-                            url: `/sessions/${result.sessionId}`
-                        })
-                    })
-                }
                 haptic.notification('success')
                 savePreferredLaunchSettings(machineId, agent, preferredLaunchSettings)
                 clearNewSessionFormDraft()
@@ -2060,28 +2039,6 @@ export function NewSession(props: {
                 isDisabled={isFormDisabled}
                 onChange={setServiceTier}
             />
-
-            {agent === 'codex' && !isTouch ? (
-                <div className="px-3 py-3">
-                    <label className="flex cursor-pointer items-center justify-between gap-3">
-                        <span className="min-w-0">
-                            <span className="block text-sm text-[var(--app-fg)]">{t('newSession.termdeck.title')}</span>
-                            <span className="block text-xs text-[var(--app-hint)]">{t('newSession.termdeck.desc')}</span>
-                        </span>
-                        <span className="relative inline-flex h-5 w-9 shrink-0 items-center">
-                            <input
-                                type="checkbox"
-                                checked={termDeckEnabled}
-                                disabled={isFormDisabled}
-                                onChange={(event) => setTermDeckEnabled(event.target.checked)}
-                                className="peer sr-only"
-                            />
-                            <span className="absolute inset-0 rounded-full bg-[var(--app-border)] transition-colors peer-checked:bg-[var(--app-link)] peer-disabled:opacity-50" />
-                            <span className="absolute left-0.5 h-4 w-4 rounded-full bg-[var(--app-bg)] transition-transform peer-checked:translate-x-4 peer-disabled:opacity-50" />
-                        </span>
-                    </label>
-                </div>
-            ) : null}
 
             {(error ?? spawnError) ? (
                 <div className="px-3 py-2 text-sm text-red-600">
