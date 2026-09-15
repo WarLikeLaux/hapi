@@ -1963,6 +1963,17 @@ export class SyncEngine {
         await this.sessionCache.updateSessionSummary(sessionId, text)
     }
 
+    async attachDifitReview(
+        sessionId: string,
+        review: { id: string; url: string; branch?: string; attachedAt: number }
+    ): Promise<void> {
+        await this.sessionCache.setSessionDifitReview(sessionId, review)
+    }
+
+    async detachDifitReview(sessionId: string, reviewId: string): Promise<boolean> {
+        return await this.sessionCache.setSessionDifitReview(sessionId, null, reviewId)
+    }
+
     async deleteSession(sessionId: string): Promise<void> {
         await this.sessionCache.deleteSession(sessionId)
     }

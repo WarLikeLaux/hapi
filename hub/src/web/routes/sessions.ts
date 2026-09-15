@@ -1,6 +1,8 @@
 import {
+    AttachDifitReviewRequestSchema,
     CursorMigrateToAcpRequestSchema,
     DeleteUploadRequestSchema,
+    DetachDifitReviewRequestSchema,
     ForkConversationRequestSchema,
     ImplementCodexPlanRequestSchema,
     getPermissionModesForFlavor,
@@ -903,6 +905,63 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
                 return c.json({ error: message }, 409)
             }
             return c.json({ error: message }, 500)
+        }
+    })
+
+    app.put('/sessions/:id/difit-review', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) return sessionResult
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = AttachDifitReviewRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid DIFIT review attachment' }, 400)
+        }
+
+        const url = new URL(parsed.data.url)
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+            return c.json({ error: 'DIFIT review URL must use HTTP or HTTPS without credentials' }, 400)
+        }
+
+        try {
+            await engine.attachDifitReview(sessionResult.sessionId, {
+                id: parsed.data.reviewId,
+                url: url.toString(),
+                ...(parsed.data.branch ? { branch: parsed.data.branch } : {}),
+                attachedAt: Date.now()
+            })
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to attach DIFIT review'
+            return c.json({ error: message }, message.includes('concurrently') ? 409 : 500)
+        }
+    })
+
+    app.delete('/sessions/:id/difit-review', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) return sessionResult
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = DetachDifitReviewRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid DIFIT review detachment' }, 400)
+        }
+
+        try {
+            const detached = await engine.detachDifitReview(
+                sessionResult.sessionId,
+                parsed.data.reviewId
+            )
+            return c.json({ ok: true, detached })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to detach DIFIT review'
+            return c.json({ error: message }, message.includes('concurrently') ? 409 : 500)
         }
     })
 
