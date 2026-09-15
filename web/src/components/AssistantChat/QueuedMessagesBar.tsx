@@ -23,6 +23,10 @@ import {
     subscribeQueuedEditRecovery,
     subscribeQueuedOperation,
 } from '@/lib/queued-edit-recovery'
+import {
+    isIndeterminateMessageDismissed,
+    persistIndeterminateMessageDismissal,
+} from '@/lib/queued-message-dismissals'
 
 function ClockIcon() {
     return (
@@ -102,9 +106,14 @@ function useQueuedMessages(sessionId: string): DecryptedMessage[] {
     // unchanged, so [state] as the dependency avoids unnecessary re-sorts.
     return useMemo(() => {
         return sortQueuedMessages(
-            state.messages.filter((msg) => isQueuedForInvocation(msg) && !msg.queueDismissed)
+            state.messages.filter((msg) => {
+                if (!isQueuedForInvocation(msg) || msg.queueDismissed) return false
+                const localId = msg.localId ?? msg.id
+                return msg.deliveryState !== 'indeterminate'
+                    || !isIndeterminateMessageDismissed(sessionId, localId)
+            })
         )
-    }, [state])
+    }, [sessionId, state])
 }
 
 /** @internal Exported for unit testing. */
@@ -358,6 +367,9 @@ export function QueuedMessagesBar({
                             if (!canCancel) return
                             const token = beginQueuedOperation(sessionId)
                             if (!token) return
+                            if (msg.deliveryState === 'indeterminate') {
+                                persistIndeterminateMessageDismissal(sessionId, localId)
+                            }
                             void cancelMutation.mutateAsync({
                                 sessionId,
                                 messageId: msg.id,
@@ -424,6 +436,9 @@ export function QueuedMessagesBar({
                             const pendingScheduleRevisionAtEdit = pendingScheduleRevisionRef.current
                             const token = beginQueuedOperation(sessionId)
                             if (!token) return
+                            if (msg.deliveryState === 'indeterminate') {
+                                persistIndeterminateMessageDismissal(sessionId, localId)
+                            }
 
                             try {
                                 const result = await cancelMutation.mutateAsync({

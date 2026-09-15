@@ -78,6 +78,21 @@ describe('getScrollRestorationKey', () => {
         expect(getScrollRestorationKey(branch)).toBe('/sessions/abc123/file?path=src/foo.ts&comparison=branch')
     })
 
+    it('keeps direct line links separate from saved whole-file positions', () => {
+        const wholeFile = makeLocation({
+            pathname: '/sessions/abc123/file',
+            search: { path: 'README.md' },
+        })
+        const targetLine = makeLocation({
+            pathname: '/sessions/abc123/file',
+            search: { path: 'README.md', line: 150, column: 7 },
+        })
+
+        expect(getScrollRestorationKey(wholeFile)).toBe('/sessions/abc123/file?path=README.md')
+        expect(getScrollRestorationKey(targetLine)).toBe('/sessions/abc123/file?path=README.md&line=150&column=7')
+        expect(getScrollRestorationKey(targetLine)).not.toBe(getScrollRestorationKey(wholeFile))
+    })
+
     it('differentiates browse route by machineId', () => {
         const noMachine = makeLocation({ pathname: '/browse', search: {} })
         const machineA = makeLocation({ pathname: '/browse', search: { machineId: 'm-aaa' } })

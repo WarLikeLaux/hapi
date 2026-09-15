@@ -26,6 +26,8 @@ const base = process.env.VITE_BASE_URL || '/'
 const shareAction = shareTargetPathnameFromBase(base)
 const hubTarget = process.env.VITE_HUB_PROXY || 'http://127.0.0.1:3006'
 const appVersion = readAppVersion()
+const buildTime = process.env.VITE_HAPI_BUILD_TIME || new Date().toISOString()
+const buildId = process.env.VITE_HAPI_BUILD_ID || `local-${buildTime.replace(/\D/g, '').slice(0, 14)}`
 
 function readAppVersion(): string {
     const buildInfoPath = resolve(__dirname, '../shared/src/buildInfo.ts')
@@ -85,6 +87,8 @@ export default defineConfig({
     appType: 'spa',
     define: {
         __APP_VERSION__: JSON.stringify(appVersion),
+        __BUILD_ID__: JSON.stringify(buildId),
+        __BUILD_TIME__: JSON.stringify(buildTime),
     },
     server: {
         host: true,

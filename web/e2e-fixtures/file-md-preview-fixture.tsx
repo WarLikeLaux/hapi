@@ -15,6 +15,7 @@ import {
     type MarkdownPreviewMode,
 } from '../src/lib/file-markdown-preview'
 import { useTranslation } from '../src/lib/use-translation'
+import { scrollFileLineToCenter } from '../src/lib/fileLineScroll'
 
 const SAMPLE_MARKDOWN = `# Teams and channels
 
@@ -76,12 +77,51 @@ function FileMarkdownPreviewFixture() {
     )
 }
 
+function FileLineScrollFixture() {
+    const containerRef = React.useRef<HTMLDivElement>(null)
+    const targetRef = React.useRef<HTMLSpanElement>(null)
+
+    React.useLayoutEffect(() => {
+        if (containerRef.current && targetRef.current) {
+            scrollFileLineToCenter(containerRef.current, targetRef.current)
+        }
+    }, [])
+
+    return (
+        <div
+            ref={containerRef}
+            data-testid="file-line-scroll-container"
+            className="h-64 overflow-y-auto"
+        >
+            <pre className="grid" style={{ gridTemplateColumns: '3rem max-content' }}>
+                <code className="contents">
+                    {Array.from({ length: 200 }, (_, index) => {
+                        const line = index + 1
+                        return (
+                            <span key={line} className="contents">
+                                <span>{line}</span>
+                                <span
+                                    ref={line === 150 ? targetRef : undefined}
+                                    data-testid={line === 150 ? 'file-line-scroll-target' : undefined}
+                                >
+                                    Example source line {line}
+                                </span>
+                            </span>
+                        )
+                    })}
+                </code>
+            </pre>
+        </div>
+    )
+}
+
 const rootEl = document.getElementById('root')
 if (rootEl) {
     ReactDOM.createRoot(rootEl).render(
         <React.StrictMode>
             <I18nProvider>
                 <FileMarkdownPreviewFixture />
+                <FileLineScrollFixture />
             </I18nProvider>
         </React.StrictMode>
     )

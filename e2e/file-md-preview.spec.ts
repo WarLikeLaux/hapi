@@ -30,4 +30,24 @@ test.describe('file markdown preview e2e', () => {
 
         await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true })
     })
+
+    test('centers a deep linked source line in the nested file viewport', async ({ page }) => {
+        await page.goto('/e2e-fixtures/file-md-preview-fixture.html')
+        const container = page.getByTestId('file-line-scroll-container')
+        const target = page.getByTestId('file-line-scroll-target')
+        await expect(container).toBeVisible()
+
+        const position = await container.evaluate((element, targetElement) => {
+            const containerRect = element.getBoundingClientRect()
+            const targetRect = (targetElement as HTMLElement).getBoundingClientRect()
+            return {
+                scrollTop: element.scrollTop,
+                targetCenter: targetRect.top + targetRect.height / 2,
+                containerCenter: containerRect.top + containerRect.height / 2,
+            }
+        }, await target.elementHandle())
+
+        expect(position.scrollTop).toBeGreaterThan(0)
+        expect(Math.abs(position.targetCenter - position.containerCenter)).toBeLessThan(2)
+    })
 })

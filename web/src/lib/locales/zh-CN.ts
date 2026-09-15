@@ -1144,6 +1144,8 @@ export default {
   'settings.about.description': 'HAPI 链接和版本信息。',
   'settings.about.website': '官方网站',
   'settings.about.appVersion': '应用版本',
+  'settings.about.buildId': '构建 ID',
+  'settings.about.buildTime': '构建时间',
   'settings.about.protocolVersion': '协议版本',
 
   // Browse / Workspace

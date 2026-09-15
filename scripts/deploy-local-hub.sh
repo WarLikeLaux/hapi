@@ -52,6 +52,15 @@ fi
 
 cd "${repo_root}"
 
+build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+build_revision="$(git rev-parse --short=8 HEAD)"
+build_dirty=""
+if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+    build_dirty="-dirty"
+fi
+export VITE_HAPI_BUILD_TIME="${build_time}"
+export VITE_HAPI_BUILD_ID="${build_revision}${build_dirty}-$(date -u +%Y%m%dT%H%M%SZ)"
+
 "${bun_bin}" install --frozen-lockfile
 
 if [[ "${HAPI_SKIP_CHECKS:-0}" != "1" ]]; then
