@@ -321,6 +321,43 @@ export class ApiClient {
         })
     }
 
+    async sendExternalMedia(conversationId: string, file: File, caption: string, clientId?: string): Promise<void> {
+        const form = new FormData()
+        form.set('file', file)
+        if (caption.trim()) form.set('caption', caption.trim())
+        if (clientId) form.set('clientId', clientId)
+        await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/media`, {
+            method: 'POST',
+            body: form
+        })
+    }
+
+    async getExternalMediaBlob(
+        conversationId: string,
+        providerMessageId: string,
+        mediaIndex: number,
+        attempt: number = 0,
+        overrideToken?: string | null
+    ): Promise<Blob> {
+        const liveToken = this.getToken ? this.getToken() : null
+        const authToken = overrideToken !== undefined ? (overrideToken ?? (liveToken ?? this.token)) : (liveToken ?? this.token)
+        const headers = new Headers()
+        if (authToken) headers.set('authorization', `Bearer ${authToken}`)
+        const path = `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(providerMessageId)}/media/${mediaIndex}`
+        const response = await fetch(this.buildUrl(path), { headers })
+        if (response.status === 401 && attempt === 0 && this.onUnauthorized) {
+            const refreshed = await this.onUnauthorized()
+            if (refreshed) {
+                this.token = refreshed
+                return await this.getExternalMediaBlob(conversationId, providerMessageId, mediaIndex, attempt + 1, refreshed)
+            }
+        }
+        if (!response.ok) {
+            throw new ApiError(`HTTP ${response.status}`, response.status, undefined, await response.text().catch(() => undefined))
+        }
+        return await response.blob()
+    }
+
     async getHealth(): Promise<HubHealthResponse> {
         return await this.request<HubHealthResponse>('/health')
     }

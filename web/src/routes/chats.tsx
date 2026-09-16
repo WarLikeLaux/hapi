@@ -1,14 +1,16 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import type { ExternalConversation, ExternalMedia, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { ImagePreview } from '@/components/ImagePreview'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
+import { RoundVideoPlayer } from '@/components/RoundVideoPlayer'
 import { getUserBubbleClassName } from '@/components/AssistantChat/messages/user-bubble'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
 import { useAppContext } from '@/lib/app-context'
+import { imageFileFromClipboard } from '@/lib/clipboardMedia'
 import { upsertMessengerConnection } from '@/lib/messengerConnections'
 import { queryKeys } from '@/lib/query-keys'
 import { useTranslation } from '@/lib/use-translation'
@@ -37,6 +39,10 @@ function BackIcon() {
 
 function SendIcon() {
     return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5"><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>
+}
+
+function AttachmentIcon() {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.6-9.6a4 4 0 0 1 5.7 5.7l-9.6 9.6a2 2 0 1 1-2.8-2.8l8.9-8.9" /></svg>
 }
 
 function formatTime(value: number | null): string {
@@ -93,32 +99,108 @@ function formatMediaSize(size: number | null): string | null {
     return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
-function MediaAttachment({ media, galleryId }: { media: ExternalMedia; galleryId: string }) {
+function MediaAttachment(props: {
+    media: ExternalMedia
+    galleryId: string
+    conversationId: string
+    providerMessageId: string
+    mediaIndex: number
+}) {
+    const { api } = useAppContext()
+    const { media } = props
+    const [fullUrl, setFullUrl] = useState<string | null>(null)
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    const previewRef = useRef<HTMLButtonElement>(null)
+    const downloadable = ['image', 'video', 'audio', 'voice', 'sticker', 'file'].includes(media.kind)
     const hasVisualPreview = Boolean(media.thumbnailDataUrl)
         && (media.kind === 'image' || media.kind === 'video' || media.kind === 'sticker')
-    if (hasVisualPreview) {
-        const label = mediaLabels[media.kind]
+
+    useEffect(() => () => {
+        if (fullUrl) URL.revokeObjectURL(fullUrl)
+    }, [fullUrl])
+
+    const loadOriginal = useCallback(async () => {
+        if (!api || loading || fullUrl || !downloadable) return
+        setLoading(true)
+        setError(null)
+        try {
+            const blob = await api.getExternalMediaBlob(
+                props.conversationId,
+                props.providerMessageId,
+                props.mediaIndex
+            )
+            setFullUrl(URL.createObjectURL(blob))
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : 'Failed to load media')
+        } finally {
+            setLoading(false)
+        }
+    }, [api, downloadable, fullUrl, loading, props.conversationId, props.mediaIndex, props.providerMessageId])
+
+    useEffect(() => {
+        const shouldAutoLoad = media.kind === 'image' || media.kind === 'sticker' || media.isAnimated === true || media.isRound === true
+        if (!hasVisualPreview || error || fullUrl || loading || !shouldAutoLoad) return
+        const preview = previewRef.current
+        if (!preview) return
+        if (typeof IntersectionObserver === 'undefined') {
+            void loadOriginal()
+            return
+        }
+        const observer = new IntersectionObserver((entries) => {
+            if (!entries.some((entry) => entry.isIntersecting)) return
+            observer.disconnect()
+            void loadOriginal()
+        }, { rootMargin: '500px 0px' })
+        observer.observe(preview)
+        return () => observer.disconnect()
+    }, [error, fullUrl, hasVisualPreview, loadOriginal, loading, media.isAnimated, media.isRound, media.kind])
+
+    const label = mediaLabels[media.kind]
+    if (fullUrl && (media.kind === 'image' || media.kind === 'sticker')) {
         return (
             <ImagePreview
-                src={media.thumbnailDataUrl!}
+                src={fullUrl}
                 fileName={media.fileName ?? label}
                 label={label}
-                galleryId={galleryId}
+                galleryId={props.galleryId}
                 buttonClassName="group relative flex w-[min(82vw,30rem)] cursor-zoom-in items-center justify-center overflow-hidden rounded-xl bg-black/10"
-                imageClassName="max-h-[28rem] min-h-44 w-full object-contain transition-transform group-hover:scale-[1.01]"
-                caption={media.kind === 'video' ? <span className="pointer-events-none absolute inset-0 grid place-items-center text-4xl text-white drop-shadow">▶</span> : null}
+                imageClassName="max-h-[32rem] w-full object-contain transition-transform group-hover:scale-[1.01]"
             />
         )
     }
+    if (fullUrl && media.kind === 'video') {
+        if (media.isRound) {
+            return <RoundVideoPlayer src={fullUrl} label={media.fileName ?? label} />
+        }
+        return <video src={fullUrl} controls={!media.isAnimated} autoPlay={media.isAnimated} loop={media.isAnimated} muted={media.isAnimated} playsInline preload="metadata" className="max-h-[32rem] max-w-[min(82vw,30rem)] rounded-xl bg-black object-contain" />
+    }
+    if (fullUrl && (media.kind === 'audio' || media.kind === 'voice')) {
+        return <audio src={fullUrl} controls preload="metadata" className="max-w-[82vw]" />
+    }
+    if (fullUrl && media.kind === 'file') {
+        return <a href={fullUrl} download={media.fileName ?? 'attachment'} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-4 py-3 text-sm text-[var(--app-link)]">Download {media.fileName ?? 'file'}</a>
+    }
+
+    if (hasVisualPreview) {
+        return (
+            <button ref={previewRef} type="button" onClick={() => void loadOriginal()} disabled={loading} className={cn('group relative flex cursor-pointer items-center justify-center overflow-hidden bg-black/10 disabled:cursor-wait', media.isRound ? 'h-[min(16rem,78vw)] w-[min(16rem,78vw)] rounded-full' : 'w-[min(82vw,24rem)] rounded-xl')}>
+                <img src={media.thumbnailDataUrl!} alt={label} className={cn('w-full transition-opacity', media.isRound ? 'h-full object-cover' : 'max-h-80 min-h-36 object-contain', loading && 'opacity-70')} />
+                {loading || error || media.kind === 'video' ? <span className="absolute inset-0 grid place-items-center bg-black/20 text-center text-sm font-medium text-white opacity-100 drop-shadow transition-opacity sm:opacity-0 sm:group-hover:opacity-100 group-disabled:opacity-100">{loading ? 'Loading original…' : error ? 'Tap to retry' : '▶ Play video'}</span> : null}
+            </button>
+        )
+    }
     const size = formatMediaSize(media.size)
+    const Wrapper = downloadable ? 'button' : 'div'
     return (
-        <div className="flex min-w-48 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-3 py-2.5">
+        <Wrapper type={downloadable ? 'button' : undefined} onClick={downloadable ? () => void loadOriginal() : undefined} className="flex min-w-48 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-3 py-2.5 text-left">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-bg)] text-base text-[var(--app-link)]">{mediaIcons[media.kind]}</span>
             <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{media.fileName ?? mediaLabels[media.kind]}</span>
+                <span className="block truncate text-sm font-medium">{loading ? 'Loading…' : media.fileName ?? mediaLabels[media.kind]}</span>
                 {size || media.mimeType ? <span className="block truncate text-[10px] text-[var(--app-hint)]">{[size, media.mimeType].filter(Boolean).join(' · ')}</span> : null}
+                {error ? <span className="block text-[10px] text-red-600">{error}</span> : null}
             </span>
-        </div>
+        </Wrapper>
     )
 }
 
@@ -320,6 +402,7 @@ function ChatList(props: {
                         <span className="min-w-0 flex-1">
                             <span className="flex items-baseline gap-2">
                                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{conversation.title}</span>
+                                {conversation.unreadCount > 0 ? <span className="min-w-5 rounded-full bg-[var(--app-button)] px-1.5 py-0.5 text-center text-[10px] font-semibold text-[var(--app-button-text)]">{conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}</span> : null}
                                 <span className="shrink-0 text-[10px] text-[var(--app-hint)]">{formatTime(conversation.lastMessageAt)}</span>
                             </span>
                             <span className="mt-0.5 block truncate text-xs text-[var(--app-hint)]">{conversation.lastMessagePreview ?? t('chats.noMessages')}</span>
@@ -387,6 +470,8 @@ export function ChatConversationPage() {
     const [text, setText] = useState('')
     const viewportRef = useRef<HTMLDivElement>(null)
     const messageContentRef = useRef<HTMLDivElement>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
+    const composerRef = useRef<HTMLTextAreaElement>(null)
     const stickToBottomRef = useRef(true)
     const conversations = useQuery({
         queryKey: queryKeys.externalConversations,
@@ -412,6 +497,23 @@ export function ChatConversationPage() {
             ])
         }
     })
+    const sendMedia = useMutation({
+        mutationFn: async (file: File) => {
+            if (file.size > 50 * 1024 * 1024) throw new Error('Media file must be 50 MB or smaller')
+            await api!.sendExternalMedia(conversationId, file, text, crypto.randomUUID())
+        },
+        onMutate: () => {
+            stickToBottomRef.current = true
+        },
+        onSuccess: async () => {
+            setText('')
+            if (fileInputRef.current) fileInputRef.current.value = ''
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) }),
+                queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
+            ])
+        }
+    })
     useLayoutEffect(() => {
         stickToBottomRef.current = true
         const viewport = viewportRef.current
@@ -419,6 +521,11 @@ export function ChatConversationPage() {
         const frame = requestAnimationFrame(() => {
             viewport.scrollTop = viewport.scrollHeight
         })
+        return () => cancelAnimationFrame(frame)
+    }, [conversationId])
+
+    useEffect(() => {
+        const frame = requestAnimationFrame(() => composerRef.current?.focus())
         return () => cancelAnimationFrame(frame)
     }, [conversationId])
 
@@ -473,15 +580,26 @@ export function ChatConversationPage() {
                     {messages.data?.map((item) => (
                         <div key={item.id} className={cn('flex flex-col', item.direction === 'outgoing' ? 'items-end' : 'items-start')}>
                             {item.direction === 'incoming' && item.senderName && conversation.kind !== 'direct' ? <div className="mb-1 px-2 text-[10px] text-[var(--app-hint)]">{item.senderName}</div> : null}
-                            {item.media?.length ? <div className="mb-1 flex max-w-[92%] flex-col gap-1.5">{item.media.map((media, index) => <MediaAttachment key={`${item.id}:${index}`} media={media} galleryId={`telegram-media-${conversationId}`} />)}</div> : null}
+                            {item.media?.length ? <div className="mb-1 flex max-w-[92%] flex-col gap-1.5">{item.media.map((media, index) => <MediaAttachment key={`${item.id}:${index}`} media={media} galleryId={`telegram-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={index} />)}</div> : null}
                             {item.text ? (
                                 <div className={item.direction === 'outgoing'
                                     ? getUserBubbleClassName()
                                     : 'happy-chat-text w-fit max-w-[92%] rounded-2xl bg-[var(--app-secondary-bg)] px-4 py-2.5 text-[var(--app-fg)]'}>
-                                    <MarkdownRenderer content={item.text} preserveSingleLineBreaks />
+                                    <div className="flex items-end gap-2">
+                                        <div className="min-w-0 flex-1">
+                                            <MarkdownRenderer content={item.text} preserveSingleLineBreaks />
+                                        </div>
+                                        <time
+                                            dateTime={new Date(item.createdAt).toISOString()}
+                                            title={new Date(item.createdAt).toLocaleString()}
+                                            className="shrink-0 pb-0.5 text-[9px] leading-none opacity-60 tabular-nums"
+                                        >
+                                            {formatTime(item.createdAt)}
+                                        </time>
+                                    </div>
                                 </div>
                             ) : null}
-                            <div className="mt-0.5 px-2 text-[9px] text-[var(--app-hint)]">{formatTime(item.createdAt)}</div>
+                            {!item.text ? <div className="mt-0.5 px-2 text-[9px] text-[var(--app-hint)]">{formatTime(item.createdAt)}</div> : null}
                         </div>
                     ))}
                 </div>
@@ -492,9 +610,26 @@ export function ChatConversationPage() {
                 if (value && !send.isPending) send.mutate(value)
             }}>
                 <div className="mx-auto flex max-w-content items-end gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] p-1.5 pl-3 focus-within:border-[var(--app-link)]">
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        className="hidden"
+                        onChange={(event) => {
+                            const file = event.target.files?.[0]
+                            if (file) sendMedia.mutate(file)
+                        }}
+                    />
+                    <button type="button" disabled={sendMedia.isPending} onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Attach media"><AttachmentIcon /></button>
                     <textarea
+                        ref={composerRef}
                         value={text}
                         onChange={(event) => setText(event.target.value)}
+                        onPaste={(event) => {
+                            const image = imageFileFromClipboard(event.clipboardData.items)
+                            if (!image) return
+                            event.preventDefault()
+                            sendMedia.mutate(image)
+                        }}
                         onKeyDown={(event) => {
                             if (event.key === 'Enter' && !event.shiftKey) {
                                 event.preventDefault()
@@ -505,9 +640,11 @@ export function ChatConversationPage() {
                         placeholder={t('chats.messagePlaceholder')}
                         className="max-h-32 min-h-9 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[var(--app-hint)]"
                     />
-                    <button type="submit" disabled={!text.trim() || send.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
+                    <button type="submit" disabled={!text.trim() || send.isPending || sendMedia.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
                 </div>
                 {send.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{send.error.message}</div> : null}
+                {sendMedia.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{sendMedia.error.message}</div> : null}
+                {sendMedia.isPending ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-[var(--app-hint)]">Uploading media…</div> : null}
             </form>
         </div>
     )
