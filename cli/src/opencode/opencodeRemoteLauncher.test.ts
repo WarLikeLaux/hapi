@@ -1753,7 +1753,6 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         await opencodeRemoteLauncher(session as never);
 
         expect(harness.bridgeOptions).toEqual({
-            enableChangeTitle: false,
             skillLookup: { workingDirectory: '/tmp/hapi-opencode-test', flavor: 'opencode' }
         });
         expect(harness.refreshSessionInfoCalls).toEqual([

@@ -27,6 +27,7 @@ import {
     SESSION_ID_PREFIX_PARAM_DESCRIPTION,
 } from '@hapi/protocol/sessionCitation'
 import { PingPeerError, formatInspectPeerReport, formatPeerSessionsList, inspectPeer, listPeerSessions, peerListFetchLimit, pingPeer } from "@/modules/pingPeer/pingPeer";
+import { buildSessionTitleMcpInstructions } from '@/modules/common/sessionTitlePrompt';
 
 type StartHappyServerOptions = {
     emitTitleSummary?: boolean;
@@ -98,6 +99,8 @@ function createHapiMcpServer(
     const mcp = new McpServer({
         name: "HAPI MCP",
         version: "1.0.0",
+    }, {
+        instructions: enableChangeTitle ? buildSessionTitleMcpInstructions() : undefined,
     });
 
     const changeTitleInputSchema: z.ZodTypeAny = z.object({
@@ -184,7 +187,7 @@ function createHapiMcpServer(
     }
     if (enableChangeTitle) {
         mcp.registerTool<any, any>('change_title', {
-            description: 'Change the title of the current HAPI chat session. Call once when the user\'s primary objective is clear; use a concise task title.',
+            description: buildSessionTitleMcpInstructions(),
             title: 'Change Chat Title',
             inputSchema: changeTitleInputSchema,
         }, async (args: { title: string }) => {
