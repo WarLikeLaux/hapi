@@ -1,14 +1,16 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
-import { StatusBar } from './StatusBar'
+import { READY_STATUS_MESSAGES, StatusBar, WORKING_STATUS_MESSAGES } from './StatusBar'
 
 describe('StatusBar context details popover', () => {
     beforeEach(() => {
         localStorage.clear()
+        vi.restoreAllMocks()
+        vi.spyOn(Math, 'random').mockReturnValue(0)
     })
 
-    it('keeps stable connection labels in English and offsets the whole left status', () => {
+    it('uses varied Russian ready and working labels and offsets the whole left status', () => {
         localStorage.setItem('hapi-lang', 'zh-CN')
         const { rerender } = render(
             <I18nProvider>
@@ -16,7 +18,7 @@ describe('StatusBar context details popover', () => {
             </I18nProvider>
         )
 
-        const onlineLabel = screen.getByText('online')
+        const onlineLabel = screen.getByText(READY_STATUS_MESSAGES[0]!)
         expect(onlineLabel.className.split(' ')).not.toContain('top-px')
         expect(onlineLabel.previousElementSibling?.className.split(' ')).not.toContain('top-px')
         expect(onlineLabel.parentElement?.className.split(' ')).toContain('top-px')
@@ -42,7 +44,7 @@ describe('StatusBar context details popover', () => {
             </I18nProvider>
         )
 
-        const thinkingLabel = screen.getByText(/…$/)
+        const thinkingLabel = screen.getByText(`${WORKING_STATUS_MESSAGES[0]}…`)
         expect(thinkingLabel.className.split(' ')).not.toContain('top-px')
         expect(thinkingLabel.previousElementSibling?.className.split(' ')).not.toContain('top-px')
         expect(thinkingLabel.parentElement?.className.split(' ')).toContain('top-px')
@@ -183,7 +185,7 @@ describe('StatusBar context details popover', () => {
             </I18nProvider>
         )
 
-        const connectionLabel = screen.getByText('online')
+        const connectionLabel = screen.getByText(READY_STATUS_MESSAGES[0]!)
         const leftStatusGroup = connectionLabel.parentElement?.parentElement
         const statusBar = leftStatusGroup?.parentElement
         const rightStatusGroup = statusBar?.lastElementChild
