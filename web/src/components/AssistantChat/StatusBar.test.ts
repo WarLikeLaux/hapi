@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-    formatCompactContextUsageLabel,
     formatContextUsageLabel,
     getContextWarning,
     getContextUsageDetails,
@@ -28,10 +27,6 @@ describe('context usage labels', () => {
         expect(formatContextUsageLabel(90_000, 258_000)).toBe('35% · 90k / 258k')
     })
 
-    it('uses the compact parenthesized mobile label with a fixed English suffix', () => {
-        expect(formatCompactContextUsageLabel(186_000, 262_000)).toBe('ctx 262k (29% left)')
-    })
-
     it('orders cache, used, and remaining metrics for the desktop details', () => {
         expect(getContextUsageDetails(90_000, 258_000, 86_000)).toEqual({
             cacheRead: '86k',
@@ -44,7 +39,6 @@ describe('context usage labels', () => {
 
     it('keeps external and detailed percentages complementary at rounding midpoints', () => {
         expect(formatContextUsageLabel(69, 200)).toBe('35% · 69 / 200')
-        expect(formatCompactContextUsageLabel(69, 200)).toBe('ctx 200 (65% left)')
         expect(getContextUsageDetails(69, 200, 0)).toMatchObject({
             usedPercentage: 35,
             remainingPercentage: 65
