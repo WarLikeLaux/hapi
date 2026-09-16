@@ -15,6 +15,21 @@ describe('ApiClient error mapping', () => {
         globalThis.fetch = originalFetch
     })
 
+    it('reuses the browser HTTP cache for external media', async () => {
+        fetchMock.mockResolvedValueOnce(new Response('image-bytes', {
+            status: 200,
+            headers: { 'content-type': 'image/jpeg' }
+        }))
+        const api = new ApiClient('test-token')
+
+        await api.getExternalMediaBlob('telegram:user:1', '42', 0)
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/conversations/telegram%3Auser%3A1/messages/42/media/0',
+            expect.objectContaining({ cache: 'force-cache' })
+        )
+    })
+
     it('prefers the stable `code` field over the human-readable `error` message in ApiError.code', async () => {
         // Match the shape /sessions/:id/reopen actually returns on a 503.
         fetchMock.mockResolvedValueOnce(
