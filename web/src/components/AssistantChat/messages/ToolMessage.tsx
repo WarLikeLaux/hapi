@@ -16,6 +16,7 @@ import { CliOutputBlock } from '@/components/CliOutputBlock'
 import { UserBubbleContent, getUserBubbleClassName, shouldShowMessageStatus } from '@/components/AssistantChat/messages/user-bubble'
 import { ImagePreview } from '@/components/ImagePreview'
 import { FileIcon } from '@/components/FileIcon'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useTranslation } from '@/lib/use-translation'
 import { inlineMediaLabelKey, isInlineAudioMimeType, isInlineImageMimeType, isInlineVideoMimeType } from '@/lib/generatedInlineMedia'
 
@@ -56,6 +57,10 @@ const MIN_INLINE_IMAGE_DIMENSION = 64
 
 export function isHtmlFileName(fileName: string): boolean {
     return /\.html?$/i.test(fileName)
+}
+
+export function isMarkdownFileName(fileName: string): boolean {
+    return /\.(?:md|markdown)$/i.test(fileName)
 }
 
 function escapeHtmlAttribute(value: string): string {
@@ -109,12 +114,15 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     const [error, setError] = useState<string | null>(null)
     const [imageStyle, setImageStyle] = useState<CSSProperties | undefined>(undefined)
     const [loadMedia, setLoadMedia] = useState(false)
+    const [markdownContent, setMarkdownContent] = useState<string | null>(null)
+    const [markdownPreviewOpen, setMarkdownPreviewOpen] = useState(false)
     const objectUrlRef = useRef<string | null>(null)
     const isVideo = isInlineVideoMimeType(props.block.mimeType)
     const isAudio = isInlineAudioMimeType(props.block.mimeType)
     const isImage = isInlineImageMimeType(props.block.mimeType)
     const isFile = !isVideo && !isAudio && !isImage
     const isHtml = isFile && isHtmlFileName(props.block.fileName)
+    const isMarkdown = isFile && isMarkdownFileName(props.block.fileName)
     const mediaLabel = t(inlineMediaLabelKey(props.block.mimeType))
     const mediaHeader = t('media.displayed.header', { label: mediaLabel, fileName: props.block.fileName })
     // Non-image media can be tens of MB; wait for explicit user intent before downloading.
@@ -141,11 +149,13 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
             objectUrlRef.current = null
         }
         setObjectUrl(null)
+        setMarkdownContent(null)
         setImageStyle(undefined)
         setError(null)
 
         void ctx.api.getGeneratedImageBlob(ctx.sessionId, props.block.imageId)
             .then(async (blob) => {
+                const nextMarkdownContent = isMarkdown ? await readBlobAsText(blob) : null
                 const displayBlob = isHtml
                     ? await createSandboxedHtmlPreviewBlob(blob, props.block.fileName)
                     : blob
@@ -159,6 +169,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                 }
                 objectUrlRef.current = nextObjectUrl
                 setObjectUrl(nextObjectUrl)
+                setMarkdownContent(nextMarkdownContent)
                 if (isImage) {
                     setImageStyle(undefined)
                     const probe = new Image()
@@ -178,14 +189,28 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
         return () => {
             disposed = true
         }
-    }, [ctx.api, ctx.sessionId, props.block.fileName, props.block.imageId, isHtml, isImage, shouldFetch])
+    }, [ctx.api, ctx.sessionId, props.block.fileName, props.block.imageId, isHtml, isImage, isMarkdown, shouldFetch])
+
+    const openMarkdownPreview = () => {
+        setLoadMedia(true)
+        setMarkdownPreviewOpen(true)
+    }
 
     return (
         <div className="max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3">
             <div className="mb-2 min-w-0 truncate text-xs font-medium text-[var(--app-hint)]">
                 {mediaHeader}
             </div>
-            {objectUrl ? (
+            {isMarkdown ? (
+                <button
+                    type="button"
+                    onClick={openMarkdownPreview}
+                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-4 py-3 text-left text-sm font-medium text-[var(--app-fg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+                >
+                    <FileIcon fileName={props.block.fileName} size={24} />
+                    <span className="min-w-0 truncate">{t('media.displayed.previewNamed', { fileName: props.block.fileName })}</span>
+                </button>
+            ) : objectUrl ? (
                 isVideo ? (
                     <div className="flex min-h-32 min-w-[12rem] items-center justify-center rounded-xl bg-[var(--app-subtle-bg)]">
                         <video
@@ -240,6 +265,47 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
             ) : (
                 <div className="h-48 w-72 max-w-full animate-pulse rounded-xl bg-[var(--app-subtle-bg)]" />
             )}
+            {isMarkdown ? (
+                <Dialog open={markdownPreviewOpen} onOpenChange={setMarkdownPreviewOpen}>
+                    <DialogContent
+                        aria-describedby={undefined}
+                        className="flex max-h-[calc(100dvh-24px)] max-w-4xl flex-col overflow-hidden p-0 sm:max-h-[86vh]"
+                    >
+                        <DialogHeader className="shrink-0 border-b border-[var(--app-divider)] px-4 py-4 text-left">
+                            <div className="flex min-w-0 items-center gap-3 pr-10">
+                                <DialogTitle className="min-w-0 flex-1 truncate">
+                                    {props.block.fileName}
+                                </DialogTitle>
+                                {objectUrl ? (
+                                    <a
+                                        href={objectUrl}
+                                        download={props.block.fileName}
+                                        className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-[var(--app-link)] hover:bg-[var(--app-subtle-bg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+                                    >
+                                        {t('media.displayed.download')}
+                                    </a>
+                                ) : null}
+                            </div>
+                        </DialogHeader>
+                        <div
+                            data-hapi-nested-scroll="true"
+                            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6"
+                        >
+                            {error ? (
+                                <div className="text-sm text-[var(--app-hint)]">
+                                    {t('media.displayed.unavailable', { label: mediaLabel, error })}
+                                </div>
+                            ) : markdownContent === null ? (
+                                <div className="h-48 animate-pulse rounded-xl bg-[var(--app-subtle-bg)]" />
+                            ) : markdownContent.length === 0 ? (
+                                <div className="text-sm text-[var(--app-hint)]">{t('file.page.empty')}</div>
+                            ) : (
+                                <MarkdownRenderer content={markdownContent} standalone />
+                            )}
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            ) : null}
         </div>
     )
 }

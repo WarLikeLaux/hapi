@@ -24,6 +24,7 @@ type MessageActionsProps = {
     showFork?: boolean
     showRewind?: boolean
     historyActionPending?: boolean
+    showTimestamp?: boolean
     onFork?: () => Promise<void>
     onRewind?: () => Promise<void>
 }
@@ -53,6 +54,7 @@ export function MessageActions({
     showFork = false,
     showRewind = false,
     historyActionPending = false,
+    showTimestamp = true,
     onFork,
     onRewind
 }: MessageActionsProps) {
@@ -112,7 +114,7 @@ export function MessageActions({
                     align === 'end' ? 'justify-end' : 'justify-start'
                 )}
             >
-                {align === 'end' ? <DesktopTimestamp /> : null}
+                {align === 'end' && showTimestamp ? <DesktopTimestamp /> : null}
                 {align === 'end' && hasMetadata && metadata ? <MessageInfoPopover metadata={metadata} /> : null}
                 {align === 'end' ? shareButton : null}
                 {align === 'end' ? historyButtons : null}
@@ -121,7 +123,7 @@ export function MessageActions({
                 {align === 'start' ? historyButtons : null}
                 {align === 'start' ? shareButton : null}
                 {align === 'start' && hasMetadata && metadata ? <MessageInfoPopover metadata={metadata} /> : null}
-                {align === 'start' ? <DesktopTimestamp /> : null}
+                {align === 'start' && showTimestamp ? <DesktopTimestamp /> : null}
             </div>
 
             <ConfirmDialog

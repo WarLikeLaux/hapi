@@ -63,6 +63,11 @@ describe('MessengerStore', () => {
                 media: [{ kind: 'voice', mimeType: 'audio/ogg', fileName: null, size: 512, thumbnailDataUrl: null }]
             })
             expect(store.messengers.getConversation('one', 'telegram:user:1')?.lastMessagePreview).toBe('Voice message')
+            expect(store.messengers.hasMessage('one', 'telegram:user:1', '6')).toBe(true)
+            store.messengers.incrementUnreadCount('one', 'telegram:user:1')
+            expect(store.messengers.getConversation('one', 'telegram:user:1')?.unreadCount).toBe(1)
+            store.messengers.setUnreadCount('one', 'telegram:user:1', 0)
+            expect(store.messengers.getConversation('one', 'telegram:user:1')?.unreadCount).toBe(0)
             expect(store.messengers.listMessages('two', 'telegram:user:1')).toHaveLength(0)
         } finally {
             store.close()
@@ -86,6 +91,56 @@ describe('MessengerStore', () => {
                     avatarDataUrl: 'data:image/jpeg;base64,dGVzdA=='
                 })
             ])
+        } finally {
+            store.close()
+        }
+    })
+
+    it('does not replace a full avatar with a stripped Telegram placeholder', () => {
+        const store = new Store(':memory:')
+        const fullAvatar = `data:image/jpeg;base64,${'a'.repeat(8_000)}`
+        const strippedAvatar = `data:image/jpeg;base64,${'b'.repeat(200)}`
+        try {
+            store.messengers.upsertConversation('default', {
+                ...conversation('user:8', true),
+                avatarDataUrl: fullAvatar
+            })
+            store.messengers.upsertConversation('default', {
+                ...conversation('user:8', true),
+                avatarDataUrl: strippedAvatar
+            })
+
+            expect(store.messengers.getConversation('default', 'telegram:user:8')?.avatarDataUrl).toBe(fullAvatar)
+        } finally {
+            store.close()
+        }
+    })
+
+    it('reconciles deleted messages and refreshes the conversation preview', () => {
+        const store = new Store(':memory:')
+        const first = {
+            id: 'telegram:user:1:1', conversationId: 'telegram:user:1', providerMessageId: '1',
+            senderId: 'user:1', senderName: 'Friend', direction: 'incoming' as const,
+            text: 'first', createdAt: 1000, editedAt: null, media: []
+        }
+        const second = {
+            ...first, id: 'telegram:user:1:2', providerMessageId: '2', text: 'second', createdAt: 2000
+        }
+        try {
+            store.messengers.upsertConversation('one', conversation('user:1', true))
+            store.messengers.upsertMessage('one', first)
+            store.messengers.upsertMessage('one', second)
+
+            store.messengers.reconcileMessageSnapshot('one', first.conversationId, [second])
+            expect(store.messengers.listMessages('one', first.conversationId).map((item) => item.providerMessageId)).toEqual(['2'])
+            expect(store.messengers.getConversation('one', first.conversationId)?.lastMessagePreview).toBe('second')
+
+            expect(store.messengers.deleteMessages('one', 'telegram', ['2'])).toEqual([first.conversationId])
+            expect(store.messengers.listMessages('one', first.conversationId)).toEqual([])
+            expect(store.messengers.getConversation('one', first.conversationId)).toEqual(expect.objectContaining({
+                lastMessageAt: null,
+                lastMessagePreview: null
+            }))
         } finally {
             store.close()
         }

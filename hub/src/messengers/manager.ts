@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto'
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
+import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { extname, join } from 'node:path'
 import type {
     ConfigureTelegramRequest,
     ExternalConversation,
@@ -11,15 +11,43 @@ import type {
 import type { Store } from '../store'
 import type { SSEManager } from '../sse/sseManager'
 import { TelegramConnector } from './telegramConnector'
-import type { MessengerConnector, MessengerConnectorEvent, MessengerConnectorFactory } from './types'
+import type { DownloadedExternalMedia, MessengerConnector, MessengerConnectorEvent, MessengerConnectorFactory } from './types'
 
 type StoredTelegramConfig = ConfigureTelegramRequest
+
+type MediaPrefetchTask = {
+    key: string
+    namespace: string
+    conversation: ExternalConversation
+    providerMessageId: string
+    mediaIndex: number
+}
+
+const MAX_PREFETCH_MEDIA_BYTES = 25 * 1024 * 1024
+// Background Telegram downloads must stay deliberately slow. Bursting through a
+// freshly populated queue can trip account-wide FLOOD_WAIT and block user sends.
+const MEDIA_PREFETCH_INTERVAL_MS = 2_000
+const FLOOD_WAIT_GRACE_MS = 1_000
+
+function getFloodWaitMs(error: unknown): number | null {
+    const message = error instanceof Error ? error.message : String(error)
+    const match = message.match(/FLOOD_WAIT\s*\((\d+)\)/i)
+    if (!match) return null
+    const seconds = Number.parseInt(match[1], 10)
+    return Number.isFinite(seconds) ? (seconds * 1_000) + FLOOD_WAIT_GRACE_MS : null
+}
 
 export class MessengerManager {
     private readonly connectors = new Map<string, MessengerConnector>()
     private readonly factories = new Map<string, MessengerConnectorFactory>()
     private readonly messageSyncs = new Map<string, Promise<void>>()
     private readonly messageSyncedAt = new Map<string, number>()
+    private readonly mediaDownloads = new Map<string, Promise<DownloadedExternalMedia>>()
+    private readonly mediaPrefetchQueued = new Set<string>()
+    private readonly mediaPrefetchQueue: MediaPrefetchTask[] = []
+    private readonly mediaPrefetchPausedUntil = new Map<string, number>()
+    private mediaPrefetchRunning = false
+    private stopped = false
 
     constructor(private readonly options: {
         dataDir: string
@@ -99,21 +127,28 @@ export class MessengerManager {
         }
         this.options.store.messengers.replaceSelection(namespace, provider, [...selectedIds])
         this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId: '*' })
+        void this.warmSelectedMessages(namespace, provider).catch((error) => {
+            console.error('[Messengers] Failed to warm selected conversations:', error)
+        })
         return this.listConversations(namespace)
     }
 
     async listMessages(namespace: string, conversationId: string): Promise<ExternalMessage[]> {
         const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
+        if (conversation.unreadCount > 0) {
+            this.options.store.messengers.setUnreadCount(namespace, conversationId, 0)
+            this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId })
+        }
         const cached = this.options.store.messengers.listMessages(namespace, conversationId)
         const lastSyncAt = this.messageSyncedAt.get(this.key(namespace, conversationId)) ?? 0
         if (cached.length > 0) {
             if (Date.now() - lastSyncAt > 15_000) {
-                void this.refreshMessages(namespace, conversation, 30, true).catch(() => {})
+                void this.refreshMessages(namespace, conversation, 100, true).catch(() => {})
             }
             return cached
         }
-        await this.refreshMessages(namespace, conversation, conversation.kind === 'channel' ? 100 : 30, false)
+        await this.refreshMessages(namespace, conversation, 100, false)
         return this.options.store.messengers.listMessages(namespace, conversationId)
     }
 
@@ -121,11 +156,62 @@ export class MessengerManager {
         const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         const connector = await this.requireConnector(namespace, conversation.provider)
+        await this.waitForMediaPrefetchBackoff(namespace, conversation.provider)
         await connector.sendText(conversation.remoteId, text, clientId)
-        await this.refreshMessages(namespace, conversation, 30, true)
+        await this.refreshMessages(namespace, conversation, 100, true)
+    }
+
+    async downloadMedia(
+        namespace: string,
+        conversationId: string,
+        providerMessageId: string,
+        mediaIndex: number
+    ): Promise<DownloadedExternalMedia> {
+        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        if (!conversation?.selected) throw new Error('Conversation not found')
+        const message = this.options.store.messengers.listMessages(namespace, conversationId, 200)
+            .find((item) => item.providerMessageId === providerMessageId)
+        if (!message?.media?.[mediaIndex]) throw new Error('Media attachment not found')
+        const key = this.mediaKey(namespace, conversationId, providerMessageId, mediaIndex)
+        this.mediaPrefetchQueued.delete(key)
+        return await this.downloadMediaOnce(key, namespace, conversation, providerMessageId, mediaIndex)
+    }
+
+    async sendMedia(namespace: string, conversationId: string, input: {
+        bytes: Uint8Array
+        fileName: string
+        mimeType: string
+        caption: string
+        clientId?: string
+    }): Promise<void> {
+        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        if (!conversation?.selected) throw new Error('Conversation not found')
+        const connector = await this.requireConnector(namespace, conversation.provider)
+        const uploadDir = join(this.namespaceDir(namespace, conversation.provider), 'uploads')
+        await mkdir(uploadDir, { recursive: true, mode: 0o700 })
+        const suffix = extname(input.fileName).slice(0, 12)
+        const path = join(uploadDir, `${randomUUID()}${suffix}`)
+        await writeFile(path, input.bytes, { mode: 0o600 })
+        try {
+            await this.waitForMediaPrefetchBackoff(namespace, conversation.provider)
+            await connector.sendMedia(conversation.remoteId, {
+                path,
+                fileName: input.fileName,
+                mimeType: input.mimeType,
+                caption: input.caption,
+                clientId: input.clientId
+            })
+        } finally {
+            await unlink(path).catch(() => {})
+        }
+        await this.refreshMessages(namespace, conversation, 100, true)
     }
 
     async stop(): Promise<void> {
+        this.stopped = true
+        this.mediaPrefetchQueue.length = 0
+        this.mediaPrefetchQueued.clear()
+        this.mediaPrefetchPausedUntil.clear()
         await Promise.all(Array.from(this.connectors.values(), (connector) => connector.stop()))
         this.connectors.clear()
     }
@@ -146,7 +232,8 @@ export class MessengerManager {
         const sync = (async () => {
             const connector = await this.requireConnector(namespace, conversation.provider)
             const messages = await connector.loadMessages(conversation.remoteId, limit)
-            for (const message of messages) this.options.store.messengers.upsertMessage(namespace, message)
+            this.options.store.messengers.reconcileMessageSnapshot(namespace, conversation.id, messages)
+            for (const message of messages) this.enqueueMessageMedia(namespace, conversation, message, false)
             this.messageSyncedAt.set(syncKey, Date.now())
             if (broadcast) {
                 this.options.sseManager.broadcast({
@@ -160,6 +247,131 @@ export class MessengerManager {
         })
         this.messageSyncs.set(syncKey, sync)
         return sync
+    }
+
+    private async refreshSelectedConversationMetadata(namespace: string, provider: string): Promise<void> {
+        const connector = await this.requireConnector(namespace, provider)
+        const selectedIds = new Set(this.options.store.messengers.listConversations(namespace)
+            .filter((conversation) => conversation.provider === provider)
+            .map((conversation) => conversation.remoteId))
+        if (selectedIds.size === 0) return
+        const remote = await connector.listConversations()
+        for (const conversation of remote) {
+            if (selectedIds.has(conversation.remoteId)) {
+                this.options.store.messengers.upsertConversation(namespace, conversation)
+            }
+        }
+        this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId: '*' })
+    }
+
+    private async warmSelectedMessages(namespace: string, provider: string): Promise<void> {
+        const conversations = this.options.store.messengers.listConversations(namespace)
+            .filter((conversation) => conversation.provider === provider)
+        for (const conversation of conversations) {
+            if (this.stopped) return
+            await this.refreshMessages(namespace, conversation, 100, true)
+        }
+    }
+
+    private shouldPrefetchMedia(message: ExternalMessage, mediaIndex: number): boolean {
+        const media = message.media?.[mediaIndex]
+        if (!media || media.kind === 'file' || media.kind === 'location' || media.kind === 'contact' || media.kind === 'poll' || media.kind === 'other') {
+            return false
+        }
+        if (media.size !== null && media.size > MAX_PREFETCH_MEDIA_BYTES) return false
+        if (media.kind === 'video') return media.isRound === true || media.isAnimated === true || (media.size !== null && media.size <= MAX_PREFETCH_MEDIA_BYTES)
+        return true
+    }
+
+    private mediaKey(namespace: string, conversationId: string, providerMessageId: string, mediaIndex: number): string {
+        return `${namespace}\0${conversationId}\0${providerMessageId}\0${mediaIndex}`
+    }
+
+    private enqueueMessageMedia(
+        namespace: string,
+        conversation: ExternalConversation,
+        message: ExternalMessage,
+        highPriority: boolean
+    ): void {
+        for (let mediaIndex = 0; mediaIndex < (message.media?.length ?? 0); mediaIndex += 1) {
+            if (!this.shouldPrefetchMedia(message, mediaIndex)) continue
+            const key = this.mediaKey(namespace, conversation.id, message.providerMessageId, mediaIndex)
+            if (this.mediaDownloads.has(key) || this.mediaPrefetchQueued.has(key)) continue
+            const task = { key, namespace, conversation, providerMessageId: message.providerMessageId, mediaIndex }
+            this.mediaPrefetchQueued.add(key)
+            if (highPriority) this.mediaPrefetchQueue.unshift(task)
+            else this.mediaPrefetchQueue.push(task)
+        }
+        void this.runMediaPrefetchQueue()
+    }
+
+    private async runMediaPrefetchQueue(): Promise<void> {
+        if (this.mediaPrefetchRunning || this.stopped) return
+        this.mediaPrefetchRunning = true
+        try {
+            while (!this.stopped) {
+                const task = this.mediaPrefetchQueue.shift()
+                if (!task) break
+                if (!this.mediaPrefetchQueued.delete(task.key)) continue
+
+                const connectorKey = this.key(task.namespace, task.conversation.provider)
+                const pauseMs = (this.mediaPrefetchPausedUntil.get(connectorKey) ?? 0) - Date.now()
+                if (pauseMs > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, pauseMs))
+                    if (this.stopped) break
+                }
+
+                try {
+                    await this.downloadMediaOnce(
+                        task.key,
+                        task.namespace,
+                        task.conversation,
+                        task.providerMessageId,
+                        task.mediaIndex
+                    )
+                } catch (error) {
+                    const floodWaitMs = getFloodWaitMs(error)
+                    if (floodWaitMs !== null) {
+                        this.mediaPrefetchPausedUntil.set(connectorKey, Date.now() + floodWaitMs)
+                        this.mediaPrefetchQueued.add(task.key)
+                        this.mediaPrefetchQueue.unshift(task)
+                        console.warn(`[Messengers] Telegram requested media prefetch backoff for ${floodWaitMs}ms`)
+                        continue
+                    }
+                    console.error('[Messengers] Failed to prefetch media:', error)
+                }
+                await new Promise((resolve) => setTimeout(resolve, MEDIA_PREFETCH_INTERVAL_MS))
+            }
+        } finally {
+            this.mediaPrefetchRunning = false
+            if (!this.stopped && this.mediaPrefetchQueue.length > 0) void this.runMediaPrefetchQueue()
+        }
+    }
+
+    private async waitForMediaPrefetchBackoff(namespace: string, provider: string): Promise<void> {
+        const connectorKey = this.key(namespace, provider)
+        const pauseMs = (this.mediaPrefetchPausedUntil.get(connectorKey) ?? 0) - Date.now()
+        if (pauseMs <= 0) return
+        await new Promise((resolve) => setTimeout(resolve, pauseMs))
+    }
+
+    private downloadMediaOnce(
+        key: string,
+        namespace: string,
+        conversation: ExternalConversation,
+        providerMessageId: string,
+        mediaIndex: number
+    ): Promise<DownloadedExternalMedia> {
+        const existing = this.mediaDownloads.get(key)
+        if (existing) return existing
+        const download = (async () => {
+            const connector = await this.requireConnector(namespace, conversation.provider)
+            return await connector.downloadMedia(conversation.remoteId, providerMessageId, mediaIndex)
+        })().finally(() => {
+            this.mediaDownloads.delete(key)
+        })
+        this.mediaDownloads.set(key, download)
+        return download
     }
 
     private namespaceDir(namespace: string, provider: string): string {
@@ -232,6 +444,14 @@ export class MessengerManager {
                 namespace,
                 provider: event.connection.provider
             })
+            if (event.connection.state === 'ready') {
+                void (async () => {
+                    await this.refreshSelectedConversationMetadata(namespace, event.connection.provider)
+                    await this.warmSelectedMessages(namespace, event.connection.provider)
+                })().catch((error) => {
+                    console.error('[Messengers] Failed to warm selected conversations:', error)
+                })
+            }
             return
         }
         if (event.type === 'conversation') {
@@ -247,9 +467,39 @@ export class MessengerManager {
             })
             return
         }
+        if (event.type === 'messages-deleted') {
+            const conversations = this.options.store.messengers.listConversations(namespace)
+                .filter((conversation) => conversation.provider === event.provider)
+            const targets = event.remoteId
+                ? conversations.filter((conversation) => conversation.remoteId === event.remoteId)
+                : conversations.filter((conversation) => !conversation.remoteId.startsWith('channel:'))
+            const affected = targets.flatMap((conversation) => this.options.store.messengers.deleteMessages(
+                namespace,
+                event.provider,
+                event.providerMessageIds,
+                conversation.id
+            ))
+            for (const id of affected) {
+                this.options.sseManager.broadcast({
+                    type: 'external-message-received',
+                    namespace,
+                    conversationId: id
+                })
+            }
+            return
+        }
         const conversation = this.options.store.messengers.getConversation(namespace, event.message.conversationId)
         if (!conversation?.selected) return
+        const isNew = !this.options.store.messengers.hasMessage(
+            namespace,
+            event.message.conversationId,
+            event.message.providerMessageId
+        )
         this.options.store.messengers.upsertMessage(namespace, event.message)
+        this.enqueueMessageMedia(namespace, conversation, event.message, true)
+        if (isNew && event.message.direction === 'incoming') {
+            this.options.store.messengers.incrementUnreadCount(namespace, event.message.conversationId)
+        }
         this.options.sseManager.broadcast({
             type: 'external-message-received',
             namespace,

@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { existsSync, statSync } from 'node:fs'
+import { dirname, join, resolve, sep } from 'node:path'
 import type {
     ConfigureTelegramRequest,
     ExternalConversation,
@@ -7,7 +7,7 @@ import type {
     MessengerConnection,
     SubmitMessengerAuthRequest
 } from '@hapi/protocol'
-import type { MessengerConnector, MessengerConnectorEvent } from './types'
+import type { DownloadedExternalMedia, MessengerConnector, MessengerConnectorEvent, SendExternalMediaInput } from './types'
 
 type RpcResponse = { id: string; result?: unknown; error?: string }
 type SidecarEvent = { event: string; data?: unknown }
@@ -86,8 +86,22 @@ export class TelegramConnector implements MessengerConnector {
         return (result as { messages: ExternalMessage[] }).messages
     }
 
+    async downloadMedia(remoteId: string, providerMessageId: string, mediaIndex: number): Promise<DownloadedExternalMedia> {
+        const result = await this.request('media.download', { remoteId, providerMessageId, mediaIndex }, 180_000) as DownloadedExternalMedia
+        const mediaRoot = resolve(this.options.dataDir, 'media-cache')
+        const mediaPath = resolve(result.path)
+        if (!mediaPath.startsWith(`${mediaRoot}${sep}`) || !statSync(mediaPath).isFile()) {
+            throw new Error('Telegram connector returned an invalid media path')
+        }
+        return { ...result, path: mediaPath }
+    }
+
     async sendText(remoteId: string, text: string, clientId?: string): Promise<void> {
         await this.request('messages.send', { remoteId, text, clientId })
+    }
+
+    async sendMedia(remoteId: string, input: SendExternalMediaInput): Promise<void> {
+        await this.request('media.send', { remoteId, ...input }, 180_000)
     }
 
     async stop(): Promise<void> {
@@ -192,6 +206,14 @@ export class TelegramConnector implements MessengerConnector {
             this.options.onEvent({ type: 'conversation', conversation: value.data as ExternalConversation })
         } else if (value.event === 'message') {
             this.options.onEvent({ type: 'message', message: value.data as ExternalMessage })
+        } else if (value.event === 'messages-deleted') {
+            const deleted = value.data as { remoteId?: string; providerMessageIds: string[] }
+            this.options.onEvent({
+                type: 'messages-deleted',
+                provider: 'telegram',
+                remoteId: deleted.remoteId,
+                providerMessageIds: deleted.providerMessageIds
+            })
         }
     }
 

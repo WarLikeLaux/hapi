@@ -27,6 +27,7 @@ function PinnedSectionIcon(props: { className?: string }) {
     )
 }
 import { cn } from '@/lib/utils'
+import { isWorkingSession } from '@/lib/navigationBadges'
 import { useTranslation } from '@/lib/use-translation'
 import { DEFAULT_SESSION_PREVIEW_LIMIT, useSessionPreviewLimit } from '@/hooks/useSessionPreviewLimit'
 import { useSessionListStatusMode } from '@/hooks/useSessionListStatusMode'
@@ -218,10 +219,6 @@ export function sortSessionsByNewestAgentActivity(sessions: SessionSummary[]): S
     return [...sessions].sort((a, b) => (
         getSessionUnreadActivityAt(b) - getSessionUnreadActivityAt(a) || a.id.localeCompare(b.id)
     ))
-}
-
-export function isWorkingSession(session: SessionSummary): boolean {
-    return session.active && (session.thinking || (session.backgroundTaskCount ?? 0) > 0)
 }
 
 export function getSessionDedupKey(session: SessionSummary): string | null {

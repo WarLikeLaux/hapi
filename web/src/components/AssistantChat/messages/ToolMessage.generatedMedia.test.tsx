@@ -4,6 +4,7 @@ import { HappyChatProvider } from '@/components/AssistantChat/context'
 import {
     createSandboxedHtmlPreviewBlob,
     GeneratedImageCard,
+    isMarkdownFileName,
 } from '@/components/AssistantChat/messages/ToolMessage'
 import { I18nProvider } from '@/lib/i18n-context'
 import type { ApiClient } from '@/api/client'
@@ -59,6 +60,12 @@ function renderCard(options: {
 }
 
 describe('GeneratedImageCard video fetch', () => {
+    it('recognizes common Markdown file extensions', () => {
+        expect(isMarkdownFileName('notes.md')).toBe(true)
+        expect(isMarkdownFileName('GUIDE.MARKDOWN')).toBe(true)
+        expect(isMarkdownFileName('archive.md.txt')).toBe(false)
+    })
+
     it('labels displayed images in English without implying AI generation', () => {
         renderCard({ mimeType: 'image/png', locale: 'en' })
 
@@ -117,6 +124,22 @@ describe('GeneratedImageCard video fetch', () => {
         await waitFor(() => {
             expect(screen.getByRole('link', { name: /Download clip\.mp4/ })).toHaveAttribute('download', 'clip.mp4')
         })
+    })
+
+    it('opens Markdown in a preview dialog with a separate download action', async () => {
+        const { getGeneratedImageBlob } = renderCard({
+            mimeType: 'text/markdown',
+            fileName: 'notes.md',
+            getGeneratedImageBlob: vi.fn(async () => new Blob(['# Preview heading'], { type: 'text/markdown' })),
+        })
+
+        expect(getGeneratedImageBlob).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByRole('button', { name: 'Preview notes.md' }))
+
+        expect(await screen.findByRole('heading', { name: 'Preview heading' })).toBeInTheDocument()
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+        expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('download', 'notes.md')
+        expect(screen.queryByRole('link', { name: /Download notes\.md/ })).not.toBeInTheDocument()
     })
 
     it('fetches HTML on mount and renders a one-tap browser link', async () => {

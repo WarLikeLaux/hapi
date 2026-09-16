@@ -79,6 +79,26 @@ function messagePreview(message: ExternalMessage): string {
 export class MessengerStore {
     constructor(private readonly db: Database) {}
 
+    private refreshConversationPreview(namespace: string, conversationId: string): void {
+        const row = this.db.prepare(`
+            SELECT id, conversation_id, provider_message_id, sender_id, sender_name,
+                   direction, text, media_json, created_at, edited_at
+            FROM external_messages
+            WHERE namespace = ? AND conversation_id = ?
+            ORDER BY created_at DESC,
+                     CASE WHEN provider_message_id NOT GLOB '*[^0-9]*'
+                          THEN CAST(provider_message_id AS INTEGER) END DESC,
+                     provider_message_id DESC
+            LIMIT 1
+        `).get(namespace, conversationId) as MessageRow | undefined
+        const message = row ? toMessage(row) : null
+        this.db.prepare(`
+            UPDATE external_conversations
+            SET last_message_at = ?, last_message_preview = ?
+            WHERE namespace = ? AND id = ?
+        `).run(message?.createdAt ?? null, message ? messagePreview(message) : null, namespace, conversationId)
+    }
+
     listConversations(namespace: string, selectedOnly = true): ExternalConversation[] {
         const rows = this.db.prepare(`
             SELECT id, provider, remote_id, title, kind, selected,
@@ -111,7 +131,15 @@ export class MessengerStore {
                 last_message_at = COALESCE(excluded.last_message_at, external_conversations.last_message_at),
                 last_message_preview = COALESCE(excluded.last_message_preview, external_conversations.last_message_preview),
                 unread_count = excluded.unread_count,
-                avatar_data_url = COALESCE(excluded.avatar_data_url, external_conversations.avatar_data_url)
+                avatar_data_url = CASE
+                    WHEN excluded.avatar_data_url IS NULL THEN external_conversations.avatar_data_url
+                    -- Telegram's stripped avatar is only a tiny blurred placeholder.
+                    -- Never let it replace a full avatar retained from an earlier sync.
+                    WHEN LENGTH(excluded.avatar_data_url) < 4096
+                         AND LENGTH(external_conversations.avatar_data_url) >= 4096
+                        THEN external_conversations.avatar_data_url
+                    ELSE excluded.avatar_data_url
+                END
         `).run(
             conversation.id,
             namespace,
@@ -151,6 +179,27 @@ export class MessengerStore {
                 `).run(namespace, provider, ...remoteIds)
             }
         })()
+    }
+
+    hasMessage(namespace: string, conversationId: string, providerMessageId: string): boolean {
+        return Boolean(this.db.prepare(`
+            SELECT 1 FROM external_messages
+            WHERE namespace = ? AND conversation_id = ? AND provider_message_id = ?
+        `).get(namespace, conversationId, providerMessageId))
+    }
+
+    setUnreadCount(namespace: string, conversationId: string, count: number): void {
+        this.db.prepare(`
+            UPDATE external_conversations SET unread_count = ?
+            WHERE namespace = ? AND id = ?
+        `).run(Math.max(0, Math.floor(count)), namespace, conversationId)
+    }
+
+    incrementUnreadCount(namespace: string, conversationId: string): void {
+        this.db.prepare(`
+            UPDATE external_conversations SET unread_count = unread_count + 1
+            WHERE namespace = ? AND id = ?
+        `).run(namespace, conversationId)
     }
 
     upsertMessage(namespace: string, message: ExternalMessage): void {
@@ -193,6 +242,49 @@ export class MessengerStore {
                     END
                 WHERE namespace = ? AND id = ?
             `).run(message.createdAt, message.createdAt, message.createdAt, messagePreview(message), namespace, message.conversationId)
+        })()
+    }
+
+    reconcileMessageSnapshot(namespace: string, conversationId: string, messages: ExternalMessage[]): void {
+        this.db.transaction(() => {
+            this.db.prepare(`
+                DELETE FROM external_messages WHERE namespace = ? AND conversation_id = ?
+            `).run(namespace, conversationId)
+            for (const message of messages) this.upsertMessage(namespace, message)
+            this.refreshConversationPreview(namespace, conversationId)
+        })()
+    }
+
+    deleteMessages(
+        namespace: string,
+        provider: string,
+        providerMessageIds: readonly string[],
+        conversationId?: string
+    ): string[] {
+        if (providerMessageIds.length === 0) return []
+        const placeholders = providerMessageIds.map(() => '?').join(', ')
+        const conversationFilter = conversationId ? 'AND conversation_id = ?' : ''
+        const params = conversationId
+            ? [namespace, ...providerMessageIds, conversationId, namespace, provider]
+            : [namespace, ...providerMessageIds, namespace, provider]
+        return this.db.transaction(() => {
+            const rows = this.db.prepare(`
+                SELECT DISTINCT conversation_id FROM external_messages
+                WHERE namespace = ? AND provider_message_id IN (${placeholders}) ${conversationFilter}
+                  AND conversation_id IN (
+                      SELECT id FROM external_conversations WHERE namespace = ? AND provider = ?
+                  )
+            `).all(...params) as Array<{ conversation_id: string }>
+            this.db.prepare(`
+                DELETE FROM external_messages
+                WHERE namespace = ? AND provider_message_id IN (${placeholders}) ${conversationFilter}
+                  AND conversation_id IN (
+                      SELECT id FROM external_conversations WHERE namespace = ? AND provider = ?
+                  )
+            `).run(...params)
+            const affected = rows.map((row) => row.conversation_id)
+            for (const id of affected) this.refreshConversationPreview(namespace, id)
+            return affected
         })()
     }
 

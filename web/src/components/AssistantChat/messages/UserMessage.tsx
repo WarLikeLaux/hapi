@@ -8,6 +8,7 @@ import { CliOutputBlock } from '@/components/CliOutputBlock'
 import { getConversationMessageAnchorId } from '@/chat/outline'
 import { MessageActions } from '@/components/AssistantChat/messages/MessageActions'
 import { useTranslation } from '@/lib/use-translation'
+import { MessageTimestamp } from '@/components/AssistantChat/messages/MessageTimestamp'
 
 export function HappyUserMessage() {
     const ctx = useHappyChatContext()
@@ -102,16 +103,15 @@ export function HappyUserMessage() {
             className="happy-message flex flex-col items-end scroll-mt-4"
         >
             <div className={getUserBubbleClassName(status)}>
-                <div className="flex items-start gap-2">
+                <div className="flex items-end gap-2">
                     <div className="min-w-0 flex-1">
                         {hasText ? <UserBubbleContent text={text} /> : null}
                         {hasAttachments ? <MessageAttachments attachments={attachments} /> : null}
                     </div>
-                    {showStatus && (
-                        <div className="happy-message-actions-first-line flex shrink-0 items-center gap-1">
-                            {showStatus ? <MessageStatusIndicator status={status} onRetry={onRetry} /> : null}
-                        </div>
-                    )}
+                    <div className="flex shrink-0 items-center gap-1 pb-0.5">
+                        <MessageTimestamp className="text-[10px] leading-none opacity-60" />
+                        {showStatus ? <MessageStatusIndicator status={status} onRetry={onRetry} /> : null}
+                    </div>
                 </div>
                 {steered ? (
                     <span
@@ -129,6 +129,7 @@ export function HappyUserMessage() {
                 showFork={showFork}
                 showRewind={showRewind}
                 historyActionPending={ctx.historyActionPending}
+                showTimestamp={false}
                 onFork={showCurrentFork
                     ? () => ctx.onForkConversation!()
                     : showHistoricalFork && localId

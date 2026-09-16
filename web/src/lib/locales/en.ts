@@ -627,6 +627,8 @@ export default {
   'media.displayed.file': 'Displayed file',
   'media.displayed.header': '{label}: {fileName}',
   'media.displayed.unavailable': '{label} is unavailable. {error}',
+  'media.displayed.previewNamed': 'Preview {fileName}',
+  'media.displayed.download': 'Download',
 
   // Tool card
   'tool.askQuestion': 'Other',

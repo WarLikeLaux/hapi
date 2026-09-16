@@ -59,7 +59,9 @@ export const ExternalMediaSchema = z.object({
     mimeType: z.string().nullable(),
     fileName: z.string().nullable(),
     size: z.number().int().nonnegative().nullable(),
-    thumbnailDataUrl: z.string().nullable()
+    thumbnailDataUrl: z.string().nullable(),
+    isRound: z.boolean().optional(),
+    isAnimated: z.boolean().optional()
 })
 export type ExternalMedia = z.infer<typeof ExternalMediaSchema>
 

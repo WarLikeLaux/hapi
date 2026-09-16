@@ -625,6 +625,8 @@ export default {
   'media.displayed.file': '展示文件',
   'media.displayed.header': '{label}：{fileName}',
   'media.displayed.unavailable': '{label}不可用：{error}',
+  'media.displayed.previewNamed': '预览 {fileName}',
+  'media.displayed.download': '下载',
 
   // Tool card
   'tool.askQuestion': '其他',
