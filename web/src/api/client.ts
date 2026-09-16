@@ -310,8 +310,15 @@ export class ApiClient {
         return await this.request('/api/conversations')
     }
 
-    async getExternalMessages(conversationId: string): Promise<ExternalMessagesResponse> {
-        return await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`)
+    async getExternalMessages(
+        conversationId: string,
+        options: { markRead?: boolean; refresh?: boolean } = {}
+    ): Promise<ExternalMessagesResponse> {
+        const params = new URLSearchParams()
+        if (options.markRead === false) params.set('markRead', 'false')
+        if (options.refresh === false) params.set('refresh', 'false')
+        const query = params.size > 0 ? `?${params.toString()}` : ''
+        return await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages${query}`)
     }
 
     async sendExternalMessage(conversationId: string, text: string, clientId?: string): Promise<void> {

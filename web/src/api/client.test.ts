@@ -287,6 +287,19 @@ describe('ApiClient error mapping', () => {
         )
     })
 
+    it('can request a cached messenger snapshot without marking it as read', async () => {
+        fetchMock.mockResolvedValueOnce(
+            new Response(JSON.stringify({ messages: [], participants: [] }), { status: 200 })
+        )
+
+        const api = new ApiClient('test-token')
+        await api.getExternalMessages('telegram:user /1', { markRead: false, refresh: false })
+
+        expect(fetchMock.mock.calls[0]?.[0]).toBe(
+            '/api/conversations/telegram%3Auser%20%2F1/messages?markRead=false&refresh=false'
+        )
+    })
+
     it('lets fetch set the multipart boundary for transcription uploads', async () => {
         fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ text: 'hello' }), { status: 200 }))
 

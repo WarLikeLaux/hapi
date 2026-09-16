@@ -91,7 +91,10 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
         try {
             const namespace = c.get('namespace')
             const conversationId = c.req.param('id')
-            const messages = await manager.listMessages(namespace, conversationId)
+            const messages = await manager.listMessages(namespace, conversationId, {
+                markRead: c.req.query('markRead') !== 'false',
+                refresh: c.req.query('refresh') !== 'false'
+            })
             const participants = manager.listParticipants(namespace, conversationId)
             return c.json({ messages, participants })
         } catch (error) {

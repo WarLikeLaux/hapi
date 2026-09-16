@@ -157,6 +157,53 @@ describe('MessengerManager', () => {
         }
     })
 
+    it('returns an empty local snapshot immediately while the first refresh runs in the background', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-cache-first-'))
+        const store = new Store(':memory:')
+        let resolveLoad!: (messages: ExternalMessage[]) => void
+        const load = new Promise<ExternalMessage[]>((resolve) => { resolveLoad = resolve })
+        let resolveRefreshed!: () => void
+        const refreshed = new Promise<void>((resolve) => { resolveRefreshed = resolve })
+        const conversation: ExternalConversation = {
+            id: 'test:user:1', provider: 'test', remoteId: 'user:1', title: 'Friend', kind: 'direct',
+            selected: false, lastMessageAt: 1, lastMessagePreview: 'Hello', unreadCount: 0, avatarDataUrl: null
+        }
+        const connector: MessengerConnector = {
+            provider: 'test',
+            getConnection: (): MessengerConnection => ({ provider: 'test', state: 'ready', accountLabel: null, detail: null }),
+            configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [conversation],
+            loadMessages: async () => await load,
+            downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
+            sendText: async () => {}, sendMedia: async () => {}, stop: async () => {}
+        }
+        const manager = new MessengerManager({
+            dataDir,
+            store,
+            sseManager: {
+                broadcast: (event: { type?: string }) => {
+                    if (event.type === 'external-message-received') resolveRefreshed()
+                }
+            } as unknown as SSEManager
+        })
+        manager.registerConnectorFactory('test', () => connector)
+        store.messengers.upsertConversation('default', conversation)
+        store.messengers.replaceSelection('default', 'test', [conversation.remoteId])
+
+        try {
+            const result = await Promise.race([
+                manager.listMessages('default', conversation.id),
+                new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 50))
+            ])
+            expect(result).toEqual([])
+        } finally {
+            resolveLoad([])
+            await refreshed
+            await manager.stop()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('backs off the media prefetch queue when Telegram returns FLOOD_WAIT', async () => {
         const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-flood-wait-'))
         const store = new Store(':memory:')
