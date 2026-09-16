@@ -143,6 +143,7 @@ function triggerIncomingUserMessage(
         seq: number
         text: string
         sentFrom: 'cli' | 'webapp' | 'telegram-bot'
+        isMeta?: boolean
     }
 ): void {
     socket.trigger('update', {
@@ -159,7 +160,8 @@ function triggerIncomingUserMessage(
                         text: message.text
                     },
                     meta: {
-                        sentFrom: message.sentFrom
+                        sentFrom: message.sentFrom,
+                        isMeta: message.isMeta
                     }
                 }
             }
@@ -495,6 +497,56 @@ describe('ApiSessionClient agy transcript messages', () => {
 })
 
 describe('ApiSessionClient incoming user messages', () => {
+    it('gives every agent flavor a fallback title from the first real prompt', () => {
+        socketHarness.sockets.length = 0
+        const client = new ApiSessionClient('token', createSession({
+            namespace: 'default',
+            metadata: { path: '/tmp', host: 'test', flavor: 'dsh' }
+        }))
+        const socket = socketHarness.sockets[0]
+        const updateMetadata = vi.spyOn(client, 'updateMetadata').mockImplementation(() => {})
+        client.onUserMessage(vi.fn())
+
+        triggerIncomingUserMessage(socket, {
+            seq: 10,
+            text: '  Investigate\n\nthis   failure  ',
+            sentFrom: 'webapp'
+        })
+        expect(updateMetadata).toHaveBeenCalledTimes(1)
+        const firstUpdate = updateMetadata.mock.calls[0]![0]
+        const titled = firstUpdate(client.getMetadata()!)
+        expect(titled.summary?.text).toBe('Investigate this failure')
+
+        triggerIncomingUserMessage(socket, {
+            seq: 11,
+            text: 'A later objective',
+            sentFrom: 'webapp'
+        })
+        const secondUpdate = updateMetadata.mock.calls[1]![0]
+        expect(secondUpdate(titled)).toBe(titled)
+        client.close()
+    })
+
+    it('does not title a session from an internal control prompt', () => {
+        socketHarness.sockets.length = 0
+        const client = new ApiSessionClient('token', createSession({
+            namespace: 'default',
+            metadata: { path: '/tmp', host: 'test', flavor: 'codex' }
+        }))
+        const socket = socketHarness.sockets[0]
+        const updateMetadata = vi.spyOn(client, 'updateMetadata').mockImplementation(() => {})
+        client.onUserMessage(vi.fn())
+
+        triggerIncomingUserMessage(socket, {
+            seq: 10,
+            text: 'Regenerate the chat title now.',
+            sentFrom: 'webapp',
+            isMeta: true
+        })
+        expect(updateMetadata).not.toHaveBeenCalled()
+        client.close()
+    })
+
     it.each([true, false])('replays explicitly marked native queue input only for shared sessions (%s)', shared => {
         socketHarness.sockets.length = 0
         const client = new ApiSessionClient('token', createSession({

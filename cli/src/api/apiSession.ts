@@ -43,6 +43,7 @@ import { TerminalManager } from '@/terminal/TerminalManager'
 import { applyVersionedAck } from './versionedUpdate'
 import { buildHubRequestHeaders, buildSocketIoExtraHeaderOptions } from './hubExtraHeaders'
 import { WorkspaceChangesTracker } from '@/modules/common/workspaceChanges'
+import { applySessionTitleFallback } from '@/modules/common/sessionTitleFallback'
 
 /**
  * XML tags that Claude Code injects as `type:'user'` messages.
@@ -719,6 +720,10 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     private enqueueUserMessage(message: UserMessage, localId?: string): void {
+        const hasTitle = Boolean(this.metadata?.name?.trim() || this.metadata?.summary?.text.trim())
+        if (!message.meta?.isMeta && !hasTitle) {
+            applySessionTitleFallback(this, message.content.text)
+        }
         if (this.pendingMessageCallback) {
             this.pendingMessageCallback(message, localId)
         } else {
