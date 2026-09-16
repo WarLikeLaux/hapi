@@ -351,7 +351,7 @@ export class ApiClient {
         const headers = new Headers()
         if (authToken) headers.set('authorization', `Bearer ${authToken}`)
         const path = `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(providerMessageId)}/media/${mediaIndex}`
-        const response = await fetch(this.buildUrl(path), { headers })
+        const response = await fetch(this.buildUrl(path), { headers, cache: 'force-cache' })
         if (response.status === 401 && attempt === 0 && this.onUnauthorized) {
             const refreshed = await this.onUnauthorized()
             if (refreshed) {
