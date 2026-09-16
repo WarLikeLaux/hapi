@@ -6,7 +6,7 @@ import type { ExternalConversation, ExternalMessage, MessengerConnection } from 
 import { Store } from '../store'
 import type { SSEManager } from '../sse/sseManager'
 import { MessengerManager } from './manager'
-import type { MessengerConnector } from './types'
+import type { MessengerConnector, MessengerConnectorEvent } from './types'
 
 describe('MessengerManager', () => {
     it('keeps an already selected Telegram channel in the chat list', () => {
@@ -68,6 +68,58 @@ describe('MessengerManager', () => {
                 channel.remoteId,
                 direct.remoteId
             ])
+        } finally {
+            await manager.stop()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
+    it('applies live outgoing read receipts and broadcasts a message update', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-read-receipt-'))
+        const store = new Store(':memory:')
+        const events: Array<{ type?: string; conversationId?: string; namespace?: string }> = []
+        const conversation: ExternalConversation = {
+            id: 'test:user:1', provider: 'test', remoteId: 'user:1', title: 'Friend', kind: 'direct',
+            selected: false, lastMessageAt: 5, lastMessagePreview: 'Hello', unreadCount: 0, avatarDataUrl: null
+        }
+        let emit: ((event: MessengerConnectorEvent) => void) | null = null
+        const connector: MessengerConnector = {
+            provider: 'test',
+            getConnection: (): MessengerConnection => ({ provider: 'test', state: 'ready', accountLabel: null, detail: null }),
+            configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [conversation],
+            loadMessages: async () => [],
+            downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
+            sendText: async () => {}, sendMedia: async () => {}, stop: async () => {}
+        }
+        const manager = new MessengerManager({
+            dataDir,
+            store,
+            sseManager: { broadcast: (event: { type?: string; conversationId?: string; namespace?: string }) => events.push(event) } as unknown as SSEManager
+        })
+        manager.registerConnectorFactory('test', (options) => {
+            emit = options.onEvent
+            return connector
+        })
+
+        try {
+            await manager.getConnections('default')
+            store.messengers.upsertConversation('default', conversation)
+            store.messengers.replaceSelection('default', 'test', [conversation.remoteId])
+            store.messengers.upsertMessage('default', {
+                id: 'test:user:1:5', conversationId: conversation.id, providerMessageId: '5',
+                senderId: 'user:me', senderName: 'Me', direction: 'outgoing', deliveryStatus: 'sent',
+                text: 'Hello', createdAt: 5, editedAt: null, media: []
+            })
+
+            emit!({ type: 'messages-read', provider: 'test', remoteId: 'user:1', maxProviderMessageId: 5 })
+
+            expect(store.messengers.listMessages('default', conversation.id)[0]?.deliveryStatus).toBe('read')
+            expect(events).toContainEqual({
+                type: 'external-message-updated',
+                namespace: 'default',
+                conversationId: conversation.id
+            })
         } finally {
             await manager.stop()
             store.close()

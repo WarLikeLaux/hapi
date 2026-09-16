@@ -214,6 +214,14 @@ export class TelegramConnector implements MessengerConnector {
                 remoteId: deleted.remoteId,
                 providerMessageIds: deleted.providerMessageIds
             })
+        } else if (value.event === 'messages-read') {
+            const receipt = value.data as { remoteId: string; maxId: number }
+            this.options.onEvent({
+                type: 'messages-read',
+                provider: 'telegram',
+                remoteId: receipt.remoteId,
+                maxProviderMessageId: receipt.maxId
+            })
         }
     }
 

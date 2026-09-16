@@ -10,6 +10,8 @@ type ConversationRow = {
     selected: number
     last_message_at: number | null
     last_message_preview: string | null
+    last_message_direction: 'incoming' | 'outgoing' | null
+    last_message_delivery_status: 'sent' | 'read' | null
     unread_count: number
     avatar_data_url: string | null
 }
@@ -24,6 +26,7 @@ type MessageRow = {
     text: string
     created_at: number
     edited_at: number | null
+    delivery_status: 'sent' | 'read' | null
     media_json: string
 }
 
@@ -37,6 +40,8 @@ function toConversation(row: ConversationRow): ExternalConversation {
         selected: row.selected === 1,
         lastMessageAt: row.last_message_at,
         lastMessagePreview: row.last_message_preview,
+        lastMessageDirection: row.last_message_direction,
+        lastMessageDeliveryStatus: row.last_message_delivery_status,
         unreadCount: row.unread_count,
         avatarDataUrl: row.avatar_data_url
     }
@@ -53,6 +58,7 @@ function toMessage(row: MessageRow): ExternalMessage {
         text: row.text,
         createdAt: row.created_at,
         editedAt: row.edited_at,
+        ...(row.delivery_status ? { deliveryStatus: row.delivery_status } : {}),
         media: JSON.parse(row.media_json) as ExternalMessage['media']
     }
     return message
@@ -83,7 +89,7 @@ export class MessengerStore {
     private refreshConversationPreview(namespace: string, conversationId: string): void {
         const row = this.db.prepare(`
             SELECT id, conversation_id, provider_message_id, sender_id, sender_name,
-                   direction, text, media_json, created_at, edited_at
+                   direction, text, media_json, created_at, edited_at, delivery_status
             FROM external_messages
             WHERE namespace = ? AND conversation_id = ?
             ORDER BY created_at DESC,
@@ -95,15 +101,24 @@ export class MessengerStore {
         const message = row ? toMessage(row) : null
         this.db.prepare(`
             UPDATE external_conversations
-            SET last_message_at = ?, last_message_preview = ?
+            SET last_message_at = ?, last_message_preview = ?,
+                last_message_direction = ?, last_message_delivery_status = ?
             WHERE namespace = ? AND id = ?
-        `).run(message?.createdAt ?? null, message ? messagePreview(message) : null, namespace, conversationId)
+        `).run(
+            message?.createdAt ?? null,
+            message ? messagePreview(message) : null,
+            message?.direction ?? null,
+            message?.deliveryStatus ?? null,
+            namespace,
+            conversationId
+        )
     }
 
     listConversations(namespace: string, selectedOnly = true): ExternalConversation[] {
         const rows = this.db.prepare(`
             SELECT id, provider, remote_id, title, kind, selected,
-                   last_message_at, last_message_preview, unread_count, avatar_data_url
+                   last_message_at, last_message_preview, last_message_direction,
+                   last_message_delivery_status, unread_count, avatar_data_url
             FROM external_conversations
             WHERE namespace = ? ${selectedOnly ? 'AND selected = 1' : ''}
             ORDER BY COALESCE(last_message_at, 0) DESC, title COLLATE NOCASE
@@ -114,7 +129,8 @@ export class MessengerStore {
     getConversation(namespace: string, id: string): ExternalConversation | null {
         const row = this.db.prepare(`
             SELECT id, provider, remote_id, title, kind, selected,
-                   last_message_at, last_message_preview, unread_count, avatar_data_url
+                   last_message_at, last_message_preview, last_message_direction,
+                   last_message_delivery_status, unread_count, avatar_data_url
             FROM external_conversations WHERE namespace = ? AND id = ?
         `).get(namespace, id) as ConversationRow | undefined
         return row ? toConversation(row) : null
@@ -124,13 +140,26 @@ export class MessengerStore {
         this.db.prepare(`
             INSERT INTO external_conversations (
                 id, namespace, provider, remote_id, title, kind, selected,
-                last_message_at, last_message_preview, unread_count, avatar_data_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                last_message_at, last_message_preview, last_message_direction,
+                last_message_delivery_status, unread_count, avatar_data_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(namespace, provider, remote_id) DO UPDATE SET
                 title = excluded.title,
                 kind = excluded.kind,
                 last_message_at = COALESCE(excluded.last_message_at, external_conversations.last_message_at),
                 last_message_preview = COALESCE(excluded.last_message_preview, external_conversations.last_message_preview),
+                last_message_direction = CASE
+                    WHEN excluded.last_message_at IS NOT NULL
+                         AND (external_conversations.last_message_at IS NULL OR excluded.last_message_at >= external_conversations.last_message_at)
+                        THEN excluded.last_message_direction
+                    ELSE external_conversations.last_message_direction
+                END,
+                last_message_delivery_status = CASE
+                    WHEN excluded.last_message_at IS NOT NULL
+                         AND (external_conversations.last_message_at IS NULL OR excluded.last_message_at >= external_conversations.last_message_at)
+                        THEN excluded.last_message_delivery_status
+                    ELSE external_conversations.last_message_delivery_status
+                END,
                 unread_count = excluded.unread_count,
                 avatar_data_url = CASE
                     WHEN excluded.avatar_data_url IS NULL THEN external_conversations.avatar_data_url
@@ -151,6 +180,8 @@ export class MessengerStore {
             conversation.selected ? 1 : 0,
             conversation.lastMessageAt,
             conversation.lastMessagePreview,
+            conversation.lastMessageDirection ?? null,
+            conversation.lastMessageDeliveryStatus ?? null,
             conversation.unreadCount,
             conversation.avatarDataUrl ?? null
         )
@@ -234,8 +265,9 @@ export class MessengerStore {
             this.db.prepare(`
                 INSERT INTO external_messages (
                     id, namespace, conversation_id, provider_message_id,
-                    sender_id, sender_name, direction, text, media_json, created_at, edited_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    sender_id, sender_name, direction, text, media_json, created_at, edited_at,
+                    delivery_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(namespace, conversation_id, provider_message_id) DO UPDATE SET
                     sender_id = excluded.sender_id,
                     sender_name = excluded.sender_name,
@@ -243,7 +275,8 @@ export class MessengerStore {
                     text = excluded.text,
                     media_json = excluded.media_json,
                     created_at = excluded.created_at,
-                    edited_at = excluded.edited_at
+                    edited_at = excluded.edited_at,
+                    delivery_status = excluded.delivery_status
             `).run(
                 message.id,
                 namespace,
@@ -255,7 +288,8 @@ export class MessengerStore {
                 message.text,
                 JSON.stringify(message.media ?? []),
                 message.createdAt,
-                message.editedAt
+                message.editedAt,
+                message.deliveryStatus ?? null
             )
             this.db.prepare(`
                 UPDATE external_conversations
@@ -266,10 +300,35 @@ export class MessengerStore {
                     last_message_preview = CASE
                         WHEN last_message_at IS NULL OR last_message_at <= ? THEN ?
                         ELSE last_message_preview
+                    END,
+                    last_message_direction = CASE
+                        WHEN last_message_at IS NULL OR last_message_at <= ? THEN ?
+                        ELSE last_message_direction
+                    END,
+                    last_message_delivery_status = CASE
+                        WHEN last_message_at IS NULL OR last_message_at <= ? THEN ?
+                        ELSE last_message_delivery_status
                     END
                 WHERE namespace = ? AND id = ?
-            `).run(message.createdAt, message.createdAt, message.createdAt, messagePreview(message), namespace, message.conversationId)
+            `).run(
+                message.createdAt, message.createdAt,
+                message.createdAt, messagePreview(message),
+                message.createdAt, message.direction,
+                message.createdAt, message.deliveryStatus ?? null,
+                namespace, message.conversationId
+            )
         })()
+    }
+
+    markOutgoingMessagesRead(namespace: string, conversationId: string, maxProviderMessageId: number): void {
+        this.db.prepare(`
+            UPDATE external_messages
+            SET delivery_status = 'read'
+            WHERE namespace = ? AND conversation_id = ? AND direction = 'outgoing'
+              AND provider_message_id NOT GLOB '*[^0-9]*'
+              AND CAST(provider_message_id AS INTEGER) <= ?
+        `).run(namespace, conversationId, Math.max(0, Math.floor(maxProviderMessageId)))
+        this.refreshConversationPreview(namespace, conversationId)
     }
 
     reconcileMessageSnapshot(namespace: string, conversationId: string, messages: ExternalMessage[]): void {
@@ -319,7 +378,7 @@ export class MessengerStore {
         const safeLimit = Math.min(200, Math.max(1, Math.floor(limit)))
         const rows = this.db.prepare(`
             SELECT id, conversation_id, provider_message_id, sender_id, sender_name,
-                   direction, text, media_json, created_at, edited_at
+                   direction, text, media_json, created_at, edited_at, delivery_status
             FROM external_messages
             WHERE namespace = ? AND conversation_id = ?
             ORDER BY created_at DESC,

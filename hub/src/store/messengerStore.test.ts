@@ -151,4 +151,37 @@ describe('MessengerStore', () => {
             store.close()
         }
     })
+
+    it('marks outgoing messages and the conversation preview as read', () => {
+        const store = new Store(':memory:')
+        try {
+            store.messengers.upsertConversation('one', conversation('user:1', true))
+            for (const id of ['4', '5', '6']) {
+                store.messengers.upsertMessage('one', {
+                    id: `telegram:user:1:${id}`,
+                    conversationId: 'telegram:user:1',
+                    providerMessageId: id,
+                    senderId: 'user:me',
+                    senderName: 'Me',
+                    direction: 'outgoing',
+                    deliveryStatus: 'sent',
+                    text: id,
+                    createdAt: Number(id),
+                    editedAt: null,
+                    media: []
+                })
+            }
+
+            store.messengers.markOutgoingMessagesRead('one', 'telegram:user:1', 5)
+
+            expect(store.messengers.listMessages('one', 'telegram:user:1').map((message) => message.deliveryStatus))
+                .toEqual(['read', 'read', 'sent'])
+            expect(store.messengers.getConversation('one', 'telegram:user:1')).toEqual(expect.objectContaining({
+                lastMessageDirection: 'outgoing',
+                lastMessageDeliveryStatus: 'sent'
+            }))
+        } finally {
+            store.close()
+        }
+    })
 })

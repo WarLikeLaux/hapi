@@ -69,16 +69,18 @@ type connection struct {
 }
 
 type conversation struct {
-	ID                 string  `json:"id"`
-	Provider           string  `json:"provider"`
-	RemoteID           string  `json:"remoteId"`
-	Title              string  `json:"title"`
-	Kind               string  `json:"kind"`
-	Selected           bool    `json:"selected"`
-	LastMessageAt      *int64  `json:"lastMessageAt"`
-	LastMessagePreview *string `json:"lastMessagePreview"`
-	UnreadCount        int     `json:"unreadCount"`
-	AvatarDataURL      *string `json:"avatarDataUrl"`
+	ID                        string  `json:"id"`
+	Provider                  string  `json:"provider"`
+	RemoteID                  string  `json:"remoteId"`
+	Title                     string  `json:"title"`
+	Kind                      string  `json:"kind"`
+	Selected                  bool    `json:"selected"`
+	LastMessageAt             *int64  `json:"lastMessageAt"`
+	LastMessagePreview        *string `json:"lastMessagePreview"`
+	LastMessageDirection      *string `json:"lastMessageDirection"`
+	LastMessageDeliveryStatus *string `json:"lastMessageDeliveryStatus"`
+	UnreadCount               int     `json:"unreadCount"`
+	AvatarDataURL             *string `json:"avatarDataUrl"`
 }
 
 type externalMedia struct {
@@ -94,6 +96,11 @@ type externalMedia struct {
 type deletedMessages struct {
 	RemoteID           *string  `json:"remoteId,omitempty"`
 	ProviderMessageIDs []string `json:"providerMessageIds"`
+}
+
+type readReceipt struct {
+	RemoteID string `json:"remoteId"`
+	MaxID    int    `json:"maxId"`
 }
 
 type downloadedMedia struct {
@@ -116,6 +123,7 @@ type externalMessage struct {
 	Text                string          `json:"text"`
 	CreatedAt           int64           `json:"createdAt"`
 	EditedAt            *int64          `json:"editedAt"`
+	DeliveryStatus      *string         `json:"deliveryStatus,omitempty"`
 	Media               []externalMedia `json:"media"`
 }
 
@@ -193,27 +201,29 @@ func (a *interactiveAuth) SignUp(context.Context) (auth.UserInfo, error) {
 }
 
 type service struct {
-	out         *writer
-	auth        *interactiveAuth
-	mu          sync.RWMutex
-	client      *telegram.Client
-	raw         *tg.Client
-	cancel      context.CancelFunc
-	self        *tg.User
-	peers       map[string]tg.InputPeerClass
-	peerTitles  map[string]string
-	avatars     map[string]string
-	sessionPath string
+	out           *writer
+	auth          *interactiveAuth
+	mu            sync.RWMutex
+	client        *telegram.Client
+	raw           *tg.Client
+	cancel        context.CancelFunc
+	self          *tg.User
+	peers         map[string]tg.InputPeerClass
+	peerTitles    map[string]string
+	avatars       map[string]string
+	readOutboxMax map[string]int
+	sessionPath   string
 }
 
 func newService(out *writer) *service {
 	a := &interactiveAuth{out: out, inputs: make(chan authInput, 1)}
 	return &service{
-		out:        out,
-		auth:       a,
-		peers:      make(map[string]tg.InputPeerClass),
-		peerTitles: make(map[string]string),
-		avatars:    make(map[string]string),
+		out:           out,
+		auth:          a,
+		peers:         make(map[string]tg.InputPeerClass),
+		peerTitles:    make(map[string]string),
+		avatars:       make(map[string]string),
+		readOutboxMax: make(map[string]int),
 	}
 }
 
@@ -536,6 +546,8 @@ func (s *service) configure(apiID int, apiHash, sessionPath string) error {
 	dispatcher.OnNewChannelMessage(s.handleNewChannelMessage)
 	dispatcher.OnDeleteMessages(s.handleDeleteMessages)
 	dispatcher.OnDeleteChannelMessages(s.handleDeleteChannelMessages)
+	dispatcher.OnReadHistoryOutbox(s.handleReadHistoryOutbox)
+	dispatcher.OnReadChannelOutbox(s.handleReadChannelOutbox)
 	client := telegram.NewClient(apiID, apiHash, telegram.Options{
 		SessionStorage: &session.FileStorage{Path: sessionPath},
 		UpdateHandler:  dispatcher,
@@ -591,6 +603,7 @@ func (s *service) listConversations(ctx context.Context) ([]conversation, error)
 	result := make([]conversation, 0, maxConversations)
 	newPeers := make(map[string]tg.InputPeerClass, maxConversations)
 	newTitles := make(map[string]string, maxConversations)
+	newReadOutboxMax := make(map[string]int, maxConversations)
 	type avatarTask struct {
 		index    int
 		remoteID string
@@ -620,8 +633,21 @@ func (s *service) listConversations(ctx context.Context) ([]conversation, error)
 		title := titleForDialog(elem, remoteID, kind)
 		lastAt, preview := lastMessageData(elem.Last)
 		unread := 0
+		readOutboxMax := 0
 		if dialog, ok := elem.Dialog.(*tg.Dialog); ok {
 			unread = dialog.UnreadCount
+			readOutboxMax = dialog.ReadOutboxMaxID
+		}
+		newReadOutboxMax[remoteID] = readOutboxMax
+		var lastDirection *string
+		var lastDeliveryStatus *string
+		if last, ok := elem.Last.(*tg.Message); ok {
+			direction := "incoming"
+			if last.Out {
+				direction = "outgoing"
+			}
+			lastDirection = &direction
+			lastDeliveryStatus = deliveryStatusForMessage(last, readOutboxMax)
 		}
 		newPeers[remoteID] = elem.Peer
 		newTitles[remoteID] = title
@@ -633,15 +659,17 @@ func (s *service) listConversations(ctx context.Context) ([]conversation, error)
 			avatar = &cachedAvatar
 		}
 		result = append(result, conversation{
-			ID:                 conversationID(remoteID),
-			Provider:           "telegram",
-			RemoteID:           remoteID,
-			Title:              title,
-			Kind:               kind,
-			LastMessageAt:      lastAt,
-			LastMessagePreview: preview,
-			UnreadCount:        unread,
-			AvatarDataURL:      avatar,
+			ID:                        conversationID(remoteID),
+			Provider:                  "telegram",
+			RemoteID:                  remoteID,
+			Title:                     title,
+			Kind:                      kind,
+			LastMessageAt:             lastAt,
+			LastMessagePreview:        preview,
+			LastMessageDirection:      lastDirection,
+			LastMessageDeliveryStatus: lastDeliveryStatus,
+			UnreadCount:               unread,
+			AvatarDataURL:             avatar,
 		})
 		if cachedAvatar == "" && len(avatarTasks) < maxAvatarDownloads {
 			if photoID := avatarPhotoID(elem); photoID != 0 {
@@ -680,6 +708,7 @@ func (s *service) listConversations(ctx context.Context) ([]conversation, error)
 	s.mu.Lock()
 	s.peers = newPeers
 	s.peerTitles = newTitles
+	s.readOutboxMax = newReadOutboxMax
 	s.mu.Unlock()
 	return result, nil
 }
@@ -769,7 +798,18 @@ func senderAvatarCandidateForMessage(msg *tg.Message, entities messagepeer.Entit
 	}
 }
 
-func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *tg.User, senderAvatar *string) (externalMessage, bool) {
+func deliveryStatusForMessage(msg *tg.Message, readOutboxMax int) *string {
+	if !msg.Out {
+		return nil
+	}
+	status := "sent"
+	if msg.ID <= readOutboxMax {
+		status = "read"
+	}
+	return &status
+}
+
+func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *tg.User, senderAvatar *string, readOutboxMax int) (externalMessage, bool) {
 	remoteID, ok := remoteIDFromPeer(msg.PeerID)
 	if !ok {
 		return externalMessage{}, false
@@ -795,6 +835,7 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 		Direction:           direction,
 		Text:                text,
 		CreatedAt:           int64(msg.Date) * 1000,
+		DeliveryStatus:      deliveryStatusForMessage(msg, readOutboxMax),
 		Media:               media,
 	}, true
 }
@@ -817,6 +858,7 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 	iter := query.Messages(raw).GetHistory(peer).BatchSize(limit).Iter()
 	s.mu.RLock()
 	self := s.self
+	readOutboxMax := s.readOutboxMax[remoteID]
 	s.mu.RUnlock()
 	result := make([]externalMessage, 0, limit)
 	avatarMessageIndexes := make(map[string][]int)
@@ -842,7 +884,7 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 				}
 			}
 		}
-		converted, ok := messageFromTelegram(msg, elem.Entities, self, avatar)
+		converted, ok := messageFromTelegram(msg, elem.Entities, self, avatar, readOutboxMax)
 		if ok {
 			result = append(result, converted)
 			if candidate != nil {
@@ -1153,6 +1195,10 @@ func (s *service) emitNewMessage(ctx context.Context, entities messagepeer.Entit
 	self := s.self
 	raw := s.raw
 	s.mu.RUnlock()
+	remoteID, _ := remoteIDFromPeer(msg.PeerID)
+	s.mu.RLock()
+	readOutboxMax := s.readOutboxMax[remoteID]
+	s.mu.RUnlock()
 	candidate := senderAvatarCandidateForMessage(msg, entities, self)
 	var avatar *string
 	needsFullAvatar := false
@@ -1167,7 +1213,7 @@ func (s *service) emitNewMessage(ctx context.Context, entities messagepeer.Entit
 			needsFullAvatar = raw != nil
 		}
 	}
-	converted, ok := messageFromTelegram(msg, entities, self, avatar)
+	converted, ok := messageFromTelegram(msg, entities, self, avatar, readOutboxMax)
 	if !ok {
 		return
 	}
@@ -1230,6 +1276,33 @@ func (s *service) handleDeleteChannelMessages(_ context.Context, _ tg.Entities, 
 		remoteID := fmt.Sprintf("channel:%d", update.ChannelID)
 		s.out.event("messages-deleted", deletedMessages{RemoteID: &remoteID, ProviderMessageIDs: ids})
 	}
+	return nil
+}
+
+func (s *service) emitReadReceipt(remoteID string, maxID int) {
+	if remoteID == "" || maxID <= 0 {
+		return
+	}
+	s.mu.Lock()
+	if maxID <= s.readOutboxMax[remoteID] {
+		s.mu.Unlock()
+		return
+	}
+	s.readOutboxMax[remoteID] = maxID
+	s.mu.Unlock()
+	s.out.event("messages-read", readReceipt{RemoteID: remoteID, MaxID: maxID})
+}
+
+func (s *service) handleReadHistoryOutbox(_ context.Context, _ tg.Entities, update *tg.UpdateReadHistoryOutbox) error {
+	remoteID, ok := remoteIDFromPeer(update.Peer)
+	if ok {
+		s.emitReadReceipt(remoteID, update.MaxID)
+	}
+	return nil
+}
+
+func (s *service) handleReadChannelOutbox(_ context.Context, _ tg.Entities, update *tg.UpdateReadChannelOutbox) error {
+	s.emitReadReceipt(fmt.Sprintf("channel:%d", update.ChannelID), update.MaxID)
 	return nil
 }
 
