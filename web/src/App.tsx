@@ -150,7 +150,7 @@ function AppInner() {
         const backButton = tg?.BackButton
         if (!backButton) return
 
-        if (pathname === '/' || pathname === '/sessions') {
+        if (pathname === '/' || pathname === '/sessions' || pathname === '/chats') {
             backButton.offClick(goBack)
             backButton.hide()
             return
@@ -274,6 +274,8 @@ function AppInner() {
         }
         const invalidations = [
             queryClient.invalidateQueries({ queryKey: queryKeys.sessions }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.messengerConnections }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations }),
             // Invalidate ALL cached session-detail entries on reconnect, not just
             // the selected one.  With `SESSION_DETAIL_STALE_TIME_MS` extending the
             // freshness window on `useSession`, a previously-viewed session that
@@ -304,6 +306,21 @@ function AppInner() {
         }
     }, [reportSseDisconnect])
 
+    const handleGlobalSseEvent = useCallback((event: SyncEvent) => {
+        if (event.type === 'messenger-connection-updated') {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.messengerConnections })
+            return
+        }
+        if (event.type === 'external-conversation-updated') {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
+            return
+        }
+        if (event.type === 'external-message-received') {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
+            void queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(event.conversationId) })
+        }
+    }, [queryClient])
+
     const handleSseEvent = useCallback((event: SyncEvent) => {
         if (event.type !== 'messages-invalidated') {
             return
@@ -317,7 +334,7 @@ function AppInner() {
             clearMessageWindow(event.sessionId)
         }
         void syncTailMessages(api, event.sessionId)
-    }, [api, selectedSessionId])
+    }, [api, queryClient, selectedSessionId])
 
     const handleSessionSseConnect = useCallback((info: { resumed: boolean }) => {
         if (!api || !selectedSessionId) {
@@ -413,7 +430,7 @@ function AppInner() {
         scope: 'global',
         onConnect: handleSseConnect,
         onDisconnect: handleSseDisconnect,
-        onEvent: () => {},
+        onEvent: handleGlobalSseEvent,
         onToast: handleToast
     })
 

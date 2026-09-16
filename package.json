@@ -20,6 +20,7 @@
         "build:single-exe:all": "bun run download:tunwg && bun run build:web && (cd hub && bun run generate:embedded-web-assets) && (cd cli && bun run build:exe:allinone:all)",
         "download:tunwg": "bun run hub/scripts/download-tunwg.ts",
         "build:hub": "cd hub && bun run build",
+        "build:telegram-connector": "cd connectors/telegram && go build -o hapi-telegram-connector .",
         "build:web": "cd web && bun run build",
         "dev:hub": "cd hub && bun run dev",
         "dev:web": "cd web && bun run dev",

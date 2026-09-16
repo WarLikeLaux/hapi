@@ -66,6 +66,15 @@ import type {
 import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { CancelMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
+import type {
+    ConfigureTelegramRequest,
+    ExternalConversationsResponse,
+    ExternalMessagesResponse,
+    MessengerConnection,
+    MessengerConnectionsResponse,
+    SelectMessengerConversationsRequest,
+    SubmitMessengerAuthRequest
+} from '@hapi/protocol/messengers'
 
 export type RetryIndeterminateMessageResponse =
     | { status: 'retried' | 'already-queued' | 'retry-unavailable'; localId: string | null }
@@ -260,6 +269,56 @@ export class ApiClient {
 
     async getSessions(): Promise<SessionsResponse> {
         return await this.request<SessionsResponse>('/api/sessions')
+    }
+
+    async getMessengerConnections(): Promise<MessengerConnectionsResponse> {
+        return await this.request<MessengerConnectionsResponse>('/api/messengers/connections')
+    }
+
+    async configureTelegram(payload: ConfigureTelegramRequest): Promise<{ connection: MessengerConnection }> {
+        return await this.request('/api/messengers/telegram/configure', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    async submitMessengerAuth(
+        provider: string,
+        payload: SubmitMessengerAuthRequest
+    ): Promise<{ connection: MessengerConnection }> {
+        return await this.request(`/api/messengers/${encodeURIComponent(provider)}/auth`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    async getMessengerCandidates(provider: string): Promise<ExternalConversationsResponse> {
+        return await this.request(`/api/messengers/${encodeURIComponent(provider)}/candidates`)
+    }
+
+    async selectMessengerConversations(
+        provider: string,
+        payload: SelectMessengerConversationsRequest
+    ): Promise<ExternalConversationsResponse> {
+        return await this.request(`/api/messengers/${encodeURIComponent(provider)}/selection`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    async getExternalConversations(): Promise<ExternalConversationsResponse> {
+        return await this.request('/api/conversations')
+    }
+
+    async getExternalMessages(conversationId: string): Promise<ExternalMessagesResponse> {
+        return await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`)
+    }
+
+    async sendExternalMessage(conversationId: string, text: string, clientId?: string): Promise<void> {
+        await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({ text, clientId })
+        })
     }
 
     async getHealth(): Promise<HubHealthResponse> {

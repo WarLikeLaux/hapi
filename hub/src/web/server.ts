@@ -32,6 +32,8 @@ import { createDevicesRoutes } from './routes/devices'
 import { createVoiceRoutes } from './routes/voice'
 import { createHubSettingsRoutes } from './routes/hubSettings'
 import { createWorkGraphRoutes } from './routes/workGraph'
+import { createMessengerRoutes } from './routes/messengers'
+import type { MessengerManager } from '../messengers/manager'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
@@ -223,6 +225,7 @@ function createWebApp(options: {
     getVisibilityTracker: () => VisibilityTracker | null
     jwtSecret: Uint8Array
     store: Store
+    messengerManager: MessengerManager
     vapidPublicKey: string
     corsOrigins?: string[]
     embeddedAssetMap: Map<string, EmbeddedWebAsset> | null
@@ -308,6 +311,7 @@ function createWebApp(options: {
     app.route('/api', createVoiceRoutes({ dataDir: configuration.dataDir }))
     // Path is intentionally NOT `/api/events` — that route is the SSE stream.
     app.route('/api', createWorkGraphRoutes(options.store))
+    app.route('/api', createMessengerRoutes(options.messengerManager))
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {
@@ -418,6 +422,7 @@ export async function startWebServer(options: {
     getVisibilityTracker: () => VisibilityTracker | null
     jwtSecret: Uint8Array
     store: Store
+    messengerManager: MessengerManager
     vapidPublicKey: string
     socketEngine: SocketEngine
     corsOrigins?: string[]
@@ -432,6 +437,7 @@ export async function startWebServer(options: {
         getVisibilityTracker: options.getVisibilityTracker,
         jwtSecret: options.jwtSecret,
         store: options.store,
+        messengerManager: options.messengerManager,
         vapidPublicKey: options.vapidPublicKey,
         corsOrigins: options.corsOrigins,
         embeddedAssetMap,

@@ -3,6 +3,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import { MachineStore } from './machineStore'
+import { MessengerStore } from './messengerStore'
 import { MessageStore } from './messageStore'
 import { addMessage } from './messages'
 import type { StoredMessage } from './types'
@@ -29,6 +30,7 @@ export type {
 } from './types'
 export type { CancelQueuedMessageResult, LookupQueuedMessageResult } from './messages'
 export { MachineStore } from './machineStore'
+export { MessengerStore } from './messengerStore'
 export { MessageStore } from './messageStore'
 export { PushStore } from './pushStore'
 export { FcmStore } from './fcmStore'
@@ -43,7 +45,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 27
+const SCHEMA_VERSION: number = 28
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -56,7 +58,9 @@ const REQUIRED_TABLES = [
     'usage_events',
     'usage_scan_state',
     'events',
-    'event_links'
+    'event_links',
+    'external_conversations',
+    'external_messages'
 ] as const
 
 export class Store {
@@ -66,6 +70,7 @@ export class Store {
 
     readonly sessions: SessionStore
     readonly machines: MachineStore
+    readonly messengers: MessengerStore
     readonly messages: MessageStore
     readonly users: UserStore
     readonly push: PushStore
@@ -120,6 +125,7 @@ export class Store {
 
         this.sessions = new SessionStore(this.db)
         this.machines = new MachineStore(this.db)
+        this.messengers = new MessengerStore(this.db)
         this.messages = new MessageStore(this.db)
         this.users = new UserStore(this.db)
         this.push = new PushStore(this.db)
@@ -368,6 +374,7 @@ export class Store {
             24: () => this.migrateFromV24ToV25(),
             25: () => this.migrateFromV25ToV26(),
             26: () => this.migrateFromV26ToV27(),
+            27: () => this.migrateFromV27ToV28(),
         })
 
         if (currentVersion === 0) {
@@ -619,7 +626,47 @@ export class Store {
                 ON event_links(namespace, from_event_id);
             CREATE INDEX IF NOT EXISTS idx_event_links_namespace_to
                 ON event_links(namespace, to_event_id);
+
+            CREATE TABLE IF NOT EXISTS external_conversations (
+                id TEXT NOT NULL,
+                namespace TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                remote_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                selected INTEGER NOT NULL DEFAULT 0,
+                last_message_at INTEGER,
+                last_message_preview TEXT,
+                unread_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (namespace, id),
+                UNIQUE (namespace, provider, remote_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_external_conversations_selected
+                ON external_conversations(namespace, selected, last_message_at DESC);
+
+            CREATE TABLE IF NOT EXISTS external_messages (
+                id TEXT NOT NULL,
+                namespace TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                provider_message_id TEXT NOT NULL,
+                sender_id TEXT,
+                sender_name TEXT,
+                direction TEXT NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
+                text TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                edited_at INTEGER,
+                PRIMARY KEY (namespace, id),
+                UNIQUE (namespace, conversation_id, provider_message_id),
+                FOREIGN KEY (namespace, conversation_id)
+                    REFERENCES external_conversations(namespace, id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_external_messages_conversation
+                ON external_messages(namespace, conversation_id, created_at DESC);
         `)
+    }
+
+    private migrateFromV27ToV28(): void {
+        this.createSchema()
     }
 
     private migrateLegacySchemaIfNeeded(): void {

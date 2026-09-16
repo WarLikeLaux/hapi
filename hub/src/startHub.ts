@@ -29,6 +29,7 @@ import { ServerChanChannel } from './serverchan/channel'
 import QRCode from 'qrcode'
 import type { Server as BunServer } from 'bun'
 import type { WebSocketData } from '@socket.io/bun-engine'
+import { MessengerManager } from './messengers/manager'
 
 /** Format config source for logging */
 function formatSource(source: ConfigSource | 'generated'): string {
@@ -117,6 +118,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     let visibilityTracker: VisibilityTracker | null = null
     let notificationHub: NotificationHub | null = null
     let tunnelManager: TunnelManager | null = null
+    let messengerManager: MessengerManager | null = null
 
     // Load configuration (async - loads from env/file with persistence)
     const relayApiDomain = process.env.HAPI_RELAY_API || 'relay.hapi.run'
@@ -185,6 +187,11 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
 
     visibilityTracker = new VisibilityTracker()
     sseManager = new SSEManager(30_000, visibilityTracker)
+    messengerManager = new MessengerManager({
+        dataDir: config.dataDir,
+        store,
+        sseManager
+    })
 
     const socketServer = createSocketServer({
         store,
@@ -285,6 +292,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         getVisibilityTracker: () => visibilityTracker,
         jwtSecret,
         store,
+        messengerManager,
         vapidPublicKey: vapidKeys.publicKey,
         socketEngine: socketServer.engine,
         corsOrigins,
@@ -394,6 +402,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         stop: async () => {
             await tunnelManager?.stop()
             await happyBot?.stop()
+            await messengerManager?.stop()
             notificationHub?.stop()
             syncEngine?.stop()
             sseManager?.stop()

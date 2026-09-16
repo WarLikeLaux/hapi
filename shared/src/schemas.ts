@@ -569,6 +569,18 @@ const MachineChangedSchema = SessionEventBaseSchema.extend({
 })
 
 export const SyncEventSchema = z.discriminatedUnion('type', [
+    SessionEventBaseSchema.extend({
+        type: z.literal('messenger-connection-updated'),
+        provider: z.string()
+    }),
+    SessionEventBaseSchema.extend({
+        type: z.literal('external-conversation-updated'),
+        conversationId: z.string()
+    }),
+    SessionEventBaseSchema.extend({
+        type: z.literal('external-message-received'),
+        conversationId: z.string()
+    }),
     SessionChangedSchema.extend({
         type: z.literal('session-added'),
         data: z.unknown().optional()

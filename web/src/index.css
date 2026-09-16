@@ -409,7 +409,7 @@ html:has(.chat-scroll-y) #root {
        424px = 420px min detail pane + 4px resize handle, which preserves the
        previous 1024px worst case (1024 - 600 - 4 = 420) down to 920px. The cap
        is a no-op on desktop where 100vw - 424px exceeds the stored width. */
-    div[style*="--sidebar-w"] {
+    [style*="--sidebar-w"] {
         width: min(var(--sidebar-w), calc(100vw - 424px)) !important;
     }
 }
