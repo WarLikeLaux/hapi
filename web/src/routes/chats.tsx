@@ -25,6 +25,7 @@ import { shouldAutoLoadExternalMedia } from '@/chat/externalMedia'
 import {
     appendOptimisticExternalMessage,
     createOptimisticExternalMessage,
+    getOptimisticExternalSender,
     isOptimisticExternalMessage,
     removeOptimisticExternalMessage
 } from '@/chat/optimisticExternalMessages'
@@ -508,7 +509,10 @@ export function ChatConversationPage() {
             const optimistic = createOptimisticExternalMessage({
                 conversationId,
                 clientId: input.clientId,
-                text: input.text
+                text: input.text,
+                ...getOptimisticExternalSender(
+                    queryClient.getQueryData<ExternalMessagesResponse>(queryKeys.externalMessages(conversationId))
+                )
             })
             queryClient.setQueryData<ExternalMessagesResponse>(
                 queryKeys.externalMessages(conversationId),
@@ -618,7 +622,8 @@ export function ChatConversationPage() {
                         const hasMedia = Boolean(item.media?.length)
                         const continuesPrevious = areExternalMessagesGrouped(messageItems[index - 1], item)
                         const continuesNext = areExternalMessagesGrouped(item, messageItems[index + 1])
-                        const avatarSrc = (item.senderId ? participantAvatars.get(item.senderId) : null)
+                        const avatarSrc = item.senderAvatarDataUrl
+                            ?? (item.senderId ? participantAvatars.get(item.senderId) : null)
                             ?? (incoming && conversation.kind === 'direct' ? conversation.avatarDataUrl : null)
                         const groupedCornerClassName = incoming
                             ? cn(continuesPrevious && 'rounded-tl-md', continuesNext && 'rounded-bl-md')
@@ -678,7 +683,10 @@ export function ChatConversationPage() {
             <form className="shrink-0 border-t border-[var(--app-border)] bg-[var(--app-bg)] p-2 pb-[max(.5rem,env(safe-area-inset-bottom))]" onSubmit={(event) => {
                 event.preventDefault()
                 const value = text.trim()
-                if (value && !send.isPending) send.mutate({ text: value, clientId: crypto.randomUUID() })
+                if (value && !send.isPending) {
+                    composerRef.current?.focus({ preventScroll: true })
+                    send.mutate({ text: value, clientId: crypto.randomUUID() })
+                }
             }}>
                 <div className="mx-auto flex max-w-content items-end gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] p-1.5 pl-3 focus-within:border-[var(--app-link)]">
                     <input
@@ -712,7 +720,7 @@ export function ChatConversationPage() {
                         placeholder={t('chats.messagePlaceholder')}
                         className="max-h-32 min-h-9 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[var(--app-hint)]"
                     />
-                    <button type="submit" disabled={!text.trim() || send.isPending || sendMedia.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
+                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={!text.trim() || send.isPending || sendMedia.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
                 </div>
                 {send.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{send.error.message}</div> : null}
                 {sendMedia.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{sendMedia.error.message}</div> : null}
