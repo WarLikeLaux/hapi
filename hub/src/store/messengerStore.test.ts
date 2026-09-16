@@ -38,9 +38,31 @@ describe('MessengerStore', () => {
                 direction: 'incoming',
                 text: 'hello',
                 createdAt: 1000,
-                editedAt: null
+                editedAt: null,
+                media: [{
+                    kind: 'image',
+                    mimeType: 'image/jpeg',
+                    fileName: null,
+                    size: 128,
+                    thumbnailDataUrl: 'data:image/jpeg;base64,dGVzdA=='
+                }]
             })
-            expect(store.messengers.listMessages('one', 'telegram:user:1')).toHaveLength(1)
+            expect(store.messengers.listMessages('one', 'telegram:user:1')).toEqual([
+                expect.objectContaining({ media: [expect.objectContaining({ kind: 'image', size: 128 })] })
+            ])
+            store.messengers.upsertMessage('one', {
+                id: 'telegram:user:1:6',
+                conversationId: 'telegram:user:1',
+                providerMessageId: '6',
+                senderId: 'user:1',
+                senderName: 'Friend',
+                direction: 'incoming',
+                text: '',
+                createdAt: 2000,
+                editedAt: null,
+                media: [{ kind: 'voice', mimeType: 'audio/ogg', fileName: null, size: 512, thumbnailDataUrl: null }]
+            })
+            expect(store.messengers.getConversation('one', 'telegram:user:1')?.lastMessagePreview).toBe('Voice message')
             expect(store.messengers.listMessages('two', 'telegram:user:1')).toHaveLength(0)
         } finally {
             store.close()
@@ -54,10 +76,15 @@ describe('MessengerStore', () => {
             store.messengers.replaceSelection('default', 'telegram', ['user:7'])
             store.messengers.upsertConversation('default', {
                 ...conversation('user:7', false),
-                title: 'Updated title'
+                title: 'Updated title',
+                avatarDataUrl: 'data:image/jpeg;base64,dGVzdA=='
             })
             expect(store.messengers.listConversations('default')).toEqual([
-                expect.objectContaining({ title: 'Updated title', selected: true })
+                expect.objectContaining({
+                    title: 'Updated title',
+                    selected: true,
+                    avatarDataUrl: 'data:image/jpeg;base64,dGVzdA=='
+                })
             ])
         } finally {
             store.close()

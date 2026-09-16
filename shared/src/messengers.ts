@@ -35,9 +35,33 @@ export const ExternalConversationSchema = z.object({
     selected: z.boolean(),
     lastMessageAt: z.number().int().nullable(),
     lastMessagePreview: z.string().nullable(),
-    unreadCount: z.number().int().nonnegative()
+    unreadCount: z.number().int().nonnegative(),
+    avatarDataUrl: z.string().nullable().optional()
 })
 export type ExternalConversation = z.infer<typeof ExternalConversationSchema>
+
+export const ExternalMediaKindSchema = z.enum([
+    'image',
+    'video',
+    'audio',
+    'voice',
+    'sticker',
+    'file',
+    'location',
+    'contact',
+    'poll',
+    'other'
+])
+export type ExternalMediaKind = z.infer<typeof ExternalMediaKindSchema>
+
+export const ExternalMediaSchema = z.object({
+    kind: ExternalMediaKindSchema,
+    mimeType: z.string().nullable(),
+    fileName: z.string().nullable(),
+    size: z.number().int().nonnegative().nullable(),
+    thumbnailDataUrl: z.string().nullable()
+})
+export type ExternalMedia = z.infer<typeof ExternalMediaSchema>
 
 export const ExternalMessageSchema = z.object({
     id: z.string().min(1),
@@ -48,7 +72,8 @@ export const ExternalMessageSchema = z.object({
     direction: z.enum(['incoming', 'outgoing']),
     text: z.string(),
     createdAt: z.number().int(),
-    editedAt: z.number().int().nullable()
+    editedAt: z.number().int().nullable(),
+    media: z.array(ExternalMediaSchema).optional()
 })
 export type ExternalMessage = z.infer<typeof ExternalMessageSchema>
 

@@ -18,6 +18,8 @@ type StoredTelegramConfig = ConfigureTelegramRequest
 export class MessengerManager {
     private readonly connectors = new Map<string, MessengerConnector>()
     private readonly factories = new Map<string, MessengerConnectorFactory>()
+    private readonly messageSyncs = new Map<string, Promise<void>>()
+    private readonly messageSyncedAt = new Map<string, number>()
 
     constructor(private readonly options: {
         dataDir: string
@@ -58,12 +60,16 @@ export class MessengerManager {
 
     async listCandidates(namespace: string, provider: string): Promise<ExternalConversation[]> {
         const connector = await this.requireConnector(namespace, provider)
-        const candidates = await connector.listConversations()
-        const selectedIds = new Set(
-            this.options.store.messengers.listConversations(namespace)
-                .filter((conversation) => conversation.provider === provider)
-                .map((conversation) => conversation.remoteId)
-        )
+        const remote = await connector.listConversations()
+        const candidates = remote.filter((conversation) => !(provider === 'telegram' && conversation.kind === 'channel'))
+        const selectedConversations = this.options.store.messengers.listConversations(namespace)
+            .filter((conversation) => conversation.provider === provider)
+        const selectedIds = new Set(selectedConversations.map((conversation) => conversation.remoteId))
+        for (const conversation of remote) {
+            if (selectedIds.has(conversation.remoteId)) {
+                this.options.store.messengers.upsertConversation(namespace, conversation)
+            }
+        }
         return candidates.map((conversation) => ({
             ...conversation,
             selected: selectedIds.has(conversation.remoteId)
@@ -77,17 +83,21 @@ export class MessengerManager {
     async selectConversations(namespace: string, provider: string, remoteIds: string[]): Promise<ExternalConversation[]> {
         const connector = await this.requireConnector(namespace, provider)
         const remote = await connector.listConversations()
-        const selectedIds = new Set(remoteIds)
+        const selectableIds = new Set(remote
+            .filter((conversation) => !(provider === 'telegram' && conversation.kind === 'channel'))
+            .map((conversation) => conversation.remoteId))
+        const selectedIds = new Set(remoteIds.filter((remoteId) => selectableIds.has(remoteId)))
+        for (const conversation of this.options.store.messengers.listConversations(namespace)) {
+            if (conversation.provider === provider && conversation.kind === 'channel') {
+                selectedIds.add(conversation.remoteId)
+            }
+        }
         for (const conversation of remote) {
             if (selectedIds.has(conversation.remoteId)) {
                 this.options.store.messengers.upsertConversation(namespace, conversation)
             }
         }
-        this.options.store.messengers.replaceSelection(namespace, provider, remoteIds)
-        for (const remoteId of remoteIds) {
-            const messages = await connector.loadMessages(remoteId, 100)
-            for (const message of messages) this.options.store.messengers.upsertMessage(namespace, message)
-        }
+        this.options.store.messengers.replaceSelection(namespace, provider, [...selectedIds])
         this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId: '*' })
         return this.listConversations(namespace)
     }
@@ -96,13 +106,14 @@ export class MessengerManager {
         const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         const cached = this.options.store.messengers.listMessages(namespace, conversationId)
-        try {
-            const connector = await this.requireConnector(namespace, conversation.provider)
-            const messages = await connector.loadMessages(conversation.remoteId, 100)
-            for (const message of messages) this.options.store.messengers.upsertMessage(namespace, message)
-        } catch (error) {
-            if (cached.length === 0) throw error
+        const lastSyncAt = this.messageSyncedAt.get(this.key(namespace, conversationId)) ?? 0
+        if (cached.length > 0) {
+            if (Date.now() - lastSyncAt > 15_000) {
+                void this.refreshMessages(namespace, conversation, 30, true).catch(() => {})
+            }
+            return cached
         }
+        await this.refreshMessages(namespace, conversation, conversation.kind === 'channel' ? 100 : 30, false)
         return this.options.store.messengers.listMessages(namespace, conversationId)
     }
 
@@ -111,9 +122,7 @@ export class MessengerManager {
         if (!conversation?.selected) throw new Error('Conversation not found')
         const connector = await this.requireConnector(namespace, conversation.provider)
         await connector.sendText(conversation.remoteId, text, clientId)
-        const messages = await connector.loadMessages(conversation.remoteId, 30)
-        for (const message of messages) this.options.store.messengers.upsertMessage(namespace, message)
-        this.options.sseManager.broadcast({ type: 'external-message-received', namespace, conversationId })
+        await this.refreshMessages(namespace, conversation, 30, true)
     }
 
     async stop(): Promise<void> {
@@ -123,6 +132,34 @@ export class MessengerManager {
 
     private key(namespace: string, provider: string): string {
         return `${namespace}\0${provider}`
+    }
+
+    private refreshMessages(
+        namespace: string,
+        conversation: ExternalConversation,
+        limit: number,
+        broadcast: boolean
+    ): Promise<void> {
+        const syncKey = this.key(namespace, conversation.id)
+        const existing = this.messageSyncs.get(syncKey)
+        if (existing) return existing
+        const sync = (async () => {
+            const connector = await this.requireConnector(namespace, conversation.provider)
+            const messages = await connector.loadMessages(conversation.remoteId, limit)
+            for (const message of messages) this.options.store.messengers.upsertMessage(namespace, message)
+            this.messageSyncedAt.set(syncKey, Date.now())
+            if (broadcast) {
+                this.options.sseManager.broadcast({
+                    type: 'external-message-received',
+                    namespace,
+                    conversationId: conversation.id
+                })
+            }
+        })().finally(() => {
+            this.messageSyncs.delete(syncKey)
+        })
+        this.messageSyncs.set(syncKey, sync)
+        return sync
     }
 
     private namespaceDir(namespace: string, provider: string): string {
