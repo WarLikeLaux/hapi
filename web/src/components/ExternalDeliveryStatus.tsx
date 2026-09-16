@@ -14,8 +14,17 @@ export function ExternalDeliveryStatus(props: {
             title={label}
             className={cn('inline-flex shrink-0 text-[var(--app-hint)]', read && 'text-[#2AABEE]', props.className)}
         >
-            <svg viewBox="0 0 18 12" aria-hidden="true" className="h-3 w-[18px]" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7">
-                <path d="m1 6.5 3 3 6-7" />
+            <svg
+                viewBox="0 0 18 12"
+                aria-hidden="true"
+                className="h-2.5 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.7"
+            >
+                <path d={read ? 'm1 6.5 3 3 6-7' : 'm4 6.5 3 3 6-7'} />
                 {read ? <path d="m7 7.5 2 2 8-8" /> : null}
             </svg>
         </span>

@@ -417,14 +417,12 @@ function ChatList(props: {
                             <span className="flex items-baseline gap-2">
                                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{conversation.title}</span>
                                 {conversation.unreadCount > 0 ? <span className="min-w-5 rounded-full bg-[var(--app-button)] px-1.5 py-0.5 text-center text-[10px] font-semibold text-[var(--app-button-text)]">{conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}</span> : null}
+                                {conversation.lastMessageDirection === 'outgoing' && conversation.lastMessageDeliveryStatus
+                                    ? <ExternalDeliveryStatus status={conversation.lastMessageDeliveryStatus} className="self-center text-[#2AABEE]" />
+                                    : null}
                                 <span className="shrink-0 text-[10px] text-[var(--app-hint)]">{formatTime(conversation.lastMessageAt)}</span>
                             </span>
-                            <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-[var(--app-hint)]">
-                                {conversation.lastMessageDirection === 'outgoing' && conversation.lastMessageDeliveryStatus
-                                    ? <ExternalDeliveryStatus status={conversation.lastMessageDeliveryStatus} />
-                                    : null}
-                                <span className="truncate">{conversation.lastMessagePreview ?? t('chats.noMessages')}</span>
-                            </span>
+                            <span className="mt-0.5 block truncate text-xs text-[var(--app-hint)]">{conversation.lastMessagePreview ?? t('chats.noMessages')}</span>
                         </span>
                     </button>
                 ))}
