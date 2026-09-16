@@ -45,7 +45,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 30
+const SCHEMA_VERSION: number = 31
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -378,6 +378,7 @@ export class Store {
             27: () => this.migrateFromV27ToV28(),
             28: () => this.migrateFromV28ToV29(),
             29: () => this.migrateFromV29ToV30(),
+            30: () => this.migrateFromV30ToV31(),
         })
 
         if (currentVersion === 0) {
@@ -640,6 +641,8 @@ export class Store {
                 selected INTEGER NOT NULL DEFAULT 0,
                 last_message_at INTEGER,
                 last_message_preview TEXT,
+                last_message_direction TEXT CHECK (last_message_direction IN ('incoming', 'outgoing')),
+                last_message_delivery_status TEXT CHECK (last_message_delivery_status IN ('sent', 'read')),
                 unread_count INTEGER NOT NULL DEFAULT 0,
                 avatar_data_url TEXT,
                 PRIMARY KEY (namespace, id),
@@ -660,6 +663,7 @@ export class Store {
                 media_json TEXT NOT NULL DEFAULT '[]',
                 created_at INTEGER NOT NULL,
                 edited_at INTEGER,
+                delivery_status TEXT CHECK (delivery_status IN ('sent', 'read')),
                 PRIMARY KEY (namespace, id),
                 UNIQUE (namespace, conversation_id, provider_message_id),
                 FOREIGN KEY (namespace, conversation_id)
@@ -705,6 +709,20 @@ export class Store {
                 PRIMARY KEY (namespace, provider, remote_id)
             )
         `)
+    }
+
+    private migrateFromV30ToV31(): void {
+        const conversationColumns = this.db.prepare('PRAGMA table_info(external_conversations)').all() as Array<{ name: string }>
+        if (!conversationColumns.some((column) => column.name === 'last_message_direction')) {
+            this.db.exec("ALTER TABLE external_conversations ADD COLUMN last_message_direction TEXT CHECK (last_message_direction IN ('incoming', 'outgoing'))")
+        }
+        if (!conversationColumns.some((column) => column.name === 'last_message_delivery_status')) {
+            this.db.exec("ALTER TABLE external_conversations ADD COLUMN last_message_delivery_status TEXT CHECK (last_message_delivery_status IN ('sent', 'read'))")
+        }
+        const messageColumns = this.db.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
+        if (!messageColumns.some((column) => column.name === 'delivery_status')) {
+            this.db.exec("ALTER TABLE external_messages ADD COLUMN delivery_status TEXT CHECK (delivery_status IN ('sent', 'read'))")
+        }
     }
 
     private migrateLegacySchemaIfNeeded(): void {

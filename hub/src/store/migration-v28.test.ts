@@ -31,7 +31,7 @@ describe('schema migration v27 to v28', () => {
                 WHERE type = 'table' AND name IN ('external_conversations', 'external_messages')
                 ORDER BY name
             `).all() as Array<{ name: string }>
-            expect(version.user_version).toBe(30)
+            expect(version.user_version).toBe(31)
             expect(tables.map((row) => row.name)).toEqual(['external_conversations', 'external_messages'])
 
             store.messengers.upsertConversation('one', {

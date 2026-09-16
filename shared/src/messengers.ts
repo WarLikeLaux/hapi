@@ -26,6 +26,9 @@ export type MessengerConnection = z.infer<typeof MessengerConnectionSchema>
 export const ExternalConversationKindSchema = z.enum(['direct', 'group', 'channel', 'saved'])
 export type ExternalConversationKind = z.infer<typeof ExternalConversationKindSchema>
 
+export const ExternalMessageDeliveryStatusSchema = z.enum(['sent', 'read'])
+export type ExternalMessageDeliveryStatus = z.infer<typeof ExternalMessageDeliveryStatusSchema>
+
 export const ExternalConversationSchema = z.object({
     id: z.string().min(1),
     provider: MessengerProviderSchema,
@@ -35,6 +38,8 @@ export const ExternalConversationSchema = z.object({
     selected: z.boolean(),
     lastMessageAt: z.number().int().nullable(),
     lastMessagePreview: z.string().nullable(),
+    lastMessageDirection: z.enum(['incoming', 'outgoing']).nullable().optional(),
+    lastMessageDeliveryStatus: ExternalMessageDeliveryStatusSchema.nullable().optional(),
     unreadCount: z.number().int().nonnegative(),
     avatarDataUrl: z.string().nullable().optional()
 })
@@ -76,6 +81,7 @@ export const ExternalMessageSchema = z.object({
     text: z.string(),
     createdAt: z.number().int(),
     editedAt: z.number().int().nullable(),
+    deliveryStatus: ExternalMessageDeliveryStatusSchema.optional(),
     media: z.array(ExternalMediaSchema).optional()
 })
 export type ExternalMessage = z.infer<typeof ExternalMessageSchema>

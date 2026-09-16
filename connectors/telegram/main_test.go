@@ -37,12 +37,19 @@ func TestMessageFromTelegram(t *testing.T) {
 		Message: "hello",
 		Date:    123,
 	}
-	result, ok := messageFromTelegram(msg, messageEntities(), &tg.User{ID: 1, FirstName: "Me"}, nil)
+	result, ok := messageFromTelegram(msg, messageEntities(), &tg.User{ID: 1, FirstName: "Me"}, nil, 10)
 	if !ok {
 		t.Fatal("message was not converted")
 	}
 	if result.ConversationID != "telegram:user:42" || result.Direction != "outgoing" || result.CreatedAt != 123000 {
 		t.Fatalf("unexpected message: %#v", result)
+	}
+	if result.DeliveryStatus == nil || *result.DeliveryStatus != "sent" {
+		t.Fatalf("expected sent delivery status, got %#v", result.DeliveryStatus)
+	}
+	read, ok := messageFromTelegram(msg, messageEntities(), &tg.User{ID: 1, FirstName: "Me"}, nil, 11)
+	if !ok || read.DeliveryStatus == nil || *read.DeliveryStatus != "read" {
+		t.Fatalf("expected read delivery status, got %#v", read.DeliveryStatus)
 	}
 }
 
@@ -68,7 +75,7 @@ func TestMessageFromTelegramPreservesMediaKind(t *testing.T) {
 			},
 		},
 	}
-	result, ok := messageFromTelegram(msg, messageEntities(), nil, nil)
+	result, ok := messageFromTelegram(msg, messageEntities(), nil, nil, 0)
 	if !ok || len(result.Media) != 1 || result.Media[0].Kind != "voice" || result.Text != "" {
 		t.Fatalf("unexpected media message: %#v", result)
 	}
