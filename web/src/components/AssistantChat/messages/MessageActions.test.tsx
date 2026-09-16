@@ -157,6 +157,13 @@ describe('MessageActions', () => {
         expect(wrapper.className.split(' ')).not.toContain('happy-message-actions-desktop-only')
     })
 
+    it('can omit the timestamp when it is rendered inside the message bubble', () => {
+        renderActions({ align: 'end', copyText: 'message body', showTimestamp: false })
+
+        expect(document.querySelector('time')).toBeNull()
+        expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy()
+    })
+
     it('keeps the row reachable on touch devices even with neither copy text nor metadata (timestamp-only row)', () => {
         // DesktopTimestamp always renders inside the row regardless of
         // canCopy/hasMetadata, so the row is never actually empty -- hiding

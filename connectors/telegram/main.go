@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,9 +24,11 @@ import (
 	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/telegram/message"
 	messagepeer "github.com/gotd/td/telegram/message/peer"
+	"github.com/gotd/td/telegram/message/styling"
 	"github.com/gotd/td/telegram/query"
 	"github.com/gotd/td/telegram/query/dialogs"
 	"github.com/gotd/td/telegram/thumbnail"
+	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
 )
 
@@ -83,7 +87,23 @@ type externalMedia struct {
 	FileName         *string `json:"fileName"`
 	Size             *int64  `json:"size"`
 	ThumbnailDataURL *string `json:"thumbnailDataUrl"`
+	IsRound          bool    `json:"isRound,omitempty"`
+	IsAnimated       bool    `json:"isAnimated,omitempty"`
 }
+
+type deletedMessages struct {
+	RemoteID           *string  `json:"remoteId,omitempty"`
+	ProviderMessageIDs []string `json:"providerMessageIds"`
+}
+
+type downloadedMedia struct {
+	Path     string `json:"path"`
+	MIMEType string `json:"mimeType"`
+	FileName string `json:"fileName"`
+	Size     int64  `json:"size"`
+}
+
+const maxMediaCacheBytes int64 = 1024 * 1024 * 1024
 
 type externalMessage struct {
 	ID                string          `json:"id"`
@@ -165,16 +185,17 @@ func (a *interactiveAuth) SignUp(context.Context) (auth.UserInfo, error) {
 }
 
 type service struct {
-	out        *writer
-	auth       *interactiveAuth
-	mu         sync.RWMutex
-	client     *telegram.Client
-	raw        *tg.Client
-	cancel     context.CancelFunc
-	self       *tg.User
-	peers      map[string]tg.InputPeerClass
-	peerTitles map[string]string
-	avatars    map[string]string
+	out         *writer
+	auth        *interactiveAuth
+	mu          sync.RWMutex
+	client      *telegram.Client
+	raw         *tg.Client
+	cancel      context.CancelFunc
+	self        *tg.User
+	peers       map[string]tg.InputPeerClass
+	peerTitles  map[string]string
+	avatars     map[string]string
+	sessionPath string
 }
 
 func newService(out *writer) *service {
@@ -339,7 +360,10 @@ func downloadAvatar(ctx context.Context, raw *tg.Client, peer tg.InputPeerClass,
 	if photoID == 0 {
 		return nil
 	}
-	downloadCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	// Telegram can take a few seconds to resolve the large peer photo on a cold
+	// connection. Falling back too early leaves the 8x8 stripped thumbnail in
+	// the conversation cache, which looks badly blurred in the chat list.
+	downloadCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var output bytes.Buffer
 	_, err := downloader.NewDownloader().WithPartSize(64*1024).Download(raw, &tg.InputPeerPhotoFileLocation{
@@ -385,6 +409,8 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 			return []externalMedia{{Kind: "file"}}
 		}
 		kind := "file"
+		isRound := value.Round
+		isAnimated := false
 		if value.Voice {
 			kind = "voice"
 		} else if value.Video || value.Round {
@@ -401,7 +427,14 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 				fileName = attribute.FileName
 			case *tg.DocumentAttributeSticker:
 				kind = "sticker"
+			case *tg.DocumentAttributeVideo:
+				isRound = isRound || attribute.RoundMessage
+			case *tg.DocumentAttributeAnimated:
+				isAnimated = true
 			}
+		}
+		if isAnimated {
+			kind = "video"
 		}
 		mime := document.MimeType
 		size := document.Size
@@ -411,6 +444,8 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 			FileName:         nullableString(fileName),
 			Size:             &size,
 			ThumbnailDataURL: thumbnailDataURL(document.Thumbs),
+			IsRound:          isRound,
+			IsAnimated:       isAnimated,
 		}}
 	case *tg.MessageMediaGeo, *tg.MessageMediaGeoLive, *tg.MessageMediaVenue:
 		return []externalMedia{{Kind: "location"}}
@@ -490,6 +525,9 @@ func (s *service) configure(apiID int, apiHash, sessionPath string) error {
 
 	dispatcher := tg.NewUpdateDispatcher()
 	dispatcher.OnNewMessage(s.handleNewMessage)
+	dispatcher.OnNewChannelMessage(s.handleNewChannelMessage)
+	dispatcher.OnDeleteMessages(s.handleDeleteMessages)
+	dispatcher.OnDeleteChannelMessages(s.handleDeleteChannelMessages)
 	client := telegram.NewClient(apiID, apiHash, telegram.Options{
 		SessionStorage: &session.FileStorage{Path: sessionPath},
 		UpdateHandler:  dispatcher,
@@ -510,6 +548,7 @@ func (s *service) configure(apiID int, apiHash, sessionPath string) error {
 			s.client = client
 			s.raw = raw
 			s.self = self
+			s.sessionPath = sessionPath
 			s.mu.Unlock()
 			label := userName(self)
 			s.out.event("connection", connection{State: "ready", AccountLabel: &label})
@@ -753,6 +792,260 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 	return result, nil
 }
 
+func messageByID(ctx context.Context, raw *tg.Client, peer tg.InputPeerClass, messageID int) (*tg.Message, error) {
+	result, err := raw.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{Peer: peer, OffsetID: messageID + 1, Limit: 1})
+	if err != nil {
+		return nil, err
+	}
+	modified, ok := result.AsModified()
+	if !ok {
+		return nil, errors.New("Telegram returned no message data")
+	}
+	for _, item := range modified.GetMessages() {
+		if msg, ok := item.(*tg.Message); ok && msg.ID == messageID {
+			return msg, nil
+		}
+	}
+	return nil, errors.New("Telegram message not found")
+}
+
+func largestPhotoType(sizes []tg.PhotoSizeClass) string {
+	bestType, bestArea := "", 0
+	for _, size := range sizes {
+		var kind string
+		var width, height int
+		switch value := size.(type) {
+		case *tg.PhotoSize:
+			kind, width, height = value.Type, value.W, value.H
+		case *tg.PhotoSizeProgressive:
+			kind, width, height = value.Type, value.W, value.H
+		case *tg.PhotoCachedSize:
+			kind, width, height = value.Type, value.W, value.H
+		}
+		if area := width * height; kind != "" && area > bestArea {
+			bestType, bestArea = kind, area
+		}
+	}
+	return bestType
+}
+
+func documentFileName(document *tg.Document) string {
+	for _, attribute := range document.Attributes {
+		if filename, ok := attribute.(*tg.DocumentAttributeFilename); ok {
+			if value := filepath.Base(filename.FileName); value != "." && value != "" {
+				return value
+			}
+		}
+	}
+	return "attachment"
+}
+
+func mediaExtension(fileName, mimeType string) string {
+	if ext := filepath.Ext(fileName); len(ext) > 1 && len(ext) <= 12 {
+		return strings.ToLower(ext)
+	}
+	switch mimeType {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "video/mp4":
+		return ".mp4"
+	case "audio/ogg":
+		return ".ogg"
+	case "audio/mpeg":
+		return ".mp3"
+	default:
+		return ".bin"
+	}
+}
+
+type mediaCacheFile struct {
+	path    string
+	size    int64
+	modTime time.Time
+}
+
+func pruneMediaCache(cacheDir string, maxBytes int64, keepPath string) error {
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	files := make([]mediaCacheFile, 0, len(entries))
+	var total int64
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasSuffix(entry.Name(), ".part") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		path := filepath.Join(cacheDir, entry.Name())
+		files = append(files, mediaCacheFile{path: path, size: info.Size(), modTime: info.ModTime()})
+		total += info.Size()
+	}
+	if total <= maxBytes {
+		return nil
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].modTime.Before(files[j].modTime) })
+	for _, file := range files {
+		if total <= maxBytes {
+			break
+		}
+		if file.path == keepPath {
+			continue
+		}
+		if err := os.Remove(file.path); err == nil || os.IsNotExist(err) {
+			total -= file.size
+		}
+	}
+	return nil
+}
+
+func (s *service) downloadMedia(ctx context.Context, remoteID, providerMessageID string, mediaIndex int) (downloadedMedia, error) {
+	if mediaIndex != 0 {
+		return downloadedMedia{}, errors.New("media attachment not found")
+	}
+	messageID, err := strconv.Atoi(providerMessageID)
+	if err != nil || messageID <= 0 {
+		return downloadedMedia{}, errors.New("invalid Telegram message id")
+	}
+	raw, err := s.ready()
+	if err != nil {
+		return downloadedMedia{}, err
+	}
+	peer, err := s.ensurePeer(ctx, remoteID)
+	if err != nil {
+		return downloadedMedia{}, err
+	}
+	msg, err := messageByID(ctx, raw, peer, messageID)
+	if err != nil {
+		return downloadedMedia{}, err
+	}
+
+	var location tg.InputFileLocationClass
+	mimeType, fileName := "application/octet-stream", "attachment"
+	switch media := msg.Media.(type) {
+	case *tg.MessageMediaPhoto:
+		photo, ok := media.Photo.(*tg.Photo)
+		if !ok {
+			return downloadedMedia{}, errors.New("photo is unavailable")
+		}
+		thumbType := largestPhotoType(photo.Sizes)
+		if thumbType == "" {
+			return downloadedMedia{}, errors.New("photo size is unavailable")
+		}
+		location = &tg.InputPhotoFileLocation{ID: photo.ID, AccessHash: photo.AccessHash, FileReference: photo.FileReference, ThumbSize: thumbType}
+		mimeType, fileName = "image/jpeg", "photo.jpg"
+	case *tg.MessageMediaDocument:
+		document, ok := media.Document.(*tg.Document)
+		if !ok {
+			return downloadedMedia{}, errors.New("document is unavailable")
+		}
+		if document.Size > 100*1024*1024 {
+			return downloadedMedia{}, errors.New("media file exceeds the 100 MB viewer limit")
+		}
+		location = &tg.InputDocumentFileLocation{ID: document.ID, AccessHash: document.AccessHash, FileReference: document.FileReference}
+		mimeType, fileName = document.MimeType, documentFileName(document)
+	default:
+		return downloadedMedia{}, errors.New("this Telegram attachment cannot be downloaded")
+	}
+
+	s.mu.RLock()
+	sessionPath := s.sessionPath
+	s.mu.RUnlock()
+	cacheDir := filepath.Join(filepath.Dir(sessionPath), "media-cache")
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+		return downloadedMedia{}, fmt.Errorf("create media cache: %w", err)
+	}
+	key := sha256.Sum256([]byte(remoteID + ":" + providerMessageID + ":" + strconv.Itoa(mediaIndex)))
+	path := filepath.Join(cacheDir, fmt.Sprintf("%x%s", key[:16], mediaExtension(fileName, mimeType)))
+	if stat, err := os.Stat(path); err == nil && stat.Size() > 0 {
+		now := time.Now()
+		_ = os.Chtimes(path, now, now)
+		_ = pruneMediaCache(cacheDir, maxMediaCacheBytes, path)
+		return downloadedMedia{Path: path, MIMEType: mimeType, FileName: fileName, Size: stat.Size()}, nil
+	}
+	temporaryPath := path + ".part"
+	_ = os.Remove(temporaryPath)
+	if _, err := downloader.NewDownloader().Download(raw, location).ToPath(ctx, temporaryPath); err != nil {
+		_ = os.Remove(temporaryPath)
+		return downloadedMedia{}, err
+	}
+	stat, err := os.Stat(temporaryPath)
+	if err != nil || stat.Size() == 0 || stat.Size() > 100*1024*1024 {
+		_ = os.Remove(temporaryPath)
+		return downloadedMedia{}, errors.New("downloaded Telegram media is invalid")
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		_ = os.Remove(temporaryPath)
+		return downloadedMedia{}, err
+	}
+	_ = pruneMediaCache(cacheDir, maxMediaCacheBytes, path)
+	return downloadedMedia{Path: path, MIMEType: mimeType, FileName: fileName, Size: stat.Size()}, nil
+}
+
+func applyClientID(builder *message.Builder, clientID string) {
+	if clientID == "" {
+		return
+	}
+	hash := sha256.Sum256([]byte(clientID))
+	randomID := int64(binary.LittleEndian.Uint64(hash[:8]))
+	if randomID == 0 {
+		randomID = 1
+	}
+	builder.RandomID(randomID)
+}
+
+func (s *service) sendMedia(ctx context.Context, remoteID, path, fileName, mimeType, caption, clientID string) error {
+	raw, err := s.ready()
+	if err != nil {
+		return err
+	}
+	peer, err := s.ensurePeer(ctx, remoteID)
+	if err != nil {
+		return err
+	}
+	stat, err := os.Stat(path)
+	if err != nil || !stat.Mode().IsRegular() || stat.Size() <= 0 || stat.Size() > 50*1024*1024 {
+		return errors.New("media file must be between 1 byte and 50 MB")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	fileName = filepath.Base(fileName)
+	if fileName == "." || fileName == "" {
+		fileName = "attachment" + mediaExtension("", mimeType)
+	}
+	uploaded, err := uploader.NewUploader(raw).WithThreads(4).FromReader(ctx, fileName, file)
+	if err != nil {
+		return err
+	}
+	builder := message.NewSender(raw).To(peer)
+	applyClientID(&builder.Builder, clientID)
+	captionOptions := []message.StyledTextOption{}
+	if caption = strings.TrimSpace(caption); caption != "" {
+		captionOptions = append(captionOptions, styling.Plain(caption))
+	}
+	switch {
+	case strings.HasPrefix(mimeType, "image/") && mimeType != "image/gif":
+		_, err = builder.UploadedPhoto(ctx, uploaded, captionOptions...)
+	case strings.HasPrefix(mimeType, "video/"):
+		_, err = builder.Video(ctx, uploaded, captionOptions...)
+	case strings.HasPrefix(mimeType, "audio/"):
+		_, err = builder.Audio(ctx, uploaded, captionOptions...)
+	default:
+		_, err = builder.File(ctx, uploaded, captionOptions...)
+	}
+	return err
+}
+
 func (s *service) sendText(ctx context.Context, remoteID, text, clientID string) error {
 	raw, err := s.ready()
 	if err != nil {
@@ -763,14 +1056,7 @@ func (s *service) sendText(ctx context.Context, remoteID, text, clientID string)
 		return err
 	}
 	builder := message.NewSender(raw).To(peer)
-	if clientID != "" {
-		hash := sha256.Sum256([]byte(clientID))
-		randomID := int64(binary.LittleEndian.Uint64(hash[:8]))
-		if randomID == 0 {
-			randomID = 1
-		}
-		builder.RandomID(randomID)
-	}
+	applyClientID(&builder.Builder, clientID)
 	_, err = builder.Text(ctx, text)
 	return err
 }
@@ -791,8 +1077,50 @@ func (s *service) handleNewMessage(_ context.Context, entities tg.Entities, upda
 	return nil
 }
 
+func (s *service) handleNewChannelMessage(_ context.Context, entities tg.Entities, update *tg.UpdateNewChannelMessage) error {
+	msg, ok := update.Message.(*tg.Message)
+	if !ok {
+		return nil
+	}
+	s.mu.RLock()
+	self := s.self
+	s.mu.RUnlock()
+	converted, ok := messageFromTelegram(msg, messagepeer.EntitiesFromUpdate(entities), self)
+	if ok {
+		s.out.event("message", converted)
+	}
+	return nil
+}
+
+func providerMessageIDs(ids []int) []string {
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id > 0 {
+			result = append(result, strconv.Itoa(id))
+		}
+	}
+	return result
+}
+
+func (s *service) handleDeleteMessages(_ context.Context, _ tg.Entities, update *tg.UpdateDeleteMessages) error {
+	ids := providerMessageIDs(update.Messages)
+	if len(ids) > 0 {
+		s.out.event("messages-deleted", deletedMessages{ProviderMessageIDs: ids})
+	}
+	return nil
+}
+
+func (s *service) handleDeleteChannelMessages(_ context.Context, _ tg.Entities, update *tg.UpdateDeleteChannelMessages) error {
+	ids := providerMessageIDs(update.Messages)
+	if len(ids) > 0 {
+		remoteID := fmt.Sprintf("channel:%d", update.ChannelID)
+		s.out.event("messages-deleted", deletedMessages{RemoteID: &remoteID, ProviderMessageIDs: ids})
+	}
+	return nil
+}
+
 func (s *service) handle(req rpcRequest) (any, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	switch req.Method {
 	case "configure":
@@ -840,6 +1168,29 @@ func (s *service) handle(req rpcRequest) (any, error) {
 			return nil, errors.New("message is empty")
 		}
 		return map[string]bool{"ok": true}, s.sendText(ctx, params.RemoteID, params.Text, params.ClientID)
+	case "media.download":
+		var params struct {
+			RemoteID          string `json:"remoteId"`
+			ProviderMessageID string `json:"providerMessageId"`
+			MediaIndex        int    `json:"mediaIndex"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, err
+		}
+		return s.downloadMedia(ctx, params.RemoteID, params.ProviderMessageID, params.MediaIndex)
+	case "media.send":
+		var params struct {
+			RemoteID string `json:"remoteId"`
+			Path     string `json:"path"`
+			FileName string `json:"fileName"`
+			MIMEType string `json:"mimeType"`
+			Caption  string `json:"caption"`
+			ClientID string `json:"clientId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, s.sendMedia(ctx, params.RemoteID, params.Path, params.FileName, params.MIMEType, params.Caption, params.ClientID)
 	default:
 		return nil, fmt.Errorf("unknown method %q", req.Method)
 	}

@@ -51,4 +51,5 @@ describe('useSelectedSessionSeen', () => {
 
         expect(getSessionLastSeenAt('session-a')).toBe(300)
     })
+
 })

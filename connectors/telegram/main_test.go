@@ -1,7 +1,10 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	messagepeer "github.com/gotd/td/telegram/message/peer"
 	"github.com/gotd/td/tg"
@@ -68,6 +71,76 @@ func TestMessageFromTelegramPreservesMediaKind(t *testing.T) {
 	result, ok := messageFromTelegram(msg, messageEntities(), nil)
 	if !ok || len(result.Media) != 1 || result.Media[0].Kind != "voice" || result.Text != "" {
 		t.Fatalf("unexpected media message: %#v", result)
+	}
+}
+
+func TestMediaFromTelegramMarksRoundVideo(t *testing.T) {
+	media := mediaFromTelegram(&tg.MessageMediaDocument{
+		Round:    true,
+		Document: &tg.Document{MimeType: "video/mp4", Size: 1024},
+	})
+	if len(media) != 1 || media[0].Kind != "video" || !media[0].IsRound {
+		t.Fatalf("unexpected round video metadata: %#v", media)
+	}
+}
+
+func TestMediaFromTelegramMarksAnimatedDocument(t *testing.T) {
+	media := mediaFromTelegram(&tg.MessageMediaDocument{
+		Document: &tg.Document{
+			MimeType:   "video/mp4",
+			Size:       2048,
+			Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeAnimated{}},
+		},
+	})
+	if len(media) != 1 || media[0].Kind != "video" || !media[0].IsAnimated {
+		t.Fatalf("unexpected animated document metadata: %#v", media)
+	}
+}
+
+func TestProviderMessageIDs(t *testing.T) {
+	ids := providerMessageIDs([]int{7, 0, -1, 42})
+	if len(ids) != 2 || ids[0] != "7" || ids[1] != "42" {
+		t.Fatalf("unexpected provider message ids: %#v", ids)
+	}
+}
+
+func TestPruneMediaCacheUsesLRUAndKeepsCurrentFile(t *testing.T) {
+	dir := t.TempDir()
+	oldPath := filepath.Join(dir, "old.mp4")
+	currentPath := filepath.Join(dir, "current.mp4")
+	newPath := filepath.Join(dir, "new.mp4")
+	for _, path := range []string{oldPath, currentPath, newPath} {
+		if err := os.WriteFile(path, []byte("12345"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	_ = os.Chtimes(oldPath, now.Add(-3*time.Hour), now.Add(-3*time.Hour))
+	_ = os.Chtimes(currentPath, now.Add(-2*time.Hour), now.Add(-2*time.Hour))
+	_ = os.Chtimes(newPath, now.Add(-time.Hour), now.Add(-time.Hour))
+
+	if err := pruneMediaCache(dir, 10, currentPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("expected oldest cache file to be removed, got %v", err)
+	}
+	if _, err := os.Stat(currentPath); err != nil {
+		t.Fatalf("expected current cache file to be kept: %v", err)
+	}
+	if _, err := os.Stat(newPath); err != nil {
+		t.Fatalf("expected newer cache file to be kept: %v", err)
+	}
+}
+
+func TestLargestPhotoType(t *testing.T) {
+	result := largestPhotoType([]tg.PhotoSizeClass{
+		&tg.PhotoSize{Type: "m", W: 320, H: 320},
+		&tg.PhotoSizeProgressive{Type: "y", W: 1280, H: 720},
+		&tg.PhotoStrippedSize{Type: "i", Bytes: []byte{1}},
+	})
+	if result != "y" {
+		t.Fatalf("expected largest photo type y, got %q", result)
 	}
 }
 
