@@ -160,7 +160,6 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
         const messageBuffer = this.messageBuffer;
 
         const { server: happyServer, mcpServers } = await buildHapiMcpBridge(session.client, {
-            enableChangeTitle: false,
             skillLookup: { workingDirectory: session.path, flavor: 'opencode' }
         });
         this.happyServer = happyServer;

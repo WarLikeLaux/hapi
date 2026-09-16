@@ -22,6 +22,7 @@ import {
   PING_PEER_TOOL_DESCRIPTION,
   SESSION_ID_PREFIX_PARAM_DESCRIPTION,
 } from '@hapi/protocol/sessionCitation';
+import { buildSessionTitleMcpInstructions } from '@/modules/common/sessionTitlePrompt';
 
 const DEFAULT_TOOL_NAMES = ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer'];
 
@@ -74,6 +75,8 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
     const server = new McpServer({
       name: 'HAPI MCP Bridge',
       version: '1.0.0',
+    }, {
+      instructions: toolNames.has('change_title') ? buildSessionTitleMcpInstructions() : undefined,
     });
 
     // Register tools and forward to HTTP MCP
@@ -85,7 +88,7 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
       server.registerTool<any, any>(
         'change_title',
         {
-          description: 'Change the title of the current chat session',
+          description: buildSessionTitleMcpInstructions(),
           title: 'Change Chat Title',
           inputSchema: changeTitleInputSchema,
         },

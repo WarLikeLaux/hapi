@@ -4,6 +4,7 @@ import {
     DISPLAY_MEDIA_PROMPT_HAPI_MCP,
     DISPLAY_VIDEO_PROMPT_HAPI_MCP,
 } from './displayImagePrompt';
+import { buildSessionTitleMcpInstructions } from './sessionTitlePrompt';
 
 /** Shell fallback for `hapi doctor inline-media` only — not injected into agent prompts. */
 export const INLINE_MEDIA_SHELL_FALLBACK = trimIdent(`
@@ -19,7 +20,7 @@ export const INLINE_MEDIA_SHELL_FALLBACK = trimIdent(`
  * (no user-turn prepend — that path was prompt-taint).
  */
 export const HAPI_MCP_TITLE_INSTRUCTION = trimIdent(`
-    Use the title tool sparingly. For a new chat, call the tool "hapi_change_title" once after the user's initial request is clear, and set a concise task title. Do not rename the chat for routine progress, substeps, implementation details, or a slightly better wording. Rename only when the user's primary objective changes substantially and the existing title would be misleading.
+    ${buildSessionTitleMcpInstructions('hapi_change_title')}
 `);
 
 export const HAPI_MCP_BRIDGE_PROMPT = trimIdent(`
