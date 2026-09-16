@@ -5,6 +5,7 @@ import type {
     ConfigureTelegramRequest,
     ExternalConversation,
     ExternalMessage,
+    ExternalParticipant,
     MessengerConnection,
     SubmitMessengerAuthRequest
 } from '@hapi/protocol'
@@ -106,6 +107,10 @@ export class MessengerManager {
 
     listConversations(namespace: string): ExternalConversation[] {
         return this.options.store.messengers.listConversations(namespace, true)
+    }
+
+    listParticipants(namespace: string, conversationId: string): ExternalParticipant[] {
+        return this.options.store.messengers.listParticipants(namespace, conversationId)
     }
 
     async selectConversations(namespace: string, provider: string, remoteIds: string[]): Promise<ExternalConversation[]> {

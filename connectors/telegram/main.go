@@ -106,16 +106,24 @@ type downloadedMedia struct {
 const maxMediaCacheBytes int64 = 1024 * 1024 * 1024
 
 type externalMessage struct {
-	ID                string          `json:"id"`
-	ConversationID    string          `json:"conversationId"`
-	ProviderMessageID string          `json:"providerMessageId"`
-	SenderID          *string         `json:"senderId"`
-	SenderName        *string         `json:"senderName"`
-	Direction         string          `json:"direction"`
-	Text              string          `json:"text"`
-	CreatedAt         int64           `json:"createdAt"`
-	EditedAt          *int64          `json:"editedAt"`
-	Media             []externalMedia `json:"media"`
+	ID                  string          `json:"id"`
+	ConversationID      string          `json:"conversationId"`
+	ProviderMessageID   string          `json:"providerMessageId"`
+	SenderID            *string         `json:"senderId"`
+	SenderName          *string         `json:"senderName"`
+	SenderAvatarDataURL *string         `json:"senderAvatarDataUrl"`
+	Direction           string          `json:"direction"`
+	Text                string          `json:"text"`
+	CreatedAt           int64           `json:"createdAt"`
+	EditedAt            *int64          `json:"editedAt"`
+	Media               []externalMedia `json:"media"`
+}
+
+type senderAvatarCandidate struct {
+	remoteID    string
+	peer        tg.InputPeerClass
+	photoID     int64
+	placeholder *string
 }
 
 type authInput struct {
@@ -726,7 +734,42 @@ func senderData(msg *tg.Message, entities messagepeer.Entities, self *tg.User) (
 	return nullableString(remoteID), nullableString(name)
 }
 
-func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *tg.User) (externalMessage, bool) {
+func senderAvatarCandidateForMessage(msg *tg.Message, entities messagepeer.Entities, self *tg.User) *senderAvatarCandidate {
+	var user *tg.User
+	var peer tg.InputPeerClass
+	if from, ok := msg.GetFromID(); ok {
+		fromUser, ok := from.(*tg.PeerUser)
+		if !ok {
+			return nil
+		}
+		if entity, found := entities.User(fromUser.UserID); found {
+			user = entity
+		} else if self != nil && fromUser.UserID == self.ID {
+			user = self
+		}
+		if user != nil {
+			peer = &tg.InputPeerUser{UserID: user.ID, AccessHash: user.AccessHash}
+		}
+	} else if msg.Out && self != nil {
+		user = self
+		peer = &tg.InputPeerSelf{}
+	}
+	if user == nil || peer == nil {
+		return nil
+	}
+	photo, ok := user.Photo.(*tg.UserProfilePhoto)
+	if !ok || photo.PhotoID == 0 {
+		return nil
+	}
+	return &senderAvatarCandidate{
+		remoteID:    fmt.Sprintf("user:%d", user.ID),
+		peer:        peer,
+		photoID:     photo.PhotoID,
+		placeholder: strippedThumbnailDataURL(photo.StrippedThumb),
+	}
+}
+
+func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *tg.User, senderAvatar *string) (externalMessage, bool) {
 	remoteID, ok := remoteIDFromPeer(msg.PeerID)
 	if !ok {
 		return externalMessage{}, false
@@ -743,15 +786,16 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 	}
 	providerMessageID := fmt.Sprintf("%d", msg.ID)
 	return externalMessage{
-		ID:                conversationID(remoteID) + ":" + providerMessageID,
-		ConversationID:    conversationID(remoteID),
-		ProviderMessageID: providerMessageID,
-		SenderID:          senderID,
-		SenderName:        senderName,
-		Direction:         direction,
-		Text:              text,
-		CreatedAt:         int64(msg.Date) * 1000,
-		Media:             media,
+		ID:                  conversationID(remoteID) + ":" + providerMessageID,
+		ConversationID:      conversationID(remoteID),
+		ProviderMessageID:   providerMessageID,
+		SenderID:            senderID,
+		SenderName:          senderName,
+		SenderAvatarDataURL: senderAvatar,
+		Direction:           direction,
+		Text:                text,
+		CreatedAt:           int64(msg.Date) * 1000,
+		Media:               media,
 	}, true
 }
 
@@ -775,19 +819,62 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 	self := s.self
 	s.mu.RUnlock()
 	result := make([]externalMessage, 0, limit)
+	avatarMessageIndexes := make(map[string][]int)
+	avatarCandidates := make(map[string]senderAvatarCandidate)
 	for len(result) < limit && iter.Next(ctx) {
 		elem := iter.Value()
 		msg, ok := elem.Msg.(*tg.Message)
 		if !ok {
 			continue
 		}
-		converted, ok := messageFromTelegram(msg, elem.Entities, self)
+		candidate := senderAvatarCandidateForMessage(msg, elem.Entities, self)
+		var avatar *string
+		if candidate != nil {
+			s.mu.RLock()
+			cached := s.avatars[candidate.remoteID]
+			s.mu.RUnlock()
+			if cached != "" {
+				avatar = &cached
+			} else {
+				avatar = candidate.placeholder
+				if len(avatarCandidates) < 16 {
+					avatarCandidates[candidate.remoteID] = *candidate
+				}
+			}
+		}
+		converted, ok := messageFromTelegram(msg, elem.Entities, self, avatar)
 		if ok {
 			result = append(result, converted)
+			if candidate != nil {
+				avatarMessageIndexes[candidate.remoteID] = append(avatarMessageIndexes[candidate.remoteID], len(result)-1)
+			}
 		}
 	}
 	if err := iter.Err(); err != nil {
 		return nil, err
+	}
+	avatarSlots := make(chan struct{}, 6)
+	for remoteID, candidate := range avatarCandidates {
+		remoteID, candidate := remoteID, candidate
+		messages := make([]externalMessage, 0, len(avatarMessageIndexes[remoteID]))
+		for _, index := range avatarMessageIndexes[remoteID] {
+			messages = append(messages, result[index])
+		}
+		go func(messages []externalMessage) {
+			avatarSlots <- struct{}{}
+			defer func() { <-avatarSlots }()
+			avatar := downloadAvatar(context.WithoutCancel(ctx), raw, candidate.peer, candidate.photoID)
+			if avatar == nil {
+				return
+			}
+			s.mu.Lock()
+			s.avatars[remoteID] = *avatar
+			s.mu.Unlock()
+			for _, message := range messages {
+				message.SenderAvatarDataURL = avatar
+				s.out.event("message", message)
+			}
+		}(messages)
 	}
 	return result, nil
 }
@@ -1061,34 +1148,61 @@ func (s *service) sendText(ctx context.Context, remoteID, text, clientID string)
 	return err
 }
 
-func (s *service) handleNewMessage(_ context.Context, entities tg.Entities, update *tg.UpdateNewMessage) error {
+func (s *service) emitNewMessage(ctx context.Context, entities messagepeer.Entities, msg *tg.Message) {
+	s.mu.RLock()
+	self := s.self
+	raw := s.raw
+	s.mu.RUnlock()
+	candidate := senderAvatarCandidateForMessage(msg, entities, self)
+	var avatar *string
+	needsFullAvatar := false
+	if candidate != nil {
+		s.mu.RLock()
+		cached := s.avatars[candidate.remoteID]
+		s.mu.RUnlock()
+		if cached != "" {
+			avatar = &cached
+		} else {
+			avatar = candidate.placeholder
+			needsFullAvatar = raw != nil
+		}
+	}
+	converted, ok := messageFromTelegram(msg, entities, self, avatar)
+	if !ok {
+		return
+	}
+	s.out.event("message", converted)
+	if !needsFullAvatar || candidate == nil {
+		return
+	}
+	go func(message externalMessage, candidate senderAvatarCandidate) {
+		fullAvatar := downloadAvatar(context.WithoutCancel(ctx), raw, candidate.peer, candidate.photoID)
+		if fullAvatar == nil {
+			return
+		}
+		s.mu.Lock()
+		s.avatars[candidate.remoteID] = *fullAvatar
+		s.mu.Unlock()
+		message.SenderAvatarDataURL = fullAvatar
+		s.out.event("message", message)
+	}(converted, *candidate)
+}
+
+func (s *service) handleNewMessage(ctx context.Context, entities tg.Entities, update *tg.UpdateNewMessage) error {
 	msg, ok := update.Message.(*tg.Message)
 	if !ok {
 		return nil
 	}
-	s.mu.RLock()
-	self := s.self
-	s.mu.RUnlock()
-	converted, ok := messageFromTelegram(msg, messagepeer.EntitiesFromUpdate(entities), self)
-	if !ok {
-		return nil
-	}
-	s.out.event("message", converted)
+	s.emitNewMessage(ctx, messagepeer.EntitiesFromUpdate(entities), msg)
 	return nil
 }
 
-func (s *service) handleNewChannelMessage(_ context.Context, entities tg.Entities, update *tg.UpdateNewChannelMessage) error {
+func (s *service) handleNewChannelMessage(ctx context.Context, entities tg.Entities, update *tg.UpdateNewChannelMessage) error {
 	msg, ok := update.Message.(*tg.Message)
 	if !ok {
 		return nil
 	}
-	s.mu.RLock()
-	self := s.self
-	s.mu.RUnlock()
-	converted, ok := messageFromTelegram(msg, messagepeer.EntitiesFromUpdate(entities), self)
-	if ok {
-		s.out.event("message", converted)
-	}
+	s.emitNewMessage(ctx, messagepeer.EntitiesFromUpdate(entities), msg)
 	return nil
 }
 
