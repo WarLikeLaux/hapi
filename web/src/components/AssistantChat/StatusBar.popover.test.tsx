@@ -168,7 +168,7 @@ describe('StatusBar context details popover', () => {
         expect(screen.queryByText('max')).not.toBeInTheDocument()
     })
 
-    it('opens from the mobile-accessible context trigger and keeps the requested detail order', async () => {
+    it('hides context usage on mobile and keeps the desktop detail order', async () => {
         localStorage.setItem('hapi-lang', 'zh-CN')
         render(
             <I18nProvider>
@@ -204,8 +204,9 @@ describe('StatusBar context details popover', () => {
         expect(trigger.className.split(' ')).toContain('text-[10px]')
         expect(trigger.className.split(' ')).toContain('leading-4')
         expect(trigger.className.split(' ')).toContain('text-[var(--app-hint)]')
-        expect(trigger.textContent).toBe('ctx 258k (65% left)35% · 90k / 258k')
-        expect(trigger.className.split(' ')).not.toContain('hidden')
+        expect(trigger.textContent).toBe('35% · 90k / 258k')
+        expect(trigger.className.split(' ')).toContain('hidden')
+        expect(trigger.className.split(' ')).toContain('sm:inline-flex')
         const progressTrack = trigger.querySelector('[aria-hidden="true"]')
         expect((progressTrack?.firstElementChild as HTMLElement | null)?.style.width).toBe('35%')
 
@@ -233,7 +234,7 @@ describe('StatusBar context details popover', () => {
         )
 
         const trigger = screen.getByRole('button', { name: 'Context details' })
-        expect(trigger.textContent).toContain('ctx 258k (65% left)')
+        expect(trigger.textContent).toBe('35% · 90k / 258k')
 
         fireEvent.click(trigger)
 

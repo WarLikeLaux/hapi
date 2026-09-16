@@ -318,9 +318,13 @@ export class SharedCodexRoot {
         const thread = await this.readThread();
         const turns = Array.isArray(thread.turns) ? thread.turns.map(record) : [];
         if (revision === this.turnRevision) {
-            this.currentTurn = string(turns.find(turn => turn.status === 'inProgress')?.id);
-            this.interrupted = turns.at(-1)?.status === 'interrupted';
             const last = turns.at(-1);
+            // A stale interrupted/reconnected turn can remain `inProgress` in
+            // native history. Turns are sequential, so only the newest turn can
+            // represent current work; reviving an older one leaves HAPI stuck in
+            // Working after the latest turn has already completed.
+            this.currentTurn = last?.status === 'inProgress' ? string(last.id) : undefined;
+            this.interrupted = last?.status === 'interrupted';
             const id = string(last?.id);
             this.latestTurn = id && last ? { id, status: string(last.status) ?? 'unknown', planId: planProposalForTurn(this.threadId, last) } : undefined;
         }

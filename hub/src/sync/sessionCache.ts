@@ -25,7 +25,7 @@ export class SessionCache {
     private readonly deduplicatePending: Set<string> = new Set()
     private readonly pendingThinkingUntilBySessionId: Map<string, number> = new Map()
     /** Blocks stale thinking=true heartbeats after a reliable ready boundary. */
-    private readonly idleBoundarySessionIds: Set<string> = new Set()
+    private readonly idleBoundaryAtBySessionId: Map<string, number> = new Map()
     private readonly runtimeConfigUpdatedAtBySessionId: Map<string, Partial<Record<RuntimeConfigKey, number>>> = new Map()
 
     constructor(
@@ -133,7 +133,7 @@ export class SessionCache {
         if (!stored) {
             const existed = this.sessions.delete(sessionId)
             this.pendingThinkingUntilBySessionId.delete(sessionId)
-            this.idleBoundarySessionIds.delete(sessionId)
+            this.idleBoundaryAtBySessionId.delete(sessionId)
             this.runtimeConfigUpdatedAtBySessionId.delete(sessionId)
             if (existed) {
                 this.publisher.emit({ type: 'session-removed', sessionId })
@@ -145,14 +145,15 @@ export class SessionCache {
 
         if (!existing) {
             const latestUserMessageAt = stored.lastUserMessageAt ?? stored.createdAt
-            const hasReadyAfterLatestUserMessage = this.store.messages
+            const latestReadyAfterUserMessage = this.store.messages
                 .getMessages(sessionId, READY_RECOVERY_MESSAGE_LIMIT)
-                .some((message) => (
+                .filter((message) => (
                     message.createdAt >= latestUserMessageAt
                     && isReadySessionEventContent(message.content)
                 ))
-            if (hasReadyAfterLatestUserMessage) {
-                this.idleBoundarySessionIds.add(sessionId)
+                .reduce((latest, message) => Math.max(latest, message.createdAt), 0)
+            if (latestReadyAfterUserMessage > 0) {
+                this.idleBoundaryAtBySessionId.set(sessionId, latestReadyAfterUserMessage)
             }
         }
 
@@ -452,7 +453,7 @@ export class SessionCache {
         const previousCopilotAgentMode = session.copilotAgentMode
         const pendingThinkingUntil = this.pendingThinkingUntilBySessionId.get(session.id) ?? 0
         const requestedThinking = Boolean(payload.thinking)
-            && !this.idleBoundarySessionIds.has(session.id)
+            && !this.idleBoundaryAtBySessionId.has(session.id)
         const hubNow = Date.now()
         const preserveQueuedThinking = !requestedThinking && pendingThinkingUntil > hubNow
         const hasUnconsumedPrompt = preserveQueuedThinking
@@ -578,7 +579,7 @@ export class SessionCache {
         if (!session.active) return
 
         const nextTime = clampAliveTime(time) ?? Date.now()
-        this.idleBoundarySessionIds.delete(session.id)
+        this.idleBoundaryAtBySessionId.delete(session.id)
         const wasThinking = session.thinking
         const previousUpdatedAt = session.updatedAt
 
@@ -627,7 +628,10 @@ export class SessionCache {
         if (!stored) {
             return
         }
-        this.idleBoundarySessionIds.delete(sessionId)
+        const idleBoundaryAt = this.idleBoundaryAtBySessionId.get(sessionId)
+        if (idleBoundaryAt === undefined || updatedAt > idleBoundaryAt) {
+            this.idleBoundaryAtBySessionId.delete(sessionId)
+        }
 
         const nextUpdatedAt = Math.max(stored.updatedAt, updatedAt)
         const nextLastUserMessageAt = Math.max(stored.lastUserMessageAt ?? stored.createdAt, updatedAt)
@@ -711,7 +715,7 @@ export class SessionCache {
         session.activeTurnStartedAt = null
         session.backgroundTaskCount = 0
         this.pendingThinkingUntilBySessionId.delete(session.id)
-        this.idleBoundarySessionIds.delete(session.id)
+        this.idleBoundaryAtBySessionId.delete(session.id)
 
         this.publisher.emit({
             type: 'session-updated',
@@ -726,7 +730,7 @@ export class SessionCache {
         if (!session) return
 
         this.pendingThinkingUntilBySessionId.delete(session.id)
-        this.idleBoundarySessionIds.add(session.id)
+        this.idleBoundaryAtBySessionId.set(session.id, t)
         if (!session.thinking && session.activeTurnStartedAt === null) return
 
         session.thinking = false
@@ -750,7 +754,7 @@ export class SessionCache {
             this.store.sessions.setSessionActive(session.id, false, now, session.namespace)
             session.thinking = false
             this.pendingThinkingUntilBySessionId.delete(session.id)
-            this.idleBoundarySessionIds.delete(session.id)
+            this.idleBoundaryAtBySessionId.delete(session.id)
             expired.push(session.id)
             this.publisher.emit({
                 type: 'session-updated',
@@ -1229,7 +1233,7 @@ export class SessionCache {
         this.lastBroadcastAtBySessionId.delete(sessionId)
         this.todoBackfillAttemptedSessionIds.delete(sessionId)
         this.pendingThinkingUntilBySessionId.delete(sessionId)
-        this.idleBoundarySessionIds.delete(sessionId)
+        this.idleBoundaryAtBySessionId.delete(sessionId)
 
         void import('../scratchlistAttachments/storage').then(async ({
             deleteScratchlistAttachmentFiles,

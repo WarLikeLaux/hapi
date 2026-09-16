@@ -279,6 +279,20 @@ describe('shared steering availability', () => {
         expect(f.updateState).toHaveBeenCalledTimes(updates);
     });
 
+    it('does not revive an orphaned in-progress turn behind a completed latest turn', async () => {
+        const f = await fixture();
+        const heartbeat = vi.spyOn(f.root.session, 'keepAlive');
+        f.native.thread.turns = [
+            { id: 'orphaned', status: 'inProgress', items: [] },
+            { id: 'latest', status: 'completed', items: [] }
+        ];
+
+        await f.root.refresh();
+
+        expect(heartbeat).toHaveBeenLastCalledWith(false, undefined, expect.any(Object));
+        expect(f.state().steeringActive).toBe(false);
+    });
+
     it('publishes root turn transitions, ignores child turns, and clears on shutdown', async () => {
         const f = await fixture();
         expect(f.state().steeringActive).toBe(false);
