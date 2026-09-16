@@ -740,10 +740,15 @@ export function useSSE(options: {
                 ) {
                     queueSessionListInvalidation()
                 }
-                // The global `all` subscription also receives message-stream events.
-                // Session-scoped SSE normally drives the message window, but during
-                // reconnect gaps or while another session is selected, only the global
-                // connection may be alive — still clear the queued bar / optimistic rows.
+                // Keep every session's tail warm from the global stream. The session
+                // list can announce that an agent finished before the user opens that
+                // chat; caching the already-delivered answer here makes it available
+                // on the first render instead of waiting for a route-mounted REST sync.
+                // A selected session also receives the event on its scoped stream, but
+                // message ids make the second merge harmless.
+                if (event.type === 'message-received') {
+                    ingestIncomingMessages(event.sessionId, [event.message])
+                }
                 if (event.type === 'messages-consumed') {
                     markMessagesConsumed(event.sessionId, event.localIds, event.invokedAt, event.steered)
                 }

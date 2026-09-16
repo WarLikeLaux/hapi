@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionsResponse, SessionSummary } from '@/types/api'
 import type { Session } from '@/types/api'
 import { queryKeys } from '@/lib/query-keys'
+import { clearMessageWindow, getMessageWindowState } from '@/lib/message-window-store'
 import {
     applySessionDetailPatch,
     canApplyVersionedSummaryPatch,
@@ -223,6 +224,38 @@ describe('useSSE connection liveness (mobile suspend/resume)', () => {
         })
 
         expect(queryClient.getQueryData<SessionsResponse>(queryKeys.sessions)?.sessions[0]?.thinking).toBe(true)
+        unmount()
+    })
+
+    it('preloads agent replies received for sessions that are not open', () => {
+        const sessionId = 'background-session'
+        clearMessageWindow(sessionId)
+        const { unmount } = renderUseSSE({ scope: 'global' })
+
+        act(() => {
+            FakeEventSource.instances[0]?.simulateMessage({
+                type: 'message-received',
+                sessionId,
+                message: {
+                    id: 'answer-1',
+                    seq: 7,
+                    localId: null,
+                    content: {
+                        role: 'agent',
+                        content: {
+                            type: 'codex',
+                            data: { type: 'message', message: 'Готово' }
+                        }
+                    },
+                    createdAt: 3_000
+                }
+            })
+        })
+
+        expect(getMessageWindowState(sessionId).messages).toEqual([
+            expect.objectContaining({ id: 'answer-1' })
+        ])
+        clearMessageWindow(sessionId)
         unmount()
     })
 })
