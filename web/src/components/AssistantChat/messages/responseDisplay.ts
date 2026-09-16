@@ -5,6 +5,18 @@ export type ResponsePartPartition = {
     detailIndices: number[]
 }
 
+export function hasRenderableResponsePart(
+    parts: readonly ThreadAssistantMessagePart[],
+): boolean {
+    return parts.some((part) => {
+        if (part.type === 'text' || part.type === 'reasoning') {
+            return part.text.trim().length > 0
+        }
+
+        return true
+    })
+}
+
 export function shouldCompactResponse(
     statusType: string | undefined,
     isLast: boolean,
