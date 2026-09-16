@@ -14,7 +14,7 @@ import { useSessionSummaryInChat } from '@/hooks/useSessionSummaryInChat'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
-import { partitionCompletedResponseParts, shouldCompactResponse } from './responseDisplay'
+import { hasRenderableResponsePart, partitionCompletedResponseParts, shouldCompactResponse } from './responseDisplay'
 import { ResponseChanges } from './ResponseChanges'
 
 const TOOL_COMPONENTS = {
@@ -120,6 +120,10 @@ export function HappyAssistantMessage() {
     const turnCount = useAuiState(({ message }) => (message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined)?.turnCount)
     const roundSummary = useAuiState(({ message }) => (message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined)?.roundSummary)
     const workspaceChanges = roundSummary?.workspaceChanges
+    const showMessageActions = isCliOutput
+        || Boolean(codexReview)
+        || Boolean(workspaceChanges)
+        || hasRenderableResponsePart(messageParts)
 
     const metadata = { durationMs, usage, model: messageModel ?? null, turnCount, roundSummary }
 
@@ -199,15 +203,17 @@ export function HappyAssistantMessage() {
                     </Dialog> : null}
                 </>
             ) : null}
-            <MessageActions
-                align="start"
-                copyText={copyText || undefined}
-                metadata={metadata}
-                messageElementId={elementId}
-                showFork={showForkCurrent}
-                historyActionPending={ctx.historyActionPending}
-                onFork={showForkCurrent ? () => ctx.onForkConversation!() : undefined}
-            />
+            {showMessageActions ? (
+                <MessageActions
+                    align="start"
+                    copyText={copyText || undefined}
+                    metadata={metadata}
+                    messageElementId={elementId}
+                    showFork={showForkCurrent}
+                    historyActionPending={ctx.historyActionPending}
+                    onFork={showForkCurrent ? () => ctx.onForkConversation!() : undefined}
+                />
+            ) : null}
         </MessagePrimitive.Root>
     )
 }

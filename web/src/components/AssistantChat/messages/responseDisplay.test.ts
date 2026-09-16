@@ -1,6 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import type { ThreadAssistantMessagePart } from '@assistant-ui/react'
-import { partitionCompletedResponseParts, shouldCompactResponse } from './responseDisplay'
+import {
+    hasRenderableResponsePart,
+    partitionCompletedResponseParts,
+    shouldCompactResponse,
+} from './responseDisplay'
+
+describe('hasRenderableResponsePart', () => {
+    it('keeps actions hidden before the assistant produces visible activity', () => {
+        expect(hasRenderableResponsePart([])).toBe(false)
+        expect(hasRenderableResponsePart([
+            { type: 'text', text: '   ' },
+            { type: 'reasoning', text: '' },
+        ])).toBe(false)
+    })
+
+    it('shows actions after text, reasoning, or a tool call appears', () => {
+        expect(hasRenderableResponsePart([{ type: 'text', text: 'Hello' }])).toBe(true)
+        expect(hasRenderableResponsePart([{ type: 'reasoning', text: 'Thinking' }])).toBe(true)
+        expect(hasRenderableResponsePart([
+            { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', args: {}, argsText: '{}' },
+        ])).toBe(true)
+    })
+})
 
 describe('shouldCompactResponse', () => {
     it('compacts completed responses including the latest one', () => {
