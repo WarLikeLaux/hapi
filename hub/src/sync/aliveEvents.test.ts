@@ -112,6 +112,30 @@ describe('alive incremental events', () => {
         store.close()
     })
 
+    it('does not let replayed user activity reopen a completed turn', () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const session = cache.getOrCreateSession(
+            'session-ready-replayed-activity',
+            { path: '/tmp/project', host: 'localhost' },
+            null,
+            'default'
+        )
+        const now = Date.now()
+
+        cache.handleSessionAlive({ sid: session.id, time: now, thinking: true })
+        cache.handleSessionIdle(session.id, now + 10)
+        cache.recordSessionActivity(session.id, now)
+        cache.handleSessionAlive({ sid: session.id, time: now + 20, thinking: true })
+        expect(cache.getSession(session.id)?.thinking).toBe(false)
+
+        cache.recordSessionActivity(session.id, now + 30)
+        cache.handleSessionAlive({ sid: session.id, time: now + 40, thinking: true })
+        expect(cache.getSession(session.id)?.thinking).toBe(true)
+        store.close()
+    })
+
     it('recovers the ready boundary after a hub restart despite later event noise', () => {
         const store = new Store(':memory:')
         const initialCache = new SessionCache(store, createPublisher([]))

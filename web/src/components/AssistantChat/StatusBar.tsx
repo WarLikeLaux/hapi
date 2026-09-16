@@ -145,12 +145,6 @@ export function formatContextUsageLabel(contextSize: number, maxContextSize: num
     return `${usedPercentage}% · ${formatTokenCount(contextSize)} / ${formatTokenCount(maxContextSize)}`
 }
 
-export function formatCompactContextUsageLabel(contextSize: number, maxContextSize: number | null | undefined): string {
-    if (!maxContextSize) return `ctx ${formatTokenCount(contextSize)}`
-    const { remainingPercentage } = getContextPercentages(contextSize, maxContextSize)
-    return `ctx ${formatTokenCount(maxContextSize)} (${remainingPercentage}% left)`
-}
-
 export function getContextUsageDetails(
     contextSize: number,
     maxContextSize: number | null | undefined,
@@ -236,11 +230,6 @@ export function StatusBar(props: {
         const maxContextSize = props.contextWindow ?? getContextBudgetTokens(contextHeuristicModel, props.agentFlavor)
         return formatContextUsageLabel(props.contextSize, maxContextSize)
     }, [props.contextSize, props.contextWindow, contextHeuristicModel, props.agentFlavor])
-    const compactContextUsageLabel = useMemo(() => {
-        if (props.contextSize === undefined) return null
-        const maxContextSize = props.contextWindow ?? getContextBudgetTokens(contextHeuristicModel, props.agentFlavor)
-        return formatCompactContextUsageLabel(props.contextSize, maxContextSize)
-    }, [props.contextSize, props.contextWindow, contextHeuristicModel, props.agentFlavor])
     const contextUsageDetails = useMemo(() => {
         if (props.contextSize === undefined) return null
         const maxContextSize = props.contextWindow ?? getContextBudgetTokens(contextHeuristicModel, props.agentFlavor)
@@ -306,10 +295,9 @@ export function StatusBar(props: {
                             <button
                                 type="button"
                                 aria-label={t('misc.contextDetails')}
-                                className={`min-w-0 cursor-pointer whitespace-nowrap rounded-sm bg-transparent p-0 text-[10px] leading-4 outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-link)] ${contextWarning?.color ?? 'text-[var(--app-hint)]'}`}
+                                className={`hidden min-w-0 cursor-pointer whitespace-nowrap rounded-sm bg-transparent p-0 text-[10px] leading-4 outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-link)] sm:inline-flex ${contextWarning?.color ?? 'text-[var(--app-hint)]'}`}
                             >
-                                <span className="sm:hidden">{compactContextUsageLabel}</span>
-                                <span className="hidden items-center gap-2 sm:inline-flex">
+                                <span className="inline-flex items-center gap-2">
                                     {contextUsedPercentage !== null ? (
                                         <span
                                             aria-hidden="true"
