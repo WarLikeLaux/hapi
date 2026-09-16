@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { useSidebarResize } from '@/hooks/useSidebarResize'
 import { useChatKeyboardTail } from '@/hooks/useChatKeyboardTail'
 import { useExternalMessagePrefetch } from '@/hooks/useExternalMessagePrefetch'
+import { useExternalMessages } from '@/hooks/queries/useExternalMessages'
 import { useAppContext } from '@/lib/app-context'
 import { imageFileFromClipboard } from '@/lib/clipboardMedia'
 import { upsertMessengerConnection } from '@/lib/messengerConnections'
@@ -20,6 +21,7 @@ import { useTranslation } from '@/lib/use-translation'
 import { cn } from '@/lib/utils'
 import { formatMessageTimestamp } from '@/chat/presentation'
 import { areExternalMessagesGrouped } from '@/chat/messageGrouping'
+import { shouldAutoLoadExternalMedia } from '@/chat/externalMedia'
 import {
     appendOptimisticExternalMessage,
     createOptimisticExternalMessage,
@@ -117,10 +119,11 @@ function MediaAttachment(props: {
     const [fullUrl, setFullUrl] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const previewRef = useRef<HTMLButtonElement>(null)
+    const previewRef = useRef<HTMLElement>(null)
     const downloadable = ['image', 'video', 'audio', 'voice', 'sticker', 'file'].includes(media.kind)
     const hasVisualPreview = Boolean(media.thumbnailDataUrl)
         && (media.kind === 'image' || media.kind === 'video' || media.kind === 'sticker')
+    const autoLoadsOriginal = shouldAutoLoadExternalMedia(media)
 
     useEffect(() => () => {
         if (fullUrl) URL.revokeObjectURL(fullUrl)
@@ -145,8 +148,7 @@ function MediaAttachment(props: {
     }, [api, downloadable, fullUrl, loading, props.conversationId, props.mediaIndex, props.providerMessageId])
 
     useEffect(() => {
-        const shouldAutoLoad = media.kind === 'image' || media.kind === 'sticker' || media.isAnimated === true || media.isRound === true
-        if (!hasVisualPreview || error || fullUrl || loading || !shouldAutoLoad) return
+        if (error || fullUrl || loading || !autoLoadsOriginal) return
         const preview = previewRef.current
         if (!preview) return
         if (typeof IntersectionObserver === 'undefined') {
@@ -160,7 +162,7 @@ function MediaAttachment(props: {
         }, { rootMargin: '500px 0px' })
         observer.observe(preview)
         return () => observer.disconnect()
-    }, [error, fullUrl, hasVisualPreview, loadOriginal, loading, media.isAnimated, media.isRound, media.kind])
+    }, [autoLoadsOriginal, error, fullUrl, loadOriginal, loading])
 
     const label = mediaLabels[media.kind]
     if (fullUrl && (media.kind === 'image' || media.kind === 'sticker')) {
@@ -190,24 +192,28 @@ function MediaAttachment(props: {
 
     if (hasVisualPreview) {
         return (
-            <button ref={previewRef} type="button" onClick={() => void loadOriginal()} disabled={loading} className={cn('group relative flex cursor-pointer items-center justify-center overflow-hidden bg-black/10 disabled:cursor-wait', media.isRound ? 'h-[min(16rem,78vw)] w-[min(16rem,78vw)] rounded-full' : 'w-[min(82vw,24rem)] rounded-xl')}>
+            <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} disabled={loading} className={cn('group relative flex cursor-pointer items-center justify-center overflow-hidden bg-black/10 disabled:cursor-wait', media.isRound ? 'h-[min(16rem,78vw)] w-[min(16rem,78vw)] rounded-full' : 'w-[min(82vw,24rem)] rounded-xl')}>
                 <img src={media.thumbnailDataUrl!} alt={label} className={cn('w-full transition-opacity', media.isRound ? 'h-full object-cover' : 'max-h-80 min-h-36 object-contain', loading && 'opacity-70')} />
                 {loading || error || media.kind === 'video' ? <span className="absolute inset-0 grid place-items-center bg-black/20 text-center text-sm font-medium text-white opacity-100 drop-shadow transition-opacity sm:opacity-0 sm:group-hover:opacity-100 group-disabled:opacity-100">{loading ? 'Loading original…' : error ? 'Tap to retry' : '▶ Play video'}</span> : null}
             </button>
         )
     }
     const size = formatMediaSize(media.size)
-    const Wrapper = downloadable ? 'button' : 'div'
-    return (
-        <Wrapper type={downloadable ? 'button' : undefined} onClick={downloadable ? () => void loadOriginal() : undefined} className="flex min-w-48 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-3 py-2.5 text-left">
+    const fallbackContent = (
+        <>
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-bg)] text-base text-[var(--app-link)]">{mediaIcons[media.kind]}</span>
             <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{loading ? 'Loading…' : media.fileName ?? mediaLabels[media.kind]}</span>
+                <span className="block truncate text-sm font-medium">{loading || autoLoadsOriginal ? 'Loading…' : media.fileName ?? mediaLabels[media.kind]}</span>
                 {size || media.mimeType ? <span className="block truncate text-[10px] text-[var(--app-hint)]">{[size, media.mimeType].filter(Boolean).join(' · ')}</span> : null}
                 {error ? <span className="block text-[10px] text-red-600">{error}</span> : null}
             </span>
-        </Wrapper>
+        </>
     )
+    const fallbackClassName = 'flex min-w-48 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-3 py-2.5 text-left'
+    if (downloadable) {
+        return <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} className={fallbackClassName}>{fallbackContent}</button>
+    }
+    return <div ref={(node) => { previewRef.current = node }} className={fallbackClassName}>{fallbackContent}</div>
 }
 
 function ConnectionDialog(props: { connection: MessengerConnection; onClose: () => void }) {
@@ -487,11 +493,7 @@ export function ChatConversationPage() {
         enabled: Boolean(api)
     })
     const conversation = conversations.data?.find((item) => item.id === conversationId)
-    const messages = useQuery({
-        queryKey: queryKeys.externalMessages(conversationId),
-        queryFn: async () => await api!.getExternalMessages(conversationId),
-        enabled: Boolean(api)
-    })
+    const messages = useExternalMessages(api, conversationId)
     const participantAvatars = useMemo(() => new Map(
         (messages.data?.participants ?? []).map((participant) => [participant.id, participant.avatarDataUrl])
     ), [messages.data?.participants])
