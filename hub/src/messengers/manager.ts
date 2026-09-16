@@ -138,23 +138,25 @@ export class MessengerManager {
         return this.listConversations(namespace)
     }
 
-    async listMessages(namespace: string, conversationId: string): Promise<ExternalMessage[]> {
+    async listMessages(
+        namespace: string,
+        conversationId: string,
+        options: { markRead?: boolean; refresh?: boolean } = {}
+    ): Promise<ExternalMessage[]> {
         const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
-        if (conversation.unreadCount > 0) {
+        if (options.markRead !== false && conversation.unreadCount > 0) {
             this.options.store.messengers.setUnreadCount(namespace, conversationId, 0)
             this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId })
         }
         const cached = this.options.store.messengers.listMessages(namespace, conversationId)
         const lastSyncAt = this.messageSyncedAt.get(this.key(namespace, conversationId)) ?? 0
-        if (cached.length > 0) {
-            if (Date.now() - lastSyncAt > 15_000) {
-                void this.refreshMessages(namespace, conversation, 100, true).catch(() => {})
-            }
-            return cached
+        if (options.refresh !== false && (cached.length === 0 || Date.now() - lastSyncAt > 15_000)) {
+            void this.refreshMessages(namespace, conversation, 100, true).catch((error) => {
+                console.error(`[Messengers] Failed to refresh ${conversation.id}:`, error)
+            })
         }
-        await this.refreshMessages(namespace, conversation, 100, false)
-        return this.options.store.messengers.listMessages(namespace, conversationId)
+        return cached
     }
 
     async sendText(namespace: string, conversationId: string, text: string, clientId?: string): Promise<void> {

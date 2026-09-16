@@ -35,18 +35,22 @@ describe('messenger routes', () => {
     })
 
     it('returns participant avatars separately from messages', async () => {
+        const calls: unknown[][] = []
         const manager = {
-            listMessages: async () => [{
-                id: 'message-1',
-                conversationId: 'telegram:group:1',
-                providerMessageId: '1',
-                senderId: 'user-1',
-                senderName: 'Alice',
-                direction: 'incoming',
-                text: 'Hello',
-                createdAt: 1,
-                editedAt: null,
-            }],
+            listMessages: async (...args: unknown[]) => {
+                calls.push(args)
+                return [{
+                    id: 'message-1',
+                    conversationId: 'telegram:group:1',
+                    providerMessageId: '1',
+                    senderId: 'user-1',
+                    senderName: 'Alice',
+                    direction: 'incoming',
+                    text: 'Hello',
+                    createdAt: 1,
+                    editedAt: null,
+                }]
+            },
             listParticipants: () => [{
                 id: 'user-1',
                 name: 'Alice',
@@ -63,6 +67,11 @@ describe('messenger routes', () => {
         const response = await app.request('/conversations/telegram%3Agroup%3A1/messages')
 
         expect(response.status).toBe(200)
+        expect(calls).toEqual([[
+            'default',
+            'telegram:group:1',
+            { markRead: true, refresh: true }
+        ]])
         expect(await response.json()).toEqual({
             messages: [{
                 id: 'message-1',
@@ -81,6 +90,28 @@ describe('messenger routes', () => {
                 avatarDataUrl: 'data:image/jpeg;base64,dGVzdA==',
             }],
         })
+    })
+
+    it('can read only the local message snapshot without marking a chat as read', async () => {
+        const calls: unknown[][] = []
+        const manager = {
+            listMessages: async (...args: unknown[]) => {
+                calls.push(args)
+                return []
+            },
+            listParticipants: () => [],
+        } as unknown as MessengerManager
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/', createMessengerRoutes(manager))
+
+        const response = await app.request('/conversations/chat/messages?markRead=false&refresh=false')
+
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([['default', 'chat', { markRead: false, refresh: false }]])
     })
 
     it('serves media whose Telegram filename contains non-ASCII characters', async () => {

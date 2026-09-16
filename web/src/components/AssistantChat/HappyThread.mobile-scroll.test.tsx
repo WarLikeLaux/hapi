@@ -140,6 +140,13 @@ afterEach(() => {
 })
 
 describe('mobile initial scroll settling', () => {
+    it('bottom-aligns a short initial message window while older history loads', () => {
+        const { container } = renderThread()
+        const content = container.querySelector('.chat-scroll-content')
+
+        expect(content).toHaveClass('min-h-full', 'flex', 'flex-col', 'justify-end')
+    })
+
     it('does not snap back after pointer cancellation ends a touch swipe', () => {
         const { viewport, onViewModeChange } = renderThread()
         expect(viewport.scrollTop).toBe(702)

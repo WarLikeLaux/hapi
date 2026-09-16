@@ -1751,7 +1751,7 @@ export function HappyThread(props: {
                         className="app-scroll-y chat-scroll-y min-h-0 flex-1 overflow-x-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-link)]"
                         tabIndex={0}
                     >
-                        <div ref={contentRef} className="chat-scroll-content mx-auto w-full max-w-content min-w-0 p-3">
+                        <div ref={contentRef} className="chat-scroll-content mx-auto flex min-h-full w-full max-w-content min-w-0 flex-col justify-end p-3">
                             <div ref={topSentinelRef} className="h-px w-full" aria-hidden="true" />
                             {showSkeleton ? (
                                 <MessageSkeleton />
