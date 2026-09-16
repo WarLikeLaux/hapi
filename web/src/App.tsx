@@ -317,7 +317,7 @@ function AppInner() {
             void queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
             return
         }
-        if (event.type === 'external-message-received') {
+        if (event.type === 'external-message-received' || event.type === 'external-message-updated') {
             void queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
             void queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(event.conversationId) })
             prefetchExternalMessages(event.conversationId)

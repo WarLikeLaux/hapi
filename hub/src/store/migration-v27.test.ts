@@ -43,7 +43,7 @@ describe('schema migration v26 to v27', () => {
             const internalDb = (migrated as unknown as { db: Database }).db
             const version = internalDb.prepare('PRAGMA user_version').get() as { user_version: number }
 
-            expect(version.user_version).toBe(30)
+            expect(version.user_version).toBe(31)
             expect(stored?.lastUserMessageAt).toBe(2_000)
             migrated.close()
         } finally {

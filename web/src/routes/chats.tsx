@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import type { ExternalConversation, ExternalMedia, ExternalMessagesResponse, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
 import { ExternalMessageText } from '@/components/ExternalMessageText'
+import { ExternalDeliveryStatus } from '@/components/ExternalDeliveryStatus'
 import { ImagePreview } from '@/components/ImagePreview'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { RoundVideoPlayer } from '@/components/RoundVideoPlayer'
@@ -418,7 +419,12 @@ function ChatList(props: {
                                 {conversation.unreadCount > 0 ? <span className="min-w-5 rounded-full bg-[var(--app-button)] px-1.5 py-0.5 text-center text-[10px] font-semibold text-[var(--app-button-text)]">{conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}</span> : null}
                                 <span className="shrink-0 text-[10px] text-[var(--app-hint)]">{formatTime(conversation.lastMessageAt)}</span>
                             </span>
-                            <span className="mt-0.5 block truncate text-xs text-[var(--app-hint)]">{conversation.lastMessagePreview ?? t('chats.noMessages')}</span>
+                            <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-[var(--app-hint)]">
+                                {conversation.lastMessageDirection === 'outgoing' && conversation.lastMessageDeliveryStatus
+                                    ? <ExternalDeliveryStatus status={conversation.lastMessageDeliveryStatus} />
+                                    : null}
+                                <span className="truncate">{conversation.lastMessagePreview ?? t('chats.noMessages')}</span>
+                            </span>
                         </span>
                     </button>
                 ))}
@@ -642,7 +648,11 @@ export function ChatConversationPage() {
                                     className="shrink-0 pb-0.5 text-[9px] leading-none opacity-60 tabular-nums"
                                 >
                                     {formatTime(item.createdAt)}
-                                    {optimistic ? <span aria-label="Sending" className="ml-1 inline-block">◷</span> : null}
+                                    {optimistic
+                                        ? <span aria-label="Sending" className="ml-1 inline-block">◷</span>
+                                        : !incoming && item.deliveryStatus
+                                            ? <ExternalDeliveryStatus status={item.deliveryStatus} className="ml-1 align-middle" />
+                                            : null}
                                 </time>
                             </div>
                         ) : null
@@ -668,7 +678,12 @@ export function ChatConversationPage() {
                                             {caption ? <div className={bubbleClassName}>{caption}</div> : null}
                                         </>
                                     )}
-                                    {!item.text ? <div className="mt-0.5 px-2 text-[9px] text-[var(--app-hint)]">{formatTime(item.createdAt)}</div> : null}
+                                    {!item.text ? (
+                                        <div className="mt-0.5 flex items-center gap-1 px-2 text-[9px] text-[var(--app-hint)]">
+                                            {formatTime(item.createdAt)}
+                                            {!incoming && item.deliveryStatus ? <ExternalDeliveryStatus status={item.deliveryStatus} /> : null}
+                                        </div>
+                                    ) : null}
                                 </div>
                                 {!incoming ? (
                                     continuesNext

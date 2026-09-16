@@ -495,6 +495,22 @@ export class MessengerManager {
             }
             return
         }
+        if (event.type === 'messages-read') {
+            const conversation = this.options.store.messengers.listConversations(namespace)
+                .find((item) => item.provider === event.provider && item.remoteId === event.remoteId)
+            if (!conversation) return
+            this.options.store.messengers.markOutgoingMessagesRead(
+                namespace,
+                conversation.id,
+                event.maxProviderMessageId
+            )
+            this.options.sseManager.broadcast({
+                type: 'external-message-updated',
+                namespace,
+                conversationId: conversation.id
+            })
+            return
+        }
         const conversation = this.options.store.messengers.getConversation(namespace, event.message.conversationId)
         if (!conversation?.selected) return
         const isNew = !this.options.store.messengers.hasMessage(

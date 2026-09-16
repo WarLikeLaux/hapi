@@ -27,7 +27,7 @@ describe('schema migration v28 to v29', () => {
             const conversationColumns = internalDb.prepare('PRAGMA table_info(external_conversations)').all() as Array<{ name: string }>
             const messageColumns = internalDb.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
 
-            expect(version.user_version).toBe(30)
+            expect(version.user_version).toBe(31)
             expect(conversationColumns.some((column) => column.name === 'avatar_data_url')).toBe(true)
             expect(messageColumns.some((column) => column.name === 'media_json')).toBe(true)
         } finally {

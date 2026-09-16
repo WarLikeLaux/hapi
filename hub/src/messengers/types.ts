@@ -10,6 +10,7 @@ export type MessengerConnectorEvent =
     | { type: 'conversation'; conversation: ExternalConversation }
     | { type: 'message'; message: ExternalMessage }
     | { type: 'messages-deleted'; provider: string; remoteId?: string; providerMessageIds: string[] }
+    | { type: 'messages-read'; provider: string; remoteId: string; maxProviderMessageId: number }
 
 export type DownloadedExternalMedia = {
     path: string
