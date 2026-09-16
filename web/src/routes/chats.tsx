@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate, useParams } from '@tanstack/react-router'
-import type { ExternalConversation, ExternalMedia, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
-import { MarkdownRenderer } from '@/components/MarkdownRenderer'
+import type { ExternalConversation, ExternalMedia, ExternalMessagesResponse, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
+import { ExternalMessageText } from '@/components/ExternalMessageText'
 import { ImagePreview } from '@/components/ImagePreview'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { RoundVideoPlayer } from '@/components/RoundVideoPlayer'
@@ -10,6 +10,8 @@ import { ChatParticipantAvatar } from '@/components/ChatParticipantAvatar'
 import { getUserBubbleClassName } from '@/components/AssistantChat/messages/user-bubble'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
+import { useChatKeyboardTail } from '@/hooks/useChatKeyboardTail'
+import { useExternalMessagePrefetch } from '@/hooks/useExternalMessagePrefetch'
 import { useAppContext } from '@/lib/app-context'
 import { imageFileFromClipboard } from '@/lib/clipboardMedia'
 import { upsertMessengerConnection } from '@/lib/messengerConnections'
@@ -18,6 +20,12 @@ import { useTranslation } from '@/lib/use-translation'
 import { cn } from '@/lib/utils'
 import { formatMessageTimestamp } from '@/chat/presentation'
 import { areExternalMessagesGrouped } from '@/chat/messageGrouping'
+import {
+    appendOptimisticExternalMessage,
+    createOptimisticExternalMessage,
+    isOptimisticExternalMessage,
+    removeOptimisticExternalMessage
+} from '@/chat/optimisticExternalMessages'
 
 function TelegramMark(props: { className?: string }) {
     return (
@@ -433,6 +441,7 @@ export function ChatsPage() {
         queryFn: async () => (await api!.getExternalConversations()).conversations,
         enabled: Boolean(api)
     })
+    useExternalMessagePrefetch(api, conversations.data)
     const telegram = connections.data?.find((item) => item.provider === 'telegram') ?? {
         provider: 'telegram', state: 'unconfigured', accountLabel: null, detail: null
     } satisfies MessengerConnection
@@ -471,6 +480,7 @@ export function ChatConversationPage() {
     const fileInputRef = useRef<HTMLInputElement>(null)
     const composerRef = useRef<HTMLTextAreaElement>(null)
     const stickToBottomRef = useRef(true)
+    const handleComposerFocus = useChatKeyboardTail({ viewportRef, composerRef, stickToBottomRef })
     const conversations = useQuery({
         queryKey: queryKeys.externalConversations,
         queryFn: async () => (await api!.getExternalConversations()).conversations,
@@ -486,16 +496,38 @@ export function ChatConversationPage() {
         (messages.data?.participants ?? []).map((participant) => [participant.id, participant.avatarDataUrl])
     ), [messages.data?.participants])
     const send = useMutation({
-        mutationFn: async (value: string) => api!.sendExternalMessage(conversationId, value, crypto.randomUUID()),
-        onMutate: () => {
+        mutationFn: async (input: { text: string; clientId: string }) => {
+            await api!.sendExternalMessage(conversationId, input.text, input.clientId)
+        },
+        onMutate: async (input) => {
             stickToBottomRef.current = true
+            setText('')
+            await queryClient.cancelQueries({ queryKey: queryKeys.externalMessages(conversationId) })
+            const optimistic = createOptimisticExternalMessage({
+                conversationId,
+                clientId: input.clientId,
+                text: input.text
+            })
+            queryClient.setQueryData<ExternalMessagesResponse>(
+                queryKeys.externalMessages(conversationId),
+                (current) => appendOptimisticExternalMessage(current, optimistic)
+            )
+            return { optimisticId: optimistic.id }
         },
         onSuccess: async () => {
-            setText('')
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) }),
                 queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
             ])
+        },
+        onError: (_error, input, context) => {
+            if (context?.optimisticId) {
+                queryClient.setQueryData<ExternalMessagesResponse>(
+                    queryKeys.externalMessages(conversationId),
+                    (current) => removeOptimisticExternalMessage(current, context.optimisticId)
+                )
+            }
+            setText((current) => current ? `${input.text}\n${current}` : input.text)
         }
     })
     const sendMedia = useMutation({
@@ -578,9 +610,9 @@ export function ChatConversationPage() {
                 className="min-h-0 flex-1 overflow-y-auto bg-[var(--app-chat-bg,var(--app-bg))] px-3 py-5"
             >
                 <div ref={messageContentRef} className="mx-auto flex w-full max-w-content flex-col gap-2">
-                    {messages.isLoading ? <div className="py-10 text-center text-sm text-[var(--app-hint)]">{t('loading.messages')}</div> : null}
                     {messageItems.map((item, index) => {
                         const incoming = item.direction === 'incoming'
+                        const optimistic = isOptimisticExternalMessage(item)
                         const hasMedia = Boolean(item.media?.length)
                         const continuesPrevious = areExternalMessagesGrouped(messageItems[index - 1], item)
                         const continuesNext = areExternalMessagesGrouped(item, messageItems[index + 1])
@@ -595,7 +627,7 @@ export function ChatConversationPage() {
                         const caption = item.text ? (
                             <div className="flex items-end gap-2">
                                 <div className="min-w-0 flex-1">
-                                    <MarkdownRenderer content={item.text} preserveSingleLineBreaks />
+                                    <ExternalMessageText text={item.text} />
                                 </div>
                                 <time
                                     dateTime={new Date(item.createdAt).toISOString()}
@@ -603,6 +635,7 @@ export function ChatConversationPage() {
                                     className="shrink-0 pb-0.5 text-[9px] leading-none opacity-60 tabular-nums"
                                 >
                                     {formatTime(item.createdAt)}
+                                    {optimistic ? <span aria-label="Sending" className="ml-1 inline-block">◷</span> : null}
                                 </time>
                             </div>
                         ) : null
@@ -643,7 +676,7 @@ export function ChatConversationPage() {
             <form className="shrink-0 border-t border-[var(--app-border)] bg-[var(--app-bg)] p-2 pb-[max(.5rem,env(safe-area-inset-bottom))]" onSubmit={(event) => {
                 event.preventDefault()
                 const value = text.trim()
-                if (value && !send.isPending) send.mutate(value)
+                if (value && !send.isPending) send.mutate({ text: value, clientId: crypto.randomUUID() })
             }}>
                 <div className="mx-auto flex max-w-content items-end gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] p-1.5 pl-3 focus-within:border-[var(--app-link)]">
                     <input
@@ -658,6 +691,7 @@ export function ChatConversationPage() {
                     <button type="button" disabled={sendMedia.isPending} onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Attach media"><AttachmentIcon /></button>
                     <textarea
                         ref={composerRef}
+                        onFocus={handleComposerFocus}
                         value={text}
                         onChange={(event) => setText(event.target.value)}
                         onPaste={(event) => {
