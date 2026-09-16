@@ -6,6 +6,7 @@ import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { ImagePreview } from '@/components/ImagePreview'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { RoundVideoPlayer } from '@/components/RoundVideoPlayer'
+import { ChatParticipantAvatar } from '@/components/ChatParticipantAvatar'
 import { getUserBubbleClassName } from '@/components/AssistantChat/messages/user-bubble'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
@@ -15,6 +16,8 @@ import { upsertMessengerConnection } from '@/lib/messengerConnections'
 import { queryKeys } from '@/lib/query-keys'
 import { useTranslation } from '@/lib/use-translation'
 import { cn } from '@/lib/utils'
+import { formatMessageTimestamp } from '@/chat/presentation'
+import { areExternalMessagesGrouped } from '@/chat/messageGrouping'
 
 function TelegramMark(props: { className?: string }) {
     return (
@@ -47,12 +50,7 @@ function AttachmentIcon() {
 
 function formatTime(value: number | null): string {
     if (!value) return ''
-    const date = new Date(value)
-    const now = new Date()
-    if (date.toDateString() === now.toDateString()) {
-        return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(date)
-    }
-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date)
+    return formatMessageTimestamp(new Date(value))
 }
 
 function ConversationAvatar({ conversation }: { conversation: ExternalConversation }) {
@@ -481,9 +479,12 @@ export function ChatConversationPage() {
     const conversation = conversations.data?.find((item) => item.id === conversationId)
     const messages = useQuery({
         queryKey: queryKeys.externalMessages(conversationId),
-        queryFn: async () => (await api!.getExternalMessages(conversationId)).messages,
+        queryFn: async () => await api!.getExternalMessages(conversationId),
         enabled: Boolean(api)
     })
+    const participantAvatars = useMemo(() => new Map(
+        (messages.data?.participants ?? []).map((participant) => [participant.id, participant.avatarDataUrl])
+    ), [messages.data?.participants])
     const send = useMutation({
         mutationFn: async (value: string) => api!.sendExternalMessage(conversationId, value, crypto.randomUUID()),
         onMutate: () => {
@@ -556,6 +557,7 @@ export function ChatConversationPage() {
     if (!conversation) {
         return <div className="m-auto text-sm text-[var(--app-hint)]">{t('chats.notFound')}</div>
     }
+    const messageItems = messages.data?.messages ?? []
 
     return (
         <div className="flex h-full min-h-0 flex-col pt-[env(safe-area-inset-top)]">
@@ -577,31 +579,65 @@ export function ChatConversationPage() {
             >
                 <div ref={messageContentRef} className="mx-auto flex w-full max-w-content flex-col gap-2">
                     {messages.isLoading ? <div className="py-10 text-center text-sm text-[var(--app-hint)]">{t('loading.messages')}</div> : null}
-                    {messages.data?.map((item) => (
-                        <div key={item.id} className={cn('flex flex-col', item.direction === 'outgoing' ? 'items-end' : 'items-start')}>
-                            {item.direction === 'incoming' && item.senderName && conversation.kind !== 'direct' ? <div className="mb-1 px-2 text-[10px] text-[var(--app-hint)]">{item.senderName}</div> : null}
-                            {item.media?.length ? <div className="mb-1 flex max-w-[92%] flex-col gap-1.5">{item.media.map((media, index) => <MediaAttachment key={`${item.id}:${index}`} media={media} galleryId={`telegram-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={index} />)}</div> : null}
-                            {item.text ? (
-                                <div className={item.direction === 'outgoing'
-                                    ? getUserBubbleClassName()
-                                    : 'happy-chat-text w-fit max-w-[92%] rounded-2xl bg-[var(--app-secondary-bg)] px-4 py-2.5 text-[var(--app-fg)]'}>
-                                    <div className="flex items-end gap-2">
-                                        <div className="min-w-0 flex-1">
-                                            <MarkdownRenderer content={item.text} preserveSingleLineBreaks />
-                                        </div>
-                                        <time
-                                            dateTime={new Date(item.createdAt).toISOString()}
-                                            title={new Date(item.createdAt).toLocaleString()}
-                                            className="shrink-0 pb-0.5 text-[9px] leading-none opacity-60 tabular-nums"
-                                        >
-                                            {formatTime(item.createdAt)}
-                                        </time>
-                                    </div>
+                    {messageItems.map((item, index) => {
+                        const incoming = item.direction === 'incoming'
+                        const hasMedia = Boolean(item.media?.length)
+                        const continuesPrevious = areExternalMessagesGrouped(messageItems[index - 1], item)
+                        const continuesNext = areExternalMessagesGrouped(item, messageItems[index + 1])
+                        const avatarSrc = (item.senderId ? participantAvatars.get(item.senderId) : null)
+                            ?? (incoming && conversation.kind === 'direct' ? conversation.avatarDataUrl : null)
+                        const groupedCornerClassName = incoming
+                            ? cn(continuesPrevious && 'rounded-tl-md', continuesNext && 'rounded-bl-md')
+                            : cn(continuesPrevious && 'rounded-tr-md', continuesNext && 'rounded-br-md')
+                        const bubbleClassName = incoming
+                            ? cn('happy-chat-text w-fit max-w-full rounded-2xl bg-[var(--app-secondary-bg)] px-4 py-2.5 text-[var(--app-fg)]', groupedCornerClassName)
+                            : cn(getUserBubbleClassName(), 'max-w-full', groupedCornerClassName)
+                        const caption = item.text ? (
+                            <div className="flex items-end gap-2">
+                                <div className="min-w-0 flex-1">
+                                    <MarkdownRenderer content={item.text} preserveSingleLineBreaks />
                                 </div>
-                            ) : null}
-                            {!item.text ? <div className="mt-0.5 px-2 text-[9px] text-[var(--app-hint)]">{formatTime(item.createdAt)}</div> : null}
-                        </div>
-                    ))}
+                                <time
+                                    dateTime={new Date(item.createdAt).toISOString()}
+                                    title={new Date(item.createdAt).toLocaleString()}
+                                    className="shrink-0 pb-0.5 text-[9px] leading-none opacity-60 tabular-nums"
+                                >
+                                    {formatTime(item.createdAt)}
+                                </time>
+                            </div>
+                        ) : null
+                        return (
+                            <div key={item.id} className={cn('flex w-full items-end gap-2', continuesPrevious && '-mt-1', incoming ? 'justify-start' : 'justify-end')}>
+                                {incoming ? (
+                                    continuesNext
+                                        ? <div aria-hidden="true" className="h-8 w-8 shrink-0" />
+                                        : <ChatParticipantAvatar src={avatarSrc} name={item.senderName ?? conversation.title} />
+                                ) : null}
+                                <div className={cn('flex min-w-0 max-w-[calc(92%-2.5rem)] flex-col', incoming ? 'items-start' : 'items-end')}>
+                                    {incoming && !continuesPrevious && item.senderName && conversation.kind !== 'direct' ? <div className="mb-1 px-2 text-[10px] text-[var(--app-hint)]">{item.senderName}</div> : null}
+                                    {hasMedia && caption ? (
+                                        <div className={cn(bubbleClassName, 'overflow-hidden p-1')}>
+                                            <div className="flex max-w-full flex-col gap-1.5">
+                                                {item.media!.map((media, index) => <MediaAttachment key={`${item.id}:${index}`} media={media} galleryId={`telegram-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={index} />)}
+                                            </div>
+                                            <div className="px-3 pb-1.5 pt-2">{caption}</div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {hasMedia ? <div className="mb-1 flex max-w-full flex-col gap-1.5">{item.media!.map((media, index) => <MediaAttachment key={`${item.id}:${index}`} media={media} galleryId={`telegram-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={index} />)}</div> : null}
+                                            {caption ? <div className={bubbleClassName}>{caption}</div> : null}
+                                        </>
+                                    )}
+                                    {!item.text ? <div className="mt-0.5 px-2 text-[9px] text-[var(--app-hint)]">{formatTime(item.createdAt)}</div> : null}
+                                </div>
+                                {!incoming ? (
+                                    continuesNext
+                                        ? <div aria-hidden="true" className="h-8 w-8 shrink-0" />
+                                        : <ChatParticipantAvatar src={avatarSrc} name={item.senderName} currentUser />
+                                ) : null}
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
             <form className="shrink-0 border-t border-[var(--app-border)] bg-[var(--app-bg)] p-2 pb-[max(.5rem,env(safe-area-inset-bottom))]" onSubmit={(event) => {

@@ -71,6 +71,7 @@ export const ExternalMessageSchema = z.object({
     providerMessageId: z.string().min(1),
     senderId: z.string().nullable(),
     senderName: z.string().nullable(),
+    senderAvatarDataUrl: z.string().nullable().optional(),
     direction: z.enum(['incoming', 'outgoing']),
     text: z.string(),
     createdAt: z.number().int(),
@@ -78,6 +79,13 @@ export const ExternalMessageSchema = z.object({
     media: z.array(ExternalMediaSchema).optional()
 })
 export type ExternalMessage = z.infer<typeof ExternalMessageSchema>
+
+export const ExternalParticipantSchema = z.object({
+    id: z.string().min(1),
+    name: z.string().nullable(),
+    avatarDataUrl: z.string().nullable()
+})
+export type ExternalParticipant = z.infer<typeof ExternalParticipantSchema>
 
 export const ConfigureTelegramRequestSchema = z.object({
     apiId: z.number().int().positive(),
@@ -104,4 +112,7 @@ export type SendExternalMessageRequest = z.infer<typeof SendExternalMessageReque
 
 export type MessengerConnectionsResponse = { connections: MessengerConnection[] }
 export type ExternalConversationsResponse = { conversations: ExternalConversation[] }
-export type ExternalMessagesResponse = { messages: ExternalMessage[] }
+export type ExternalMessagesResponse = {
+    messages: ExternalMessage[]
+    participants: ExternalParticipant[]
+}

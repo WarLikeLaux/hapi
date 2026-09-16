@@ -89,8 +89,11 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
 
     app.get('/conversations/:id/messages', async (c) => {
         try {
-            const messages = await manager.listMessages(c.get('namespace'), c.req.param('id'))
-            return c.json({ messages })
+            const namespace = c.get('namespace')
+            const conversationId = c.req.param('id')
+            const messages = await manager.listMessages(namespace, conversationId)
+            const participants = manager.listParticipants(namespace, conversationId)
+            return c.json({ messages, participants })
         } catch (error) {
             const message = errorMessage(error)
             return c.json({ error: message }, message === 'Conversation not found' ? 404 : 502)

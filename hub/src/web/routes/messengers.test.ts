@@ -34,6 +34,55 @@ describe('messenger routes', () => {
         expect(calls).toEqual(['connect:default', 'list:default'])
     })
 
+    it('returns participant avatars separately from messages', async () => {
+        const manager = {
+            listMessages: async () => [{
+                id: 'message-1',
+                conversationId: 'telegram:group:1',
+                providerMessageId: '1',
+                senderId: 'user-1',
+                senderName: 'Alice',
+                direction: 'incoming',
+                text: 'Hello',
+                createdAt: 1,
+                editedAt: null,
+            }],
+            listParticipants: () => [{
+                id: 'user-1',
+                name: 'Alice',
+                avatarDataUrl: 'data:image/jpeg;base64,dGVzdA==',
+            }],
+        } as unknown as MessengerManager
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/', createMessengerRoutes(manager))
+
+        const response = await app.request('/conversations/telegram%3Agroup%3A1/messages')
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({
+            messages: [{
+                id: 'message-1',
+                conversationId: 'telegram:group:1',
+                providerMessageId: '1',
+                senderId: 'user-1',
+                senderName: 'Alice',
+                direction: 'incoming',
+                text: 'Hello',
+                createdAt: 1,
+                editedAt: null,
+            }],
+            participants: [{
+                id: 'user-1',
+                name: 'Alice',
+                avatarDataUrl: 'data:image/jpeg;base64,dGVzdA==',
+            }],
+        })
+    })
+
     it('serves media whose Telegram filename contains non-ASCII characters', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'hapi-messenger-route-'))
         const path = join(directory, 'animation.mp4')

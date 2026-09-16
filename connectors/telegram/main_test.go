@@ -37,7 +37,7 @@ func TestMessageFromTelegram(t *testing.T) {
 		Message: "hello",
 		Date:    123,
 	}
-	result, ok := messageFromTelegram(msg, messageEntities(), &tg.User{ID: 1, FirstName: "Me"})
+	result, ok := messageFromTelegram(msg, messageEntities(), &tg.User{ID: 1, FirstName: "Me"}, nil)
 	if !ok {
 		t.Fatal("message was not converted")
 	}
@@ -68,9 +68,32 @@ func TestMessageFromTelegramPreservesMediaKind(t *testing.T) {
 			},
 		},
 	}
-	result, ok := messageFromTelegram(msg, messageEntities(), nil)
+	result, ok := messageFromTelegram(msg, messageEntities(), nil, nil)
 	if !ok || len(result.Media) != 1 || result.Media[0].Kind != "voice" || result.Text != "" {
 		t.Fatalf("unexpected media message: %#v", result)
+	}
+}
+
+func TestSenderAvatarCandidateFromMessageEntities(t *testing.T) {
+	user := &tg.User{
+		ID:         42,
+		AccessHash: 99,
+		Photo:      &tg.UserProfilePhoto{PhotoID: 123},
+	}
+	entities := messagepeer.NewEntities(
+		map[int64]*tg.User{42: user},
+		map[int64]*tg.Chat{},
+		map[int64]*tg.Channel{},
+	)
+	message := &tg.Message{PeerID: &tg.PeerChat{ChatID: 7}}
+	message.SetFromID(&tg.PeerUser{UserID: 42})
+	candidate := senderAvatarCandidateForMessage(message, entities, nil)
+	if candidate == nil || candidate.remoteID != "user:42" || candidate.photoID != 123 {
+		t.Fatalf("unexpected avatar candidate: %#v", candidate)
+	}
+	peer, ok := candidate.peer.(*tg.InputPeerUser)
+	if !ok || peer.UserID != 42 || peer.AccessHash != 99 {
+		t.Fatalf("unexpected avatar peer: %#v", candidate.peer)
 	}
 }
 

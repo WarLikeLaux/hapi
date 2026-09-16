@@ -35,6 +35,7 @@ describe('MessengerStore', () => {
                 providerMessageId: '5',
                 senderId: 'user:1',
                 senderName: 'Friend',
+                senderAvatarDataUrl: 'data:image/jpeg;base64,dGVzdA==',
                 direction: 'incoming',
                 text: 'hello',
                 createdAt: 1000,
@@ -50,6 +51,11 @@ describe('MessengerStore', () => {
             expect(store.messengers.listMessages('one', 'telegram:user:1')).toEqual([
                 expect.objectContaining({ media: [expect.objectContaining({ kind: 'image', size: 128 })] })
             ])
+            expect(store.messengers.listParticipants('one', 'telegram:user:1')).toEqual([{
+                id: 'user:1',
+                name: 'Friend',
+                avatarDataUrl: 'data:image/jpeg;base64,dGVzdA=='
+            }])
             store.messengers.upsertMessage('one', {
                 id: 'telegram:user:1:6',
                 conversationId: 'telegram:user:1',

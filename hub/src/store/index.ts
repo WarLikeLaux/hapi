@@ -45,7 +45,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 29
+const SCHEMA_VERSION: number = 30
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -60,7 +60,8 @@ const REQUIRED_TABLES = [
     'events',
     'event_links',
     'external_conversations',
-    'external_messages'
+    'external_messages',
+    'external_participants'
 ] as const
 
 export class Store {
@@ -376,6 +377,7 @@ export class Store {
             26: () => this.migrateFromV26ToV27(),
             27: () => this.migrateFromV27ToV28(),
             28: () => this.migrateFromV28ToV29(),
+            29: () => this.migrateFromV29ToV30(),
         })
 
         if (currentVersion === 0) {
@@ -665,6 +667,15 @@ export class Store {
             );
             CREATE INDEX IF NOT EXISTS idx_external_messages_conversation
                 ON external_messages(namespace, conversation_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS external_participants (
+                namespace TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                remote_id TEXT NOT NULL,
+                display_name TEXT,
+                avatar_data_url TEXT,
+                PRIMARY KEY (namespace, provider, remote_id)
+            );
         `)
     }
 
@@ -681,6 +692,19 @@ export class Store {
         if (!messageColumns.some((column) => column.name === 'media_json')) {
             this.db.exec("ALTER TABLE external_messages ADD COLUMN media_json TEXT NOT NULL DEFAULT '[]'")
         }
+    }
+
+    private migrateFromV29ToV30(): void {
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS external_participants (
+                namespace TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                remote_id TEXT NOT NULL,
+                display_name TEXT,
+                avatar_data_url TEXT,
+                PRIMARY KEY (namespace, provider, remote_id)
+            )
+        `)
     }
 
     private migrateLegacySchemaIfNeeded(): void {

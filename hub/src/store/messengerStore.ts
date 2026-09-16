@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import type { ExternalConversation, ExternalConversationKind, ExternalMessage } from '@hapi/protocol'
+import type { ExternalConversation, ExternalConversationKind, ExternalMessage, ExternalParticipant } from '@hapi/protocol'
 
 type ConversationRow = {
     id: string
@@ -43,7 +43,7 @@ function toConversation(row: ConversationRow): ExternalConversation {
 }
 
 function toMessage(row: MessageRow): ExternalMessage {
-    return {
+    const message: ExternalMessage = {
         id: row.id,
         conversationId: row.conversation_id,
         providerMessageId: row.provider_message_id,
@@ -55,6 +55,7 @@ function toMessage(row: MessageRow): ExternalMessage {
         editedAt: row.edited_at,
         media: JSON.parse(row.media_json) as ExternalMessage['media']
     }
+    return message
 }
 
 function messagePreview(message: ExternalMessage): string {
@@ -204,6 +205,32 @@ export class MessengerStore {
 
     upsertMessage(namespace: string, message: ExternalMessage): void {
         this.db.transaction(() => {
+            if (message.senderId && message.senderAvatarDataUrl) {
+                this.db.prepare(`
+                    INSERT INTO external_participants (
+                        namespace, provider, remote_id, display_name, avatar_data_url
+                    )
+                    SELECT ?, provider, ?, ?, ?
+                    FROM external_conversations
+                    WHERE namespace = ? AND id = ?
+                    ON CONFLICT(namespace, provider, remote_id) DO UPDATE SET
+                        display_name = COALESCE(excluded.display_name, external_participants.display_name),
+                        avatar_data_url = CASE
+                            WHEN excluded.avatar_data_url IS NULL THEN external_participants.avatar_data_url
+                            WHEN LENGTH(excluded.avatar_data_url) < 4096
+                                 AND LENGTH(external_participants.avatar_data_url) >= 4096
+                                THEN external_participants.avatar_data_url
+                            ELSE excluded.avatar_data_url
+                        END
+                `).run(
+                    namespace,
+                    message.senderId,
+                    message.senderName,
+                    message.senderAvatarDataUrl,
+                    namespace,
+                    message.conversationId
+                )
+            }
             this.db.prepare(`
                 INSERT INTO external_messages (
                     id, namespace, conversation_id, provider_message_id,
@@ -302,5 +329,26 @@ export class MessengerStore {
             LIMIT ?
         `).all(namespace, conversationId, safeLimit) as MessageRow[]
         return rows.reverse().map(toMessage)
+    }
+
+    listParticipants(namespace: string, conversationId: string): ExternalParticipant[] {
+        return this.db.prepare(`
+            SELECT participants.remote_id AS id,
+                   participants.display_name AS name,
+                   participants.avatar_data_url AS avatarDataUrl
+            FROM external_participants AS participants
+            JOIN external_conversations AS conversations
+              ON conversations.namespace = participants.namespace
+             AND conversations.provider = participants.provider
+            WHERE participants.namespace = ?
+              AND conversations.id = ?
+              AND EXISTS (
+                  SELECT 1 FROM external_messages AS messages
+                  WHERE messages.namespace = ?
+                    AND messages.conversation_id = ?
+                    AND messages.sender_id = participants.remote_id
+              )
+            ORDER BY participants.display_name COLLATE NOCASE, participants.remote_id
+        `).all(namespace, conversationId, namespace, conversationId) as ExternalParticipant[]
     }
 }
