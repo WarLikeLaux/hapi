@@ -43,6 +43,34 @@ func TestMessageFromTelegram(t *testing.T) {
 	}
 }
 
+func TestChannelDialogKind(t *testing.T) {
+	if _, ok := channelDialogKind(&tg.Channel{Broadcast: true}); ok {
+		t.Fatal("broadcast-only channel should be excluded")
+	}
+	if kind, ok := channelDialogKind(&tg.Channel{Megagroup: true}); !ok || kind != "group" {
+		t.Fatalf("megagroup should be included as group, got %q, %v", kind, ok)
+	}
+}
+
+func TestMessageFromTelegramPreservesMediaKind(t *testing.T) {
+	msg := &tg.Message{
+		ID:     12,
+		PeerID: &tg.PeerUser{UserID: 42},
+		Date:   124,
+		Media: &tg.MessageMediaDocument{
+			Voice: true,
+			Document: &tg.Document{
+				MimeType: "audio/ogg",
+				Size:     512,
+			},
+		},
+	}
+	result, ok := messageFromTelegram(msg, messageEntities(), nil)
+	if !ok || len(result.Media) != 1 || result.Media[0].Kind != "voice" || result.Text != "" {
+		t.Fatalf("unexpected media message: %#v", result)
+	}
+}
+
 func messageEntities() messagepeer.Entities {
 	return messagepeer.NewEntities(map[int64]*tg.User{}, map[int64]*tg.Chat{}, map[int64]*tg.Channel{})
 }

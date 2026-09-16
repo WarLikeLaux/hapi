@@ -11,6 +11,7 @@ type ConversationRow = {
     last_message_at: number | null
     last_message_preview: string | null
     unread_count: number
+    avatar_data_url: string | null
 }
 
 type MessageRow = {
@@ -23,6 +24,7 @@ type MessageRow = {
     text: string
     created_at: number
     edited_at: number | null
+    media_json: string
 }
 
 function toConversation(row: ConversationRow): ExternalConversation {
@@ -35,7 +37,8 @@ function toConversation(row: ConversationRow): ExternalConversation {
         selected: row.selected === 1,
         lastMessageAt: row.last_message_at,
         lastMessagePreview: row.last_message_preview,
-        unreadCount: row.unread_count
+        unreadCount: row.unread_count,
+        avatarDataUrl: row.avatar_data_url
     }
 }
 
@@ -49,8 +52,28 @@ function toMessage(row: MessageRow): ExternalMessage {
         direction: row.direction,
         text: row.text,
         createdAt: row.created_at,
-        editedAt: row.edited_at
+        editedAt: row.edited_at,
+        media: JSON.parse(row.media_json) as ExternalMessage['media']
     }
+}
+
+function messagePreview(message: ExternalMessage): string {
+    const text = message.text.trim()
+    if (text) return text.slice(0, 160)
+    const kind = message.media?.[0]?.kind
+    if (!kind) return ''
+    return ({
+        image: 'Photo',
+        video: 'Video',
+        audio: 'Audio',
+        voice: 'Voice message',
+        sticker: 'Sticker',
+        file: 'File',
+        location: 'Location',
+        contact: 'Contact',
+        poll: 'Poll',
+        other: 'Attachment'
+    } satisfies Record<NonNullable<ExternalMessage['media']>[number]['kind'], string>)[kind]
 }
 
 export class MessengerStore {
@@ -59,7 +82,7 @@ export class MessengerStore {
     listConversations(namespace: string, selectedOnly = true): ExternalConversation[] {
         const rows = this.db.prepare(`
             SELECT id, provider, remote_id, title, kind, selected,
-                   last_message_at, last_message_preview, unread_count
+                   last_message_at, last_message_preview, unread_count, avatar_data_url
             FROM external_conversations
             WHERE namespace = ? ${selectedOnly ? 'AND selected = 1' : ''}
             ORDER BY COALESCE(last_message_at, 0) DESC, title COLLATE NOCASE
@@ -70,7 +93,7 @@ export class MessengerStore {
     getConversation(namespace: string, id: string): ExternalConversation | null {
         const row = this.db.prepare(`
             SELECT id, provider, remote_id, title, kind, selected,
-                   last_message_at, last_message_preview, unread_count
+                   last_message_at, last_message_preview, unread_count, avatar_data_url
             FROM external_conversations WHERE namespace = ? AND id = ?
         `).get(namespace, id) as ConversationRow | undefined
         return row ? toConversation(row) : null
@@ -80,14 +103,15 @@ export class MessengerStore {
         this.db.prepare(`
             INSERT INTO external_conversations (
                 id, namespace, provider, remote_id, title, kind, selected,
-                last_message_at, last_message_preview, unread_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                last_message_at, last_message_preview, unread_count, avatar_data_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(namespace, provider, remote_id) DO UPDATE SET
                 title = excluded.title,
                 kind = excluded.kind,
                 last_message_at = COALESCE(excluded.last_message_at, external_conversations.last_message_at),
                 last_message_preview = COALESCE(excluded.last_message_preview, external_conversations.last_message_preview),
-                unread_count = excluded.unread_count
+                unread_count = excluded.unread_count,
+                avatar_data_url = COALESCE(excluded.avatar_data_url, external_conversations.avatar_data_url)
         `).run(
             conversation.id,
             namespace,
@@ -98,7 +122,8 @@ export class MessengerStore {
             conversation.selected ? 1 : 0,
             conversation.lastMessageAt,
             conversation.lastMessagePreview,
-            conversation.unreadCount
+            conversation.unreadCount,
+            conversation.avatarDataUrl ?? null
         )
     }
 
@@ -133,13 +158,14 @@ export class MessengerStore {
             this.db.prepare(`
                 INSERT INTO external_messages (
                     id, namespace, conversation_id, provider_message_id,
-                    sender_id, sender_name, direction, text, created_at, edited_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    sender_id, sender_name, direction, text, media_json, created_at, edited_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(namespace, conversation_id, provider_message_id) DO UPDATE SET
                     sender_id = excluded.sender_id,
                     sender_name = excluded.sender_name,
                     direction = excluded.direction,
                     text = excluded.text,
+                    media_json = excluded.media_json,
                     created_at = excluded.created_at,
                     edited_at = excluded.edited_at
             `).run(
@@ -151,6 +177,7 @@ export class MessengerStore {
                 message.senderName,
                 message.direction,
                 message.text,
+                JSON.stringify(message.media ?? []),
                 message.createdAt,
                 message.editedAt
             )
@@ -165,7 +192,7 @@ export class MessengerStore {
                         ELSE last_message_preview
                     END
                 WHERE namespace = ? AND id = ?
-            `).run(message.createdAt, message.createdAt, message.createdAt, message.text.slice(0, 160), namespace, message.conversationId)
+            `).run(message.createdAt, message.createdAt, message.createdAt, messagePreview(message), namespace, message.conversationId)
         })()
     }
 
@@ -173,7 +200,7 @@ export class MessengerStore {
         const safeLimit = Math.min(200, Math.max(1, Math.floor(limit)))
         const rows = this.db.prepare(`
             SELECT id, conversation_id, provider_message_id, sender_id, sender_name,
-                   direction, text, created_at, edited_at
+                   direction, text, media_json, created_at, edited_at
             FROM external_messages
             WHERE namespace = ? AND conversation_id = ?
             ORDER BY created_at DESC,

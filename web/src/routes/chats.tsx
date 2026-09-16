@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate, useParams } from '@tanstack/react-router'
-import type { ExternalConversation, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
+import type { ExternalConversation, ExternalMedia, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
+import { ImagePreview } from '@/components/ImagePreview'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { getUserBubbleClassName } from '@/components/AssistantChat/messages/user-bubble'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
 import { useAppContext } from '@/lib/app-context'
+import { upsertMessengerConnection } from '@/lib/messengerConnections'
 import { queryKeys } from '@/lib/query-keys'
 import { useTranslation } from '@/lib/use-translation'
 import { cn } from '@/lib/utils'
@@ -50,8 +52,72 @@ function formatTime(value: number | null): string {
 function ConversationAvatar({ conversation }: { conversation: ExternalConversation }) {
     const initials = conversation.title.trim().slice(0, 2).toUpperCase() || 'TG'
     return (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2AABEE]/15 text-xs font-semibold text-[#229ED9]">
-            {initials}
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2AABEE]/15 text-xs font-semibold text-[#229ED9]">
+            {conversation.avatarDataUrl
+                ? <img src={conversation.avatarDataUrl} alt="" className="h-full w-full object-cover" />
+                : initials}
+        </div>
+    )
+}
+
+const mediaLabels: Record<ExternalMedia['kind'], string> = {
+    image: 'Photo',
+    video: 'Video',
+    audio: 'Audio',
+    voice: 'Voice message',
+    sticker: 'Sticker',
+    file: 'File',
+    location: 'Location',
+    contact: 'Contact',
+    poll: 'Poll',
+    other: 'Attachment'
+}
+
+const mediaIcons: Record<ExternalMedia['kind'], string> = {
+    image: '▧',
+    video: '▶',
+    audio: '♫',
+    voice: '◖))',
+    sticker: '✦',
+    file: '▤',
+    location: '⌖',
+    contact: '●',
+    poll: '≡',
+    other: '＋'
+}
+
+function formatMediaSize(size: number | null): string | null {
+    if (size === null) return null
+    if (size < 1024) return `${size} B`
+    if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`
+    return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function MediaAttachment({ media, galleryId }: { media: ExternalMedia; galleryId: string }) {
+    const hasVisualPreview = Boolean(media.thumbnailDataUrl)
+        && (media.kind === 'image' || media.kind === 'video' || media.kind === 'sticker')
+    if (hasVisualPreview) {
+        const label = mediaLabels[media.kind]
+        return (
+            <ImagePreview
+                src={media.thumbnailDataUrl!}
+                fileName={media.fileName ?? label}
+                label={label}
+                galleryId={galleryId}
+                buttonClassName="group relative flex w-[min(82vw,30rem)] cursor-zoom-in items-center justify-center overflow-hidden rounded-xl bg-black/10"
+                imageClassName="max-h-[28rem] min-h-44 w-full object-contain transition-transform group-hover:scale-[1.01]"
+                caption={media.kind === 'video' ? <span className="pointer-events-none absolute inset-0 grid place-items-center text-4xl text-white drop-shadow">▶</span> : null}
+            />
+        )
+    }
+    const size = formatMediaSize(media.size)
+    return (
+        <div className="flex min-w-48 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-3 py-2.5">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-bg)] text-base text-[var(--app-link)]">{mediaIcons[media.kind]}</span>
+            <span className="min-w-0">
+                <span className="block truncate text-sm font-medium">{media.fileName ?? mediaLabels[media.kind]}</span>
+                {size || media.mimeType ? <span className="block truncate text-[10px] text-[var(--app-hint)]">{[size, media.mimeType].filter(Boolean).join(' · ')}</span> : null}
+            </span>
         </div>
     )
 }
@@ -64,13 +130,25 @@ function ConnectionDialog(props: { connection: MessengerConnection; onClose: () 
     const [apiHash, setApiHash] = useState('')
     const [authValue, setAuthValue] = useState('')
     const [selected, setSelected] = useState<Set<string>>(new Set())
+    const [candidateSearch, setCandidateSearch] = useState('')
     const [error, setError] = useState<string | null>(null)
     const ready = props.connection.state === 'ready'
+    const cacheConnection = (connection: MessengerConnection) => {
+        queryClient.setQueryData<MessengerConnection[]>(
+            queryKeys.messengerConnections,
+            (current) => upsertMessengerConnection(current, connection)
+        )
+    }
     const candidates = useQuery({
         queryKey: queryKeys.messengerCandidates('telegram'),
         queryFn: async () => (await api!.getMessengerCandidates('telegram')).conversations,
         enabled: Boolean(api && ready)
     })
+    const visibleCandidates = useMemo(() => {
+        const query = candidateSearch.trim().toLocaleLowerCase()
+        if (!query) return candidates.data ?? []
+        return (candidates.data ?? []).filter((conversation) => conversation.title.toLocaleLowerCase().includes(query))
+    }, [candidateSearch, candidates.data])
 
     useEffect(() => {
         if (candidates.data) {
@@ -81,7 +159,7 @@ function ConnectionDialog(props: { connection: MessengerConnection; onClose: () 
     const configure = useMutation({
         mutationFn: async () => api!.configureTelegram({ apiId: Number(apiId), apiHash }),
         onSuccess: ({ connection }) => {
-            queryClient.setQueryData(queryKeys.messengerConnections, { connections: [connection] })
+            cacheConnection(connection)
             setError(null)
         },
         onError: (cause) => setError(cause instanceof Error ? cause.message : t('dialog.error.default'))
@@ -89,7 +167,7 @@ function ConnectionDialog(props: { connection: MessengerConnection; onClose: () 
     const submitAuth = useMutation({
         mutationFn: async (input: SubmitMessengerAuthRequest) => api!.submitMessengerAuth('telegram', input),
         onSuccess: ({ connection }) => {
-            queryClient.setQueryData(queryKeys.messengerConnections, { connections: [connection] })
+            cacheConnection(connection)
             setAuthValue('')
             setError(null)
         },
@@ -129,8 +207,16 @@ function ConnectionDialog(props: { connection: MessengerConnection; onClose: () 
                             <p className="mb-3 text-sm text-[var(--app-hint)]">{t('chats.select.hint')}</p>
                             {candidates.isLoading ? <div className="py-8 text-center text-sm text-[var(--app-hint)]">{t('loading')}</div> : null}
                             {candidates.error ? <div className="mb-3 text-sm text-red-600">{candidates.error.message}</div> : null}
+                            {candidates.data ? (
+                                <input
+                                    value={candidateSearch}
+                                    onChange={(event) => setCandidateSearch(event.target.value)}
+                                    placeholder="Search recent chats"
+                                    className="mb-3 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--app-link)]"
+                                />
+                            ) : null}
                             <div className="space-y-1">
-                                {candidates.data?.map((conversation) => (
+                                {visibleCandidates.map((conversation) => (
                                     <label key={conversation.id} className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 hover:bg-[var(--app-subtle-bg)]">
                                         <input
                                             type="checkbox"
@@ -152,7 +238,7 @@ function ConnectionDialog(props: { connection: MessengerConnection; onClose: () 
                                 type="button"
                                 disabled={saveSelection.isPending}
                                 onClick={() => saveSelection.mutate()}
-                                className="mt-4 w-full rounded-xl bg-[var(--app-link)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+                                className="mt-4 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50"
                             >
                                 {saveSelection.isPending ? t('chats.saving') : t('chats.saveSelection')}
                             </button>
@@ -171,7 +257,7 @@ function ConnectionDialog(props: { connection: MessengerConnection; onClose: () 
                                 placeholder={authKind === 'phone' ? '+79991234567' : undefined}
                                 className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]"
                             />
-                            <button type="submit" disabled={!authValue || submitAuth.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-link)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">
+                            <button type="submit" disabled={!authValue || submitAuth.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50">
                                 {submitAuth.isPending ? t('chats.connecting') : t('chats.continue')}
                             </button>
                         </form>
@@ -187,7 +273,7 @@ function ConnectionDialog(props: { connection: MessengerConnection; onClose: () 
                             <input value={apiId} onChange={(event) => setApiId(event.target.value.replace(/\D/g, ''))} inputMode="numeric" className="mb-3 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]" />
                             <label className="mb-1 block text-sm font-medium">API Hash</label>
                             <input value={apiHash} onChange={(event) => setApiHash(event.target.value)} className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]" />
-                            <button type="submit" disabled={!apiId || !apiHash || configure.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-link)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">
+                            <button type="submit" disabled={!apiId || !apiHash || configure.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50">
                                 {configure.isPending ? t('chats.connecting') : t('chats.connectTelegram')}
                             </button>
                         </form>
@@ -299,7 +385,9 @@ export function ChatConversationPage() {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const [text, setText] = useState('')
-    const bottomRef = useRef<HTMLDivElement>(null)
+    const viewportRef = useRef<HTMLDivElement>(null)
+    const messageContentRef = useRef<HTMLDivElement>(null)
+    const stickToBottomRef = useRef(true)
     const conversations = useQuery({
         queryKey: queryKeys.externalConversations,
         queryFn: async () => (await api!.getExternalConversations()).conversations,
@@ -313,6 +401,9 @@ export function ChatConversationPage() {
     })
     const send = useMutation({
         mutationFn: async (value: string) => api!.sendExternalMessage(conversationId, value, crypto.randomUUID()),
+        onMutate: () => {
+            stickToBottomRef.current = true
+        },
         onSuccess: async () => {
             setText('')
             await Promise.all([
@@ -321,9 +412,36 @@ export function ChatConversationPage() {
             ])
         }
     })
+    useLayoutEffect(() => {
+        stickToBottomRef.current = true
+        const viewport = viewportRef.current
+        if (!viewport) return
+        const frame = requestAnimationFrame(() => {
+            viewport.scrollTop = viewport.scrollHeight
+        })
+        return () => cancelAnimationFrame(frame)
+    }, [conversationId])
+
+    useLayoutEffect(() => {
+        if (!stickToBottomRef.current) return
+        const viewport = viewportRef.current
+        if (!viewport) return
+        const frame = requestAnimationFrame(() => {
+            viewport.scrollTop = viewport.scrollHeight
+        })
+        return () => cancelAnimationFrame(frame)
+    }, [messages.data])
+
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ block: 'end' })
-    }, [messages.data?.length])
+        const content = messageContentRef.current
+        if (!content || typeof ResizeObserver === 'undefined') return
+        const observer = new ResizeObserver(() => {
+            const viewport = viewportRef.current
+            if (viewport && stickToBottomRef.current) viewport.scrollTop = viewport.scrollHeight
+        })
+        observer.observe(content)
+        return () => observer.disconnect()
+    }, [conversationId])
 
     if (!conversation && conversations.isLoading) {
         return <div className="m-auto text-sm text-[var(--app-hint)]">{t('loading')}</div>
@@ -342,21 +460,30 @@ export function ChatConversationPage() {
                     <div className="text-[10px] uppercase tracking-wide text-[var(--app-hint)]">Telegram</div>
                 </div>
             </header>
-            <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--app-chat-bg,var(--app-bg))] px-3 py-5">
-                <div className="mx-auto flex w-full max-w-content flex-col gap-2">
+            <div
+                ref={viewportRef}
+                onScroll={(event) => {
+                    const viewport = event.currentTarget
+                    stickToBottomRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80
+                }}
+                className="min-h-0 flex-1 overflow-y-auto bg-[var(--app-chat-bg,var(--app-bg))] px-3 py-5"
+            >
+                <div ref={messageContentRef} className="mx-auto flex w-full max-w-content flex-col gap-2">
                     {messages.isLoading ? <div className="py-10 text-center text-sm text-[var(--app-hint)]">{t('loading.messages')}</div> : null}
                     {messages.data?.map((item) => (
                         <div key={item.id} className={cn('flex flex-col', item.direction === 'outgoing' ? 'items-end' : 'items-start')}>
                             {item.direction === 'incoming' && item.senderName && conversation.kind !== 'direct' ? <div className="mb-1 px-2 text-[10px] text-[var(--app-hint)]">{item.senderName}</div> : null}
-                            <div className={item.direction === 'outgoing'
-                                ? getUserBubbleClassName()
-                                : 'happy-chat-text w-fit max-w-[92%] rounded-2xl bg-[var(--app-secondary-bg)] px-4 py-2.5 text-[var(--app-fg)]'}>
-                                <MarkdownRenderer content={item.text} preserveSingleLineBreaks />
-                            </div>
+                            {item.media?.length ? <div className="mb-1 flex max-w-[92%] flex-col gap-1.5">{item.media.map((media, index) => <MediaAttachment key={`${item.id}:${index}`} media={media} galleryId={`telegram-media-${conversationId}`} />)}</div> : null}
+                            {item.text ? (
+                                <div className={item.direction === 'outgoing'
+                                    ? getUserBubbleClassName()
+                                    : 'happy-chat-text w-fit max-w-[92%] rounded-2xl bg-[var(--app-secondary-bg)] px-4 py-2.5 text-[var(--app-fg)]'}>
+                                    <MarkdownRenderer content={item.text} preserveSingleLineBreaks />
+                                </div>
+                            ) : null}
                             <div className="mt-0.5 px-2 text-[9px] text-[var(--app-hint)]">{formatTime(item.createdAt)}</div>
                         </div>
                     ))}
-                    <div ref={bottomRef} />
                 </div>
             </div>
             <form className="shrink-0 border-t border-[var(--app-border)] bg-[var(--app-bg)] p-2 pb-[max(.5rem,env(safe-area-inset-bottom))]" onSubmit={(event) => {
@@ -378,7 +505,7 @@ export function ChatConversationPage() {
                         placeholder={t('chats.messagePlaceholder')}
                         className="max-h-32 min-h-9 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[var(--app-hint)]"
                     />
-                    <button type="submit" disabled={!text.trim() || send.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-link)] text-white disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
+                    <button type="submit" disabled={!text.trim() || send.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
                 </div>
                 {send.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{send.error.message}</div> : null}
             </form>
