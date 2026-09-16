@@ -79,3 +79,7 @@ android/captures/
 # drop in their own) — never commit a real one. The committed placeholder is
 # android/app/google-services.json.example.
 android/app/google-services.json
+
+# Optional local MTProto sidecar build
+connectors/telegram/hapi-telegram-connector
+connectors/telegram/hapi-telegram-connector.exe
