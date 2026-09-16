@@ -21,23 +21,21 @@ import { isFastServiceTier } from './codexFastMode'
 import { useTranslation } from '@/lib/use-translation'
 import { useSessionHeaderMetadata } from '@/hooks/useSessionHeaderMetadata'
 
-// Vibing messages for thinking state
+// Russian vibing messages for thinking state
 const VIBING_MESSAGES = [
-    "Accomplishing", "Actioning", "Actualizing", "Baking", "Booping", "Brewing",
-    "Calculating", "Cerebrating", "Channelling", "Churning", "Clauding", "Coalescing",
-    "Cogitating", "Computing", "Combobulating", "Concocting", "Conjuring", "Considering",
-    "Contemplating", "Cooking", "Crafting", "Creating", "Crunching", "Deciphering",
-    "Deliberating", "Determining", "Discombobulating", "Divining", "Doing", "Effecting",
-    "Elucidating", "Enchanting", "Envisioning", "Finagling", "Flibbertigibbeting",
-    "Forging", "Forming", "Frolicking", "Generating", "Germinating", "Hatching",
-    "Herding", "Honking", "Ideating", "Imagining", "Incubating", "Inferring",
-    "Manifesting", "Marinating", "Meandering", "Moseying", "Mulling", "Mustering",
-    "Musing", "Noodling", "Percolating", "Perusing", "Philosophising", "Pontificating",
-    "Pondering", "Processing", "Puttering", "Puzzling", "Reticulating", "Ruminating",
-    "Scheming", "Schlepping", "Shimmying", "Simmering", "Smooshing", "Spelunking",
-    "Spinning", "Stewing", "Sussing", "Synthesizing", "Thinking", "Tinkering",
-    "Transmuting", "Unfurling", "Unravelling", "Vibing", "Wandering", "Whirring",
-    "Wibbling", "Wizarding", "Working", "Wrangling"
+    'Анализируем чакру', 'Бьёмся с легаси', 'Варим кодовое зелье', 'Взываем к компилятору',
+    'Вкалываем как Наруто', 'Гуглим в астрале', 'Дебажим эту хрень', 'Делаем красиво',
+    'Думаем изо всех сил', 'Ебашим по таске', 'Заряжаем банкай', 'Ищем виноватый пробел',
+    'Ищем баг в другом измерении', 'Качаем ману', 'Кодим как сенпай', 'Колдуем над типами',
+    'Компилируем надежду', 'Кормим демонов легаси', 'Крутим гайки', 'Магичим результат',
+    'Медитируем над стек-трейсом', 'Месим байты', 'Надеваем сюжетную броню',
+    'Накатываем патч судьбы', 'Обходим грабли', 'Открываем третий терминал',
+    'Пинаем тайпчекер', 'Пишем филлерную арку', 'Поднимаем уровень силы',
+    'Призываем дух документации', 'Приручаем баг', 'Проверяем, какого хрена',
+    'Прячем костыли под ковёр', 'Разгоняем мозги', 'Распутываем лапшу', 'Собираем мегазорд',
+    'Советуемся с тентаклями', 'Творим дичь', 'Тестируем на проде мысленно',
+    'Уговариваем линтер', 'Фиксим эту фигню', 'Чиним пространственно-временной континуум',
+    'Шаманим над кодом', 'Шлифуем пиксели', 'Эволюционируем в финальную форму'
 ]
 
 const PERMISSION_TONE_CLASSES: Record<PermissionModeTone, string> = {
