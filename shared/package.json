@@ -9,6 +9,7 @@
         ".": "./src/index.ts",
         "./apiTypes": "./src/apiTypes.ts",
         "./messages": "./src/messages.ts",
+        "./messengers": "./src/messengers.ts",
         "./slashCommands": "./src/slashCommands.ts",
         "./buildInfo": "./src/buildInfo.ts",
         "./conversationHistory": "./src/conversationHistory.ts",

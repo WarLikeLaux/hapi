@@ -73,6 +73,8 @@ import SettingsAboutPage from '@/routes/settings/about'
 import SettingsStoragePage from '@/routes/settings/storage'
 import SettingsUsagePage from '@/routes/settings/usage'
 import SharePage from '@/routes/share'
+import { ChatConversationPage, ChatsIndexPage, ChatsPage } from '@/routes/chats'
+import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { retargetSharePendingTransfer, setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer, parseShareSearch } from '@/lib/shareTransfer'
 
@@ -293,6 +295,7 @@ function SessionsPage() {
                         machinesById={machinesById}
                     />
                 </div>
+                <PrimarySectionNav />
             </div>
 
             {/* Resize handle - desktop only */}
@@ -1096,6 +1099,24 @@ const sessionDetailRoute = createRoute({
     component: SessionDetailRoute,
 })
 
+const chatsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/chats',
+    component: ChatsPage,
+})
+
+const chatsIndexRoute = createRoute({
+    getParentRoute: () => chatsRoute,
+    path: '/',
+    component: ChatsIndexPage,
+})
+
+const chatConversationRoute = createRoute({
+    getParentRoute: () => chatsRoute,
+    path: '$conversationId',
+    component: ChatConversationPage,
+})
+
 const sessionFilesRoute = createRoute({
     getParentRoute: () => sessionDetailRoute,
     path: 'files',
@@ -1344,6 +1365,10 @@ export const routeTree = rootRoute.addChildren([
             sessionFilesRoute,
             sessionFileRoute,
         ]),
+    ]),
+    chatsRoute.addChildren([
+        chatsIndexRoute,
+        chatConversationRoute,
     ]),
     browseRoute,
     settingsRoute.addChildren([

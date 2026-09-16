@@ -9,6 +9,10 @@ runner_service_name="${HAPI_RUNNER_SERVICE_NAME:-hapi-runner.service}"
 install_path="${HAPI_INSTALL_PATH:-${HOME}/.local/lib/hapi-custom/current/hapi}"
 staged_path="${install_path}.new"
 previous_path="${install_path}.previous"
+telegram_connector_source="${repo_root}/connectors/telegram/hapi-telegram-connector"
+telegram_connector_path="$(dirname -- "${install_path}")/hapi-telegram-connector"
+telegram_connector_staged_path="${telegram_connector_path}.new"
+telegram_connector_previous_path="${telegram_connector_path}.previous"
 systemd_user_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
 runner_dropin_dir="${systemd_user_dir}/${runner_service_name}.d"
 runner_dropin_path="${runner_dropin_dir}/20-hapi-custom-cli.conf"
@@ -27,6 +31,7 @@ build_path="${repo_root}/cli/dist-exe/${build_target}/hapi"
 
 cleanup() {
     rm -f -- "${staged_path}"
+    rm -f -- "${telegram_connector_staged_path}"
     if [[ -n "${runner_dropin_staged_path}" ]]; then
         rm -f -- "${runner_dropin_staged_path}"
     fi
@@ -40,6 +45,11 @@ fi
 
 if ! command -v systemctl >/dev/null 2>&1; then
     echo "systemctl is required to deploy the local hub service." >&2
+    exit 1
+fi
+
+if ! command -v go >/dev/null 2>&1; then
+    echo "Go is required to build the Telegram connector." >&2
     exit 1
 fi
 
@@ -72,15 +82,21 @@ fi
 "${bun_bin}" run build:web
 "${bun_bin}" run --cwd hub generate:embedded-web-assets
 "${bun_bin}" run --cwd cli build:exe:allinone --target "${build_target}"
+"${bun_bin}" run build:telegram-connector
 
 install -d "$(dirname -- "${install_path}")"
 install -m 755 "${build_path}" "${staged_path}"
+install -m 755 "${telegram_connector_source}" "${telegram_connector_staged_path}"
 
 if [[ -f "${install_path}" ]]; then
     cp -p -- "${install_path}" "${previous_path}"
 fi
+if [[ -f "${telegram_connector_path}" ]]; then
+    cp -p -- "${telegram_connector_path}" "${telegram_connector_previous_path}"
+fi
 
 mv -f -- "${staged_path}" "${install_path}"
+mv -f -- "${telegram_connector_staged_path}" "${telegram_connector_path}"
 
 # The runner can itself use the custom executable while still spawning new
 # sessions through an older npm launcher via HAPI_CLI_EXECUTABLE. Pin child
@@ -99,8 +115,11 @@ if ! systemctl --user restart "${service_name}" || ! systemctl --user is-active 
     echo "Hub failed to start; restoring the previous binary." >&2
     if [[ -f "${previous_path}" ]]; then
         mv -f -- "${previous_path}" "${install_path}"
-        systemctl --user restart "${service_name}"
     fi
+    if [[ -f "${telegram_connector_previous_path}" ]]; then
+        mv -f -- "${telegram_connector_previous_path}" "${telegram_connector_path}"
+    fi
+    systemctl --user restart "${service_name}"
     exit 1
 fi
 
@@ -114,4 +133,4 @@ if systemctl --user is-active --quiet "${runner_service_name}"; then
     fi
 fi
 
-echo "Deployed ${install_path} and restarted ${service_name}."
+echo "Deployed ${install_path}, ${telegram_connector_path}, and restarted ${service_name}."
