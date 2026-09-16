@@ -45,7 +45,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 28
+const SCHEMA_VERSION: number = 29
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -375,6 +375,7 @@ export class Store {
             25: () => this.migrateFromV25ToV26(),
             26: () => this.migrateFromV26ToV27(),
             27: () => this.migrateFromV27ToV28(),
+            28: () => this.migrateFromV28ToV29(),
         })
 
         if (currentVersion === 0) {
@@ -638,6 +639,7 @@ export class Store {
                 last_message_at INTEGER,
                 last_message_preview TEXT,
                 unread_count INTEGER NOT NULL DEFAULT 0,
+                avatar_data_url TEXT,
                 PRIMARY KEY (namespace, id),
                 UNIQUE (namespace, provider, remote_id)
             );
@@ -653,6 +655,7 @@ export class Store {
                 sender_name TEXT,
                 direction TEXT NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
                 text TEXT NOT NULL,
+                media_json TEXT NOT NULL DEFAULT '[]',
                 created_at INTEGER NOT NULL,
                 edited_at INTEGER,
                 PRIMARY KEY (namespace, id),
@@ -667,6 +670,17 @@ export class Store {
 
     private migrateFromV27ToV28(): void {
         this.createSchema()
+    }
+
+    private migrateFromV28ToV29(): void {
+        const conversationColumns = this.db.prepare('PRAGMA table_info(external_conversations)').all() as Array<{ name: string }>
+        if (!conversationColumns.some((column) => column.name === 'avatar_data_url')) {
+            this.db.exec('ALTER TABLE external_conversations ADD COLUMN avatar_data_url TEXT')
+        }
+        const messageColumns = this.db.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
+        if (!messageColumns.some((column) => column.name === 'media_json')) {
+            this.db.exec("ALTER TABLE external_messages ADD COLUMN media_json TEXT NOT NULL DEFAULT '[]'")
+        }
     }
 
     private migrateLegacySchemaIfNeeded(): void {

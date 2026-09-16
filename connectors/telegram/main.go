@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -17,10 +19,12 @@ import (
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
+	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/telegram/message"
 	messagepeer "github.com/gotd/td/telegram/message/peer"
 	"github.com/gotd/td/telegram/query"
 	"github.com/gotd/td/telegram/query/dialogs"
+	"github.com/gotd/td/telegram/thumbnail"
 	"github.com/gotd/td/tg"
 )
 
@@ -70,18 +74,28 @@ type conversation struct {
 	LastMessageAt      *int64  `json:"lastMessageAt"`
 	LastMessagePreview *string `json:"lastMessagePreview"`
 	UnreadCount        int     `json:"unreadCount"`
+	AvatarDataURL      *string `json:"avatarDataUrl"`
+}
+
+type externalMedia struct {
+	Kind             string  `json:"kind"`
+	MIMEType         *string `json:"mimeType"`
+	FileName         *string `json:"fileName"`
+	Size             *int64  `json:"size"`
+	ThumbnailDataURL *string `json:"thumbnailDataUrl"`
 }
 
 type externalMessage struct {
-	ID                string  `json:"id"`
-	ConversationID    string  `json:"conversationId"`
-	ProviderMessageID string  `json:"providerMessageId"`
-	SenderID          *string `json:"senderId"`
-	SenderName        *string `json:"senderName"`
-	Direction         string  `json:"direction"`
-	Text              string  `json:"text"`
-	CreatedAt         int64   `json:"createdAt"`
-	EditedAt          *int64  `json:"editedAt"`
+	ID                string          `json:"id"`
+	ConversationID    string          `json:"conversationId"`
+	ProviderMessageID string          `json:"providerMessageId"`
+	SenderID          *string         `json:"senderId"`
+	SenderName        *string         `json:"senderName"`
+	Direction         string          `json:"direction"`
+	Text              string          `json:"text"`
+	CreatedAt         int64           `json:"createdAt"`
+	EditedAt          *int64          `json:"editedAt"`
+	Media             []externalMedia `json:"media"`
 }
 
 type authInput struct {
@@ -160,6 +174,7 @@ type service struct {
 	self       *tg.User
 	peers      map[string]tg.InputPeerClass
 	peerTitles map[string]string
+	avatars    map[string]string
 }
 
 func newService(out *writer) *service {
@@ -169,6 +184,7 @@ func newService(out *writer) *service {
 		auth:       a,
 		peers:      make(map[string]tg.InputPeerClass),
 		peerTitles: make(map[string]string),
+		avatars:    make(map[string]string),
 	}
 }
 
@@ -218,6 +234,13 @@ func remoteIDFromPeer(peer tg.PeerClass) (string, bool) {
 	}
 }
 
+func channelDialogKind(channel *tg.Channel) (string, bool) {
+	if channel == nil || (channel.Broadcast && !channel.Megagroup) {
+		return "", false
+	}
+	return "group", true
+}
+
 func conversationID(remoteID string) string {
 	return "telegram:" + remoteID
 }
@@ -245,6 +268,191 @@ func titleForDialog(elem dialogs.Elem, remoteID, kind string) string {
 	return remoteID
 }
 
+func jpegDataURL(data []byte) *string {
+	if len(data) == 0 {
+		return nil
+	}
+	value := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(data)
+	return &value
+}
+
+func strippedThumbnailDataURL(data []byte) *string {
+	if len(data) == 0 {
+		return nil
+	}
+	expanded, err := thumbnail.Expand(data)
+	if err != nil {
+		return nil
+	}
+	return jpegDataURL(expanded)
+}
+
+func avatarForDialog(elem dialogs.Elem) *string {
+	switch peer := elem.Peer.(type) {
+	case *tg.InputPeerUser:
+		if user, ok := elem.Entities.User(peer.UserID); ok {
+			if photo, ok := user.Photo.(*tg.UserProfilePhoto); ok {
+				return strippedThumbnailDataURL(photo.StrippedThumb)
+			}
+		}
+	case *tg.InputPeerChat:
+		if chat, ok := elem.Entities.Chat(peer.ChatID); ok {
+			if photo, ok := chat.Photo.(*tg.ChatPhoto); ok {
+				return strippedThumbnailDataURL(photo.StrippedThumb)
+			}
+		}
+	case *tg.InputPeerChannel:
+		if channel, ok := elem.Entities.Channel(peer.ChannelID); ok {
+			if photo, ok := channel.Photo.(*tg.ChatPhoto); ok {
+				return strippedThumbnailDataURL(photo.StrippedThumb)
+			}
+		}
+	}
+	return nil
+}
+
+func avatarPhotoID(elem dialogs.Elem) int64 {
+	switch peer := elem.Peer.(type) {
+	case *tg.InputPeerUser:
+		if user, ok := elem.Entities.User(peer.UserID); ok {
+			if photo, ok := user.Photo.(*tg.UserProfilePhoto); ok {
+				return photo.PhotoID
+			}
+		}
+	case *tg.InputPeerChat:
+		if chat, ok := elem.Entities.Chat(peer.ChatID); ok {
+			if photo, ok := chat.Photo.(*tg.ChatPhoto); ok {
+				return photo.PhotoID
+			}
+		}
+	case *tg.InputPeerChannel:
+		if channel, ok := elem.Entities.Channel(peer.ChannelID); ok {
+			if photo, ok := channel.Photo.(*tg.ChatPhoto); ok {
+				return photo.PhotoID
+			}
+		}
+	}
+	return 0
+}
+
+func downloadAvatar(ctx context.Context, raw *tg.Client, peer tg.InputPeerClass, photoID int64) *string {
+	if photoID == 0 {
+		return nil
+	}
+	downloadCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	var output bytes.Buffer
+	_, err := downloader.NewDownloader().WithPartSize(64*1024).Download(raw, &tg.InputPeerPhotoFileLocation{
+		Peer:    peer,
+		PhotoID: photoID,
+		Big:     true,
+	}).Stream(downloadCtx, &output)
+	if err != nil || output.Len() == 0 || output.Len() > 2*1024*1024 {
+		return nil
+	}
+	return jpegDataURL(output.Bytes())
+}
+
+func thumbnailDataURL(sizes []tg.PhotoSizeClass) *string {
+	for _, size := range sizes {
+		if cached, ok := size.(*tg.PhotoCachedSize); ok && len(cached.Bytes) > 0 {
+			return jpegDataURL(cached.Bytes)
+		}
+	}
+	for _, size := range sizes {
+		if stripped, ok := size.(*tg.PhotoStrippedSize); ok {
+			return strippedThumbnailDataURL(stripped.Bytes)
+		}
+	}
+	return nil
+}
+
+func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
+	if media == nil {
+		return nil
+	}
+	switch value := media.(type) {
+	case *tg.MessageMediaPhoto:
+		photo, ok := value.Photo.(*tg.Photo)
+		if !ok {
+			return []externalMedia{{Kind: "image"}}
+		}
+		mime := "image/jpeg"
+		return []externalMedia{{Kind: "image", MIMEType: &mime, ThumbnailDataURL: thumbnailDataURL(photo.Sizes)}}
+	case *tg.MessageMediaDocument:
+		document, ok := value.Document.(*tg.Document)
+		if !ok {
+			return []externalMedia{{Kind: "file"}}
+		}
+		kind := "file"
+		if value.Voice {
+			kind = "voice"
+		} else if value.Video || value.Round {
+			kind = "video"
+		} else if strings.HasPrefix(document.MimeType, "audio/") {
+			kind = "audio"
+		} else if strings.HasPrefix(document.MimeType, "image/") {
+			kind = "image"
+		}
+		fileName := ""
+		for _, attribute := range document.Attributes {
+			switch attribute := attribute.(type) {
+			case *tg.DocumentAttributeFilename:
+				fileName = attribute.FileName
+			case *tg.DocumentAttributeSticker:
+				kind = "sticker"
+			}
+		}
+		mime := document.MimeType
+		size := document.Size
+		return []externalMedia{{
+			Kind:             kind,
+			MIMEType:         nullableString(mime),
+			FileName:         nullableString(fileName),
+			Size:             &size,
+			ThumbnailDataURL: thumbnailDataURL(document.Thumbs),
+		}}
+	case *tg.MessageMediaGeo, *tg.MessageMediaGeoLive, *tg.MessageMediaVenue:
+		return []externalMedia{{Kind: "location"}}
+	case *tg.MessageMediaContact:
+		return []externalMedia{{Kind: "contact"}}
+	case *tg.MessageMediaPoll:
+		return []externalMedia{{Kind: "poll"}}
+	case *tg.MessageMediaEmpty, *tg.MessageMediaWebPage:
+		return nil
+	default:
+		return []externalMedia{{Kind: "other"}}
+	}
+}
+
+func mediaPreview(media []externalMedia) string {
+	if len(media) == 0 {
+		return ""
+	}
+	switch media[0].Kind {
+	case "image":
+		return "Photo"
+	case "video":
+		return "Video"
+	case "audio":
+		return "Audio"
+	case "voice":
+		return "Voice message"
+	case "sticker":
+		return "Sticker"
+	case "file":
+		return "File"
+	case "location":
+		return "Location"
+	case "contact":
+		return "Contact"
+	case "poll":
+		return "Poll"
+	default:
+		return "Attachment"
+	}
+}
+
 func lastMessageData(msg tg.NotEmptyMessage) (*int64, *string) {
 	if msg == nil {
 		return nil, nil
@@ -253,9 +461,12 @@ func lastMessageData(msg tg.NotEmptyMessage) (*int64, *string) {
 	text := ""
 	if ordinary, ok := msg.(*tg.Message); ok {
 		text = strings.TrimSpace(ordinary.Message)
+		if text == "" {
+			text = mediaPreview(mediaFromTelegram(ordinary.Media))
+		}
 	}
 	if text == "" {
-		text = "[Media]"
+		text = "Message"
 	}
 	return &at, &text
 }
@@ -327,18 +538,37 @@ func (s *service) listConversations(ctx context.Context) ([]conversation, error)
 	if err != nil {
 		return nil, err
 	}
-	iter := query.GetDialogs(raw).BatchSize(100).Iter()
-	result := make([]conversation, 0, 100)
-	newPeers := make(map[string]tg.InputPeerClass, 100)
-	newTitles := make(map[string]string, 100)
+	const maxConversations = 80
+	const maxAvatarDownloads = 16
+	iter := query.GetDialogs(raw).BatchSize(50).Iter()
+	result := make([]conversation, 0, maxConversations)
+	newPeers := make(map[string]tg.InputPeerClass, maxConversations)
+	newTitles := make(map[string]string, maxConversations)
+	type avatarTask struct {
+		index    int
+		remoteID string
+		peer     tg.InputPeerClass
+		photoID  int64
+	}
+	avatarTasks := make([]avatarTask, 0, maxAvatarDownloads)
 	for iter.Next(ctx) {
 		elem := iter.Value()
-		if elem.Deleted() {
+		if elem.Deleted() || elem.Last == nil {
 			continue
 		}
 		remoteID, kind, ok := remoteIDFromInput(elem.Peer)
 		if !ok {
 			continue
+		}
+		if peer, isChannel := elem.Peer.(*tg.InputPeerChannel); isChannel {
+			channel, found := elem.Entities.Channel(peer.ChannelID)
+			if !found {
+				continue
+			}
+			kind, ok = channelDialogKind(channel)
+			if !ok {
+				kind = "channel"
+			}
 		}
 		title := titleForDialog(elem, remoteID, kind)
 		lastAt, preview := lastMessageData(elem.Last)
@@ -348,6 +578,13 @@ func (s *service) listConversations(ctx context.Context) ([]conversation, error)
 		}
 		newPeers[remoteID] = elem.Peer
 		newTitles[remoteID] = title
+		avatar := avatarForDialog(elem)
+		s.mu.RLock()
+		cachedAvatar := s.avatars[remoteID]
+		s.mu.RUnlock()
+		if cachedAvatar != "" {
+			avatar = &cachedAvatar
+		}
 		result = append(result, conversation{
 			ID:                 conversationID(remoteID),
 			Provider:           "telegram",
@@ -357,11 +594,42 @@ func (s *service) listConversations(ctx context.Context) ([]conversation, error)
 			LastMessageAt:      lastAt,
 			LastMessagePreview: preview,
 			UnreadCount:        unread,
+			AvatarDataURL:      avatar,
 		})
+		if cachedAvatar == "" && len(avatarTasks) < maxAvatarDownloads {
+			if photoID := avatarPhotoID(elem); photoID != 0 {
+				avatarTasks = append(avatarTasks, avatarTask{
+					index: len(result) - 1, remoteID: remoteID, peer: elem.Peer, photoID: photoID,
+				})
+			}
+		}
+		if len(result) >= maxConversations {
+			break
+		}
 	}
 	if err := iter.Err(); err != nil {
 		return nil, err
 	}
+	var avatarWG sync.WaitGroup
+	avatarSlots := make(chan struct{}, 6)
+	for _, task := range avatarTasks {
+		task := task
+		avatarWG.Add(1)
+		go func() {
+			defer avatarWG.Done()
+			avatarSlots <- struct{}{}
+			defer func() { <-avatarSlots }()
+			avatar := downloadAvatar(ctx, raw, task.peer, task.photoID)
+			if avatar == nil {
+				return
+			}
+			result[task.index].AvatarDataURL = avatar
+			s.mu.Lock()
+			s.avatars[task.remoteID] = *avatar
+			s.mu.Unlock()
+		}()
+	}
+	avatarWG.Wait()
 	s.mu.Lock()
 	s.peers = newPeers
 	s.peerTitles = newTitles
@@ -425,8 +693,9 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 		return externalMessage{}, false
 	}
 	text := strings.TrimSpace(msg.Message)
-	if text == "" {
-		text = "[Media]"
+	media := mediaFromTelegram(msg.Media)
+	if media == nil {
+		media = []externalMedia{}
 	}
 	senderID, senderName := senderData(msg, entities, self)
 	direction := "incoming"
@@ -443,6 +712,7 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 		Direction:         direction,
 		Text:              text,
 		CreatedAt:         int64(msg.Date) * 1000,
+		Media:             media,
 	}, true
 }
 
