@@ -378,7 +378,7 @@ describe('SessionActionMenu - DIFIT actions', () => {
         renderMenu({
             difitReviewUrl: 'https://difit.example.test/reviews/review-1/',
             externalReviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1',
-            onCreateExternalReview: vi.fn(),
+            createExternalReviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new',
         })
 
         expect(screen.getByRole('menuitem', { name: 'Open in DIFIT' })).toHaveAttribute(
@@ -393,17 +393,23 @@ describe('SessionActionMenu - DIFIT actions', () => {
     })
 
     it('offers review creation when no external review is attached', () => {
-        const onCreateExternalReview = vi.fn()
         const onClose = vi.fn()
-        renderMenu({ onCreateExternalReview, onClose })
+        renderMenu({
+            createExternalReviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature',
+            onClose,
+        })
 
         const createAction = screen.getByRole('menuitem', { name: 'Create pull / merge request' })
+        expect(createAction).toHaveAttribute(
+            'href',
+            'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature'
+        )
+        expect(createAction).toHaveAttribute('target', '_blank')
         expect(screen.getAllByRole('menuitem').indexOf(createAction)).toBeLessThan(
             screen.getAllByRole('menuitem').indexOf(screen.getByRole('menuitem', { name: 'Rename' }))
         )
 
         fireEvent.click(createAction)
-        expect(onCreateExternalReview).toHaveBeenCalledOnce()
         expect(onClose).toHaveBeenCalledOnce()
     })
 })

@@ -30,7 +30,11 @@ describe('Git status route', () => {
             resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
             getGitStatus: async (...args: unknown[]) => {
                 calls.push(['session', ...args])
-                return { success: true, stdout: '# branch.head custom' }
+                return {
+                    success: true,
+                    stdout: '# branch.head custom',
+                    createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=custom'
+                }
             },
             getMachineGitStatus: async (...args: unknown[]) => {
                 calls.push(['machine', ...args])
@@ -41,6 +45,10 @@ describe('Git status route', () => {
         const response = await buildApp(engine).request('/api/sessions/session-1/git-status')
 
         expect(response.status).toBe(200)
+        expect(await response.json()).toMatchObject({
+            success: true,
+            createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=custom'
+        })
         expect(calls).toEqual([['session', 'session-1', '/project']])
     })
 

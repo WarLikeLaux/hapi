@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { GitComparisonResponse } from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
-import { parseGitNameStatus, parseGitNumstat, registerGitHandlers } from './git'
+import { buildGitLabCreateMergeRequestUrl, parseGitNameStatus, parseGitNumstat, registerGitHandlers } from './git'
 
 const temporaryDirectories: string[] = []
 
@@ -49,6 +49,40 @@ describe('Git comparison parsing', () => {
             { path: 'new name.txt', linesAdded: 3, linesRemoved: 1 },
             { path: 'image.png', linesAdded: 0, linesRemoved: 0, binary: true }
         ])
+    })
+})
+
+describe('GitLab merge request links', () => {
+    it('builds credential-free create links for HTTPS and SSH remotes', () => {
+        expect(buildGitLabCreateMergeRequestUrl(
+            'https://oauth2:secret@gitlab.example.test/group/project.git',
+            'feature/review'
+        )).toBe(
+            'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature%2Freview'
+        )
+        expect(buildGitLabCreateMergeRequestUrl(
+            'git@gitlab.example.test:group/subgroup/project.git',
+            'feature/review'
+        )).toBe(
+            'https://gitlab.example.test/group/subgroup/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature%2Freview'
+        )
+    })
+
+    it('does not offer GitHub or local-path remotes as GitLab links', () => {
+        expect(buildGitLabCreateMergeRequestUrl('git@github.com:owner/project.git', 'feature')).toBeNull()
+        expect(buildGitLabCreateMergeRequestUrl('/tmp/project.git', 'feature')).toBeNull()
+    })
+
+    it('adds the current branch create link to Git status', async () => {
+        const directory = await createRepository('feature/review')
+        git(directory, 'remote', 'add', 'origin', 'git@gitlab.example.test:group/project.git')
+
+        const result = await gitHandlers(directory).get(RPC_METHODS.GitStatus)!({})
+
+        expect(result).toMatchObject({
+            success: true,
+            createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature%2Freview'
+        })
     })
 })
 
