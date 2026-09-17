@@ -8,6 +8,85 @@ import type { WebAppEnv } from '../middleware/auth'
 import { createMessengerRoutes } from './messengers'
 
 describe('messenger routes', () => {
+    it('sets the complete chosen reaction list for a message', async () => {
+        const calls: unknown[][] = []
+        const manager = {
+            setReactions: async (...args: unknown[]) => { calls.push(args) }
+        } as unknown as MessengerManager
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/', createMessengerRoutes(manager))
+
+        const response = await app.request('/conversations/chat/messages/42/reactions', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ reactions: ['emoji:👍', 'custom:7'] })
+        })
+
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([['default', 'chat', '42', ['emoji:👍', 'custom:7']]])
+    })
+
+    it('supports cached and forced candidate refreshes', async () => {
+        const calls: unknown[][] = []
+        const manager = {
+            listCandidates: async (...args: unknown[]) => {
+                calls.push(args)
+                return []
+            }
+        } as unknown as MessengerManager
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/', createMessengerRoutes(manager))
+
+        expect((await app.request('/messengers/telegram/candidates')).status).toBe(200)
+        expect((await app.request('/messengers/telegram/candidates?refresh=true')).status).toBe(200)
+        expect(calls).toEqual([
+            ['default', 'telegram', false],
+            ['default', 'telegram', true]
+        ])
+    })
+
+    it('updates local aliases for chats and participants', async () => {
+        const calls: unknown[][] = []
+        const manager = {
+            setConversationAlias: (...args: unknown[]) => {
+                calls.push(args)
+                return { id: 'chat', title: 'Family' }
+            },
+            setParticipantAlias: (...args: unknown[]) => {
+                calls.push(args)
+                return { id: 'user:1', name: 'Sis' }
+            }
+        } as unknown as MessengerManager
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/', createMessengerRoutes(manager))
+
+        const chat = await app.request('/conversations/chat/alias', {
+            method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Family' })
+        })
+        const person = await app.request('/conversations/chat/participants/user%3A1/alias', {
+            method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Sis' })
+        })
+
+        expect(chat.status).toBe(200)
+        expect(person.status).toBe(200)
+        expect(calls).toEqual([
+            ['default', 'chat', 'Family'],
+            ['default', 'chat', 'user:1', 'Sis']
+        ])
+    })
+
     it('starts configured connectors when the global conversation list is requested', async () => {
         const calls: string[] = []
         const manager = {

@@ -29,6 +29,7 @@ const MAX_PREFETCH_MEDIA_BYTES = 25 * 1024 * 1024
 // freshly populated queue can trip account-wide FLOOD_WAIT and block user sends.
 const MEDIA_PREFETCH_INTERVAL_MS = 2_000
 const FLOOD_WAIT_GRACE_MS = 1_000
+const CANDIDATE_REFRESH_INTERVAL_MS = 60_000
 
 function getFloodWaitMs(error: unknown): number | null {
     const message = error instanceof Error ? error.message : String(error)
@@ -43,6 +44,8 @@ export class MessengerManager {
     private readonly factories = new Map<string, MessengerConnectorFactory>()
     private readonly messageSyncs = new Map<string, Promise<void>>()
     private readonly messageSyncedAt = new Map<string, number>()
+    private readonly candidateSyncs = new Map<string, Promise<void>>()
+    private readonly candidateSyncedAt = new Map<string, number>()
     private readonly mediaDownloads = new Map<string, Promise<DownloadedExternalMedia>>()
     private readonly mediaPrefetchQueued = new Set<string>()
     private readonly mediaPrefetchQueue: MediaPrefetchTask[] = []
@@ -87,22 +90,16 @@ export class MessengerManager {
         return connector.getConnection()
     }
 
-    async listCandidates(namespace: string, provider: string): Promise<ExternalConversation[]> {
-        const connector = await this.requireConnector(namespace, provider)
-        const remote = await connector.listConversations()
-        const candidates = remote.filter((conversation) => !(provider === 'telegram' && conversation.kind === 'channel'))
-        const selectedConversations = this.options.store.messengers.listConversations(namespace)
-            .filter((conversation) => conversation.provider === provider)
-        const selectedIds = new Set(selectedConversations.map((conversation) => conversation.remoteId))
-        for (const conversation of remote) {
-            if (selectedIds.has(conversation.remoteId)) {
-                this.options.store.messengers.upsertConversation(namespace, conversation)
-            }
+    async listCandidates(namespace: string, provider: string, forceRefresh = false): Promise<ExternalConversation[]> {
+        const cached = this.cachedCandidates(namespace, provider)
+        if (forceRefresh || cached.length === 0) {
+            await this.refreshCandidates(namespace, provider)
+        } else if (Date.now() - (this.candidateSyncedAt.get(this.key(namespace, provider)) ?? 0) > CANDIDATE_REFRESH_INTERVAL_MS) {
+            void this.refreshCandidates(namespace, provider).catch((error) => {
+                console.error(`[Messengers] Failed to refresh ${provider} conversations:`, error)
+            })
         }
-        return candidates.map((conversation) => ({
-            ...conversation,
-            selected: selectedIds.has(conversation.remoteId)
-        }))
+        return this.cachedCandidates(namespace, provider)
     }
 
     listConversations(namespace: string): ExternalConversation[] {
@@ -113,9 +110,34 @@ export class MessengerManager {
         return this.options.store.messengers.listParticipants(namespace, conversationId)
     }
 
+    setConversationAlias(namespace: string, conversationId: string, name: string | null): ExternalConversation {
+        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        if (!conversation) throw new Error('Conversation not found')
+        this.options.store.messengers.setConversationAlias(namespace, conversationId, name)
+        this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId })
+        return this.options.store.messengers.getConversation(namespace, conversationId)!
+    }
+
+    setParticipantAlias(namespace: string, conversationId: string, participantId: string, name: string | null): ExternalParticipant {
+        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        if (!conversation) throw new Error('Conversation not found')
+        this.options.store.messengers.setParticipantAlias(namespace, conversationId, participantId, name)
+        this.options.sseManager.broadcast({ type: 'external-message-updated', namespace, conversationId })
+        const participant = this.options.store.messengers.listParticipants(namespace, conversationId)
+            .find((item) => item.id === participantId)
+        if (!participant) throw new Error('Participant not found')
+        return participant
+    }
+
     async selectConversations(namespace: string, provider: string, remoteIds: string[]): Promise<ExternalConversation[]> {
-        const connector = await this.requireConnector(namespace, provider)
-        const remote = await connector.listConversations()
+        let remote = this.options.store.messengers.listConversations(namespace, false)
+            .filter((conversation) => conversation.provider === provider)
+        const cachedIds = new Set(remote.map((conversation) => conversation.remoteId))
+        if (remote.length === 0 || remoteIds.some((remoteId) => !cachedIds.has(remoteId))) {
+            await this.refreshCandidates(namespace, provider)
+            remote = this.options.store.messengers.listConversations(namespace, false)
+                .filter((conversation) => conversation.provider === provider)
+        }
         const selectableIds = new Set(remote
             .filter((conversation) => !(provider === 'telegram' && conversation.kind === 'channel'))
             .map((conversation) => conversation.remoteId))
@@ -138,6 +160,35 @@ export class MessengerManager {
         return this.listConversations(namespace)
     }
 
+    private cachedCandidates(namespace: string, provider: string): ExternalConversation[] {
+        return this.options.store.messengers.listConversations(namespace, false)
+            .filter((conversation) => conversation.provider === provider)
+            .filter((conversation) => !(provider === 'telegram' && conversation.kind === 'channel' && !conversation.selected))
+    }
+
+    private refreshCandidates(namespace: string, provider: string): Promise<void> {
+        const syncKey = this.key(namespace, provider)
+        const existing = this.candidateSyncs.get(syncKey)
+        if (existing) return existing
+        const sync = (async () => {
+            const connector = await this.requireConnector(namespace, provider)
+            const remote = await connector.listConversations()
+            for (const conversation of remote) {
+                this.options.store.messengers.upsertConversation(namespace, conversation)
+            }
+            this.candidateSyncedAt.set(syncKey, Date.now())
+            this.options.sseManager.broadcast({
+                type: 'external-conversation-updated',
+                namespace,
+                conversationId: '*'
+            })
+        })().finally(() => {
+            this.candidateSyncs.delete(syncKey)
+        })
+        this.candidateSyncs.set(syncKey, sync)
+        return sync
+    }
+
     async listMessages(
         namespace: string,
         conversationId: string,
@@ -145,11 +196,23 @@ export class MessengerManager {
     ): Promise<ExternalMessage[]> {
         const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
+        const cached = this.options.store.messengers.listMessages(namespace, conversationId)
         if (options.markRead !== false && conversation.unreadCount > 0) {
             this.options.store.messengers.setUnreadCount(namespace, conversationId, 0)
             this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId })
+            const maxProviderMessageId = cached.reduce((max, message) => {
+                const id = Number(message.providerMessageId)
+                return Number.isSafeInteger(id) && id > max ? id : max
+            }, 0)
+            if (maxProviderMessageId > 0) {
+                const connector = await this.requireConnector(namespace, conversation.provider)
+                try {
+                    await connector.markRead?.(conversation.remoteId, maxProviderMessageId)
+                } catch (error) {
+                    console.error(`[Messengers] Failed to mark ${conversation.id} read:`, error)
+                }
+            }
         }
-        const cached = this.options.store.messengers.listMessages(namespace, conversationId)
         const lastSyncAt = this.messageSyncedAt.get(this.key(namespace, conversationId)) ?? 0
         if (options.refresh !== false && (cached.length === 0 || Date.now() - lastSyncAt > 15_000)) {
             void this.refreshMessages(namespace, conversation, 100, true).catch((error) => {
@@ -165,6 +228,22 @@ export class MessengerManager {
         const connector = await this.requireConnector(namespace, conversation.provider)
         await this.waitForMediaPrefetchBackoff(namespace, conversation.provider)
         await connector.sendText(conversation.remoteId, text, clientId)
+        await this.refreshMessages(namespace, conversation, 100, true)
+    }
+
+    async setReactions(
+        namespace: string,
+        conversationId: string,
+        providerMessageId: string,
+        reactions: string[]
+    ): Promise<void> {
+        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        if (!conversation?.selected) throw new Error('Conversation not found')
+        if (!this.options.store.messengers.hasMessage(namespace, conversationId, providerMessageId)) {
+            throw new Error('Message not found')
+        }
+        const connector = await this.requireConnector(namespace, conversation.provider)
+        await connector.setReactions(conversation.remoteId, providerMessageId, reactions)
         await this.refreshMessages(namespace, conversation, 100, true)
     }
 
@@ -257,18 +336,11 @@ export class MessengerManager {
     }
 
     private async refreshSelectedConversationMetadata(namespace: string, provider: string): Promise<void> {
-        const connector = await this.requireConnector(namespace, provider)
         const selectedIds = new Set(this.options.store.messengers.listConversations(namespace)
             .filter((conversation) => conversation.provider === provider)
             .map((conversation) => conversation.remoteId))
         if (selectedIds.size === 0) return
-        const remote = await connector.listConversations()
-        for (const conversation of remote) {
-            if (selectedIds.has(conversation.remoteId)) {
-                this.options.store.messengers.upsertConversation(namespace, conversation)
-            }
-        }
-        this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId: '*' })
+        await this.refreshCandidates(namespace, provider)
     }
 
     private async warmSelectedMessages(namespace: string, provider: string): Promise<void> {
@@ -509,6 +581,25 @@ export class MessengerManager {
                 namespace,
                 conversationId: conversation.id
             })
+            return
+        }
+        if (event.type === 'message-reactions') {
+            const conversation = this.options.store.messengers.listConversations(namespace)
+                .find((item) => item.provider === event.provider && item.remoteId === event.remoteId)
+            if (!conversation) return
+            const updated = this.options.store.messengers.updateMessageReactions(
+                namespace,
+                conversation.id,
+                event.providerMessageId,
+                event.reactions
+            )
+            if (updated) {
+                this.options.sseManager.broadcast({
+                    type: 'external-message-updated',
+                    namespace,
+                    conversationId: conversation.id
+                })
+            }
             return
         }
         const conversation = this.options.store.messengers.getConversation(namespace, event.message.conversationId)

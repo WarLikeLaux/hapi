@@ -26,7 +26,7 @@ describe('MessengerStore', () => {
 
             const selected = store.messengers.listConversations('one')
             expect(selected.map((item) => item.remoteId)).toEqual(['user:1'])
-            expect(store.messengers.listConversations('one', false).map((item) => item.remoteId)).toEqual(['user:1'])
+            expect(store.messengers.listConversations('one', false).map((item) => item.remoteId)).toEqual(['user:1', 'user:2'])
             expect(store.messengers.listConversations('two')).toEqual([])
 
             store.messengers.upsertMessage('one', {
@@ -46,10 +46,20 @@ describe('MessengerStore', () => {
                     fileName: null,
                     size: 128,
                     thumbnailDataUrl: 'data:image/jpeg;base64,dGVzdA=='
-                }]
+                }],
+                reactions: [{ reaction: 'emoji:👍', emoji: '👍', count: 2, chosen: true }]
             })
             expect(store.messengers.listMessages('one', 'telegram:user:1')).toEqual([
-                expect.objectContaining({ media: [expect.objectContaining({ kind: 'image', size: 128 })] })
+                expect.objectContaining({
+                    media: [expect.objectContaining({ kind: 'image', size: 128 })],
+                    reactions: [{ reaction: 'emoji:👍', emoji: '👍', count: 2, chosen: true }]
+                })
+            ])
+            expect(store.messengers.updateMessageReactions('one', 'telegram:user:1', '5', [
+                { reaction: 'emoji:🔥', emoji: '🔥', count: 1, chosen: false }
+            ])).toBe(true)
+            expect(store.messengers.listMessages('one', 'telegram:user:1')[0]?.reactions).toEqual([
+                { reaction: 'emoji:🔥', emoji: '🔥', count: 1, chosen: false }
             ])
             expect(store.messengers.listParticipants('one', 'telegram:user:1')).toEqual([{
                 id: 'user:1',
@@ -97,6 +107,32 @@ describe('MessengerStore', () => {
                     avatarDataUrl: 'data:image/jpeg;base64,dGVzdA=='
                 })
             ])
+        } finally {
+            store.close()
+        }
+    })
+
+    it('keeps local aliases while refreshing Telegram names', () => {
+        const store = new Store(':memory:')
+        try {
+            store.messengers.upsertConversation('default', conversation('user:9', true))
+            store.messengers.upsertMessage('default', {
+                id: 'telegram:user:9:1', conversationId: 'telegram:user:9', providerMessageId: '1',
+                senderId: 'user:9', senderName: 'Telegram friend', direction: 'incoming', text: 'hello',
+                createdAt: 1, editedAt: null, media: []
+            })
+
+            store.messengers.setConversationAlias('default', 'telegram:user:9', 'Жека')
+            store.messengers.setParticipantAlias('default', 'telegram:user:9', 'user:9', 'Бро')
+            store.messengers.upsertConversation('default', { ...conversation('user:9', false), title: 'Updated Telegram name' })
+
+            expect(store.messengers.getConversation('default', 'telegram:user:9')).toEqual(expect.objectContaining({
+                title: 'Жека', sourceTitle: 'Updated Telegram name', customTitle: 'Жека'
+            }))
+            expect(store.messengers.listMessages('default', 'telegram:user:9')[0]?.senderName).toBe('Бро')
+            expect(store.messengers.listParticipants('default', 'telegram:user:9')[0]).toEqual(expect.objectContaining({
+                name: 'Бро', sourceName: 'Telegram friend', customName: 'Бро'
+            }))
         } finally {
             store.close()
         }

@@ -28,7 +28,7 @@ describe('schema migration v30 to v31', () => {
             const conversations = internalDb.prepare('PRAGMA table_info(external_conversations)').all() as Array<{ name: string }>
             const messages = internalDb.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
 
-            expect(version.user_version).toBe(31)
+            expect(version.user_version).toBe(33)
             expect(conversations.some((column) => column.name === 'last_message_direction')).toBe(true)
             expect(conversations.some((column) => column.name === 'last_message_delivery_status')).toBe(true)
             expect(messages.some((column) => column.name === 'delivery_status')).toBe(true)

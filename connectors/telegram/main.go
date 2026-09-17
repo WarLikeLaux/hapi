@@ -10,6 +10,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/jpeg"
+	_ "image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -103,6 +109,19 @@ type readReceipt struct {
 	MaxID    int    `json:"maxId"`
 }
 
+type messageReactions struct {
+	RemoteID          string             `json:"remoteId"`
+	ProviderMessageID string             `json:"providerMessageId"`
+	Reactions         []externalReaction `json:"reactions"`
+}
+
+type externalReaction struct {
+	Reaction string  `json:"reaction"`
+	Emoji    *string `json:"emoji"`
+	Count    int     `json:"count"`
+	Chosen   bool    `json:"chosen"`
+}
+
 type downloadedMedia struct {
 	Path     string `json:"path"`
 	MIMEType string `json:"mimeType"`
@@ -113,18 +132,19 @@ type downloadedMedia struct {
 const maxMediaCacheBytes int64 = 1024 * 1024 * 1024
 
 type externalMessage struct {
-	ID                  string          `json:"id"`
-	ConversationID      string          `json:"conversationId"`
-	ProviderMessageID   string          `json:"providerMessageId"`
-	SenderID            *string         `json:"senderId"`
-	SenderName          *string         `json:"senderName"`
-	SenderAvatarDataURL *string         `json:"senderAvatarDataUrl"`
-	Direction           string          `json:"direction"`
-	Text                string          `json:"text"`
-	CreatedAt           int64           `json:"createdAt"`
-	EditedAt            *int64          `json:"editedAt"`
-	DeliveryStatus      *string         `json:"deliveryStatus,omitempty"`
-	Media               []externalMedia `json:"media"`
+	ID                  string             `json:"id"`
+	ConversationID      string             `json:"conversationId"`
+	ProviderMessageID   string             `json:"providerMessageId"`
+	SenderID            *string            `json:"senderId"`
+	SenderName          *string            `json:"senderName"`
+	SenderAvatarDataURL *string            `json:"senderAvatarDataUrl"`
+	Direction           string             `json:"direction"`
+	Text                string             `json:"text"`
+	CreatedAt           int64              `json:"createdAt"`
+	EditedAt            *int64             `json:"editedAt"`
+	DeliveryStatus      *string            `json:"deliveryStatus,omitempty"`
+	Media               []externalMedia    `json:"media"`
+	Reactions           []externalReaction `json:"reactions"`
 }
 
 type senderAvatarCandidate struct {
@@ -548,6 +568,7 @@ func (s *service) configure(apiID int, apiHash, sessionPath string) error {
 	dispatcher.OnDeleteChannelMessages(s.handleDeleteChannelMessages)
 	dispatcher.OnReadHistoryOutbox(s.handleReadHistoryOutbox)
 	dispatcher.OnReadChannelOutbox(s.handleReadChannelOutbox)
+	dispatcher.OnMessageReactions(s.handleMessageReactions)
 	client := telegram.NewClient(apiID, apiHash, telegram.Options{
 		SessionStorage: &session.FileStorage{Path: sessionPath},
 		UpdateHandler:  dispatcher,
@@ -597,7 +618,10 @@ func (s *service) listConversations(ctx context.Context) ([]conversation, error)
 	if err != nil {
 		return nil, err
 	}
-	const maxConversations = 80
+	// Telegram accounts often have many broadcast channels near the top of the
+	// dialog list. The Hub filters unselected channels from the picker, so a
+	// shallow scan can accidentally leave only a handful of actual chats.
+	const maxConversations = 300
 	const maxAvatarDownloads = 16
 	iter := query.GetDialogs(raw).BatchSize(50).Iter()
 	result := make([]conversation, 0, maxConversations)
@@ -809,6 +833,56 @@ func deliveryStatusForMessage(msg *tg.Message, readOutboxMax int) *string {
 	return &status
 }
 
+func reactionKey(reaction tg.ReactionClass) (string, *string, bool) {
+	switch value := reaction.(type) {
+	case *tg.ReactionEmoji:
+		return "emoji:" + value.Emoticon, &value.Emoticon, value.Emoticon != ""
+	case *tg.ReactionCustomEmoji:
+		return fmt.Sprintf("custom:%d", value.DocumentID), nil, value.DocumentID != 0
+	case *tg.ReactionPaid:
+		emoji := "⭐"
+		return "paid", &emoji, true
+	default:
+		return "", nil, false
+	}
+}
+
+func reactionsFromTelegram(reactions tg.MessageReactions) []externalReaction {
+	result := make([]externalReaction, 0, len(reactions.Results))
+	for _, item := range reactions.Results {
+		key, emoji, ok := reactionKey(item.Reaction)
+		if !ok || item.Count < 1 {
+			continue
+		}
+		_, chosen := item.GetChosenOrder()
+		result = append(result, externalReaction{
+			Reaction: key,
+			Emoji:    emoji,
+			Count:    item.Count,
+			Chosen:   chosen,
+		})
+	}
+	return result
+}
+
+func reactionFromKey(key string) (tg.ReactionClass, error) {
+	if strings.HasPrefix(key, "emoji:") {
+		emoji := strings.TrimPrefix(key, "emoji:")
+		if emoji == "" {
+			return nil, errors.New("empty emoji reaction")
+		}
+		return &tg.ReactionEmoji{Emoticon: emoji}, nil
+	}
+	if strings.HasPrefix(key, "custom:") {
+		documentID, err := strconv.ParseInt(strings.TrimPrefix(key, "custom:"), 10, 64)
+		if err != nil || documentID <= 0 {
+			return nil, errors.New("invalid custom emoji reaction")
+		}
+		return &tg.ReactionCustomEmoji{DocumentID: documentID}, nil
+	}
+	return nil, errors.New("unsupported reaction")
+}
+
 func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *tg.User, senderAvatar *string, readOutboxMax int) (externalMessage, bool) {
 	remoteID, ok := remoteIDFromPeer(msg.PeerID)
 	if !ok {
@@ -825,6 +899,10 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 		direction = "outgoing"
 	}
 	providerMessageID := fmt.Sprintf("%d", msg.ID)
+	reactions := []externalReaction{}
+	if value, ok := msg.GetReactions(); ok {
+		reactions = reactionsFromTelegram(value)
+	}
 	return externalMessage{
 		ID:                  conversationID(remoteID) + ":" + providerMessageID,
 		ConversationID:      conversationID(remoteID),
@@ -837,6 +915,7 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 		CreatedAt:           int64(msg.Date) * 1000,
 		DeliveryStatus:      deliveryStatusForMessage(msg, readOutboxMax),
 		Media:               media,
+		Reactions:           reactions,
 	}, true
 }
 
@@ -1130,6 +1209,37 @@ func applyClientID(builder *message.Builder, clientID string) {
 	builder.RandomID(randomID)
 }
 
+func telegramPhotoUpload(data []byte, fileName, mimeType string) ([]byte, string, bool) {
+	if !strings.HasPrefix(mimeType, "image/") || mimeType == "image/gif" {
+		return nil, fileName, false
+	}
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || config.Width <= 0 || config.Height <= 0 || int64(config.Width)*int64(config.Height) > 40_000_000 {
+		return nil, fileName, false
+	}
+	base := strings.TrimSuffix(filepath.Base(fileName), filepath.Ext(fileName))
+	if base == "" || base == "." {
+		base = "photo"
+	}
+	jpegName := base + ".jpg"
+	if format == "jpeg" {
+		return data, jpegName, true
+	}
+	decoded, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil || format != "png" {
+		return nil, fileName, false
+	}
+	bounds := decoded.Bounds()
+	flattened := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	draw.Draw(flattened, flattened.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	draw.Draw(flattened, flattened.Bounds(), decoded, bounds.Min, draw.Over)
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, flattened, &jpeg.Options{Quality: 90}); err != nil {
+		return nil, fileName, false
+	}
+	return encoded.Bytes(), jpegName, true
+}
+
 func (s *service) sendMedia(ctx context.Context, remoteID, path, fileName, mimeType, caption, clientID string) error {
 	raw, err := s.ready()
 	if err != nil {
@@ -1143,16 +1253,35 @@ func (s *service) sendMedia(ctx context.Context, remoteID, path, fileName, mimeT
 	if err != nil || !stat.Mode().IsRegular() || stat.Size() <= 0 || stat.Size() > 50*1024*1024 {
 		return errors.New("media file must be between 1 byte and 50 MB")
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
 	fileName = filepath.Base(fileName)
 	if fileName == "." || fileName == "" {
 		fileName = "attachment" + mediaExtension("", mimeType)
 	}
-	uploaded, err := uploader.NewUploader(raw).WithThreads(4).FromReader(ctx, fileName, file)
+	var reader io.Reader
+	var uploadSize = stat.Size()
+	var file *os.File
+	asPhoto := false
+	if strings.HasPrefix(mimeType, "image/") && mimeType != "image/gif" {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if prepared, preparedName, ok := telegramPhotoUpload(data, fileName, mimeType); ok {
+			reader = bytes.NewReader(prepared)
+			uploadSize = int64(len(prepared))
+			fileName = preparedName
+			asPhoto = true
+		}
+	}
+	if reader == nil {
+		file, err = os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		reader = file
+	}
+	uploaded, err := uploader.NewUploader(raw).WithThreads(4).Upload(ctx, uploader.NewUpload(fileName, reader, uploadSize))
 	if err != nil {
 		return err
 	}
@@ -1163,7 +1292,7 @@ func (s *service) sendMedia(ctx context.Context, remoteID, path, fileName, mimeT
 		captionOptions = append(captionOptions, styling.Plain(caption))
 	}
 	switch {
-	case strings.HasPrefix(mimeType, "image/") && mimeType != "image/gif":
+	case asPhoto:
 		_, err = builder.UploadedPhoto(ctx, uploaded, captionOptions...)
 	case strings.HasPrefix(mimeType, "video/"):
 		_, err = builder.Video(ctx, uploaded, captionOptions...)
@@ -1187,6 +1316,29 @@ func (s *service) sendText(ctx context.Context, remoteID, text, clientID string)
 	builder := message.NewSender(raw).To(peer)
 	applyClientID(&builder.Builder, clientID)
 	_, err = builder.Text(ctx, text)
+	return err
+}
+
+func (s *service) markRead(ctx context.Context, remoteID string, maxID int) error {
+	raw, err := s.ready()
+	if err != nil {
+		return err
+	}
+	peer, err := s.ensurePeer(ctx, remoteID)
+	if err != nil {
+		return err
+	}
+	if channel, ok := messagepeer.ToInputChannel(peer); ok {
+		_, err = raw.ChannelsReadHistory(ctx, &tg.ChannelsReadHistoryRequest{
+			Channel: channel,
+			MaxID:   maxID,
+		})
+		return err
+	}
+	_, err = raw.MessagesReadHistory(ctx, &tg.MessagesReadHistoryRequest{
+		Peer:  peer,
+		MaxID: maxID,
+	})
 	return err
 }
 
@@ -1306,6 +1458,49 @@ func (s *service) handleReadChannelOutbox(_ context.Context, _ tg.Entities, upda
 	return nil
 }
 
+func (s *service) handleMessageReactions(_ context.Context, _ tg.Entities, update *tg.UpdateMessageReactions) error {
+	remoteID, ok := remoteIDFromPeer(update.Peer)
+	if !ok || update.MsgID <= 0 {
+		return nil
+	}
+	s.out.event("message-reactions", messageReactions{
+		RemoteID:          remoteID,
+		ProviderMessageID: strconv.Itoa(update.MsgID),
+		Reactions:         reactionsFromTelegram(update.Reactions),
+	})
+	return nil
+}
+
+func (s *service) setReactions(ctx context.Context, remoteID, providerMessageID string, keys []string) error {
+	raw, err := s.ready()
+	if err != nil {
+		return err
+	}
+	peer, err := s.ensurePeer(ctx, remoteID)
+	if err != nil {
+		return err
+	}
+	messageID, err := strconv.Atoi(providerMessageID)
+	if err != nil || messageID <= 0 {
+		return errors.New("invalid Telegram message ID")
+	}
+	reactions := make([]tg.ReactionClass, 0, len(keys))
+	for _, key := range keys {
+		reaction, err := reactionFromKey(key)
+		if err != nil {
+			return err
+		}
+		reactions = append(reactions, reaction)
+	}
+	_, err = raw.MessagesSendReaction(ctx, &tg.MessagesSendReactionRequest{
+		Peer:        peer,
+		MsgID:       messageID,
+		Reaction:    reactions,
+		AddToRecent: true,
+	})
+	return err
+}
+
 func (s *service) handle(req rpcRequest) (any, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -1342,6 +1537,18 @@ func (s *service) handle(req rpcRequest) (any, error) {
 		}
 		items, err := s.loadMessages(ctx, params.RemoteID, params.Limit)
 		return map[string]any{"messages": items}, err
+	case "messages.read":
+		var params struct {
+			RemoteID             string `json:"remoteId"`
+			MaxProviderMessageID int    `json:"maxProviderMessageId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, err
+		}
+		if params.MaxProviderMessageID <= 0 {
+			return nil, errors.New("invalid max provider message ID")
+		}
+		return map[string]bool{"ok": true}, s.markRead(ctx, params.RemoteID, params.MaxProviderMessageID)
 	case "messages.send":
 		var params struct {
 			RemoteID string `json:"remoteId"`
@@ -1355,6 +1562,19 @@ func (s *service) handle(req rpcRequest) (any, error) {
 			return nil, errors.New("message is empty")
 		}
 		return map[string]bool{"ok": true}, s.sendText(ctx, params.RemoteID, params.Text, params.ClientID)
+	case "messages.reactions.set":
+		var params struct {
+			RemoteID          string   `json:"remoteId"`
+			ProviderMessageID string   `json:"providerMessageId"`
+			Reactions         []string `json:"reactions"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, err
+		}
+		if len(params.Reactions) > 3 {
+			return nil, errors.New("too many reactions")
+		}
+		return map[string]bool{"ok": true}, s.setReactions(ctx, params.RemoteID, params.ProviderMessageID, params.Reactions)
 	case "media.download":
 		var params struct {
 			RemoteID          string `json:"remoteId"`

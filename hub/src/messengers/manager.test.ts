@@ -9,6 +9,46 @@ import { MessengerManager } from './manager'
 import type { MessengerConnector, MessengerConnectorEvent } from './types'
 
 describe('MessengerManager', () => {
+    it('returns cached candidates immediately and refreshes them in the background', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-candidate-cache-'))
+        const store = new Store(':memory:')
+        let resolveRemote!: (value: ExternalConversation[]) => void
+        const remote = new Promise<ExternalConversation[]>((resolve) => { resolveRemote = resolve })
+        const cached: ExternalConversation = {
+            id: 'test:user:1', provider: 'test', remoteId: 'user:1', title: 'Cached', kind: 'direct',
+            selected: false, lastMessageAt: 1, lastMessagePreview: null, unreadCount: 0, avatarDataUrl: null
+        }
+        const connector: MessengerConnector = {
+            provider: 'test',
+            getConnection: () => ({ provider: 'test', state: 'ready', accountLabel: null, detail: null }),
+            configure: async () => {}, submitAuth: async () => {}, listConversations: async () => await remote,
+            loadMessages: async () => [],
+            downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
+            sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
+        }
+        const manager = new MessengerManager({
+            dataDir, store, sseManager: { broadcast: () => {} } as unknown as SSEManager
+        })
+        manager.registerConnectorFactory('test', () => connector)
+        store.messengers.upsertConversation('default', cached)
+
+        try {
+            const result = await Promise.race([
+                manager.listCandidates('default', 'test'),
+                new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 50))
+            ])
+            expect(result).toEqual([expect.objectContaining({ id: cached.id, title: 'Cached' })])
+            resolveRemote([{ ...cached, title: 'Fresh' }])
+            await manager.listCandidates('default', 'test', true)
+            expect((await manager.listCandidates('default', 'test'))[0]?.title).toBe('Fresh')
+        } finally {
+            resolveRemote([])
+            await manager.stop()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('keeps an already selected Telegram channel in the chat list', () => {
         const store = new Store(':memory:')
         const manager = new MessengerManager({
@@ -53,7 +93,7 @@ describe('MessengerManager', () => {
             configure: async () => {}, submitAuth: async () => {},
             listConversations: async () => [direct, channel], loadMessages: async () => [],
             downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
-            sendText: async () => {}, sendMedia: async () => {}, stop: async () => {}
+            sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
         }
         const manager = new MessengerManager({
             dataDir, store, sseManager: { broadcast: () => {} } as unknown as SSEManager
@@ -90,7 +130,7 @@ describe('MessengerManager', () => {
             configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [conversation],
             loadMessages: async () => [],
             downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
-            sendText: async () => {}, sendMedia: async () => {}, stop: async () => {}
+            sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
         }
         const manager = new MessengerManager({
             dataDir,
@@ -120,6 +160,58 @@ describe('MessengerManager', () => {
                 namespace: 'default',
                 conversationId: conversation.id
             })
+
+            emit!({
+                type: 'message-reactions',
+                provider: 'test',
+                remoteId: 'user:1',
+                providerMessageId: '5',
+                reactions: [{ reaction: 'emoji:👍', emoji: '👍', count: 2, chosen: true }]
+            })
+
+            expect(store.messengers.listMessages('default', conversation.id)[0]?.reactions).toEqual([
+                { reaction: 'emoji:👍', emoji: '👍', count: 2, chosen: true }
+            ])
+        } finally {
+            await manager.stop()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
+    it('marks Telegram history read remotely before keeping the local unread count cleared', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-mark-read-'))
+        const store = new Store(':memory:')
+        const calls: Array<[string, number]> = []
+        const conversation: ExternalConversation = {
+            id: 'test:user:1', provider: 'test', remoteId: 'user:1', title: 'Friend', kind: 'direct',
+            selected: false, lastMessageAt: 9, lastMessagePreview: 'Unread', unreadCount: 2, avatarDataUrl: null
+        }
+        const connector: MessengerConnector = {
+            provider: 'test',
+            getConnection: () => ({ provider: 'test', state: 'ready', accountLabel: null, detail: null }),
+            configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [conversation],
+            loadMessages: async () => [],
+            markRead: async (remoteId, maxProviderMessageId) => { calls.push([remoteId, maxProviderMessageId]) },
+            downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
+            sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
+        }
+        const manager = new MessengerManager({
+            dataDir, store, sseManager: { broadcast: () => {} } as unknown as SSEManager
+        })
+        manager.registerConnectorFactory('test', () => connector)
+        store.messengers.upsertConversation('default', conversation)
+        store.messengers.replaceSelection('default', 'test', [conversation.remoteId])
+        store.messengers.upsertMessage('default', {
+            id: 'test:user:1:9', conversationId: conversation.id, providerMessageId: '9',
+            senderId: 'user:1', senderName: 'Friend', direction: 'incoming',
+            text: 'Unread', createdAt: 9, editedAt: null, media: []
+        })
+
+        try {
+            await manager.listMessages('default', conversation.id, { refresh: false })
+            expect(calls).toEqual([['user:1', 9]])
+            expect(store.messengers.getConversation('default', conversation.id)?.unreadCount).toBe(0)
         } finally {
             await manager.stop()
             store.close()
@@ -180,6 +272,7 @@ describe('MessengerManager', () => {
                 return { path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }
             },
             sendText: async () => {},
+            setReactions: async () => {},
             sendMedia: async () => {},
             stop: async () => {}
         }
@@ -226,7 +319,7 @@ describe('MessengerManager', () => {
             configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [conversation],
             loadMessages: async () => await load,
             downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
-            sendText: async () => {}, sendMedia: async () => {}, stop: async () => {}
+            sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
         }
         const manager = new MessengerManager({
             dataDir,
@@ -283,7 +376,7 @@ describe('MessengerManager', () => {
                 downloadCount += 1
                 throw new Error('rpcDoRequest: rpc error code 420: FLOOD_WAIT (2)')
             },
-            sendText: async () => {}, sendMedia: async () => {}, stop: async () => {}
+            sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
         }
         const manager = new MessengerManager({
             dataDir,

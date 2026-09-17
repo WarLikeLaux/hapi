@@ -315,11 +315,13 @@ function AppInner() {
         }
         if (event.type === 'external-conversation-updated') {
             void queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
+            void queryClient.invalidateQueries({ queryKey: ['messenger-candidates'] })
             return
         }
         if (event.type === 'external-message-received' || event.type === 'external-message-updated') {
             void queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
             void queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(event.conversationId) })
+            void queryClient.invalidateQueries({ queryKey: queryKeys.externalParticipants(event.conversationId) })
             prefetchExternalMessages(event.conversationId)
         }
     }, [prefetchExternalMessages, queryClient])
