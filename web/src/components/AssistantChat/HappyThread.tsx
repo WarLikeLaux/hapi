@@ -874,6 +874,21 @@ export function HappyThread(props: {
             }
 
             if (intent.isScrollingUp && intent.distanceFromBottom > MANUAL_SCROLL_EPSILON_PX) {
+                // Layout/runtime updates and late browser restoration can move
+                // a freshly opened thread upward without any user input. Keep
+                // tail ownership in that case; only an explicit gesture may
+                // switch the thread into history mode.
+                if (
+                    !hadExplicitUpwardIntent
+                    && autoScrollEnabledRef.current
+                    && atBottomRef.current
+                    && !pendingScrollRef.current
+                ) {
+                    viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'instant' })
+                    lastScrollTopRef.current = viewport.scrollTop
+                    setShowScrollToBottom(false)
+                    return
+                }
                 tailScrollInProgressRef.current = false
                 setShowScrollToBottom(false)
                 setAutoScrollMode(false)
