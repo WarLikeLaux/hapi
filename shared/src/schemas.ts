@@ -122,6 +122,9 @@ export const MetadataSchema = z.object({
     hostPid: z.number().optional(),
     hapiMcpUrl: z.string().url().optional(),
     startedBy: z.enum(['runner', 'terminal']).optional(),
+    // Durable user intent for cold-start recovery. Explicit archive/stop writes
+    // false; a later runner-backed resume writes true again.
+    restoreOnRestart: z.boolean().optional(),
     // 'running' | 'idle' | 'archived' (see shared/src/sessionLifecycle.ts).
     // 'idle' is written by the hub's keepalive-idle reconciler (tiann/hapi#1820)
     // and reverts to 'running' on the next agent progress.

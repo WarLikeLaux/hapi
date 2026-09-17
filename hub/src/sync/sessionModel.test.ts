@@ -4560,6 +4560,36 @@ describe('session model', () => {
     // RpcTargetMissingError. markSessionArchivedFromHub writes the archive
     // metadata directly so the row's lifecycleState still flips to 'archived'.
     describe('markSessionArchivedFromHub (tiann/hapi#916)', () => {
+        it('persists explicit stop intent before archiving a live session', async () => {
+            const store = new Store(':memory:')
+            const engine = new SyncEngine(
+                store,
+                {} as never,
+                new RpcRegistry(),
+                { broadcast() {} } as never
+            )
+            try {
+                const session = engine.getOrCreateSession(
+                    'session-explicit-stop-intent',
+                    {
+                        path: '/tmp/project',
+                        host: 'localhost',
+                        flavor: 'codex',
+                        restoreOnRestart: true,
+                    },
+                    null,
+                    'default'
+                )
+                ;(engine as any).rpcGateway.killSession = async () => {}
+
+                await engine.archiveSession(session.id)
+
+                expect(engine.getSession(session.id)?.metadata?.restoreOnRestart).toBe(false)
+            } finally {
+                engine.stop()
+            }
+        })
+
         it('flips lifecycleState to archived with archivedBy=hub and the supplied reason', () => {
             const store = new Store(':memory:')
             const events: SyncEvent[] = []
