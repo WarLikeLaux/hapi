@@ -40,6 +40,7 @@ import {
     type RpcCommandResponse,
     type RpcDeleteUploadResponse,
     type RpcGeneratedImageResponse,
+    type RpcGitStatusResponse,
     type RpcListDirectoryResponse,
     type RpcStatFilesResponse,
     type RpcListAgyModelsResponse,
@@ -4134,11 +4135,11 @@ export class SyncEngine {
         return await this.rpcGateway.listMachineDirectory(machineId, path, includeHidden)
     }
 
-    async getGitStatus(sessionId: string, cwd?: string): Promise<RpcCommandResponse> {
+    async getGitStatus(sessionId: string, cwd?: string): Promise<RpcGitStatusResponse> {
         return await this.rpcGateway.getGitStatus(sessionId, cwd)
     }
 
-    async getMachineGitStatus(machineId: string, cwd: string): Promise<RpcCommandResponse> {
+    async getMachineGitStatus(machineId: string, cwd: string): Promise<RpcGitStatusResponse> {
         return await this.rpcGateway.getMachineGitStatus(machineId, cwd)
     }
 

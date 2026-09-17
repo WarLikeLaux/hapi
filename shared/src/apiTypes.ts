@@ -727,6 +727,11 @@ export type CommandResponse = {
 
 export type GitCommandResponse = CommandResponse
 
+export type GitStatusResponse = GitCommandResponse & {
+    /** Credential-free GitLab form URL for opening an MR from the current branch, when available. */
+    createMergeRequestUrl?: string
+}
+
 export type GitComparisonScope = 'last-commit' | 'branch'
 
 export type GitComparisonFile = {

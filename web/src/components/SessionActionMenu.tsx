@@ -25,7 +25,7 @@ type SessionActionMenuProps = {
     difitReviewUrl?: string | null
     externalReviewUrl?: string | null
     onManageDifit?: () => void
-    onCreateExternalReview?: () => void
+    createExternalReviewUrl?: string | null
     difitAttached?: boolean
     onContinueInFolder?: () => void
     onRestart?: () => void
@@ -250,7 +250,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         difitReviewUrl,
         externalReviewUrl,
         onManageDifit,
-        onCreateExternalReview,
+        createExternalReviewUrl,
         difitAttached = false,
         onContinueInFolder,
         onRestart,
@@ -332,11 +332,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onManageDifit?.()
     }
 
-    const handleCreateExternalReview = () => {
-        onClose()
-        onCreateExternalReview?.()
-    }
-
     const handleContinueInFolder = () => {
         onClose()
         onContinueInFolder?.()
@@ -410,16 +405,18 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         <ExternalReviewIcon className="text-[var(--app-hint)]" />
                         {t('session.action.openExternalReview')}
                     </a>
-                ) : onCreateExternalReview ? (
-                    <button
-                        type="button"
+                ) : createExternalReviewUrl ? (
+                    <a
+                        href={createExternalReviewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         role="menuitem"
                         className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                        onClick={handleCreateExternalReview}
+                        onClick={onClose}
                     >
                         <ExternalReviewIcon className="text-[var(--app-hint)]" />
                         {t('session.action.createExternalReview')}
-                    </button>
+                    </a>
                 ) : null}
 
                 <button
