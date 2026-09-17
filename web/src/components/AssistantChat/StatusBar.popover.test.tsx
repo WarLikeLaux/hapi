@@ -10,6 +10,12 @@ describe('StatusBar context details popover', () => {
         vi.spyOn(Math, 'random').mockReturnValue(0)
     })
 
+    it('keeps every randomized status short enough for the mobile footer', () => {
+        for (const message of [...READY_STATUS_MESSAGES, ...WORKING_STATUS_MESSAGES]) {
+            expect(message.length).toBeLessThanOrEqual(24)
+        }
+    })
+
     it('uses varied Russian ready and working labels and offsets the whole left status', () => {
         localStorage.setItem('hapi-lang', 'zh-CN')
         const { rerender } = render(
