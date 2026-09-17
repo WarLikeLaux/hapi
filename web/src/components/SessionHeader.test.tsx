@@ -104,7 +104,7 @@ describe('SessionHeader', () => {
         expect(link).toHaveAttribute('target', '_blank')
         expect(link).toHaveAttribute('rel', 'noopener noreferrer')
 
-        const reviewLink = screen.getByRole('link', { name: 'Open merge request' })
+        const reviewLink = screen.getByRole('link', { name: 'Open PR' })
         expect(reviewLink).toHaveAttribute(
             'href',
             'https://gitlab.example.test/group/project/-/merge_requests/1'
@@ -211,7 +211,7 @@ describe('SessionHeader', () => {
         )
 
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        const link = await screen.findByRole('menuitem', { name: 'Create pull / merge request' })
+        const link = await screen.findByRole('menuitem', { name: 'Create PR' })
         expect(link).toHaveAttribute('href', createMergeRequestUrl)
         expect(link).toHaveAttribute('target', '_blank')
         expect(sendMessage).not.toHaveBeenCalled()
