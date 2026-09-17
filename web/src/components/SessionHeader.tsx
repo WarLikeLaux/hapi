@@ -31,6 +31,10 @@ import { markSessionUnread } from '@/lib/sessionLastSeen'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useNavigate } from '@tanstack/react-router'
 import { useSessionGitBranch } from '@/hooks/queries/useSessionGitBranch'
+import { makeClientSideId } from '@/lib/messages'
+
+const START_DIFIT_PROMPT = '$difit Open all current changes in this checkout in DIFIT, including untracked files. Start the live viewer in the background and send me the link.'
+const RESTART_DIFIT_PROMPT = '$difit Restart the DIFIT viewer attached to this HAPI session, preserving the current review and its threads, then send me the link.'
 
 /** Same preference order as session-list chips: display label → host → short id. */
 export function resolveSessionHeaderMachineLabel(
@@ -280,6 +284,7 @@ export function SessionHeader(props: {
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [isSyncingCodex, setIsSyncingCodex] = useState(false)
     const [isSyncingPi, setIsSyncingPi] = useState(false)
+    const [isManagingDifit, setIsManagingDifit] = useState(false)
     const [isRegeneratingTitle, setIsRegeneratingTitle] = useState(false)
 
     const { archiveSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, setPinMode, deleteSession, isPending } = useSessionActions(
@@ -439,6 +444,38 @@ export function SessionHeader(props: {
             })
         } finally {
             setIsSyncingPi(false)
+        }
+    }
+
+    const handleManageDifit = async () => {
+        if (!api || !session.active || isManagingDifit) return
+
+        setIsManagingDifit(true)
+        try {
+            const restarting = Boolean(difitReviewUrl)
+            await api.sendMessage(
+                session.id,
+                restarting ? RESTART_DIFIT_PROMPT : START_DIFIT_PROMPT,
+                makeClientSideId('local'),
+                undefined,
+                null,
+                'queue'
+            )
+            addToast({
+                title: t(restarting ? 'session.action.restartDifitQueued' : 'session.action.startDifitQueued'),
+                body: t('session.action.difitQueuedBody'),
+                sessionId: session.id,
+                url: `/sessions/${session.id}`
+            })
+        } catch (error) {
+            addToast({
+                title: t('session.action.difitFailed'),
+                body: error instanceof Error ? error.message : t('dialog.error.default'),
+                sessionId: session.id,
+                url: `/sessions/${session.id}`
+            })
+        } finally {
+            setIsManagingDifit(false)
         }
     }
 
@@ -650,6 +687,12 @@ export function SessionHeader(props: {
                 onExport={() => setExportOpen(true)}
                 onSyncCodex={api && codexSessionId ? handleSyncCodex : undefined}
                 onSyncPi={api && piSessionId && !session.active ? handleSyncPi : undefined}
+                difitReviewUrl={difitReviewUrl}
+                externalReviewUrl={externalReviewUrl}
+                difitAttached={Boolean(difitReviewUrl)}
+                onManageDifit={api && session.active && agentFlavor === 'codex' && !isManagingDifit
+                    ? () => void handleManageDifit()
+                    : undefined}
                 onContinueInFolder={() => navigate({
                     to: '/browse',
                     search: {

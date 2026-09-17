@@ -119,6 +119,72 @@ describe('SessionHeader', () => {
         expect(screen.queryByRole('link', { name: 'Open merge request' })).not.toBeInTheDocument()
     })
 
+    it('requests a new DIFIT review from the session menu', async () => {
+        const sendMessage = vi.fn().mockResolvedValue(undefined)
+        const api = {
+            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
+            getScratchlist: vi.fn().mockResolvedValue({ entries: [] }),
+            sendMessage,
+        } as unknown as ApiClient
+
+        render(
+            <QueryClientProvider client={new QueryClient()}>
+                <ToastProvider>
+                    <I18nProvider>
+                        <SessionHeader session={baseSession()} onBack={vi.fn()} api={api} />
+                        <ToastMessages />
+                    </I18nProvider>
+                </ToastProvider>
+            </QueryClientProvider>
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: /More/ }))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Start DIFIT' }))
+
+        await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce())
+        expect(sendMessage.mock.calls[0][0]).toBe('session-1')
+        expect(sendMessage.mock.calls[0][1]).toContain('$difit Open all current changes')
+        expect(sendMessage.mock.calls[0][5]).toBe('queue')
+        expect(await screen.findByText(/DIFIT start requested/)).toBeInTheDocument()
+    })
+
+    it('requests a restart when a DIFIT review is already attached', async () => {
+        const sendMessage = vi.fn().mockResolvedValue(undefined)
+        const api = {
+            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
+            getScratchlist: vi.fn().mockResolvedValue({ entries: [] }),
+            sendMessage,
+        } as unknown as ApiClient
+        const session = baseSession({
+            metadata: {
+                flavor: 'codex',
+                path: '/repo',
+                host: 'machine',
+                difitReview: {
+                    id: 'review-1',
+                    url: 'https://difit.example.test/reviews/review-1/',
+                    attachedAt: 1,
+                },
+            },
+        })
+
+        render(
+            <QueryClientProvider client={new QueryClient()}>
+                <ToastProvider>
+                    <I18nProvider>
+                        <SessionHeader session={session} onBack={vi.fn()} api={api} />
+                    </I18nProvider>
+                </ToastProvider>
+            </QueryClientProvider>
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: /More/ }))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Restart DIFIT' }))
+
+        await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce())
+        expect(sendMessage.mock.calls[0][1]).toContain('$difit Restart the DIFIT viewer')
+    })
+
     it('queues Codex title regeneration from the session menu', async () => {
         const regenerateSessionTitle = vi.fn().mockResolvedValue(undefined)
         const api = {

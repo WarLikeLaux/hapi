@@ -12,8 +12,8 @@ vi.mock('@/hooks/usePlatform', () => ({
 
 afterEach(() => cleanup())
 
-function renderMenu(overrides: Partial<React.ComponentProps<typeof SessionActionMenu>> = {}) {
-    const defaults: React.ComponentProps<typeof SessionActionMenu> = {
+function renderMenuDefaults(): React.ComponentProps<typeof SessionActionMenu> {
+    return {
         isOpen: true,
         onClose: vi.fn(),
         sessionId: 'sess-123',
@@ -25,6 +25,10 @@ function renderMenu(overrides: Partial<React.ComponentProps<typeof SessionAction
         onDelete: vi.fn(),
         anchorPoint: { x: 0, y: 0 },
     }
+}
+
+function renderMenu(overrides: Partial<React.ComponentProps<typeof SessionActionMenu>> = {}) {
+    const defaults = renderMenuDefaults()
     const merged = { ...defaults, ...overrides }
     return {
         ...render(
@@ -338,6 +342,46 @@ describe('SessionActionMenu - Pi sync action', () => {
     it('hides Sync Pi history when no handler is provided', () => {
         renderMenu({ onSyncPi: undefined })
         expect(screen.queryByRole('menuitem', { name: /Sync Pi history/ })).toBeNull()
+    })
+})
+
+describe('SessionActionMenu - DIFIT actions', () => {
+    it('starts a new review and switches to restart after a review is attached', () => {
+        const onManageDifit = vi.fn()
+        const onClose = vi.fn()
+        const { rerender } = renderMenu({ onManageDifit, onClose })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Start DIFIT' }))
+        expect(onManageDifit).toHaveBeenCalledOnce()
+        expect(onClose).toHaveBeenCalledOnce()
+
+        rerender(
+            <I18nProvider>
+                <SessionActionMenu
+                    {...renderMenuDefaults()}
+                    isOpen={true}
+                    onManageDifit={onManageDifit}
+                    difitAttached={true}
+                />
+            </I18nProvider>
+        )
+        expect(screen.getByRole('menuitem', { name: 'Restart DIFIT' })).toBeInTheDocument()
+    })
+
+    it('exposes attached DIFIT and merge-request links in the menu', () => {
+        renderMenu({
+            difitReviewUrl: 'https://difit.example.test/reviews/review-1/',
+            externalReviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1',
+        })
+
+        expect(screen.getByRole('menuitem', { name: 'Open in DIFIT' })).toHaveAttribute(
+            'href',
+            'https://difit.example.test/reviews/review-1/'
+        )
+        expect(screen.getByRole('menuitem', { name: 'Open merge request' })).toHaveAttribute(
+            'href',
+            'https://gitlab.example.test/group/project/-/merge_requests/1'
+        )
     })
 })
 
