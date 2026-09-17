@@ -4143,6 +4143,13 @@ export class SyncEngine {
         return await this.rpcGateway.getMachineGitStatus(machineId, cwd)
     }
 
+    async manageDifit(
+        machineId: string,
+        request: { action: 'start' | 'restart'; cwd: string; sessionId: string; reviewId?: string }
+    ) {
+        return await this.rpcGateway.manageDifit(machineId, request)
+    }
+
     async getGitComparison(sessionId: string, options: { cwd?: string; scope: GitComparisonScope }): Promise<GitComparisonResponse> {
         return await this.rpcGateway.getGitComparison(sessionId, options)
     }
