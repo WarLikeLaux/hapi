@@ -45,7 +45,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 31
+const SCHEMA_VERSION: number = 33
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -379,6 +379,8 @@ export class Store {
             28: () => this.migrateFromV28ToV29(),
             29: () => this.migrateFromV29ToV30(),
             30: () => this.migrateFromV30ToV31(),
+            31: () => this.migrateFromV31ToV32(),
+            32: () => this.migrateFromV32ToV33(),
         })
 
         if (currentVersion === 0) {
@@ -637,6 +639,7 @@ export class Store {
                 provider TEXT NOT NULL,
                 remote_id TEXT NOT NULL,
                 title TEXT NOT NULL,
+                custom_title TEXT,
                 kind TEXT NOT NULL,
                 selected INTEGER NOT NULL DEFAULT 0,
                 last_message_at INTEGER,
@@ -664,6 +667,7 @@ export class Store {
                 created_at INTEGER NOT NULL,
                 edited_at INTEGER,
                 delivery_status TEXT CHECK (delivery_status IN ('sent', 'read')),
+                reactions_json TEXT NOT NULL DEFAULT '[]',
                 PRIMARY KEY (namespace, id),
                 UNIQUE (namespace, conversation_id, provider_message_id),
                 FOREIGN KEY (namespace, conversation_id)
@@ -677,6 +681,7 @@ export class Store {
                 provider TEXT NOT NULL,
                 remote_id TEXT NOT NULL,
                 display_name TEXT,
+                custom_name TEXT,
                 avatar_data_url TEXT,
                 PRIMARY KEY (namespace, provider, remote_id)
             );
@@ -722,6 +727,24 @@ export class Store {
         const messageColumns = this.db.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
         if (!messageColumns.some((column) => column.name === 'delivery_status')) {
             this.db.exec("ALTER TABLE external_messages ADD COLUMN delivery_status TEXT CHECK (delivery_status IN ('sent', 'read'))")
+        }
+    }
+
+    private migrateFromV31ToV32(): void {
+        const conversationColumns = this.db.prepare('PRAGMA table_info(external_conversations)').all() as Array<{ name: string }>
+        if (!conversationColumns.some((column) => column.name === 'custom_title')) {
+            this.db.exec('ALTER TABLE external_conversations ADD COLUMN custom_title TEXT')
+        }
+        const participantColumns = this.db.prepare('PRAGMA table_info(external_participants)').all() as Array<{ name: string }>
+        if (!participantColumns.some((column) => column.name === 'custom_name')) {
+            this.db.exec('ALTER TABLE external_participants ADD COLUMN custom_name TEXT')
+        }
+    }
+
+    private migrateFromV32ToV33(): void {
+        const messageColumns = this.db.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
+        if (!messageColumns.some((column) => column.name === 'reactions_json')) {
+            this.db.exec("ALTER TABLE external_messages ADD COLUMN reactions_json TEXT NOT NULL DEFAULT '[]'")
         }
     }
 

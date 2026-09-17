@@ -68,8 +68,10 @@ import type { CancelMessageResponse, SteerQueuedMessageResponse } from '@hapi/pr
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
 import type {
     ConfigureTelegramRequest,
+    ExternalConversation,
     ExternalConversationsResponse,
     ExternalMessagesResponse,
+    ExternalParticipant,
     MessengerConnection,
     MessengerConnectionsResponse,
     SelectMessengerConversationsRequest,
@@ -292,8 +294,9 @@ export class ApiClient {
         })
     }
 
-    async getMessengerCandidates(provider: string): Promise<ExternalConversationsResponse> {
-        return await this.request(`/api/messengers/${encodeURIComponent(provider)}/candidates`)
+    async getMessengerCandidates(provider: string, options: { refresh?: boolean } = {}): Promise<ExternalConversationsResponse> {
+        const query = options.refresh ? '?refresh=true' : ''
+        return await this.request(`/api/messengers/${encodeURIComponent(provider)}/candidates${query}`)
     }
 
     async selectMessengerConversations(
@@ -308,6 +311,28 @@ export class ApiClient {
 
     async getExternalConversations(): Promise<ExternalConversationsResponse> {
         return await this.request('/api/conversations')
+    }
+
+    async getExternalParticipants(conversationId: string): Promise<{ participants: ExternalParticipant[] }> {
+        return await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/participants`)
+    }
+
+    async updateExternalConversationAlias(conversationId: string, name: string | null): Promise<{ conversation: ExternalConversation }> {
+        return await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/alias`, {
+            method: 'PATCH',
+            body: JSON.stringify({ name })
+        })
+    }
+
+    async updateExternalParticipantAlias(
+        conversationId: string,
+        participantId: string,
+        name: string | null
+    ): Promise<{ participant: ExternalParticipant }> {
+        return await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/participants/${encodeURIComponent(participantId)}/alias`, {
+            method: 'PATCH',
+            body: JSON.stringify({ name })
+        })
     }
 
     async getExternalMessages(
@@ -325,6 +350,17 @@ export class ApiClient {
         await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
             method: 'POST',
             body: JSON.stringify({ text, clientId })
+        })
+    }
+
+    async setExternalMessageReactions(
+        conversationId: string,
+        providerMessageId: string,
+        reactions: string[]
+    ): Promise<void> {
+        await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(providerMessageId)}/reactions`, {
+            method: 'PUT',
+            body: JSON.stringify({ reactions })
         })
     }
 

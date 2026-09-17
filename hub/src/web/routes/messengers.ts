@@ -2,7 +2,9 @@ import {
     ConfigureTelegramRequestSchema,
     SelectMessengerConversationsRequestSchema,
     SendExternalMessageRequestSchema,
-    SubmitMessengerAuthRequestSchema
+    SetExternalReactionsRequestSchema,
+    SubmitMessengerAuthRequestSchema,
+    UpdateExternalAliasRequestSchema
 } from '@hapi/protocol'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
@@ -56,7 +58,11 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
 
     app.get('/messengers/:provider/candidates', async (c) => {
         try {
-            const conversations = await manager.listCandidates(c.get('namespace'), c.req.param('provider'))
+            const conversations = await manager.listCandidates(
+                c.get('namespace'),
+                c.req.param('provider'),
+                c.req.query('refresh') === 'true'
+            )
             return c.json({ conversations })
         } catch (error) {
             return c.json({ error: errorMessage(error) }, 502)
@@ -103,6 +109,47 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
         }
     })
 
+    app.get('/conversations/:id/participants', (c) => {
+        try {
+            return c.json({ participants: manager.listParticipants(c.get('namespace'), c.req.param('id')) })
+        } catch (error) {
+            return c.json({ error: errorMessage(error) }, 502)
+        }
+    })
+
+    app.patch('/conversations/:id/alias', async (c) => {
+        const parsed = UpdateExternalAliasRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid conversation name' }, 400)
+        try {
+            const conversation = manager.setConversationAlias(
+                c.get('namespace'),
+                c.req.param('id'),
+                parsed.data.name
+            )
+            return c.json({ conversation })
+        } catch (error) {
+            const message = errorMessage(error)
+            return c.json({ error: message }, message === 'Conversation not found' ? 404 : 502)
+        }
+    })
+
+    app.patch('/conversations/:id/participants/:participantId/alias', async (c) => {
+        const parsed = UpdateExternalAliasRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid participant name' }, 400)
+        try {
+            const participant = manager.setParticipantAlias(
+                c.get('namespace'),
+                c.req.param('id'),
+                c.req.param('participantId'),
+                parsed.data.name
+            )
+            return c.json({ participant })
+        } catch (error) {
+            const message = errorMessage(error)
+            return c.json({ error: message }, message.includes('not found') ? 404 : 502)
+        }
+    })
+
     app.post('/conversations/:id/messages', async (c) => {
         const parsed = SendExternalMessageRequestSchema.safeParse(await c.req.json().catch(() => null))
         if (!parsed.success) return c.json({ error: 'Invalid message' }, 400)
@@ -117,6 +164,23 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
         } catch (error) {
             const message = errorMessage(error)
             return c.json({ error: message }, message === 'Conversation not found' ? 404 : 502)
+        }
+    })
+
+    app.put('/conversations/:id/messages/:messageId/reactions', async (c) => {
+        const parsed = SetExternalReactionsRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid reactions' }, 400)
+        try {
+            await manager.setReactions(
+                c.get('namespace'),
+                c.req.param('id'),
+                c.req.param('messageId'),
+                parsed.data.reactions
+            )
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = errorMessage(error)
+            return c.json({ error: message }, message.includes('not found') ? 404 : 502)
         }
     })
 
