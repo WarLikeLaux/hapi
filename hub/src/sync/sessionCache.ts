@@ -1100,6 +1100,35 @@ export class SessionCache {
         throw new Error('Session was modified concurrently while archiving from hub')
     }
 
+    /** Persist whether an inactive runner-backed session should return after a cold restart. */
+    setSessionRestoreOnRestart(sessionId: string, restoreOnRestart: boolean): void {
+        for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
+            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            if (!session?.metadata) {
+                throw new Error('Session metadata missing')
+            }
+            if (session.metadata.restoreOnRestart === restoreOnRestart) return
+
+            const result = this.store.sessions.updateSessionMetadata(
+                sessionId,
+                { ...session.metadata, restoreOnRestart },
+                session.metadataVersion,
+                session.namespace,
+                { touchUpdatedAt: false }
+            )
+            if (result.result === 'success') {
+                this.refreshSession(sessionId)
+                return
+            }
+            if (result.result === 'error') {
+                throw new Error('Failed to update session restart intent')
+            }
+            this.refreshSession(sessionId)
+        }
+
+        throw new Error('Session was modified concurrently. Please try again.')
+    }
+
     async renameSession(sessionId: string, name: string): Promise<void> {
         // tiann/hapi#919: retry-with-refresh on version-mismatch instead of
         // throwing on the first contention. Mirrors the good pattern in

@@ -67,6 +67,10 @@ const SIMPLE_RESUME_TOKENS = [
     'piSessionId'
 ] as const
 
+// User-owned lifecycle intent must survive sparse CLI metadata writes. Writers
+// change it explicitly; omission means "leave the current choice alone".
+const DURABLE_LIFECYCLE_FIELDS = ['restoreOnRestart'] as const
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -130,6 +134,7 @@ export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
     merged = carryForwardIfMissing(prior, next, merged, PARSE_IDENTITY_FIELDS)
     merged = carryForwardIfMissing(prior, next, merged, ROUTING_FIELDS)
     merged = carryForwardIfMissing(prior, next, merged, SIMPLE_RESUME_TOKENS)
+    merged = carryForwardIfMissing(prior, next, merged, DURABLE_LIFECYCLE_FIELDS)
     merged = preserveCursorProtocolPair(prior, next, merged)
     return merged ?? next
 }

@@ -130,9 +130,19 @@ describe('bootstrapExistingSession', () => {
                 flavor: 'codex',
                 startedBy: 'terminal',
                 startedFromRunner: false,
+                restoreOnRestart: false,
                 machineId: 'machine-1'
             })
         )
+    })
+
+    it('enables cold restore for runner-owned session metadata', () => {
+        expect(buildSessionMetadata({
+            flavor: 'codex',
+            startedBy: 'runner',
+            workingDirectory: '/tmp/project',
+            machineId: 'machine-1',
+        }).restoreOnRestart).toBe(true)
     })
 
     it('preserves existing native resume metadata when reactivating a session', async () => {

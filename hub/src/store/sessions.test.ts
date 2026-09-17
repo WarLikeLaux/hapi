@@ -117,6 +117,32 @@ describe('getOrCreateSession: requested identity', () => {
 })
 
 describe('updateSessionMetadata: protocol resume token preservation', () => {
+    it('preserves explicit cold-restore intent when a sparse CLI write omits it', () => {
+        const store = makeStore()
+        const session = store.sessions.getOrCreateSession(
+            'restart-intent',
+            {
+                path: '/tmp/project',
+                host: 'example',
+                flavor: 'codex',
+                restoreOnRestart: false,
+            },
+            null,
+            'default'
+        )
+
+        const result = store.sessions.updateSessionMetadata(
+            session.id,
+            { path: '/tmp/project', host: 'example', lifecycleState: 'archived' },
+            session.metadataVersion,
+            'default'
+        )
+
+        expect(result.result).toBe('success')
+        expect(getMetadata(store, session.id)?.restoreOnRestart).toBe(false)
+        store.close()
+    })
+
     it('preserves cursorSessionId when archive payload omits it (Cursor crash-archive)', () => {
         const store = makeStore()
         const session = store.sessions.getOrCreateSession(

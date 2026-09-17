@@ -978,10 +978,11 @@ export class SyncEngine {
         if (
             metadata?.machineId !== machine.id
             || (metadata.startedBy !== 'runner' && metadata.startedFromRunner !== true)
+            || metadata.restoreOnRestart === false
         ) {
             return false
         }
-        if (metadata.lifecycleState === 'running') return true
+        if (metadata.lifecycleState === 'running' || metadata.lifecycleState === 'idle') return true
 
         // A graceful OS shutdown archives children before the replacement
         // runner starts. Do not confuse a later runner-internal stop (which can
@@ -1887,6 +1888,10 @@ export class SyncEngine {
         // UI does not see a half-cleaned zombie, and continue to mark
         // it inactive in the cache. Real RPC errors (timeout, protocol
         // failure) still propagate as 5xx.
+        // Record the user's explicit stop before signalling the child. The CLI
+        // cleanup spreads current metadata, so this survives both a clean ACK
+        // and a hub/runner crash in the middle of the archive operation.
+        this.sessionCache.setSessionRestoreOnRestart(sessionId, false)
         try {
             await this.rpcGateway.killSession(sessionId)
         } catch (error) {
@@ -1897,6 +1902,14 @@ export class SyncEngine {
             }
         }
         this.handleSessionEnd({ sid: sessionId, time: Date.now() })
+    }
+
+    markSessionExplicitlyStopped(sessionId: string): void {
+        this.sessionCache.setSessionRestoreOnRestart(sessionId, false)
+    }
+
+    markSessionExplicitlyResumed(sessionId: string): void {
+        this.sessionCache.setSessionRestoreOnRestart(sessionId, true)
     }
 
     /**
@@ -3078,6 +3091,7 @@ export class SyncEngine {
                 code: 'resume_unavailable'
             }
         }
+
         const initialPtyMode =
             (initialSession.agentState as { startingMode?: 'local' | 'remote' | 'pty' } | null)?.startingMode === 'pty'
         if (initialPtyMode && this.ptyResumeInFlightIds.has(access.sessionId)) {
@@ -3552,6 +3566,7 @@ export class SyncEngine {
         }
 
         if (session.active) {
+            this.sessionCache.setSessionRestoreOnRestart(access.sessionId, true)
             return { type: 'success', sessionId: access.sessionId, resumed: false }
         }
 
@@ -3568,6 +3583,8 @@ export class SyncEngine {
                     }
                 }
             }
+
+            this.sessionCache.setSessionRestoreOnRestart(access.sessionId, true)
 
             const archiveSnapshot = {
                 lifecycleState: metadata.lifecycleState,
@@ -3621,6 +3638,7 @@ export class SyncEngine {
         // webhook is still in flight). A reopen always requests a fresh runner generation:
         // otherwise an archive -> reopen race can reuse the old child's cached spawn result
         // and wait forever for that already-stopped generation to become active again.
+        this.sessionCache.setSessionRestoreOnRestart(access.sessionId, true)
         const resumeResult = await this.resumeSession(access.sessionId, namespace, { freshGeneration: true })
         if (resumeResult.type === 'error') {
             return resumeResult

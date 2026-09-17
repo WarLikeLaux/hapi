@@ -63,6 +63,8 @@ function createApp(session: Session, opts?: {
     getSessionExport?: (sessionId: string, session: Session, options?: { force?: boolean }) => unknown
     sessionExists?: boolean
     archiveSession?: (sessionId: string) => Promise<void>
+    markSessionExplicitlyStopped?: (sessionId: string) => void
+    markSessionExplicitlyResumed?: (sessionId: string) => void
     getCursorChatStoreStatus?: SyncEngine['getCursorChatStoreStatus']
     listCodexModelsForSession?: SyncEngine['listCodexModelsForSession']
     forkConversation?: SyncEngine['forkConversation']
@@ -150,6 +152,8 @@ function createApp(session: Session, opts?: {
             status: { onDisk: true, store: 'acp' as const }
         })),
         archiveSession: archiveSessionMock,
+        markSessionExplicitlyStopped: opts?.markSessionExplicitlyStopped ?? (() => {}),
+        markSessionExplicitlyResumed: opts?.markSessionExplicitlyResumed ?? (() => {}),
         setSessionPinned: opts?.setSessionPinned ?? (() => {}),
         setSessionPinMode: opts?.setSessionPinMode ?? (() => {}),
         getSessionExport: opts?.getSessionExport ?? (() => ({
@@ -1262,7 +1266,9 @@ describe('sessions routes', () => {
             metadata: { path: '/tmp/project', host: 'localhost', flavor: 'claude' }
         })
         let capturedResumeOpts: { permissionMode?: string } | undefined
+        const resumedIntentCalls: string[] = []
         const { app } = createApp(session, {
+            markSessionExplicitlyResumed: (sessionId) => { resumedIntentCalls.push(sessionId) },
             resumeSession: async (sessionId, _namespace, resumeOpts) => {
                 capturedResumeOpts = resumeOpts
                 return { type: 'success', sessionId }
@@ -1277,6 +1283,7 @@ describe('sessions routes', () => {
 
         expect(response.status).toBe(200)
         expect(capturedResumeOpts).toEqual({ permissionMode: 'bypassPermissions' })
+        expect(resumedIntentCalls).toEqual(['session-1'])
     })
 
     it('returns 409 when resume token is unavailable', async () => {
@@ -1560,6 +1567,7 @@ describe('sessions routes', () => {
 
         it('returns 2xx and skips archiveSession when the row is already archived (idempotent)', async () => {
             let called = false
+            const stoppedCalls: string[] = []
             const session = createSession({
                 active: false,
                 metadata: {
@@ -1572,7 +1580,8 @@ describe('sessions routes', () => {
                 }
             })
             const { app } = createApp(session, {
-                archiveSession: async () => { called = true }
+                archiveSession: async () => { called = true },
+                markSessionExplicitlyStopped: (sessionId) => { stoppedCalls.push(sessionId) }
             })
 
             const response = await app.request('/api/sessions/session-1/archive', { method: 'POST' })
@@ -1580,6 +1589,7 @@ describe('sessions routes', () => {
             expect(response.status).toBe(200)
             expect(await response.json()).toEqual({ ok: true, alreadyArchived: true })
             expect(called).toBe(false)
+            expect(stoppedCalls).toEqual(['session-1'])
         })
 
         it('returns 2xx when the active session\'s CLI is gone — engine.archiveSession swallows the missing-RPC error', async () => {
