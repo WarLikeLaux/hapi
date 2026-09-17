@@ -381,11 +381,11 @@ describe('SessionActionMenu - DIFIT actions', () => {
         })
 
         expect(screen.queryByRole('menuitem', { name: 'Open in DIFIT' })).toBeNull()
-        expect(screen.getByRole('menuitem', { name: 'Open merge request' })).toHaveAttribute(
+        expect(screen.getByRole('menuitem', { name: 'Open PR' })).toHaveAttribute(
             'href',
             'https://gitlab.example.test/group/project/-/merge_requests/1'
         )
-        expect(screen.queryByRole('menuitem', { name: 'Create pull / merge request' })).toBeNull()
+        expect(screen.queryByRole('menuitem', { name: 'Create PR' })).toBeNull()
     })
 
     it('offers review creation when no external review is attached', () => {
@@ -395,7 +395,7 @@ describe('SessionActionMenu - DIFIT actions', () => {
             onClose,
         })
 
-        const createAction = screen.getByRole('menuitem', { name: 'Create pull / merge request' })
+        const createAction = screen.getByRole('menuitem', { name: 'Create PR' })
         expect(createAction).toHaveAttribute(
             'href',
             'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature'
