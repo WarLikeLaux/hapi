@@ -177,7 +177,7 @@ export function HappyAssistantMessage() {
                             >
                                 <WorkIcon className="h-4 w-4" />
                                 <span>{t('session.responseWork.open')}</span>
-                                <span aria-hidden="true" className="tabular-nums opacity-70">
+                                <span aria-hidden="true" className="hidden tabular-nums opacity-70 sm:inline">
                                     · {compactParts.detailIndices.length}
                                 </span>
                             </button>
