@@ -586,6 +586,10 @@ export class SyncEngine {
         this.sessionCache.handleSessionIdle(sessionId, time)
     }
 
+    handleSessionBusy(sessionId: string, time: number): void {
+        this.sessionCache.handleSessionBusy(sessionId, time)
+    }
+
     clearQueuedThinkingGrace(sessionId: string): void {
         this.sessionCache.clearQueuedThinkingGrace(sessionId)
     }
