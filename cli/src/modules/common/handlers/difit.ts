@@ -35,6 +35,18 @@ type DifitHandshake = {
     pid: number
 }
 
+export function isExpectedExternalReviewAdoption(
+    previous: DifitRegistration,
+    current: DifitRegistration
+): boolean {
+    return !previous.reviewUrl
+        && Boolean(current.reviewUrl)
+        && resolve(previous.repositoryPath) === resolve(current.repositoryPath)
+        && previous.branch === current.branch
+        && previous.baseRef === current.baseRef
+        && previous.targetRef === current.targetRef
+}
+
 function registrationPath(reviewId: string): string {
     const configDirectory = process.env.DIFIT_CONFIG_DIR?.trim() || join(homedir(), '.difit')
     return join(configDirectory, 'reviews', `${reviewId}.json`)
@@ -146,7 +158,14 @@ export function registerDifitHandlers(rpcHandlerManager: RpcHandlerManager, work
             const reviewId = new URL(handshake.browserUrl).pathname.match(/\/reviews\/([^/]+)/)?.[1]
             if (!reviewId) throw new Error('DIFIT returned an invalid browser URL')
             const currentRegistration = await readRegistration(decodeURIComponent(reviewId))
-            if (registration && currentRegistration.id !== registration.id) {
+            // DIFIT discovers a newly opened GitLab MR through glab on restart. Adding
+            // that URL intentionally rekeys the review, so accept this one constrained
+            // identity transition while still rejecting unrelated replacements.
+            if (
+                registration
+                && currentRegistration.id !== registration.id
+                && !isExpectedExternalReviewAdoption(registration, currentRegistration)
+            ) {
                 throw new Error('DIFIT restart did not preserve the review identity')
             }
             return {
