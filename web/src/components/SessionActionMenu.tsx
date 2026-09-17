@@ -22,6 +22,10 @@ type SessionActionMenuProps = {
     onMarkUnread?: () => void
     onSyncCodex?: () => void
     onSyncPi?: () => void
+    difitReviewUrl?: string | null
+    externalReviewUrl?: string | null
+    onManageDifit?: () => void
+    difitAttached?: boolean
     onContinueInFolder?: () => void
     onRestart?: () => void
     onArchive: () => void
@@ -174,6 +178,33 @@ function SyncIcon(props: { className?: string }) {
     )
 }
 
+function DifitIcon(props: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            className={props.className}>
+            <path d="M10 7H3m0 0 3-3M3 7l3 3" />
+            <path d="M14 17h7m0 0-3-3m3 3-3 3" />
+            <path d="M12 4v16" opacity="0.45" />
+        </svg>
+    )
+}
+
+function ExternalReviewIcon(props: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            className={props.className}>
+            <circle cx="6" cy="5" r="2" />
+            <circle cx="6" cy="19" r="2" />
+            <circle cx="18" cy="5" r="2" />
+            <path d="M6 7v10" />
+            <path d="M18 7v3a4 4 0 0 1-4 4H9" />
+            <path d="m11 11-3 3 3 3" />
+        </svg>
+    )
+}
+
 function TrashIcon(props: { className?: string }) {
     return (
         <svg
@@ -215,6 +246,10 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onMarkUnread,
         onSyncCodex,
         onSyncPi,
+        difitReviewUrl,
+        externalReviewUrl,
+        onManageDifit,
+        difitAttached = false,
         onContinueInFolder,
         onRestart,
         onArchive,
@@ -288,6 +323,11 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const handleSyncPi = () => {
         onClose()
         onSyncPi?.()
+    }
+
+    const handleManageDifit = () => {
+        onClose()
+        onManageDifit?.()
     }
 
     const handleContinueInFolder = () => {
@@ -437,6 +477,46 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     >
                         <SyncIcon className="text-[var(--app-hint)]" />
                         {t('session.action.syncPi')}
+                    </button>
+                ) : null}
+
+                {difitReviewUrl ? (
+                    <a
+                        href={difitReviewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={onClose}
+                    >
+                        <DifitIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.openDifit')}
+                    </a>
+                ) : null}
+
+                {externalReviewUrl ? (
+                    <a
+                        href={externalReviewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={onClose}
+                    >
+                        <ExternalReviewIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.openExternalReview')}
+                    </a>
+                ) : null}
+
+                {onManageDifit ? (
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={handleManageDifit}
+                    >
+                        <SyncIcon className="text-[var(--app-hint)]" />
+                        {t(difitAttached ? 'session.action.restartDifit' : 'session.action.startDifit')}
                     </button>
                 ) : null}
 
