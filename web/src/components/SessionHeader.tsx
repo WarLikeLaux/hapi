@@ -31,10 +31,6 @@ import { markSessionUnread } from '@/lib/sessionLastSeen'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useNavigate } from '@tanstack/react-router'
 import { useSessionGitBranch, useSessionGitLabCreateMergeRequestUrl } from '@/hooks/queries/useSessionGitBranch'
-import { makeClientSideId } from '@/lib/messages'
-
-const START_DIFIT_PROMPT = '$difit Open all current changes in this checkout in DIFIT, including untracked files. Start the live viewer in the background and send me the link.'
-const RESTART_DIFIT_PROMPT = '$difit Restart the DIFIT viewer attached to this HAPI session, preserving the current review and its threads, then send me the link.'
 
 /** Same preference order as session-list chips: display label → host → short id. */
 export function resolveSessionHeaderMachineLabel(
@@ -460,17 +456,12 @@ export function SessionHeader(props: {
         setIsManagingDifit(true)
         try {
             const restarting = Boolean(difitReviewUrl)
-            await api.sendMessage(
-                session.id,
-                restarting ? RESTART_DIFIT_PROMPT : START_DIFIT_PROMPT,
-                makeClientSideId('local'),
-                undefined,
-                null,
-                'queue'
-            )
+            const result = await api.manageDifit(session.id, restarting ? 'restart' : 'start')
+            if (!result.success) throw new Error(result.error || t('session.action.difitFailed'))
+            await queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
             addToast({
-                title: t(restarting ? 'session.action.restartDifitQueued' : 'session.action.startDifitQueued'),
-                body: t('session.action.difitQueuedBody'),
+                title: t(restarting ? 'session.action.restartDifitDone' : 'session.action.startDifitDone'),
+                body: t('session.action.difitDoneBody'),
                 sessionId: session.id,
                 url: `/sessions/${session.id}`
             })
@@ -696,7 +687,7 @@ export function SessionHeader(props: {
                 onSyncPi={api && piSessionId && !session.active ? handleSyncPi : undefined}
                 externalReviewUrl={externalReviewUrl}
                 difitAttached={Boolean(difitReviewUrl)}
-                onManageDifit={api && session.active && agentFlavor === 'codex' && !isManagingDifit
+                onManageDifit={api && session.active && !isManagingDifit
                     ? () => void handleManageDifit()
                     : undefined}
                 createExternalReviewUrl={!externalReviewUrl ? createMergeRequestUrl : null}
