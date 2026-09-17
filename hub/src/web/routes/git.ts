@@ -98,6 +98,23 @@ export function createGitRoutes(
                 ? engine.getMachineGitStatus(machineId, sessionPath)
                 : engine.getGitStatus(sessionResult.sessionId, sessionPath)
         ))
+
+        // Older session CLIs do not return this field. Use the current machine
+        // runner so GitLab actions become available without restarting the agent.
+        if (
+            sessionResult.session.active
+            && machineId
+            && result.success
+            && !('createMergeRequestUrl' in result)
+        ) {
+            const machineResult = await runRpc(() => engine.getMachineGitStatus(machineId, sessionPath))
+            if (machineResult.success && 'createMergeRequestUrl' in machineResult) {
+                return c.json({
+                    ...result,
+                    createMergeRequestUrl: machineResult.createMergeRequestUrl
+                })
+            }
+        }
         return c.json(result)
     })
 
