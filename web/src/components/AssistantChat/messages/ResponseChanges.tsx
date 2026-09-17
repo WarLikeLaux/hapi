@@ -41,7 +41,7 @@ export function ResponseChanges({ changes }: { changes: WorkspaceChanges }) {
             >
                 <ChangesIcon className="h-4 w-4" />
                 <span>{t('session.responseChanges.open')}</span>
-                <span aria-hidden="true" className="tabular-nums opacity-70">· {changes.filesChanged}</span>
+                <span aria-hidden="true" className="hidden tabular-nums opacity-70 sm:inline">· {changes.filesChanged}</span>
                 <span className="tabular-nums text-[var(--app-git-staged-color)]">+{changes.additions}</span>
                 <span className="tabular-nums text-[var(--app-git-deleted-color)]">−{changes.deletions}</span>
             </button>

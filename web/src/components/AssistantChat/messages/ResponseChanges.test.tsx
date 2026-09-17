@@ -19,7 +19,8 @@ describe('ResponseChanges', () => {
         )
 
         const button = screen.getByRole('button', { name: 'Show changes' })
-        expect(button).toHaveTextContent('· 1')
+        const fileCount = screen.getByText('· 1')
+        expect(fileCount).toHaveClass('hidden', 'sm:inline')
         expect(button).toHaveTextContent('+1')
         expect(button).toHaveTextContent('−1')
 
