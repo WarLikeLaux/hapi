@@ -238,6 +238,38 @@ describe('mobile initial scroll settling', () => {
         expect(viewport.scrollTop).toBe(702)
         expect(onViewModeChange).not.toHaveBeenCalledWith('history')
     })
+
+    it('recovers an unexpected upward jump after initial settling ends', () => {
+        const { viewport, onViewModeChange } = renderThread()
+        act(() => {
+            vi.advanceTimersByTime(1_801)
+        })
+
+        viewport.scrollTop = 520
+        fireEvent.scroll(viewport)
+
+        expect(viewport.scrollTop).toBe(702)
+        expect(onViewModeChange).not.toHaveBeenCalledWith('history')
+    })
+
+    it('still allows an explicit upward gesture after initial settling ends', () => {
+        const { viewport, onViewModeChange } = renderThread()
+        act(() => {
+            vi.advanceTimersByTime(1_801)
+        })
+
+        const pointerDown = new Event('pointerdown', { bubbles: true })
+        Object.defineProperties(pointerDown, {
+            button: { value: 0 },
+            pointerType: { value: 'mouse' }
+        })
+        fireEvent(viewport, pointerDown)
+        viewport.scrollTop = 520
+        fireEvent.scroll(viewport)
+
+        expect(viewport.scrollTop).toBe(520)
+        expect(onViewModeChange).toHaveBeenLastCalledWith('history')
+    })
 })
 
 describe('explicit tail scrolling', () => {
@@ -292,6 +324,12 @@ describe('explicit tail scrolling', () => {
             vi.advanceTimersByTime(1_800)
         })
 
+        const pointerDown = new Event('pointerdown', { bubbles: true })
+        Object.defineProperties(pointerDown, {
+            button: { value: 0 },
+            pointerType: { value: 'mouse' }
+        })
+        fireEvent(viewport, pointerDown)
         viewport.scrollTop = 400
         fireEvent.scroll(viewport)
         expect(onViewModeChange).toHaveBeenLastCalledWith('history')
