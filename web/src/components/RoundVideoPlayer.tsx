@@ -40,7 +40,7 @@ export function RoundVideoPlayer(props: { src: string; label?: string }) {
             type="button"
             onClick={togglePlayback}
             aria-label={props.label ? `${action}: ${props.label}` : action}
-            className="group relative h-[min(16rem,78vw)] w-[min(16rem,78vw)] shrink-0 overflow-hidden rounded-full p-[3px] text-white shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--app-bg)]"
+            className="group relative h-[min(14rem,72vw)] w-[min(14rem,72vw)] shrink-0 overflow-hidden rounded-full p-[3px] text-white shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--app-bg)]"
             style={{ background: `conic-gradient(var(--app-link) ${progress * 360}deg, color-mix(in srgb, var(--app-border) 76%, transparent) 0deg)` }}
         >
             <span className="absolute inset-[3px] overflow-hidden rounded-full bg-black">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import type { ExternalConversation, ExternalMedia, ExternalMessagesResponse, ExternalParticipant, ExternalReaction, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
@@ -160,12 +160,21 @@ function formatMediaSize(size: number | null): string | null {
     return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
+const senderNameColors = ['#6AB3F3', '#9B8AFB', '#E879B1', '#F08C6A', '#5CC8A1', '#D4A84F'] as const
+
+function senderNameColor(senderId: string | null): string {
+    let hash = 0
+    for (const character of senderId ?? '') hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0
+    return senderNameColors[Math.abs(hash) % senderNameColors.length]
+}
+
 function MediaAttachment(props: {
     media: ExternalMedia
     galleryId: string
     conversationId: string
     providerMessageId: string
     mediaIndex: number
+    overlay?: ReactNode
 }) {
     const { api } = useAppContext()
     const { media } = props
@@ -219,22 +228,30 @@ function MediaAttachment(props: {
 
     const label = mediaLabels[media.kind]
     if (fullUrl && (media.kind === 'image' || media.kind === 'sticker')) {
+        const isSticker = media.kind === 'sticker'
         return (
             <ImagePreview
                 src={fullUrl}
                 fileName={media.fileName ?? label}
                 label={label}
                 galleryId={props.galleryId}
-                buttonClassName="group relative flex w-[min(82vw,30rem)] cursor-zoom-in items-center justify-center overflow-hidden rounded-xl bg-black/10"
-                imageClassName="max-h-[32rem] w-full object-contain transition-transform group-hover:scale-[1.01]"
+                buttonClassName={cn(
+                    'group relative flex cursor-zoom-in items-center justify-center overflow-hidden rounded-xl bg-black/10',
+                    isSticker ? 'w-[min(64vw,15rem)]' : 'w-[min(82vw,30rem)]'
+                )}
+                imageClassName={cn(
+                    'w-full object-contain transition-transform group-hover:scale-[1.01]',
+                    isSticker ? 'max-h-[15rem]' : 'max-h-[32rem]'
+                )}
+                caption={props.overlay}
             />
         )
     }
     if (fullUrl && media.kind === 'video') {
         if (media.isRound) {
-            return <RoundVideoPlayer src={fullUrl} label={media.fileName ?? label} />
+            return <div className="relative w-fit"><RoundVideoPlayer src={fullUrl} label={media.fileName ?? label} />{props.overlay}</div>
         }
-        return <video src={fullUrl} controls={!media.isAnimated} autoPlay={media.isAnimated} loop={media.isAnimated} muted={media.isAnimated} playsInline preload="metadata" className="max-h-[32rem] max-w-[min(82vw,30rem)] rounded-xl bg-black object-contain" />
+        return <div className="relative w-fit"><video src={fullUrl} controls={!media.isAnimated} autoPlay={media.isAnimated} loop={media.isAnimated} muted={media.isAnimated} playsInline preload="metadata" className="max-h-[32rem] max-w-[min(82vw,30rem)] rounded-xl bg-black object-contain" />{props.overlay}</div>
     }
     if (fullUrl && (media.kind === 'audio' || media.kind === 'voice')) {
         return <audio src={fullUrl} controls preload="metadata" className="max-w-[82vw]" />
@@ -244,10 +261,12 @@ function MediaAttachment(props: {
     }
 
     if (hasVisualPreview) {
+        const isSticker = media.kind === 'sticker'
         return (
-            <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} disabled={loading} className={cn('group relative flex cursor-pointer items-center justify-center overflow-hidden bg-black/10 disabled:cursor-wait', media.isRound ? 'h-[min(16rem,78vw)] w-[min(16rem,78vw)] rounded-full' : 'w-[min(82vw,24rem)] rounded-xl')}>
-                <img src={media.thumbnailDataUrl!} alt={label} className={cn('w-full transition-opacity', media.isRound ? 'h-full object-cover' : 'max-h-80 min-h-36 object-contain', loading && 'opacity-70')} />
+            <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} disabled={loading} className={cn('group relative flex cursor-pointer items-center justify-center overflow-hidden bg-black/10 disabled:cursor-wait', media.isRound ? 'h-[min(14rem,72vw)] w-[min(14rem,72vw)] rounded-full' : isSticker ? 'w-[min(64vw,15rem)] rounded-xl' : 'w-[min(82vw,24rem)] rounded-xl')}>
+                <img src={media.thumbnailDataUrl!} alt={label} className={cn('w-full transition-opacity', media.isRound ? 'h-full object-cover' : isSticker ? 'max-h-[15rem] object-contain' : 'max-h-80 min-h-36 object-contain', loading && 'opacity-70')} />
                 {loading || error || media.kind === 'video' ? <span className="absolute inset-0 grid place-items-center bg-black/20 text-center text-sm font-medium text-white opacity-100 drop-shadow transition-opacity sm:opacity-0 sm:group-hover:opacity-100 group-disabled:opacity-100">{loading ? 'Loading original…' : error ? 'Tap to retry' : '▶ Play video'}</span> : null}
+                {props.overlay}
             </button>
         )
     }
@@ -262,9 +281,9 @@ function MediaAttachment(props: {
             </span>
         </>
     )
-    const fallbackClassName = 'flex min-w-48 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-3 py-2.5 text-left'
+    const fallbackClassName = 'relative flex min-w-48 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-3 py-2.5 text-left'
     if (downloadable) {
-        return <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} className={fallbackClassName}>{fallbackContent}</button>
+        return <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} className={fallbackClassName}>{fallbackContent}{props.overlay}</button>
     }
     return <div ref={(node) => { previewRef.current = node }} className={fallbackClassName}>{fallbackContent}</div>
 }
@@ -894,18 +913,24 @@ export function ChatConversationPage() {
                         const chosenReactionCount = reactions.filter((reaction) => reaction.chosen).length
                         const continuesPrevious = areExternalMessagesGrouped(messageItems[index - 1], item)
                         const continuesNext = areExternalMessagesGrouped(item, messageItems[index + 1])
+                        const showSenderName = incoming && !continuesPrevious && Boolean(item.senderName) && conversation.kind !== 'direct'
                         const avatarSrc = item.senderAvatarDataUrl
                             ?? (item.senderId ? participantAvatars.get(item.senderId) : null)
                             ?? (incoming && conversation.kind === 'direct' ? conversation.avatarDataUrl : null)
                         const groupedCornerClassName = incoming
-                            ? cn(continuesPrevious && 'rounded-tl-md', continuesNext && 'rounded-bl-md')
-                            : cn(continuesPrevious && 'rounded-tr-md', continuesNext && 'rounded-br-md')
+                            ? cn(continuesPrevious && 'rounded-tl-[5px]', continuesNext && 'rounded-bl-[5px]')
+                            : cn(continuesPrevious && 'rounded-tr-[5px]', continuesNext && 'rounded-br-[5px]')
                         const bubbleClassName = incoming
                             ? cn('happy-chat-text w-fit max-w-full rounded-2xl bg-[var(--app-secondary-bg)] px-4 py-2.5 text-[var(--app-fg)]', groupedCornerClassName)
                             : cn(getUserBubbleClassName(), 'max-w-full', groupedCornerClassName)
                         const caption = item.text ? (
                             <div className="flex items-end gap-2">
                                 <div className="min-w-0 flex-1">
+                                    {showSenderName ? (
+                                        <div className="mb-0.5 text-[11px] font-semibold leading-tight" style={{ color: senderNameColor(item.senderId) }}>
+                                            {item.senderName}
+                                        </div>
+                                    ) : null}
                                     <ExternalMessageText text={item.text} />
                                 </div>
                                 <time
@@ -923,14 +948,14 @@ export function ChatConversationPage() {
                             </div>
                         ) : null
                         return (
-                            <div key={item.id} className={cn('flex w-full items-end gap-2', continuesPrevious && '-mt-1', incoming ? 'justify-start' : 'justify-end')}>
+                            <div key={item.id} className={cn('flex w-full items-end gap-2', continuesPrevious && '-mt-1.5', incoming ? 'justify-start' : 'justify-end')}>
                                 {incoming ? (
                                     continuesNext
                                         ? <div aria-hidden="true" className="h-8 w-8 shrink-0" />
                                         : <ChatParticipantAvatar src={avatarSrc} name={item.senderName ?? conversation.title} />
                                 ) : null}
                                 <div
-                                    className={cn('relative flex min-w-0 max-w-[calc(92%-2.5rem)] flex-col', incoming ? 'items-start' : 'items-end')}
+                                    className={cn('relative flex min-w-0 max-w-[min(42rem,92%)] flex-col', incoming ? 'items-start' : 'items-end')}
                                     onClick={(event) => {
                                         if (optimistic || (event.target as HTMLElement).closest('button, a, input, video, audio')) return
                                         event.stopPropagation()
@@ -941,21 +966,37 @@ export function ChatConversationPage() {
                                         })
                                     }}
                                 >
-                                    {incoming && !continuesPrevious && item.senderName && conversation.kind !== 'direct' ? <div className="mb-1 px-2 text-[10px] text-[var(--app-hint)]">{item.senderName}</div> : null}
                                     {hasMedia && caption ? (
                                         <div className={cn(bubbleClassName, 'overflow-hidden p-1')}>
                                             <div className="flex max-w-full flex-col gap-1.5">
-                                                {item.media!.map((media, index) => <MediaAttachment key={`${item.id}:${index}`} media={media} galleryId={`telegram-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={index} />)}
+                                                {item.media!.map((media, mediaIndex) => <MediaAttachment key={`${item.id}:${mediaIndex}`} media={media} galleryId={`telegram-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={mediaIndex} />)}
                                             </div>
                                             <div className="px-3 pb-1.5 pt-2">{caption}</div>
                                         </div>
                                     ) : (
                                         <>
-                                            {hasMedia ? <div className="mb-1 flex max-w-full flex-col gap-1.5">{item.media!.map((media, index) => <MediaAttachment key={`${item.id}:${index}`} media={media} galleryId={`telegram-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={index} />)}</div> : null}
+                                            {hasMedia ? <div className="mb-1 flex max-w-full flex-col gap-1.5">{item.media!.map((media, mediaIndex) => {
+                                                const overlaysTimestamp = mediaIndex === item.media!.length - 1
+                                                    && ['image', 'sticker', 'video'].includes(media.kind)
+                                                return <MediaAttachment
+                                                    key={`${item.id}:${mediaIndex}`}
+                                                    media={media}
+                                                    galleryId={`telegram-media-${conversationId}`}
+                                                    conversationId={conversationId}
+                                                    providerMessageId={item.providerMessageId}
+                                                    mediaIndex={mediaIndex}
+                                                    overlay={overlaysTimestamp ? (
+                                                        <span className="pointer-events-none absolute bottom-2 right-2 z-10 flex items-center rounded-full bg-black/55 px-2 py-1 text-[10px] leading-none text-white shadow-sm backdrop-blur-sm tabular-nums">
+                                                            {formatTime(item.createdAt)}
+                                                            {!incoming && item.deliveryStatus ? <ExternalDeliveryStatus status={item.deliveryStatus} className="ml-1" /> : null}
+                                                        </span>
+                                                    ) : undefined}
+                                                />
+                                            })}</div> : null}
                                             {caption ? <div className={bubbleClassName}>{caption}</div> : null}
                                         </>
                                     )}
-                                    {!item.text ? (
+                                    {!item.text && !item.media?.some((media) => ['image', 'sticker', 'video'].includes(media.kind)) ? (
                                         <div className="mt-0.5 flex items-center gap-1 px-2 text-[9px] text-[var(--app-hint)]">
                                             {formatTime(item.createdAt)}
                                             {!incoming && item.deliveryStatus ? <ExternalDeliveryStatus status={item.deliveryStatus} /> : null}
