@@ -52,6 +52,42 @@ describe('Git status route', () => {
         expect(calls).toEqual([['session', 'session-1', '/project']])
     })
 
+    it('gets a create link from the machine for a session running an older CLI', async () => {
+        const session = {
+            id: 'session-1',
+            namespace: 'default',
+            active: true,
+            metadata: { path: '/project', machineId: 'machine-1' }
+        } as unknown as Session
+        const calls: unknown[] = []
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            getGitStatus: async (...args: unknown[]) => {
+                calls.push(['session', ...args])
+                return { success: true, stdout: '# branch.head feature' }
+            },
+            getMachineGitStatus: async (...args: unknown[]) => {
+                calls.push(['machine', ...args])
+                return {
+                    success: true,
+                    stdout: '# branch.head feature',
+                    createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature'
+                }
+            }
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/git-status')
+
+        expect(await response.json()).toMatchObject({
+            success: true,
+            createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature'
+        })
+        expect(calls).toEqual([
+            ['session', 'session-1', '/project'],
+            ['machine', 'machine-1', '/project']
+        ])
+    })
+
     it('uses the machine RPC for a recent inactive session', async () => {
         const session = {
             id: 'session-1',

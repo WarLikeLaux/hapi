@@ -374,17 +374,13 @@ describe('SessionActionMenu - DIFIT actions', () => {
         expect(screen.getByRole('menuitem', { name: 'Restart DIFIT' })).toBeInTheDocument()
     })
 
-    it('exposes attached DIFIT and merge-request links in the menu', () => {
+    it('exposes the merge-request link without duplicating the header DIFIT link', () => {
         renderMenu({
-            difitReviewUrl: 'https://difit.example.test/reviews/review-1/',
             externalReviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1',
             createExternalReviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new',
         })
 
-        expect(screen.getByRole('menuitem', { name: 'Open in DIFIT' })).toHaveAttribute(
-            'href',
-            'https://difit.example.test/reviews/review-1/'
-        )
+        expect(screen.queryByRole('menuitem', { name: 'Open in DIFIT' })).toBeNull()
         expect(screen.getByRole('menuitem', { name: 'Open merge request' })).toHaveAttribute(
             'href',
             'https://gitlab.example.test/group/project/-/merge_requests/1'

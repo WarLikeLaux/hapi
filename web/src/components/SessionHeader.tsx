@@ -694,7 +694,6 @@ export function SessionHeader(props: {
                 onExport={() => setExportOpen(true)}
                 onSyncCodex={api && codexSessionId ? handleSyncCodex : undefined}
                 onSyncPi={api && piSessionId && !session.active ? handleSyncPi : undefined}
-                difitReviewUrl={difitReviewUrl}
                 externalReviewUrl={externalReviewUrl}
                 difitAttached={Boolean(difitReviewUrl)}
                 onManageDifit={api && session.active && agentFlavor === 'codex' && !isManagingDifit
