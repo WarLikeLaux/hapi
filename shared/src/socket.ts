@@ -270,6 +270,8 @@ export interface ClientToServerEvents {
         collaborationMode?: CodexCollaborationMode
         copilotAgentMode?: CopilotAgentMode
     }) => void
+    /** Reliable foreground-work boundary; unlike session-alive, this is not volatile. */
+    'session-busy': (data: { sid: string; time: number }) => void
   /** CLI agent finished session/load (or equivalent) and can accept prompts. */
     'session-ready': (data: { sid: string; time: number }) => void
     'session-end': (data: { sid: string; time: number; reason?: SessionEndReason }) => void

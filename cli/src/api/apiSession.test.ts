@@ -170,6 +170,35 @@ function triggerIncomingUserMessage(
 }
 
 describe('ApiSessionClient lazy materialization', () => {
+    it('emits a reliable busy boundary on work start and reconnects as thinking', () => {
+        socketHarness.sockets.length = 0
+        const client = new ApiSessionClient('token', createSession({ namespace: 'default' }))
+        const socket = socketHarness.sockets[0]!
+
+        try {
+            socket.emitted.length = 0
+            client.keepAlive(true, 'remote')
+            client.keepAlive(true, 'remote')
+
+            expect(socket.emitted.filter((entry) => entry.event === 'session-busy')).toHaveLength(1)
+
+            socket.emitted.length = 0
+            socket.connected = false
+            socket.triggerConnect()
+
+            expect(socket.emitted[0]).toMatchObject({
+                event: 'session-busy',
+                args: [{ sid: client.sessionId }]
+            })
+            expect(socket.emitted[1]).toMatchObject({
+                event: 'session-alive',
+                args: [{ sid: client.sessionId, thinking: true }]
+            })
+        } finally {
+            client.close()
+        }
+    })
+
     it('emits workspace changes immediately before the ready event', () => {
         socketHarness.sockets.length = 0
         const directory = mkdtempSync(join(tmpdir(), 'hapi-api-session-changes-'))

@@ -53,6 +53,68 @@ function reasoningTextOf(message: { content: unknown }): string {
 }
 
 describe('cli session handlers', () => {
+    it('forwards a reliable session-busy boundary for an authorized session', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('session-busy', {}, null, 'default')
+        const socket = new FakeSocket()
+        const busy = mock()
+        registerSessionHandlers(socket as unknown as CliSocketWithData, {
+            store,
+            resolveSessionAccess: () => ({ ok: true, value: session }),
+            emitAccessError() {},
+            onSessionBusy: busy
+        })
+
+        socket.trigger('session-busy', { sid: session.id, time: 1234 })
+
+        expect(busy).toHaveBeenCalledWith(session.id, 1234)
+        store.close()
+    })
+
+    it('treats the first normal queue consumption as busy but ignores duplicate acknowledgements', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('consumed-busy', {}, null, 'default')
+        store.messages.addMessage(session.id, { role: 'user', content: { type: 'text', text: 'work' } }, 'work-1')
+        const socket = new FakeSocket()
+        const busy = mock()
+        registerSessionHandlers(socket as unknown as CliSocketWithData, {
+            store,
+            resolveSessionAccess: () => ({ ok: true, value: session }),
+            emitAccessError() {},
+            onSessionBusy: busy
+        })
+
+        socket.trigger('messages-consumed', { sid: session.id, localIds: ['work-1'] })
+        socket.trigger('messages-consumed', { sid: session.id, localIds: ['work-1'] })
+
+        expect(busy).toHaveBeenCalledTimes(1)
+        expect(busy).toHaveBeenCalledWith(session.id, expect.any(Number))
+        store.close()
+    })
+
+    it('does not mark synchronous consumed commands as busy', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('consumed-command', {}, null, 'default')
+        store.messages.addMessage(session.id, { role: 'user', content: { type: 'text', text: '/model' } }, 'command-1')
+        const socket = new FakeSocket()
+        const busy = mock()
+        registerSessionHandlers(socket as unknown as CliSocketWithData, {
+            store,
+            resolveSessionAccess: () => ({ ok: true, value: session }),
+            emitAccessError() {},
+            onSessionBusy: busy
+        })
+
+        socket.trigger('messages-consumed', {
+            sid: session.id,
+            localIds: ['command-1'],
+            clearQueuedThinkingGrace: true
+        })
+
+        expect(busy).not.toHaveBeenCalled()
+        store.close()
+    })
+
     it('treats a persisted ready event as an authoritative idle boundary', () => {
         const store = new Store(':memory:')
         const session = store.sessions.getOrCreateSession('ready-idle', {}, null, 'default')

@@ -112,6 +112,37 @@ describe('alive incremental events', () => {
         store.close()
     })
 
+    it('starts working after ready when an external turn has no queued HAPI message', () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const session = cache.getOrCreateSession(
+            'session-external-turn-busy',
+            { path: '/tmp/project', host: 'localhost' },
+            null,
+            'default'
+        )
+        const now = Date.now()
+
+        cache.handleSessionAlive({ sid: session.id, time: now, thinking: true })
+        cache.handleSessionIdle(session.id, now + 1)
+        events.length = 0
+
+        cache.handleSessionBusy(session.id, now + 2)
+
+        expect(cache.getSession(session.id)).toMatchObject({
+            active: true,
+            thinking: true,
+            activeTurnStartedAt: expect.any(Number)
+        })
+        expect(events).toContainEqual(expect.objectContaining({
+            type: 'session-updated',
+            sessionId: session.id,
+            data: expect.objectContaining({ thinking: true })
+        }))
+        store.close()
+    })
+
     it('does not let replayed user activity reopen a completed turn', () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []

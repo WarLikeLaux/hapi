@@ -40,6 +40,11 @@ type SessionReadyPayload = {
     time: number
 }
 
+type SessionBusyPayload = {
+    sid: string
+    time: number
+}
+
 type ResolveSessionAccess = (sessionId: string) => AccessResult<StoredSession>
 
 type EmitAccessError = (scope: 'session' | 'machine', id: string, reason: AccessErrorReason) => void
@@ -90,6 +95,7 @@ export type SessionHandlersDeps = {
     emitAccessError: EmitAccessError
     onSessionAlive?: (payload: SessionAlivePayload) => void
     onSessionReady?: (payload: SessionReadyPayload) => void
+    onSessionBusy?: (sessionId: string, time: number) => void
     onSessionIdle?: (sessionId: string, time: number) => void
     onSessionEnd?: (payload: SessionEndPayload) => void
     onWebappEvent?: (event: SyncEvent) => void
@@ -103,7 +109,7 @@ export type SessionHandlersDeps = {
 }
 
 export function registerSessionHandlers(socket: CliSocketWithData, deps: SessionHandlersDeps): void {
-    const { store, resolveSessionAccess, emitAccessError, onSessionAlive, onSessionReady, onSessionIdle, onSessionEnd, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed } = deps
+    const { store, resolveSessionAccess, emitAccessError, onSessionAlive, onSessionReady, onSessionBusy, onSessionIdle, onSessionEnd, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed } = deps
 
     socket.on('native-queue-message', data => {
         const parsed = z.object({ sid: z.string(), localId: z.string().min(1), text: z.string().nullable() }).safeParse(data)
@@ -405,6 +411,18 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
         onSessionReady?.(data)
     })
 
+    socket.on('session-busy', (data: SessionBusyPayload) => {
+        if (!data || typeof data.sid !== 'string' || typeof data.time !== 'number') {
+            return
+        }
+        const sessionAccess = resolveSessionAccess(data.sid)
+        if (!sessionAccess.ok) {
+            emitAccessError('session', data.sid, sessionAccess.reason)
+            return
+        }
+        onSessionBusy?.(data.sid, data.time)
+    })
+
     socket.on('messages-consumed', (data: { sid: string; localIds: string[]; clearQueuedThinkingGrace?: boolean; steered?: boolean }) => {
         if (!data || typeof data.sid !== 'string' || !Array.isArray(data.localIds)) {
             return
@@ -420,16 +438,27 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
         }
         const invokedAt = Date.now()
         let sessionUserActivityAt: number
+        let newlyConsumed: boolean
         try {
-            sessionUserActivityAt = store.recordMessagesConsumed(
+            ({ sessionUserActivityAt, newlyConsumed } = store.recordMessagesConsumed(
                 data.sid,
                 localIds,
                 invokedAt,
                 sessionAccess.value.namespace
-            )
+            ))
         } catch (err) {
             console.error('recordMessagesConsumed failed', err)
             return
+        }
+
+        // A prompt can be queued while the previous turn is still running and
+        // consumed only after that turn's ready boundary. The original message
+        // timestamp is then older than ready, so ordinary activity tracking
+        // cannot safely reopen the turn. The first real dequeue is itself a
+        // reliable busy boundary. Synchronous slash handlers opt out because
+        // they never start agent work.
+        if (newlyConsumed && data.clearQueuedThinkingGrace !== true) {
+            onSessionBusy?.(data.sid, invokedAt)
         }
 
         try {

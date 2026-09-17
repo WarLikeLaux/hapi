@@ -139,15 +139,16 @@ export class Store {
 
     /**
      * Atomically records a CLI prompt-consumption acknowledgement and returns
-     * the persisted user-message timestamp. Consumption can happen much later
-     * than composition, so it must not manufacture newer user activity.
+     * the persisted user-message timestamp plus whether this acknowledgement
+     * performed the first invocation transition. Consumption can happen much
+     * later than composition, so it must not manufacture newer user activity.
      */
     recordMessagesConsumed(
         sessionId: string,
         localIds: string[],
         invokedAt: number,
         namespace: string
-    ): number {
+    ): { sessionUserActivityAt: number; newlyConsumed: boolean } {
         return this.db.transaction(() => {
             const acknowledgedLocalIds = new Set(localIds)
             const acknowledgedUserMessageAt = this.messages
@@ -167,7 +168,10 @@ export class Store {
             if (!session) {
                 throw new Error('session not found after messages-consumed transition')
             }
-            return session.lastUserMessageAt ?? session.createdAt
+            return {
+                sessionUserActivityAt: session.lastUserMessageAt ?? session.createdAt,
+                newlyConsumed: changes > 0
+            }
         })()
     }
 
