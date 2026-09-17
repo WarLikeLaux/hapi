@@ -238,6 +238,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const namespace = c.get('namespace')
+        engine.markSessionExplicitlyResumed(sessionResult.sessionId)
         const result = await engine.resumeSession(
             sessionResult.sessionId,
             namespace,
@@ -459,6 +460,9 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
 
         const lifecycleState = sessionResult.session.metadata?.lifecycleState
         if (!sessionResult.session.active && lifecycleState === 'archived') {
+            // Repeating Archive on a row left by a technical restart is still
+            // explicit user intent and must suppress the next cold restore.
+            engine.markSessionExplicitlyStopped(sessionResult.sessionId)
             return c.json({ ok: true, alreadyArchived: true })
         }
 

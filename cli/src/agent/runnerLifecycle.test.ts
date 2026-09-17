@@ -152,6 +152,7 @@ describe('createRunnerLifecycle archiveReason defaults (tiann/hapi#914)', () => 
             archivedBy: 'cli',
             archiveReason: 'Hub restart'
         })
+        expect(session.metadataWrites[0]).not.toHaveProperty('restoreOnRestart')
     })
 
     it('writes the operator-supplied reason when setArchiveReason is called (e.g. KillSession RPC)', async () => {
@@ -165,7 +166,8 @@ describe('createRunnerLifecycle archiveReason defaults (tiann/hapi#914)', () => 
         await lifecycle.cleanup()
 
         expect(session.metadataWrites[0]).toMatchObject({
-            archiveReason: 'User terminated'
+            archiveReason: 'User terminated',
+            restoreOnRestart: false
         })
     })
 
@@ -180,7 +182,8 @@ describe('createRunnerLifecycle archiveReason defaults (tiann/hapi#914)', () => 
         await lifecycle.cleanup()
 
         expect(session.metadataWrites[0]).toMatchObject({
-            archiveReason: 'Session crashed'
+            archiveReason: 'Session crashed',
+            restoreOnRestart: false
         })
     })
 
@@ -201,7 +204,8 @@ describe('createRunnerLifecycle archiveReason defaults (tiann/hapi#914)', () => 
         await lifecycle.cleanup()
 
         expect(session.metadataWrites[0]).toMatchObject({
-            archiveReason: 'Session completed'
+            archiveReason: 'Session completed',
+            restoreOnRestart: false
         })
     })
 

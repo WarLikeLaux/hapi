@@ -61,7 +61,10 @@ export function createRunnerLifecycle(options: RunnerLifecycleOptions): RunnerLi
             lifecycleState: 'archived',
             lifecycleStateSince: Date.now(),
             archivedBy: 'cli',
-            archiveReason
+            archiveReason,
+            // Technical restarts preserve the last durable user intent. Every
+            // other exit is terminal until the user explicitly resumes again.
+            ...(archiveReason === 'Hub restart' ? {} : { restoreOnRestart: false })
         }))
 
         options.session.sendSessionDeath(sessionEndReason)
@@ -111,7 +114,8 @@ export function createRunnerLifecycle(options: RunnerLifecycleOptions): RunnerLi
                 lifecycleState: 'archived',
                 lifecycleStateSince: Date.now(),
                 archivedBy: 'cli',
-                archiveReason
+                archiveReason,
+                ...(archiveReason === 'Hub restart' ? {} : { restoreOnRestart: false })
             }))
             options.session.sendSessionDeath(sessionEndReason)
             confirmedCleanupPrepared = true

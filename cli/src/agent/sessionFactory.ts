@@ -105,6 +105,7 @@ export function buildSessionMetadata(options: {
         startedFromRunner: options.startedBy === 'runner',
         hostPid: process.pid,
         startedBy: options.startedBy,
+        restoreOnRestart: options.startedBy === 'runner',
         lifecycleState: 'running',
         lifecycleStateSince: now,
         flavor: options.flavor,

@@ -79,6 +79,11 @@ describe('cold session auto-restore', () => {
                 startedBy: 'runner',
                 startedFromRunner: true,
             })
+            addInactiveSession(engine, 'explicitly-stopped-stale-row', {
+                lifecycleState: 'running',
+                startedBy: 'runner',
+                restoreOnRestart: false,
+            })
             addInactiveSession(engine, 'terminal-started', {
                 lifecycleState: 'running',
                 startedBy: 'terminal',
@@ -130,6 +135,33 @@ describe('cold session auto-restore', () => {
             engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
             await Bun.sleep(20)
             expect(calls).toHaveLength(2)
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('restores an idle runner session when the user intent still allows it', async () => {
+        const engine = createEngine()
+        try {
+            addMachine(engine)
+            const sessionId = addInactiveSession(engine, 'idle-but-not-stopped', {
+                lifecycleState: 'idle',
+                startedBy: 'runner',
+                restoreOnRestart: true,
+            })
+
+            const calls: string[] = []
+            ;(engine as unknown as { resumeSession: (...args: unknown[]) => Promise<unknown> }).resumeSession = async (
+                restoredId: unknown,
+            ) => {
+                calls.push(String(restoredId))
+                return { type: 'success', sessionId: restoredId }
+            }
+
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+            await waitForCalls(calls, 1)
+
+            expect(calls).toEqual([sessionId])
         } finally {
             engine.stop()
         }
