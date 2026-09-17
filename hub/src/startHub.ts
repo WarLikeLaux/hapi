@@ -206,6 +206,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         onWebappEvent: (event: SyncEvent) => syncEngine?.handleRealtimeEvent(event),
         onSessionAlive: (payload) => syncEngine?.handleSessionAlive(payload),
         onSessionReady: (payload) => syncEngine?.handleSessionReady(payload),
+        onSessionBusy: (sessionId, time) => syncEngine?.handleSessionBusy(sessionId, time),
         onSessionIdle: (sessionId, time) => syncEngine?.handleSessionIdle(sessionId, time),
         onSessionEnd: (payload) => syncEngine?.handleSessionEnd(payload),
         onMachineAlive: (payload) => syncEngine?.handleMachineAlive(payload),

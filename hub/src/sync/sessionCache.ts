@@ -743,6 +743,42 @@ export class SessionCache {
         })
     }
 
+    /**
+     * Accept a reliable new-turn boundary from the CLI. This is intentionally
+     * separate from volatile heartbeats: a persisted ready boundary blocks old
+     * thinking=true packets, but an externally-started turn (for example Difit)
+     * has no queued HAPI user message that would otherwise clear that fence.
+     */
+    handleSessionBusy(sessionId: string, time: number): void {
+        const t = clampAliveTime(time) ?? Date.now()
+        const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+        if (!session) return
+
+        const wasActive = session.active
+        const wasThinking = session.thinking
+        session.active = true
+        session.activeAt = Math.max(session.activeAt, t)
+        session.thinking = true
+        session.thinkingAt = t
+        if (!wasThinking) session.activeTurnStartedAt = t
+        this.pendingThinkingUntilBySessionId.delete(session.id)
+        this.idleBoundaryAtBySessionId.delete(session.id)
+
+        if (!wasActive || !wasThinking) {
+            this.lastBroadcastAtBySessionId.set(session.id, Date.now())
+            this.publisher.emit({
+                type: 'session-updated',
+                sessionId: session.id,
+                data: {
+                    active: true,
+                    activeAt: session.activeAt,
+                    thinking: true,
+                    activeTurnStartedAt: session.activeTurnStartedAt
+                } satisfies SessionPatch
+            })
+        }
+    }
+
     expireInactive(now: number = Date.now()): string[] {
         const sessionTimeoutMs = 30_000
         const expired: string[] = []

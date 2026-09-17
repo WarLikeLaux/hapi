@@ -285,6 +285,7 @@ export class ApiSessionClient extends EventEmitter {
     private readonly pendingOutboundEvents: PendingOutboundEvent[] = []
     private didWarnPendingQueueFull = false
     private readonly workspaceChangesTracker = new WorkspaceChangesTracker()
+    private currentThinking = false
 
     constructor(token: string, session: Session, options: ApiSessionClientOptions = {}) {
         super()
@@ -342,10 +343,16 @@ export class ApiSessionClient extends EventEmitter {
             void this.backfillIfNeeded()
             this.hasConnectedOnce = true
             this.reconnectHandler?.()
+            if (this.currentThinking) {
+                this.socket.emit('session-busy', {
+                    sid: this.sessionId,
+                    time: Date.now()
+                })
+            }
             this.socket.emit('session-alive', {
                 sid: this.sessionId,
                 time: Date.now(),
-                thinking: false
+                thinking: this.currentThinking
             })
         })
 
@@ -1231,8 +1238,16 @@ export class ApiSessionClient extends EventEmitter {
             copilotAgentMode?: import('@hapi/protocol').CopilotAgentMode
         }
     ): void {
+        const startedThinking = thinking && !this.currentThinking
+        this.currentThinking = thinking
         if (this.state !== 'active') {
             return
+        }
+        if (startedThinking) {
+            this.socket.emit('session-busy', {
+                sid: this.sessionId,
+                time: Date.now()
+            })
         }
         this.socket.volatile.emit('session-alive', {
             sid: this.sessionId,
