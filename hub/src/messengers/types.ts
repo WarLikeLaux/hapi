@@ -12,6 +12,7 @@ export type MessengerConnectorEvent =
     | { type: 'message'; message: ExternalMessage }
     | { type: 'messages-deleted'; provider: string; remoteId?: string; providerMessageIds: string[] }
     | { type: 'messages-read'; provider: string; remoteId: string; maxProviderMessageId: number }
+    | { type: 'inbox-read'; provider: string; remoteId: string; unreadCount: number }
     | { type: 'message-reactions'; provider: string; remoteId: string; providerMessageId: string; reactions: ExternalReaction[] }
 
 export type DownloadedExternalMedia = {

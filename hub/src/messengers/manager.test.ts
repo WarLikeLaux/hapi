@@ -172,6 +172,15 @@ describe('MessengerManager', () => {
             expect(store.messengers.listMessages('default', conversation.id)[0]?.reactions).toEqual([
                 { reaction: 'emoji:👍', emoji: '👍', count: 2, chosen: true }
             ])
+
+            store.messengers.setUnreadCount('default', conversation.id, 3)
+            emit!({ type: 'inbox-read', provider: 'test', remoteId: 'user:1', unreadCount: 1 })
+            expect(store.messengers.getConversation('default', conversation.id)?.unreadCount).toBe(1)
+            expect(events).toContainEqual({
+                type: 'external-conversation-updated',
+                namespace: 'default',
+                conversationId: conversation.id
+            })
         } finally {
             await manager.stop()
             store.close()

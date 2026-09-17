@@ -109,6 +109,11 @@ type readReceipt struct {
 	MaxID    int    `json:"maxId"`
 }
 
+type inboxRead struct {
+	RemoteID    string `json:"remoteId"`
+	UnreadCount int    `json:"unreadCount"`
+}
+
 type messageReactions struct {
 	RemoteID          string             `json:"remoteId"`
 	ProviderMessageID string             `json:"providerMessageId"`
@@ -566,6 +571,8 @@ func (s *service) configure(apiID int, apiHash, sessionPath string) error {
 	dispatcher.OnNewChannelMessage(s.handleNewChannelMessage)
 	dispatcher.OnDeleteMessages(s.handleDeleteMessages)
 	dispatcher.OnDeleteChannelMessages(s.handleDeleteChannelMessages)
+	dispatcher.OnReadHistoryInbox(s.handleReadHistoryInbox)
+	dispatcher.OnReadChannelInbox(s.handleReadChannelInbox)
 	dispatcher.OnReadHistoryOutbox(s.handleReadHistoryOutbox)
 	dispatcher.OnReadChannelOutbox(s.handleReadChannelOutbox)
 	dispatcher.OnMessageReactions(s.handleMessageReactions)
@@ -1450,6 +1457,22 @@ func (s *service) handleReadHistoryOutbox(_ context.Context, _ tg.Entities, upda
 	if ok {
 		s.emitReadReceipt(remoteID, update.MaxID)
 	}
+	return nil
+}
+
+func (s *service) handleReadHistoryInbox(_ context.Context, _ tg.Entities, update *tg.UpdateReadHistoryInbox) error {
+	remoteID, ok := remoteIDFromPeer(update.Peer)
+	if ok {
+		s.out.event("inbox-read", inboxRead{RemoteID: remoteID, UnreadCount: max(update.StillUnreadCount, 0)})
+	}
+	return nil
+}
+
+func (s *service) handleReadChannelInbox(_ context.Context, _ tg.Entities, update *tg.UpdateReadChannelInbox) error {
+	s.out.event("inbox-read", inboxRead{
+		RemoteID:    fmt.Sprintf("channel:%d", update.ChannelID),
+		UnreadCount: max(update.StillUnreadCount, 0),
+	})
 	return nil
 }
 
