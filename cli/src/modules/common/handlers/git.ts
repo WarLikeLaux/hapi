@@ -473,7 +473,7 @@ export function registerGitHandlers(rpcHandlerManager: RpcHandlerManager, workin
             : null
         return {
             ...status,
-            ...(createMergeRequestUrl ? { createMergeRequestUrl } : {})
+            createMergeRequestUrl
         }
     })
 

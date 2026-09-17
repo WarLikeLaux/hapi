@@ -22,7 +22,6 @@ type SessionActionMenuProps = {
     onMarkUnread?: () => void
     onSyncCodex?: () => void
     onSyncPi?: () => void
-    difitReviewUrl?: string | null
     externalReviewUrl?: string | null
     onManageDifit?: () => void
     createExternalReviewUrl?: string | null
@@ -247,7 +246,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onMarkUnread,
         onSyncCodex,
         onSyncPi,
-        difitReviewUrl,
         externalReviewUrl,
         onManageDifit,
         createExternalReviewUrl,
@@ -377,20 +375,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         <DifitIcon className="text-[var(--app-hint)]" />
                         {t(difitAttached ? 'session.action.restartDifit' : 'session.action.startDifit')}
                     </button>
-                ) : null}
-
-                {difitReviewUrl ? (
-                    <a
-                        href={difitReviewUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        role="menuitem"
-                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                        onClick={onClose}
-                    >
-                        <DifitIcon className="text-[var(--app-hint)]" />
-                        {t('session.action.openDifit')}
-                    </a>
                 ) : null}
 
                 {externalReviewUrl ? (
