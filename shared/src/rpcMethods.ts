@@ -17,6 +17,7 @@ export const RPC_METHODS = {
     GitDiffNumstat: 'git-diff-numstat',
     GitDiff: 'git-diff',
     GitDiffFile: 'git-diff-file',
+    ManageDifit: 'manage-difit',
     ReadFile: 'readFile',
     ReadGeneratedImage: 'readGeneratedImage',
     WriteFile: 'writeFile',

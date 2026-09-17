@@ -48,6 +48,7 @@ import type {
     CopilotModelsResponse,
     GrokReasoningEffortResponse,
     ListDirectoryResponse,
+    ManageDifitResponse,
     MachineListDirectoryResponse,
     MachinePathsExistsResponse,
     OpencodeModelsResponse,
@@ -556,6 +557,13 @@ export class ApiClient {
 
     async getGitStatus(sessionId: string): Promise<GitStatusResponse> {
         return await this.request<GitStatusResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-status`)
+    }
+
+    async manageDifit(sessionId: string, action: 'start' | 'restart'): Promise<ManageDifitResponse> {
+        return await this.request<ManageDifitResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/difit`, {
+            method: 'POST',
+            body: JSON.stringify({ action })
+        })
     }
 
     async getGitComparison(sessionId: string, scope: GitComparisonScope): Promise<GitComparisonResponse> {

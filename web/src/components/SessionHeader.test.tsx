@@ -116,14 +116,20 @@ describe('SessionHeader', () => {
     it('does not reserve header space when no DIFIT review is attached', () => {
         renderHeader(baseSession())
         expect(screen.queryByRole('link', { name: 'Open in DIFIT' })).not.toBeInTheDocument()
-        expect(screen.queryByRole('link', { name: 'Open merge request' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: 'Open PR' })).not.toBeInTheDocument()
     })
 
-    it('requests a new DIFIT review from the session menu', async () => {
-        const sendMessage = vi.fn().mockResolvedValue(undefined)
+    it('starts a new DIFIT review directly without messaging the agent', async () => {
+        const sendMessage = vi.fn()
+        const manageDifit = vi.fn().mockResolvedValue({
+            success: true,
+            reviewId: 'review-1',
+            url: 'https://difit.example.test/reviews/review-1/'
+        })
         const api = {
             getMachines: vi.fn().mockResolvedValue({ machines: [] }),
             getScratchlist: vi.fn().mockResolvedValue({ entries: [] }),
+            manageDifit,
             sendMessage,
         } as unknown as ApiClient
 
@@ -141,18 +147,22 @@ describe('SessionHeader', () => {
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
         fireEvent.click(screen.getByRole('menuitem', { name: 'Start DIFIT' }))
 
-        await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce())
-        expect(sendMessage.mock.calls[0][0]).toBe('session-1')
-        expect(sendMessage.mock.calls[0][1]).toContain('$difit Open all current changes')
-        expect(sendMessage.mock.calls[0][5]).toBe('queue')
-        expect(await screen.findByText(/DIFIT start requested/)).toBeInTheDocument()
+        await waitFor(() => expect(manageDifit).toHaveBeenCalledWith('session-1', 'start'))
+        expect(sendMessage).not.toHaveBeenCalled()
+        expect(await screen.findByText(/DIFIT started/)).toBeInTheDocument()
     })
 
-    it('requests a restart when a DIFIT review is already attached', async () => {
-        const sendMessage = vi.fn().mockResolvedValue(undefined)
+    it('restarts the attached DIFIT review directly without messaging the agent', async () => {
+        const sendMessage = vi.fn()
+        const manageDifit = vi.fn().mockResolvedValue({
+            success: true,
+            reviewId: 'review-1',
+            url: 'https://difit.example.test/reviews/review-1/'
+        })
         const api = {
             getMachines: vi.fn().mockResolvedValue({ machines: [] }),
             getScratchlist: vi.fn().mockResolvedValue({ entries: [] }),
+            manageDifit,
             sendMessage,
         } as unknown as ApiClient
         const session = baseSession({
@@ -181,8 +191,8 @@ describe('SessionHeader', () => {
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
         fireEvent.click(screen.getByRole('menuitem', { name: 'Restart DIFIT' }))
 
-        await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce())
-        expect(sendMessage.mock.calls[0][1]).toContain('$difit Restart the DIFIT viewer')
+        await waitFor(() => expect(manageDifit).toHaveBeenCalledWith('session-1', 'restart'))
+        expect(sendMessage).not.toHaveBeenCalled()
     })
 
     it('links directly to GitLab merge request creation without messaging the agent', async () => {

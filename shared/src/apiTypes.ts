@@ -732,6 +732,15 @@ export type GitStatusResponse = GitCommandResponse & {
     createMergeRequestUrl?: string | null
 }
 
+export type ManageDifitResponse = {
+    success: boolean
+    reviewId?: string
+    url?: string
+    reviewUrl?: string
+    branch?: string
+    error?: string
+}
+
 export type GitComparisonScope = 'last-commit' | 'branch'
 
 export type GitComparisonFile = {
