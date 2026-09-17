@@ -25,6 +25,7 @@ type SessionActionMenuProps = {
     difitReviewUrl?: string | null
     externalReviewUrl?: string | null
     onManageDifit?: () => void
+    onCreateExternalReview?: () => void
     difitAttached?: boolean
     onContinueInFolder?: () => void
     onRestart?: () => void
@@ -249,6 +250,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         difitReviewUrl,
         externalReviewUrl,
         onManageDifit,
+        onCreateExternalReview,
         difitAttached = false,
         onContinueInFolder,
         onRestart,
@@ -330,6 +332,11 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onManageDifit?.()
     }
 
+    const handleCreateExternalReview = () => {
+        onClose()
+        onCreateExternalReview?.()
+    }
+
     const handleContinueInFolder = () => {
         onClose()
         onContinueInFolder?.()
@@ -365,6 +372,56 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                 aria-labelledby={headingId}
                 className="flex flex-col gap-1"
             >
+                {onManageDifit ? (
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={handleManageDifit}
+                    >
+                        <DifitIcon className="text-[var(--app-hint)]" />
+                        {t(difitAttached ? 'session.action.restartDifit' : 'session.action.startDifit')}
+                    </button>
+                ) : null}
+
+                {difitReviewUrl ? (
+                    <a
+                        href={difitReviewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={onClose}
+                    >
+                        <DifitIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.openDifit')}
+                    </a>
+                ) : null}
+
+                {externalReviewUrl ? (
+                    <a
+                        href={externalReviewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={onClose}
+                    >
+                        <ExternalReviewIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.openExternalReview')}
+                    </a>
+                ) : onCreateExternalReview ? (
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={handleCreateExternalReview}
+                    >
+                        <ExternalReviewIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.createExternalReview')}
+                    </button>
+                ) : null}
+
                 <button
                     type="button"
                     role="menuitem"
@@ -477,46 +534,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     >
                         <SyncIcon className="text-[var(--app-hint)]" />
                         {t('session.action.syncPi')}
-                    </button>
-                ) : null}
-
-                {difitReviewUrl ? (
-                    <a
-                        href={difitReviewUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        role="menuitem"
-                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                        onClick={onClose}
-                    >
-                        <DifitIcon className="text-[var(--app-hint)]" />
-                        {t('session.action.openDifit')}
-                    </a>
-                ) : null}
-
-                {externalReviewUrl ? (
-                    <a
-                        href={externalReviewUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        role="menuitem"
-                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                        onClick={onClose}
-                    >
-                        <ExternalReviewIcon className="text-[var(--app-hint)]" />
-                        {t('session.action.openExternalReview')}
-                    </a>
-                ) : null}
-
-                {onManageDifit ? (
-                    <button
-                        type="button"
-                        role="menuitem"
-                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                        onClick={handleManageDifit}
-                    >
-                        <SyncIcon className="text-[var(--app-hint)]" />
-                        {t(difitAttached ? 'session.action.restartDifit' : 'session.action.startDifit')}
                     </button>
                 ) : null}
 

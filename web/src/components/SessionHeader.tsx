@@ -35,6 +35,8 @@ import { makeClientSideId } from '@/lib/messages'
 
 const START_DIFIT_PROMPT = '$difit Open all current changes in this checkout in DIFIT, including untracked files. Start the live viewer in the background and send me the link.'
 const RESTART_DIFIT_PROMPT = '$difit Restart the DIFIT viewer attached to this HAPI session, preserving the current review and its threads, then send me the link.'
+const CREATE_REVIEW_PROMPT = '$difit Create a pull request or merge request for the current branch using the configured Git host. Commit the current task changes if needed, push the branch, open the resulting review in DIFIT, and send me both links.'
+const CREATE_REVIEW_FOR_DIFIT_PROMPT = '$difit Create a pull request or merge request for the current branch using the configured Git host. Commit the current task changes if needed, push the branch, attach the resulting review URL to the current DIFIT review while preserving its threads, and send me both links.'
 
 /** Same preference order as session-list chips: display label → host → short id. */
 export function resolveSessionHeaderMachineLabel(
@@ -479,6 +481,37 @@ export function SessionHeader(props: {
         }
     }
 
+    const handleCreateExternalReview = async () => {
+        if (!api || !session.active || isManagingDifit) return
+
+        setIsManagingDifit(true)
+        try {
+            await api.sendMessage(
+                session.id,
+                difitReviewUrl ? CREATE_REVIEW_FOR_DIFIT_PROMPT : CREATE_REVIEW_PROMPT,
+                makeClientSideId('local'),
+                undefined,
+                null,
+                'queue'
+            )
+            addToast({
+                title: t('session.action.createExternalReviewQueued'),
+                body: t('session.action.difitQueuedBody'),
+                sessionId: session.id,
+                url: `/sessions/${session.id}`
+            })
+        } catch (error) {
+            addToast({
+                title: t('session.action.createExternalReviewFailed'),
+                body: error instanceof Error ? error.message : t('dialog.error.default'),
+                sessionId: session.id,
+                url: `/sessions/${session.id}`
+            })
+        } finally {
+            setIsManagingDifit(false)
+        }
+    }
+
     const handleMenuToggle = () => {
         if (!menuOpen && menuAnchorRef.current) {
             const rect = menuAnchorRef.current.getBoundingClientRect()
@@ -692,6 +725,10 @@ export function SessionHeader(props: {
                 difitAttached={Boolean(difitReviewUrl)}
                 onManageDifit={api && session.active && agentFlavor === 'codex' && !isManagingDifit
                     ? () => void handleManageDifit()
+                    : undefined}
+                onCreateExternalReview={api && session.active && agentFlavor === 'codex'
+                    && !externalReviewUrl && !isManagingDifit
+                    ? () => void handleCreateExternalReview()
                     : undefined}
                 onContinueInFolder={() => navigate({
                     to: '/browse',
