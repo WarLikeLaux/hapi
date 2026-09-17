@@ -8,8 +8,15 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 - Complete the requested deliverable and relevant verification; do not stop at the first implementation unless the user requested a review checkpoint.
 - Fix causes within the task's scope. Report unrelated problems rather than turning them into refactors or additional features.
 - Make reasonable, reversible choices and continue. Ask when missing information materially affects correctness, an action needs additional authorization, or progress requires overwriting someone else's changes. Continue unaffected work.
-- Preserve existing user/agent changes. Editing or generating files does not imply permission to commit, push, or release.
+- Preserve existing user/agent changes. Follow the delivery policy below for task changes; editing or generating unrelated files never implies permission to commit, push, or release them.
 - Keep communication concise and clear; report results, checks performed, and remaining limitations.
+
+## Delivery policy
+
+- Every completed product code change must be deployed locally after its relevant checks pass. Use the repository's local deployment workflow and verify the affected services afterward.
+- For non-visual features and fixes, successful verification authorizes committing the task's exact files and pushing the current branch without waiting for a separate request. Deploy before commit and push so a failed deployment is not published.
+- For changes that affect visible UI or UX, deploy the uncommitted change for user review, but do not commit or push it until the user explicitly accepts the visual result. After acceptance, commit and push the reviewed files.
+- A user's explicit request to avoid deployment, commits, or pushes overrides these defaults. Never include unrelated worktree changes in an automatic commit.
 
 ## Find context when needed
 
