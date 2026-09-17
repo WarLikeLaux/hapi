@@ -1,6 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -50,6 +55,72 @@ func TestMessageFromTelegram(t *testing.T) {
 	read, ok := messageFromTelegram(msg, messageEntities(), &tg.User{ID: 1, FirstName: "Me"}, nil, 11)
 	if !ok || read.DeliveryStatus == nil || *read.DeliveryStatus != "read" {
 		t.Fatalf("expected read delivery status, got %#v", read.DeliveryStatus)
+	}
+}
+
+func TestMessageFromTelegramIncludesReactions(t *testing.T) {
+	chosen := tg.ReactionCount{
+		Reaction: &tg.ReactionEmoji{Emoticon: "👍"},
+		Count:    2,
+	}
+	chosen.Flags.Set(0)
+	msg := &tg.Message{
+		ID:      12,
+		PeerID:  &tg.PeerUser{UserID: 42},
+		Message: "hello",
+		Date:    124,
+	}
+	msg.SetReactions(tg.MessageReactions{Results: []tg.ReactionCount{
+		chosen,
+		{Reaction: &tg.ReactionCustomEmoji{DocumentID: 99}, Count: 1},
+	}})
+
+	result, ok := messageFromTelegram(msg, messageEntities(), nil, nil, 0)
+	if !ok || len(result.Reactions) != 2 {
+		t.Fatalf("unexpected reactions: %#v", result.Reactions)
+	}
+	if result.Reactions[0].Reaction != "emoji:👍" || !result.Reactions[0].Chosen || result.Reactions[0].Count != 2 {
+		t.Fatalf("unexpected emoji reaction: %#v", result.Reactions[0])
+	}
+	if result.Reactions[1].Reaction != "custom:99" || result.Reactions[1].Emoji != nil {
+		t.Fatalf("unexpected custom reaction: %#v", result.Reactions[1])
+	}
+}
+
+func TestReactionFromKey(t *testing.T) {
+	emoji, err := reactionFromKey("emoji:🔥")
+	if err != nil || emoji.(*tg.ReactionEmoji).Emoticon != "🔥" {
+		t.Fatalf("unexpected emoji reaction: %#v, %v", emoji, err)
+	}
+	custom, err := reactionFromKey("custom:42")
+	if err != nil || custom.(*tg.ReactionCustomEmoji).DocumentID != 42 {
+		t.Fatalf("unexpected custom reaction: %#v, %v", custom, err)
+	}
+	if _, err := reactionFromKey("paid"); err == nil {
+		t.Fatal("paid reaction should not be accepted by messages.sendReaction")
+	}
+}
+
+func TestTelegramPhotoUploadConvertsPNGToJPEG(t *testing.T) {
+	input := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	input.Set(0, 0, color.NRGBA{R: 255, A: 255})
+	var pngData bytes.Buffer
+	if err := png.Encode(&pngData, input); err != nil {
+		t.Fatal(err)
+	}
+
+	result, name, ok := telegramPhotoUpload(pngData.Bytes(), "clipboard.png", "image/png")
+	if !ok || name != "clipboard.jpg" {
+		t.Fatalf("unexpected prepared photo: name=%q ok=%v", name, ok)
+	}
+	if _, err := jpeg.Decode(bytes.NewReader(result)); err != nil {
+		t.Fatalf("prepared photo is not JPEG: %v", err)
+	}
+}
+
+func TestTelegramPhotoUploadFallsBackForInvalidImage(t *testing.T) {
+	if _, name, ok := telegramPhotoUpload([]byte("not an image"), "broken.png", "image/png"); ok || name != "broken.png" {
+		t.Fatalf("invalid image should fall back to a file: name=%q ok=%v", name, ok)
 	}
 }
 

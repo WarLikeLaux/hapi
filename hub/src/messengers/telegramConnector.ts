@@ -86,6 +86,10 @@ export class TelegramConnector implements MessengerConnector {
         return (result as { messages: ExternalMessage[] }).messages
     }
 
+    async markRead(remoteId: string, maxProviderMessageId: number): Promise<void> {
+        await this.request('messages.read', { remoteId, maxProviderMessageId })
+    }
+
     async downloadMedia(remoteId: string, providerMessageId: string, mediaIndex: number): Promise<DownloadedExternalMedia> {
         const result = await this.request('media.download', { remoteId, providerMessageId, mediaIndex }, 180_000) as DownloadedExternalMedia
         const mediaRoot = resolve(this.options.dataDir, 'media-cache')
@@ -98,6 +102,10 @@ export class TelegramConnector implements MessengerConnector {
 
     async sendText(remoteId: string, text: string, clientId?: string): Promise<void> {
         await this.request('messages.send', { remoteId, text, clientId })
+    }
+
+    async setReactions(remoteId: string, providerMessageId: string, reactions: string[]): Promise<void> {
+        await this.request('messages.reactions.set', { remoteId, providerMessageId, reactions })
     }
 
     async sendMedia(remoteId: string, input: SendExternalMediaInput): Promise<void> {
@@ -221,6 +229,19 @@ export class TelegramConnector implements MessengerConnector {
                 provider: 'telegram',
                 remoteId: receipt.remoteId,
                 maxProviderMessageId: receipt.maxId
+            })
+        } else if (value.event === 'message-reactions') {
+            const update = value.data as {
+                remoteId: string
+                providerMessageId: string
+                reactions: ExternalMessage['reactions']
+            }
+            this.options.onEvent({
+                type: 'message-reactions',
+                provider: 'telegram',
+                remoteId: update.remoteId,
+                providerMessageId: update.providerMessageId,
+                reactions: update.reactions ?? []
             })
         }
     }

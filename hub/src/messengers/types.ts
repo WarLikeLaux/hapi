@@ -1,6 +1,7 @@
 import type {
     ExternalConversation,
     ExternalMessage,
+    ExternalReaction,
     MessengerConnection,
     SubmitMessengerAuthRequest
 } from '@hapi/protocol'
@@ -11,6 +12,7 @@ export type MessengerConnectorEvent =
     | { type: 'message'; message: ExternalMessage }
     | { type: 'messages-deleted'; provider: string; remoteId?: string; providerMessageIds: string[] }
     | { type: 'messages-read'; provider: string; remoteId: string; maxProviderMessageId: number }
+    | { type: 'message-reactions'; provider: string; remoteId: string; providerMessageId: string; reactions: ExternalReaction[] }
 
 export type DownloadedExternalMedia = {
     path: string
@@ -34,8 +36,10 @@ export interface MessengerConnector {
     submitAuth(input: SubmitMessengerAuthRequest): Promise<void>
     listConversations(): Promise<ExternalConversation[]>
     loadMessages(remoteId: string, limit?: number): Promise<ExternalMessage[]>
+    markRead?(remoteId: string, maxProviderMessageId: number): Promise<void>
     downloadMedia(remoteId: string, providerMessageId: string, mediaIndex: number): Promise<DownloadedExternalMedia>
     sendText(remoteId: string, text: string, clientId?: string): Promise<void>
+    setReactions(remoteId: string, providerMessageId: string, reactions: string[]): Promise<void>
     sendMedia(remoteId: string, input: SendExternalMediaInput): Promise<void>
     stop(): Promise<void>
 }

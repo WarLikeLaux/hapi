@@ -34,6 +34,8 @@ export const ExternalConversationSchema = z.object({
     provider: MessengerProviderSchema,
     remoteId: z.string().min(1),
     title: z.string().min(1),
+    sourceTitle: z.string().min(1).optional(),
+    customTitle: z.string().nullable().optional(),
     kind: ExternalConversationKindSchema,
     selected: z.boolean(),
     lastMessageAt: z.number().int().nullable(),
@@ -70,6 +72,14 @@ export const ExternalMediaSchema = z.object({
 })
 export type ExternalMedia = z.infer<typeof ExternalMediaSchema>
 
+export const ExternalReactionSchema = z.object({
+    reaction: z.string().min(1),
+    emoji: z.string().nullable(),
+    count: z.number().int().positive(),
+    chosen: z.boolean()
+})
+export type ExternalReaction = z.infer<typeof ExternalReactionSchema>
+
 export const ExternalMessageSchema = z.object({
     id: z.string().min(1),
     conversationId: z.string().min(1),
@@ -82,13 +92,16 @@ export const ExternalMessageSchema = z.object({
     createdAt: z.number().int(),
     editedAt: z.number().int().nullable(),
     deliveryStatus: ExternalMessageDeliveryStatusSchema.optional(),
-    media: z.array(ExternalMediaSchema).optional()
+    media: z.array(ExternalMediaSchema).optional(),
+    reactions: z.array(ExternalReactionSchema).optional()
 })
 export type ExternalMessage = z.infer<typeof ExternalMessageSchema>
 
 export const ExternalParticipantSchema = z.object({
     id: z.string().min(1),
     name: z.string().nullable(),
+    sourceName: z.string().nullable().optional(),
+    customName: z.string().nullable().optional(),
     avatarDataUrl: z.string().nullable()
 })
 export type ExternalParticipant = z.infer<typeof ExternalParticipantSchema>
@@ -110,11 +123,21 @@ export const SelectMessengerConversationsRequestSchema = z.object({
 })
 export type SelectMessengerConversationsRequest = z.infer<typeof SelectMessengerConversationsRequestSchema>
 
+export const UpdateExternalAliasRequestSchema = z.object({
+    name: z.string().trim().min(1).max(128).nullable()
+})
+export type UpdateExternalAliasRequest = z.infer<typeof UpdateExternalAliasRequestSchema>
+
 export const SendExternalMessageRequestSchema = z.object({
     text: z.string().trim().min(1).max(4096),
     clientId: z.string().min(1).max(128).optional()
 })
 export type SendExternalMessageRequest = z.infer<typeof SendExternalMessageRequestSchema>
+
+export const SetExternalReactionsRequestSchema = z.object({
+    reactions: z.array(z.string().min(1).max(128)).max(3)
+})
+export type SetExternalReactionsRequest = z.infer<typeof SetExternalReactionsRequestSchema>
 
 export type MessengerConnectionsResponse = { connections: MessengerConnection[] }
 export type ExternalConversationsResponse = { conversations: ExternalConversation[] }

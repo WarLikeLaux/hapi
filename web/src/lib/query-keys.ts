@@ -4,6 +4,7 @@ export const queryKeys = {
     messengerCandidates: (provider: string) => ['messenger-candidates', provider] as const,
     externalConversations: ['external-conversations'] as const,
     externalMessages: (conversationId: string) => ['external-messages', conversationId] as const,
+    externalParticipants: (conversationId: string) => ['external-participants', conversationId] as const,
     session: (sessionId: string) => ['session', sessionId] as const,
     messages: (sessionId: string) => ['messages', sessionId] as const,
     machines: ['machines'] as const,
