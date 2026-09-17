@@ -351,7 +351,13 @@ describe('SessionActionMenu - DIFIT actions', () => {
         const onClose = vi.fn()
         const { rerender } = renderMenu({ onManageDifit, onClose })
 
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Start DIFIT' }))
+        const startAction = screen.getByRole('menuitem', { name: 'Start DIFIT' })
+        const items = screen.getAllByRole('menuitem')
+        expect(items.indexOf(startAction)).toBeLessThan(
+            items.indexOf(screen.getByRole('menuitem', { name: 'Rename' }))
+        )
+
+        fireEvent.click(startAction)
         expect(onManageDifit).toHaveBeenCalledOnce()
         expect(onClose).toHaveBeenCalledOnce()
 
@@ -372,6 +378,7 @@ describe('SessionActionMenu - DIFIT actions', () => {
         renderMenu({
             difitReviewUrl: 'https://difit.example.test/reviews/review-1/',
             externalReviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1',
+            onCreateExternalReview: vi.fn(),
         })
 
         expect(screen.getByRole('menuitem', { name: 'Open in DIFIT' })).toHaveAttribute(
@@ -382,6 +389,22 @@ describe('SessionActionMenu - DIFIT actions', () => {
             'href',
             'https://gitlab.example.test/group/project/-/merge_requests/1'
         )
+        expect(screen.queryByRole('menuitem', { name: 'Create pull / merge request' })).toBeNull()
+    })
+
+    it('offers review creation when no external review is attached', () => {
+        const onCreateExternalReview = vi.fn()
+        const onClose = vi.fn()
+        renderMenu({ onCreateExternalReview, onClose })
+
+        const createAction = screen.getByRole('menuitem', { name: 'Create pull / merge request' })
+        expect(screen.getAllByRole('menuitem').indexOf(createAction)).toBeLessThan(
+            screen.getAllByRole('menuitem').indexOf(screen.getByRole('menuitem', { name: 'Rename' }))
+        )
+
+        fireEvent.click(createAction)
+        expect(onCreateExternalReview).toHaveBeenCalledOnce()
+        expect(onClose).toHaveBeenCalledOnce()
     })
 })
 

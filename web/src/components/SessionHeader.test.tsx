@@ -185,6 +185,35 @@ describe('SessionHeader', () => {
         expect(sendMessage.mock.calls[0][1]).toContain('$difit Restart the DIFIT viewer')
     })
 
+    it('requests pull or merge request creation and DIFIT attachment', async () => {
+        const sendMessage = vi.fn().mockResolvedValue(undefined)
+        const api = {
+            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
+            getScratchlist: vi.fn().mockResolvedValue({ entries: [] }),
+            sendMessage,
+        } as unknown as ApiClient
+
+        render(
+            <QueryClientProvider client={new QueryClient()}>
+                <ToastProvider>
+                    <I18nProvider>
+                        <SessionHeader session={baseSession()} onBack={vi.fn()} api={api} />
+                        <ToastMessages />
+                    </I18nProvider>
+                </ToastProvider>
+            </QueryClientProvider>
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: /More/ }))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Create pull / merge request' }))
+
+        await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce())
+        expect(sendMessage.mock.calls[0][1]).toContain('$difit Create a pull request or merge request')
+        expect(sendMessage.mock.calls[0][1]).toContain('open the resulting review in DIFIT')
+        expect(sendMessage.mock.calls[0][5]).toBe('queue')
+        expect(await screen.findByText(/Review creation requested/)).toBeInTheDocument()
+    })
+
     it('queues Codex title regeneration from the session menu', async () => {
         const regenerateSessionTitle = vi.fn().mockResolvedValue(undefined)
         const api = {
