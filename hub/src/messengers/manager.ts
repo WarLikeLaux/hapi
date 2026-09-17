@@ -583,6 +583,18 @@ export class MessengerManager {
             })
             return
         }
+        if (event.type === 'inbox-read') {
+            const conversation = this.options.store.messengers.listConversations(namespace)
+                .find((item) => item.provider === event.provider && item.remoteId === event.remoteId)
+            if (!conversation) return
+            this.options.store.messengers.setUnreadCount(namespace, conversation.id, event.unreadCount)
+            this.options.sseManager.broadcast({
+                type: 'external-conversation-updated',
+                namespace,
+                conversationId: conversation.id
+            })
+            return
+        }
         if (event.type === 'message-reactions') {
             const conversation = this.options.store.messengers.listConversations(namespace)
                 .find((item) => item.provider === event.provider && item.remoteId === event.remoteId)

@@ -230,6 +230,14 @@ export class TelegramConnector implements MessengerConnector {
                 remoteId: receipt.remoteId,
                 maxProviderMessageId: receipt.maxId
             })
+        } else if (value.event === 'inbox-read') {
+            const receipt = value.data as { remoteId: string; unreadCount: number }
+            this.options.onEvent({
+                type: 'inbox-read',
+                provider: 'telegram',
+                remoteId: receipt.remoteId,
+                unreadCount: Math.max(0, receipt.unreadCount)
+            })
         } else if (value.event === 'message-reactions') {
             const update = value.data as {
                 remoteId: string
