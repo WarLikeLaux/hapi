@@ -22,6 +22,7 @@ import type {
     GeneratedImageResponse,
     GitComparisonResponse,
     GitComparisonScope,
+    GitStatusResponse,
     ImplementCodexPlanResult,
     CopilotModelsResponse,
     GrokModelsResponse,
@@ -90,6 +91,7 @@ function isPermissionRequestNotFoundResponse(response: unknown): boolean {
 }
 
 export type RpcCommandResponse = CommandResponse
+export type RpcGitStatusResponse = GitStatusResponse
 export type FileSearchOptions = {
     query: string
     limit: number
@@ -354,12 +356,12 @@ export class RpcGateway {
         await this.machineRpc(machineId, RPC_METHODS.StopRunner, {})
     }
 
-    async getGitStatus(sessionId: string, cwd?: string): Promise<RpcCommandResponse> {
-        return await this.sessionRpc(sessionId, RPC_METHODS.GitStatus, { cwd }) as RpcCommandResponse
+    async getGitStatus(sessionId: string, cwd?: string): Promise<RpcGitStatusResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.GitStatus, { cwd }) as RpcGitStatusResponse
     }
 
-    async getMachineGitStatus(machineId: string, cwd: string): Promise<RpcCommandResponse> {
-        return await this.machineRpc(machineId, RPC_METHODS.GitStatus, { cwd }) as RpcCommandResponse
+    async getMachineGitStatus(machineId: string, cwd: string): Promise<RpcGitStatusResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.GitStatus, { cwd }) as RpcGitStatusResponse
     }
 
     async getGitComparison(sessionId: string, options: { cwd?: string; scope: GitComparisonScope }): Promise<GitComparisonResponse> {

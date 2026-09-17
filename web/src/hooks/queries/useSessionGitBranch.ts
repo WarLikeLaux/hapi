@@ -14,14 +14,14 @@ export function readDisplayGitBranch(statusOutput: string): string | null {
     return null
 }
 
-export function useSessionGitBranch(
+function useSessionGitInfo(
     api: ApiClient | null,
     sessionId: string,
     active: boolean,
     enabled = true,
     cacheScope = sessionId
-): string | null {
-    const query = useQuery({
+): { branch: string | null; createMergeRequestUrl: string | null } | null {
+    return useQuery({
         queryKey: queryKeys.gitBranch(cacheScope),
         queryFn: async () => {
             if (!api || typeof api.getGitStatus !== 'function') return null
@@ -29,13 +29,38 @@ export function useSessionGitBranch(
             if (!result.success) {
                 throw new Error(result.error ?? result.stderr ?? 'Git branch unavailable')
             }
-            return readDisplayGitBranch(result.stdout ?? '')
+            return {
+                branch: readDisplayGitBranch(result.stdout ?? ''),
+                createMergeRequestUrl: result.createMergeRequestUrl ?? null,
+            }
         },
         enabled: Boolean(enabled && api && typeof api.getGitStatus === 'function'),
         staleTime: 5_000,
         refetchInterval: active ? 10_000 : false,
         retry: false,
-    })
+    }).data ?? null
+}
 
-    return query.data ?? null
+export function useSessionGitBranch(
+    api: ApiClient | null,
+    sessionId: string,
+    active: boolean,
+    enabled = true,
+    cacheScope = sessionId
+): string | null {
+    const info = useSessionGitInfo(api, sessionId, active, enabled, cacheScope)
+
+    return info?.branch ?? null
+}
+
+export function useSessionGitLabCreateMergeRequestUrl(
+    api: ApiClient | null,
+    sessionId: string,
+    active: boolean,
+    enabled = true,
+    cacheScope = sessionId
+): string | null {
+    const info = useSessionGitInfo(api, sessionId, active, enabled, cacheScope)
+
+    return info?.createMergeRequestUrl ?? null
 }

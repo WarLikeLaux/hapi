@@ -310,8 +310,6 @@ export default {
   'session.action.restartDifitQueued': 'DIFIT restart requested',
   'session.action.difitQueuedBody': 'The agent will run it after any work already in progress.',
   'session.action.difitFailed': 'Could not request DIFIT',
-  'session.action.createExternalReviewQueued': 'Review creation requested',
-  'session.action.createExternalReviewFailed': 'Could not request review creation',
   'session.responseWork.open': 'Show work',
   'session.responseWork.title': 'Agent activity',
   'session.responseChanges.open': 'Show changes',

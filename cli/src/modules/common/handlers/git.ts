@@ -4,7 +4,8 @@ import type {
     CommandResponse,
     GitComparisonFile,
     GitComparisonResponse,
-    GitComparisonScope
+    GitComparisonScope,
+    GitStatusResponse
 } from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager'
@@ -46,6 +47,52 @@ interface GitComparisonRequest {
 }
 
 type GitCommandResponse = CommandResponse
+
+function currentBranchFromStatus(statusOutput: string): string | null {
+    const match = statusOutput.match(/^# branch\.head (.+)$/m)
+    const branch = match?.[1]?.trim()
+    return branch && branch !== '(detached)' ? branch : null
+}
+
+export function buildGitLabCreateMergeRequestUrl(remoteUrl: string, branch: string): string | null {
+    const trimmedRemote = remoteUrl.trim()
+    const trimmedBranch = branch.trim()
+    if (!trimmedRemote || !trimmedBranch) return null
+
+    let hostname: string
+    let port = ''
+    let projectPath: string
+    let protocol = 'https:'
+
+    const scpMatch = trimmedRemote.match(/^(?:[^@/\s]+@)?([^:/\s]+):(.+)$/)
+    if (scpMatch && !trimmedRemote.includes('://')) {
+        hostname = scpMatch[1]
+        projectPath = scpMatch[2]
+    } else {
+        try {
+            const parsed = new URL(trimmedRemote)
+            if (!['http:', 'https:', 'ssh:', 'git:'].includes(parsed.protocol)) return null
+            hostname = parsed.hostname
+            projectPath = parsed.pathname
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                protocol = parsed.protocol
+                port = parsed.port ? `:${parsed.port}` : ''
+            }
+        } catch {
+            return null
+        }
+    }
+
+    const normalizedHost = hostname.toLowerCase()
+    if (normalizedHost === 'github.com' || normalizedHost === 'ssh.github.com') return null
+
+    const normalizedPath = projectPath.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/i, '')
+    if (!normalizedPath || normalizedPath.split('/').some((segment) => !segment)) return null
+
+    const url = new URL(`${protocol}//${hostname}${port}/${normalizedPath}/-/merge_requests/new`)
+    url.searchParams.set('merge_request[source_branch]', trimmedBranch)
+    return url.toString()
+}
 
 function resolveCwd(requestedCwd: string | undefined, workingDirectory: string): { cwd: string; error?: string } {
     const cwd = requestedCwd ?? workingDirectory
@@ -405,16 +452,29 @@ async function gitComparison(
 }
 
 export function registerGitHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string): void {
-    rpcHandlerManager.registerHandler<GitStatusRequest, GitCommandResponse>(RPC_METHODS.GitStatus, async (data) => {
+    rpcHandlerManager.registerHandler<GitStatusRequest, GitStatusResponse>(RPC_METHODS.GitStatus, async (data) => {
         const resolved = resolveCwd(data.cwd, workingDirectory)
         if (resolved.error) {
             return rpcError(resolved.error)
         }
-        return await runGitCommand(
+        const status = await runGitCommand(
             ['status', '--porcelain=v2', '--branch', '--untracked-files=all'],
             resolved.cwd,
             data.timeout
         )
+        if (!status.success) return status
+
+        const branch = currentBranchFromStatus(status.stdout ?? '')
+        if (!branch) return status
+
+        const remote = await runGitCommand(['remote', 'get-url', 'origin'], resolved.cwd, data.timeout)
+        const createMergeRequestUrl = remote.success
+            ? buildGitLabCreateMergeRequestUrl(remote.stdout ?? '', branch)
+            : null
+        return {
+            ...status,
+            ...(createMergeRequestUrl ? { createMergeRequestUrl } : {})
+        }
     })
 
     rpcHandlerManager.registerHandler<GitComparisonRequest, GitComparisonResponse>(RPC_METHODS.GitComparison, async (data) => {

@@ -318,8 +318,6 @@ export default {
   'session.action.restartDifitQueued': '已请求重启 DIFIT',
   'session.action.difitQueuedBody': '智能体会在完成当前工作后执行。',
   'session.action.difitFailed': '无法请求 DIFIT',
-  'session.action.createExternalReviewQueued': '已请求创建代码评审',
-  'session.action.createExternalReviewFailed': '无法请求创建代码评审',
   'session.action.archive': '停止会话',
   'session.action.reopen': '重新打开',
   'session.action.restart': '重启会话',

@@ -41,6 +41,7 @@ import type {
     DeleteUploadResponse,
     FileReadResponse,
     GitCommandResponse,
+    GitStatusResponse,
     GitComparisonResponse,
     GitComparisonScope,
     GrokModelsResponse,
@@ -553,8 +554,8 @@ export class ApiClient {
         return await this.request<MessagesResponse>(url)
     }
 
-    async getGitStatus(sessionId: string): Promise<GitCommandResponse> {
-        return await this.request<GitCommandResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-status`)
+    async getGitStatus(sessionId: string): Promise<GitStatusResponse> {
+        return await this.request<GitStatusResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-status`)
     }
 
     async getGitComparison(sessionId: string, scope: GitComparisonScope): Promise<GitComparisonResponse> {

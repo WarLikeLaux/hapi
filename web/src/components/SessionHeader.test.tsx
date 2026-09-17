@@ -185,9 +185,15 @@ describe('SessionHeader', () => {
         expect(sendMessage.mock.calls[0][1]).toContain('$difit Restart the DIFIT viewer')
     })
 
-    it('requests pull or merge request creation and DIFIT attachment', async () => {
-        const sendMessage = vi.fn().mockResolvedValue(undefined)
+    it('links directly to GitLab merge request creation without messaging the agent', async () => {
+        const sendMessage = vi.fn()
+        const createMergeRequestUrl = 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature%2Freview'
         const api = {
+            getGitStatus: vi.fn().mockResolvedValue({
+                success: true,
+                stdout: '# branch.oid abcdef123456\n# branch.head feature/review\n',
+                createMergeRequestUrl,
+            }),
             getMachines: vi.fn().mockResolvedValue({ machines: [] }),
             getScratchlist: vi.fn().mockResolvedValue({ entries: [] }),
             sendMessage,
@@ -205,13 +211,10 @@ describe('SessionHeader', () => {
         )
 
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Create pull / merge request' }))
-
-        await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce())
-        expect(sendMessage.mock.calls[0][1]).toContain('$difit Create a pull request or merge request')
-        expect(sendMessage.mock.calls[0][1]).toContain('open the resulting review in DIFIT')
-        expect(sendMessage.mock.calls[0][5]).toBe('queue')
-        expect(await screen.findByText(/Review creation requested/)).toBeInTheDocument()
+        const link = await screen.findByRole('menuitem', { name: 'Create pull / merge request' })
+        expect(link).toHaveAttribute('href', createMergeRequestUrl)
+        expect(link).toHaveAttribute('target', '_blank')
+        expect(sendMessage).not.toHaveBeenCalled()
     })
 
     it('queues Codex title regeneration from the session menu', async () => {
