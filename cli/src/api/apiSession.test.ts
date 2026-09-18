@@ -199,7 +199,31 @@ describe('ApiSessionClient lazy materialization', () => {
         }
     })
 
-    it('emits workspace changes immediately before the ready event', () => {
+    it('paces buffered transcript delivery after reconnect', async () => {
+        socketHarness.sockets.length = 0
+        const client = new ApiSessionClient('token', createSession({ namespace: 'default' }))
+        const socket = socketHarness.sockets[0]!
+
+        try {
+            socket.emitted.length = 0
+            socket.connected = false
+            for (let index = 0; index < 100; index += 1) {
+                client.sendAgentMessage({ type: 'message', message: `history-${index}` }, `history-${index}`)
+            }
+
+            expect(socket.emitted).toHaveLength(0)
+            socket.triggerConnect()
+
+            expect(socket.emitted.filter((entry) => entry.event === 'message')).toHaveLength(1)
+            await vi.waitFor(() => {
+                expect(socket.emitted.filter((entry) => entry.event === 'message')).toHaveLength(100)
+            })
+        } finally {
+            client.close()
+        }
+    })
+
+    it('emits workspace changes immediately before the ready event', async () => {
         socketHarness.sockets.length = 0
         const directory = mkdtempSync(join(tmpdir(), 'hapi-api-session-changes-'))
         execFileSync('git', ['init', '-q'], { cwd: directory })
@@ -220,6 +244,10 @@ describe('ApiSessionClient lazy materialization', () => {
             writeFileSync(join(directory, 'file.txt'), 'after\n')
             client.sendAgentMessage({ type: 'message', message: 'done' })
             client.sendSessionEvent({ type: 'ready' })
+
+            await vi.waitFor(() => {
+                expect(socketHarness.sockets[0]?.emitted.filter((entry) => entry.event === 'message')).toHaveLength(3)
+            })
 
             const sentMessages = socketHarness.sockets[0]?.emitted
                 .filter((entry) => entry.event === 'message')

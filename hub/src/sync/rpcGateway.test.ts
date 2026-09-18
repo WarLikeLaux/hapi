@@ -68,6 +68,14 @@ describe('RpcGateway RPC timeouts', () => {
         expect(timeouts).toEqual([120_000])
     })
 
+    it('waits for slow session startup longer than the runner webhook deadline', async () => {
+        const { gateway, timeouts } = createGateway()
+
+        await gateway.spawnSession('machine-1', '/workspace', 'codex')
+
+        expect(timeouts).toEqual([130_000])
+    })
+
     it('uses the session RPC for explicit Codex fallback discovery', async () => {
         const { gateway, calls, timeouts } = createGateway()
 

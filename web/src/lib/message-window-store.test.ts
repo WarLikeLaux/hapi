@@ -1098,6 +1098,59 @@ describe('message tail synchronization', () => {
 })
 
 describe('history view and older pagination', () => {
+    it('preserves the real final answer while paging across an oversized response', async () => {
+        const id = sessionId('oversized-response-final')
+        const agentRows = Array.from({ length: 1_000 }, (_, index) => {
+            const seq = index + 2
+            return makeAgentMessage({
+                id: seq === 1_001 ? 'real-final-answer' : `work-${seq}`,
+                seq,
+                at: seq
+            })
+        })
+        const pages = [
+            agentRows.slice(980),
+            agentRows.slice(780, 980),
+            agentRows.slice(580, 780),
+            agentRows.slice(380, 580),
+            agentRows.slice(180, 380),
+            [
+                makeUserMessage({ id: 'original-prompt', seq: 1, invokedAt: 1, createdAt: 1 }),
+                ...agentRows.slice(0, 180)
+            ]
+        ]
+        const getMessages = vi.fn()
+            .mockResolvedValueOnce(latestResponse(pages[0]!, {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 982,
+                nextBeforeSeq: 982
+            }))
+        for (let index = 1; index < pages.length; index += 1) {
+            const page = pages[index]!
+            const oldest = page[0]!
+            getMessages.mockResolvedValueOnce(beforeResponse(page, {
+                epoch: 1,
+                hasMore: index < pages.length - 1,
+                nextBeforeAt: oldest.invokedAt ?? oldest.createdAt,
+                nextBeforeSeq: oldest.seq!
+            }))
+        }
+
+        const api = createApi(getMessages)
+        await syncTailMessages(api, id)
+        setMessageViewMode(id, 'history')
+        for (let index = 1; index < pages.length; index += 1) {
+            await fetchOlderMessages(api, id)
+        }
+
+        const state = getMessageWindowState(id)
+        expect(state.messages).toHaveLength(800)
+        expect(state.messages.some((message) => message.id === 'original-prompt')).toBe(true)
+        expect(state.messages.some((message) => message.id === 'real-final-answer')).toBe(true)
+        expect(state.messages.some((message) => message.id === 'work-900')).toBe(false)
+    })
+
     it('appends while reading history, then compacts at the tail', () => {
         const id = sessionId('history-unseen')
         const initial = Array.from({ length: VISIBLE_WINDOW_SIZE }, (_, index) =>
