@@ -43,6 +43,7 @@ describe('sendClaudeSessionMessage createdAt propagation', () => {
 
     function makeClient() {
         const fakeSocket = {
+            connected: true,
             on: vi.fn(),
             connect: vi.fn(),
             emit: vi.fn(),
@@ -246,7 +247,7 @@ describe('sendClaudeSessionMessage createdAt propagation', () => {
             .not.toBe(true)
     })
 
-    it('rebatched restored prompt replaces the original echo marker', () => {
+    it('rebatched restored prompt replaces the original echo marker', async () => {
         const { client, fakeSocket } = makeClient()
         client.notePendingHubPromptEcho('hello from web', 'local-1')
         client.notePendingHubPromptEcho('hello from web\nqueued while retrying', ['local-1', 'local-2'])
@@ -276,12 +277,13 @@ describe('sendClaudeSessionMessage createdAt propagation', () => {
             message: { role: 'user', content: 'hello from web' }
         } as unknown as RawJSONLines)
 
+        await vi.waitFor(() => expect(fakeSocket.emit).toHaveBeenCalled())
         const [, local] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
         expect((local.message as { meta?: { isTranscriptEcho?: boolean } }).meta?.isTranscriptEcho)
             .not.toBe(true)
     })
 
-    it('id-less rebatch replaces the previous id-less echo marker', () => {
+    it('id-less rebatch replaces the previous id-less echo marker', async () => {
         const { client, fakeSocket } = makeClient()
         client.notePendingHubPromptEcho('hello from web')
         client.notePendingHubPromptEcho('hello from web\nqueued while retrying')
@@ -311,6 +313,7 @@ describe('sendClaudeSessionMessage createdAt propagation', () => {
             message: { role: 'user', content: 'hello from web' }
         } as unknown as RawJSONLines)
 
+        await vi.waitFor(() => expect(fakeSocket.emit).toHaveBeenCalled())
         const [, local] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
         expect((local.message as { meta?: { isTranscriptEcho?: boolean } }).meta?.isTranscriptEcho)
             .not.toBe(true)

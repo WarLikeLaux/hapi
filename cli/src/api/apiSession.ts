@@ -186,6 +186,7 @@ type PendingOutboundEvent = {
 }
 
 const MAX_PENDING_DROPPABLE_EVENTS = 256
+const OUTBOUND_EVENT_BATCH_SIZE = 1
 const MATERIALIZATION_RETRY_MIN_MS = 1_000
 const MATERIALIZATION_RETRY_MAX_MS = 30_000
 
@@ -283,6 +284,7 @@ export class ApiSessionClient extends EventEmitter {
     private metadataChangedDuringAttempt = false
     private agentStateChangedDuringAttempt = false
     private readonly pendingOutboundEvents: PendingOutboundEvent[] = []
+    private pendingOutboundDrain: Promise<void> | null = null
     private didWarnPendingQueueFull = false
     private readonly workspaceChangesTracker = new WorkspaceChangesTracker()
     private currentThinking = false
@@ -337,6 +339,7 @@ export class ApiSessionClient extends EventEmitter {
             logger.debug('Socket connected successfully')
             this.awaitingMaterializedConnection = false
             this.rpcHandlerManager.onSocketConnect(this.socket)
+            void this.drainPendingOutboundEvents()
             if (this.hasConnectedOnce) {
                 this.needsBackfill = true
             }
@@ -681,10 +684,6 @@ export class ApiSessionClient extends EventEmitter {
         emit: () => void,
         retention: PendingOutboundEvent['retention'] = 'lossless'
     ): void {
-        if (this.state === 'active') {
-            emit()
-            return
-        }
         if (this.state === 'closed') {
             return
         }
@@ -708,6 +707,40 @@ export class ApiSessionClient extends EventEmitter {
             }
         }
         this.pendingOutboundEvents.push({ emit, retention })
+        if (this.state === 'active' && this.socket.connected) {
+            void this.drainPendingOutboundEvents()
+        }
+    }
+
+    private drainPendingOutboundEvents(): Promise<void> {
+        if (this.pendingOutboundDrain) {
+            return this.pendingOutboundDrain
+        }
+        if (!this.socket.connected || this.pendingOutboundEvents.length === 0) {
+            return Promise.resolve()
+        }
+
+        const task = (async () => {
+            while (this.socket.connected && this.state === 'active' && this.pendingOutboundEvents.length > 0) {
+                const batch = this.pendingOutboundEvents.splice(0, OUTBOUND_EVENT_BATCH_SIZE)
+                for (const pendingEvent of batch) {
+                    pendingEvent.emit()
+                }
+                // Hold the drain open through the next macrotask even when the
+                // queue is momentarily empty. Native history notifications are
+                // awaited one-by-one on the microtask queue; without this yield
+                // each looks isolated and Socket.IO still coalesces the whole
+                // replay into one event-loop-blocking transport burst.
+                await new Promise<void>((resolve) => setTimeout(resolve, 0))
+            }
+        })()
+        this.pendingOutboundDrain = task.finally(() => {
+            this.pendingOutboundDrain = null
+            if (this.socket.connected && this.state === 'active' && this.pendingOutboundEvents.length > 0) {
+                void this.drainPendingOutboundEvents()
+            }
+        })
+        return this.pendingOutboundDrain
     }
 
     onUserMessage(callback: (data: UserMessage, localId?: string) => void): void {
@@ -1544,6 +1577,10 @@ export class ApiSessionClient extends EventEmitter {
             }
         }
 
+        if (!await this.waitForPromise(this.drainPendingOutboundEvents(), remainingMs())) {
+            return false
+        }
+
         if (!await this.drainLock(this.metadataLock, remainingMs())) {
             return false
         }
@@ -1580,6 +1617,7 @@ export class ApiSessionClient extends EventEmitter {
         this.materializationRetryAbortController = null
         this.awaitingMaterializedConnection = false
         this.pendingOutboundEvents.length = 0
+        this.pendingOutboundDrain = null
         this.rpcHandlerManager.onSocketDisconnect()
         this.terminalManager.closeAll()
         this.socket.disconnect()

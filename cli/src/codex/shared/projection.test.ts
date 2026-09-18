@@ -88,6 +88,22 @@ describe('shared history projection', () => {
         await projection.history(snapshot); projection.reset(); await projection.history(snapshot);
         expect(send).toHaveBeenCalledTimes(2); expect(send.mock.calls[0]).toEqual(send.mock.calls[1]);
     });
+    it('primes existing history without publishing it, then emits only new events', async () => {
+        const send = vi.fn(); const user = vi.fn(); const committed = vi.fn(async () => {});
+        const session = { getMetadata: () => ({}), sendAgentMessage: send, sendUserMessage: user,
+            updateMetadata: vi.fn() } as unknown as ApiSessionClient;
+        const projection = new SharedCodexProjection(session, 'thread', committed);
+        const snapshot = { turns: [{ id: 'old-turn', status: 'completed', items: [
+            { id: 'old-user', type: 'userMessage', clientId: 'old-client', content: [{ type: 'text', text: 'old prompt' }] },
+            { id: 'old-answer', type: 'agentMessage', text: 'old answer' }
+        ] }] };
+        await projection.history(snapshot, false);
+        expect(send).not.toHaveBeenCalled(); expect(user).not.toHaveBeenCalled(); expect(committed).not.toHaveBeenCalled();
+        await projection.notification('item/completed', { threadId: 'thread', turnId: 'new-turn',
+            item: { id: 'new-answer', type: 'agentMessage', text: 'new answer' } });
+        expect(send).toHaveBeenCalledOnce();
+        expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'message', message: 'new answer' }), expect.any(String));
+    });
     it('does not settle an active snapshot under the final message id', async () => {
         const send = vi.fn();
         const session = { getMetadata: () => ({}), sendAgentMessage: send } as unknown as ApiSessionClient;

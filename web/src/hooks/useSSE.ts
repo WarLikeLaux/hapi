@@ -733,7 +733,6 @@ export function useSSE(options: {
                 }
                 if (
                     event.type === 'message-cancelled'
-                    || event.type === 'messages-consumed'
                     || event.type === 'messages-indeterminate'
                     || event.type === 'messages-requeued'
                     || event.type === 'scheduled-matured'

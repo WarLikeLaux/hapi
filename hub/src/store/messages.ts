@@ -102,14 +102,14 @@ export type CopyStoredMessageInput = Pick<
     'content' | 'createdAt' | 'localId' | 'invokedAt' | 'scheduledAt' | 'deliveryState'
 >
 
-export function addMessage(
+export function addMessageWithStatus(
     db: Database,
     sessionId: string,
     content: unknown,
     localId?: string,
     scheduledAt?: number | null,
     createdAt?: number
-): StoredMessage {
+): { message: StoredMessage; inserted: boolean } {
     const now = Date.now()
     // Client-provided origin timestamp (e.g. a Claude transcript entry's own
     // `timestamp`), falling back to server-receive time when absent. Only
@@ -132,7 +132,7 @@ export function addMessage(
             'SELECT * FROM messages WHERE session_id = ? AND local_id = ? LIMIT 1'
         ).get(sessionId, localId) as DbMessageRow | undefined
         if (existing) {
-            return toStoredMessage(existing)
+            return { message: toStoredMessage(existing), inserted: false }
         }
     }
 
@@ -175,8 +175,19 @@ export function addMessage(
         if (previousHead && positionAt < previousHead.at) bumpMessageEpoch(db, sessionId)
         const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
         if (!row) throw new Error('Failed to create message')
-        return toStoredMessage(row)
+        return { message: toStoredMessage(row), inserted: true }
     })()
+}
+
+export function addMessage(
+    db: Database,
+    sessionId: string,
+    content: unknown,
+    localId?: string,
+    scheduledAt?: number | null,
+    createdAt?: number
+): StoredMessage {
+    return addMessageWithStatus(db, sessionId, content, localId, scheduledAt, createdAt).message
 }
 
 /** Shared engines own pending native text. Never overwrite an invoked row. */
@@ -680,7 +691,7 @@ export function countFutureScheduledBySessionIds(
     const placeholders = sessionIds.map(() => '?').join(',')
     const rows = prepareCached(db, `
         SELECT session_id, COUNT(*) AS count
-        FROM messages
+        FROM messages INDEXED BY idx_messages_scheduled_pending
         WHERE session_id IN (${placeholders})
           AND invoked_at IS NULL
           AND local_id IS NOT NULL
@@ -710,7 +721,7 @@ export function minFutureScheduledAtBySessionIds(
     const placeholders = sessionIds.map(() => '?').join(',')
     const rows = prepareCached(db, `
         SELECT session_id, MIN(scheduled_at) AS next_at
-        FROM messages
+        FROM messages INDEXED BY idx_messages_scheduled_pending
         WHERE session_id IN (${placeholders})
           AND invoked_at IS NULL
           AND local_id IS NOT NULL

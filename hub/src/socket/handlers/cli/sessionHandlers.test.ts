@@ -92,6 +92,35 @@ describe('cli session handlers', () => {
         store.close()
     })
 
+    it('does not rebroadcast transcript rows replayed with the same local id', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('message-replay', {}, null, 'default')
+        const socket = new FakeSocket()
+        const events: SyncEvent[] = []
+        const progress = mock()
+        registerSessionHandlers(socket as unknown as CliSocketWithData, {
+            store,
+            resolveSessionAccess: () => ({ ok: true, value: session }),
+            emitAccessError() {},
+            onAgentProgress: progress,
+            onWebappEvent: event => events.push(event)
+        })
+        const data = {
+            sid: session.id,
+            localId: 'stable-native-id',
+            createdAt: 1_234,
+            message: { role: 'agent', content: { type: 'text', text: 'answer' } }
+        }
+
+        socket.trigger('message', data)
+        socket.trigger('message', data)
+
+        expect(store.messages.getAllMessages(session.id)).toHaveLength(1)
+        expect(events.filter((event) => event.type === 'message-received')).toHaveLength(1)
+        expect(progress).toHaveBeenCalledTimes(1)
+        store.close()
+    })
+
     it('does not mark synchronous consumed commands as busy', () => {
         const store = new Store(':memory:')
         const session = store.sessions.getOrCreateSession('consumed-command', {}, null, 'default')

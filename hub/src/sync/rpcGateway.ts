@@ -47,6 +47,10 @@ import type { RpcRegistry } from '../socket/rpcRegistry'
 
 const DEFAULT_RPC_TIMEOUT_MS = 30_000
 const MODEL_LIST_RPC_TIMEOUT_MS = 120_000
+// Resuming a large agent session can spend substantial time replaying its
+// history before the runner receives the startup webhook. Keep this above the
+// runner's default webhook deadline so the RPC does not time out first.
+const SESSION_SPAWN_RPC_TIMEOUT_MS = 130_000
 
 /**
  * tiann/hapi#916: thrown by {@link RpcGateway.rpcCall} when the target CLI is
@@ -258,7 +262,8 @@ export class RpcGateway {
                     startingMode,
                     forkSession: forkSession === true,
                     freshGeneration: freshGeneration === true
-                }
+                },
+                SESSION_SPAWN_RPC_TIMEOUT_MS
             )
             if (result && typeof result === 'object') {
                 const obj = result as Record<string, unknown>
