@@ -89,6 +89,7 @@ const PERSIST_THROTTLE_MS = 200
 const STORAGE_KEY_PREFIX = 'hapi:message-window:v2:'
 const pendingNotifySessionIds = new Set<string>()
 const pendingPersistSessionIds = new Set<string>()
+const normalizedMessageCache = new WeakMap<DecryptedMessage, ReturnType<typeof normalizeDecryptedMessage>>()
 let notifyRafId: ReturnType<typeof requestAnimationFrame> | null = null
 let notifyTimerId: ReturnType<typeof setTimeout> | null = null
 let persistTimerId: ReturnType<typeof setTimeout> | null = null
@@ -439,6 +440,76 @@ function sliceForTrim<T>(
         : { kept: items.slice(items.length - limit), dropped: items.slice(0, items.length - limit) }
 }
 
+/**
+ * Keep the semantic edges of a conversation window when there are more
+ * response anchors than the raw-message budget allows. History pagination
+ * needs the oldest anchors for the viewport being explored, but the newest
+ * anchors contain the authoritative final response shown at the tail.
+ */
+function sliceAnchorsForTrim<T>(
+    items: T[],
+    limit: number,
+    mode: 'append' | 'prepend'
+): { kept: T[]; dropped: T[] } {
+    if (items.length <= limit || mode === 'append') {
+        return sliceForTrim(items, limit, mode)
+    }
+    if (limit <= 0) {
+        return { kept: [], dropped: items }
+    }
+
+    const tailReserve = Math.min(128, Math.max(1, Math.floor(limit / 4)))
+    const headCount = limit - tailReserve
+    return {
+        kept: [...items.slice(0, headCount), ...items.slice(items.length - tailReserve)],
+        dropped: items.slice(headCount, items.length - tailReserve)
+    }
+}
+
+/**
+ * Raw history is paged and trimmed before it is projected into chat responses.
+ * Preserve user turns plus the final text and final raw item of every adjacent
+ * assistant run so trimming cannot turn an arbitrary intermediate update into
+ * the visible "final answer".
+ */
+function findConversationAnchorIds(messages: DecryptedMessage[]): Set<string> {
+    const anchors = new Set<string>()
+    let lastAgentMessageId: string | null = null
+    let lastAgentTextId: string | null = null
+
+    const flushAgentRun = () => {
+        if (lastAgentTextId) anchors.add(lastAgentTextId)
+        if (lastAgentMessageId) anchors.add(lastAgentMessageId)
+        lastAgentMessageId = null
+        lastAgentTextId = null
+    }
+
+    for (const message of messages) {
+        const normalized = normalizeWindowMessage(message)
+        if (!normalized) continue
+
+        if (normalized.role === 'user') {
+            flushAgentRun()
+            anchors.add(message.id)
+            continue
+        }
+        if (normalized.role === 'event') {
+            flushAgentRun()
+            continue
+        }
+
+        lastAgentMessageId = message.id
+        if (normalized.content.some((part) => (
+            (part.type === 'text' && part.text.trim().length > 0)
+            || part.type === 'codex-review'
+        ))) {
+            lastAgentTextId = message.id
+        }
+    }
+    flushAgentRun()
+    return anchors
+}
+
 function isCodexAgentRunMessage(message: DecryptedMessage): boolean {
     const outer = message.content
     if (!outer || typeof outer !== 'object' || (outer as { role?: unknown }).role !== 'agent') {
@@ -501,11 +572,20 @@ function trimPreservingQueued(
     const nonQueued = messages.filter((message) => !queuedIds.has(message.id))
     const agentRuns = nonQueued.filter(isCodexAgentRunMessage)
     const regular = nonQueued.filter((message) => !isCodexAgentRunMessage(message))
-    const regularTrim = sliceForTrim(regular, Math.max(0, regularLimit - queued.length), mode)
+    const regularBudget = Math.max(0, regularLimit - queued.length)
+    const anchorIds = findConversationAnchorIds(regular)
+    const anchors = regular.filter((message) => anchorIds.has(message.id))
+    const ordinary = regular.filter((message) => !anchorIds.has(message.id))
+    const anchorTrim = sliceAnchorsForTrim(anchors, regularBudget, mode)
+    const ordinaryTrim = sliceForTrim(
+        ordinary,
+        Math.max(0, regularBudget - anchorTrim.kept.length),
+        mode
+    )
     const agentRunTrim = sliceForTrim(agentRuns, AGENT_RUN_WINDOW_SIZE, mode)
     return {
-        kept: mergeMessages([...regularTrim.kept, ...agentRunTrim.kept], queued),
-        dropped: [...regularTrim.dropped, ...agentRunTrim.dropped]
+        kept: mergeMessages([...anchorTrim.kept, ...ordinaryTrim.kept, ...agentRunTrim.kept], queued),
+        dropped: [...anchorTrim.dropped, ...ordinaryTrim.dropped, ...agentRunTrim.dropped]
     }
 }
 
@@ -514,7 +594,16 @@ function optimisticMessage(message: DecryptedMessage): boolean {
 }
 
 function shouldRetainWindowMessage(message: DecryptedMessage): boolean {
-    return isQueuedForInvocation(message) || normalizeDecryptedMessage(message) !== null
+    return isQueuedForInvocation(message) || normalizeWindowMessage(message) !== null
+}
+
+function normalizeWindowMessage(message: DecryptedMessage): ReturnType<typeof normalizeDecryptedMessage> {
+    if (normalizedMessageCache.has(message)) {
+        return normalizedMessageCache.get(message) ?? null
+    }
+    const normalized = normalizeDecryptedMessage(message)
+    normalizedMessageCache.set(message, normalized)
+    return normalized
 }
 
 function countNewRenderableMessages(

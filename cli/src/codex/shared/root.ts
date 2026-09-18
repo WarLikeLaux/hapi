@@ -82,7 +82,8 @@ export class SharedCodexRoot {
             : undefined;
     };
 
-    constructor(readonly bootstrap: SessionBootstrapResult, private readonly host: RootHost) {
+    constructor(readonly bootstrap: SessionBootstrapResult, private readonly host: RootHost,
+        private readonly publishInitialHistory = true) {
         this.session = bootstrap.session;
         this.client = new CodexAppServerClient({ endpoint: host.endpoint, token: host.token, cwd: bootstrap.workingDirectory });
         this.client.setNotificationHandler((method, params) => {
@@ -223,7 +224,18 @@ export class SharedCodexRoot {
         }));
         if (subscribe) response = record(await this.client.request('thread/resume', { threadId }));
         this.acceptSettings(response); this.acceptSettings(this.host.settingsFor(threadId) ?? {});
-        await this.projection.history(response.thread); await this.refresh(); await this.refreshChildren(true);
+        if (this.publishInitialHistory) {
+            await this.projection.history(response.thread);
+            await this.refresh();
+        } else {
+            // The existing HAPI session is the durable history. Asking Codex to
+            // materialize every old turn here can take minutes (including old
+            // git snapshots) even if projection output is muted. Reconcile only
+            // the native input queue; live notifications resume from this point.
+            await this.queue.reconcile();
+            this.alive();
+        }
+        await this.refreshChildren(true, this.publishInitialHistory);
     }
     async activate(options: SharedLaunchOptions = {}): Promise<void> {
         // Restored input cannot run before the cold-resume settings are applied.
@@ -309,10 +321,10 @@ export class SharedCodexRoot {
         } else thread = record(record(await this.client.request('thread/read', { threadId, includeTurns: true })).thread);
         return thread;
     }
-    refresh(): Promise<void> {
-        return this.refreshing ??= this.refreshNow().finally(() => { this.refreshing = undefined; });
+    refresh(publishHistory = true): Promise<void> {
+        return this.refreshing ??= this.refreshNow(publishHistory).finally(() => { this.refreshing = undefined; });
     }
-    private async refreshNow(): Promise<void> {
+    private async refreshNow(publishHistory: boolean): Promise<void> {
         if (!this.threadId || this.closed || !this.client.isInitialized()) return;
         const revision = this.turnRevision;
         const thread = await this.readThread();
@@ -328,9 +340,9 @@ export class SharedCodexRoot {
             const id = string(last?.id);
             this.latestTurn = id && last ? { id, status: string(last.status) ?? 'unknown', planId: planProposalForTurn(this.threadId, last) } : undefined;
         }
-        await this.projection.history(thread); await this.queue.reconcile(); this.alive();
+        await this.projection.history(thread, publishHistory); await this.queue.reconcile(); this.alive();
     }
-    private async refreshChildren(subscribe: boolean): Promise<void> {
+    private async refreshChildren(subscribe: boolean, publishHistory = true): Promise<void> {
         let cursor: string | undefined;
         do {
             const page = record(await this.client.request('thread/list', { ancestorThreadId: this.threadId, cursor,
@@ -354,7 +366,9 @@ export class SharedCodexRoot {
             // Replaying a completed/unloaded child must not start its engine.
             try {
                 if (subscribe && loaded.has(id)) await this.client.request('thread/resume', { threadId: id });
-                projection.reset(); await projection.history(await this.readThread(id));
+                if (publishHistory) {
+                    projection.reset(); await projection.history(await this.readThread(id));
+                }
             } catch (error) { logger.debug('[Codex shared] child history unavailable', { id, error }); }
         }
     }

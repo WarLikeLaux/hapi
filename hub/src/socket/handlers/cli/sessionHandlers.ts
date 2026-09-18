@@ -144,8 +144,14 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
         }
 
         const { sid, localId, createdAt } = parsed.data
-        const raw = parsed.data.message
+        const sessionAccess = resolveSessionAccess(sid)
+        if (!sessionAccess.ok) {
+            emitAccessError('session', sid, sessionAccess.reason)
+            return
+        }
+        const session = sessionAccess.value
 
+        const raw = parsed.data.message
         const content = typeof raw === 'string'
             ? (() => {
                 try {
@@ -156,18 +162,22 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
             })()
             : raw
 
-        const sessionAccess = resolveSessionAccess(sid)
-        if (!sessionAccess.ok) {
-            emitAccessError('session', sid, sessionAccess.reason)
-            return
-        }
-        const session = sessionAccess.value
-
         if (isRedundantGoalStatusEventContent(content)) {
             return
         }
 
-        const msg = store.messages.addMessage(sid, content, localId, undefined, createdAt)
+        const { message: msg, inserted } = store.messages.addMessageWithStatus(
+            sid,
+            content,
+            localId,
+            undefined,
+            createdAt
+        )
+        // Native engines can replay transcript entries with stable local IDs.
+        // Persist them idempotently and do not rebroadcast old rows.
+        if (!inserted) {
+            return
+        }
 
         // The launcher's thinking=false keepalive is volatile and may be lost
         // while the socket reconnects after a hub restart. The persisted ready
@@ -493,8 +503,8 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
         }
         // Emit only after the DB transaction succeeds. This is an ACK-level
         // batch contract, so preserve its original timestamp even when IDs are
-        // heterogeneous, replayed, or unknown. `steered` is a live-only signal
-        // (never persisted) that marks mid-turn delivery for the web badge.
+        // heterogeneous, replayed, or unknown. The Web client applies these
+        // idempotently without refetching the full session list.
         onWebappEvent?.({ type: 'messages-consumed', sessionId: data.sid, localIds, invokedAt, ...(data.steered === true ? { steered: true } : {}) })
     })
 
