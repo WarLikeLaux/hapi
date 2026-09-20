@@ -17,6 +17,7 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { getHappyCliCommand } from '@/utils/spawnHappyCLI';
 import { ensureAgyHapiMcpConfig, ensureAgyHapiTitlePermission } from './utils/agyHapiMcpConfig';
 import { buildSessionTitleTurnReminder } from '@/modules/common/sessionTitlePrompt';
+import { DEFAULT_AGY_MODEL } from '@hapi/protocol';
 
 export async function runAgy(opts: {
     startedBy?: 'runner' | 'terminal';
@@ -42,7 +43,7 @@ export async function runAgy(opts: {
         startingMode
     };
 
-    const initialModel = opts.model ?? null;
+    const initialModel = opts.model ?? DEFAULT_AGY_MODEL;
 
     const bootstrap = opts.existingSessionId
         ? await bootstrapExistingSession({
