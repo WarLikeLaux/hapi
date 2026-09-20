@@ -29,6 +29,9 @@ export const DEFAULT_GEMINI_MODEL: GeminiModelPreset = 'gemini-2.5-pro'
 // needs an interactive keyring unlock, so this stays a hand-maintained mirror —
 // update it when agy's listing changes.
 export const AGY_MODEL_LABELS = {
+    'gemini-3.8-flash-high': 'Gemini 3.8 Flash (High)',
+    'gemini-3.8-flash-medium': 'Gemini 3.8 Flash (Medium)',
+    'gemini-3.8-flash-low': 'Gemini 3.8 Flash (Low)',
     'gemini-3.7-flash-high': 'Gemini 3.7 Flash (High)',
     'gemini-3.7-flash-medium': 'Gemini 3.7 Flash (Medium)',
     'gemini-3.7-flash-low': 'Gemini 3.7 Flash (Low)',
@@ -47,6 +50,7 @@ export const AGY_MODEL_LABELS = {
 
 export type AgyModelPreset = keyof typeof AGY_MODEL_LABELS
 export const AGY_MODEL_PRESETS = Object.keys(AGY_MODEL_LABELS) as AgyModelPreset[]
+export const DEFAULT_AGY_MODEL: AgyModelPreset = 'gemini-3.8-flash-medium'
 
 export function getAgyModelLabel(model: string): string | null {
     const trimmedModel = model.trim()

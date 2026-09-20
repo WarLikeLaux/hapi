@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import {
+    AGY_MODEL_LABELS,
+    AGY_MODEL_PRESETS,
     CLAUDE_MODEL_PRESETS,
     CLAUDE_MODEL_LABELS,
+    DEFAULT_AGY_MODEL,
     DEFAULT_GEMINI_MODEL,
     GEMINI_MODEL_LABELS,
     GEMINI_MODEL_PRESETS,
@@ -62,5 +65,16 @@ describe('model constants consistency', () => {
 
     test('DEFAULT_GEMINI_MODEL is a valid preset', () => {
         expect(GEMINI_MODEL_PRESETS).toContain(DEFAULT_GEMINI_MODEL)
+    })
+
+    test('every AGY_MODEL_PRESET has a label', () => {
+        for (const preset of AGY_MODEL_PRESETS) {
+            expect(AGY_MODEL_LABELS[preset]).toBeDefined()
+        }
+    })
+
+    test('DEFAULT_AGY_MODEL is a valid preset', () => {
+        expect(AGY_MODEL_PRESETS).toContain(DEFAULT_AGY_MODEL)
+        expect(DEFAULT_AGY_MODEL).toBe('gemini-3.8-flash-medium')
     })
 })
