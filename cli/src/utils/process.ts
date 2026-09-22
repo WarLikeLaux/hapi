@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import spawn from 'cross-spawn';
 
 export const isWindows = (): boolean => process.platform === 'win32';
@@ -10,10 +11,25 @@ export function isProcessAlive(pid: number): boolean {
 
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
     return false;
   }
+
+  if (process.platform === 'linux') {
+    try {
+      // In Linux, process.kill(pid, 0) succeeds if pid is a thread (LWP) of ANY multithreaded process.
+      // A process (thread group leader) must have Tgid === Pid in /proc/[pid]/status.
+      const status = readFileSync(`/proc/${pid}/status`, 'utf8');
+      const tgidMatch = status.match(/^Tgid:\s*(\d+)/m);
+      if (tgidMatch && Number(tgidMatch[1]) !== pid) {
+        return false;
+      }
+    } catch {
+      // If /proc is not mounted, restricted, or mocked in tests, rely on process.kill result
+    }
+  }
+
+  return true;
 }
 
 /** Stable marker for one OS PID generation; null means the platform probe failed. */
