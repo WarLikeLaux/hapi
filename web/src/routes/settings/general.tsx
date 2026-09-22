@@ -41,7 +41,7 @@ export default function SettingsGeneralPage() {
     })
 
     const hubSettingsMutation = useMutation({
-        mutationFn: async (patch: { sessionSummaryContract?: boolean; sessionSummaryInChat?: boolean }) => {
+        mutationFn: async (patch: { sessionSummaryContract?: boolean; sessionSummaryInChat?: boolean; claudeBrandedAsGlm?: boolean }) => {
             if (!api) throw new Error('API unavailable')
             return await api.updateHubSettings(patch)
         },
@@ -81,6 +81,24 @@ export default function SettingsGeneralPage() {
                                 }}
                             />
                         </>
+                    ) : null}
+                </SettingsSection>
+            ) : null}
+            {isOwner ? (
+                <SettingsSection
+                    title={t('settings.general.agentBranding.title')}
+                    description={t('settings.general.agentBranding.description')}
+                >
+                    {hubSettingsQuery.data ? (
+                        <SettingsSwitch
+                            label={t('settings.general.brandClaudeAsGlm')}
+                            description={t('settings.general.brandClaudeAsGlm.desc')}
+                            checked={hubSettingsQuery.data.claudeBrandedAsGlm}
+                            onChange={(checked) => {
+                                if (hubSettingsMutation.isPending) return
+                                hubSettingsMutation.mutate({ claudeBrandedAsGlm: checked })
+                            }}
+                        />
                     ) : null}
                 </SettingsSection>
             ) : null}

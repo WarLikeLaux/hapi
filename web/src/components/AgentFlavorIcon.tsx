@@ -10,8 +10,10 @@ import GeminiColor from '@lobehub/icons/es/Gemini/components/Color'
 import GrokMono from '@lobehub/icons/es/Grok/components/Mono'
 import KimiMono from '@lobehub/icons/es/Kimi/components/Mono'
 import OpenCodeMono from '@lobehub/icons/es/OpenCode/components/Mono'
+import ZaiMono from '@lobehub/icons/es/ZAI/components/Mono'
 import type { IconType } from '@lobehub/icons/es/types'
 import { CopilotIcon } from '@/components/icons/CopilotIcon'
+import { useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
 
 // Brand logos per agent flavor. Color variant where it stays visible on both
 // light and dark surfaces (claude/codex/gemini); Mono (currentColor) where the
@@ -27,6 +29,12 @@ const FLAVOR_LOGOS: Record<string, IconType> = {
     grok: GrokMono,
     kimi: KimiMono,
     opencode: OpenCodeMono,
+}
+
+// Fork hook: with the hub's `claudeBrandedAsGlm` setting on, the claude
+// flavor (wired to GLM models via z.ai) wears the z.ai mark instead.
+const GLM_BRANDED_LOGOS: Record<string, IconType> = {
+    claude: ZaiMono,
 }
 
 function PiLogo() {
@@ -45,6 +53,7 @@ const UNKNOWN_FLAVOR_BADGE = {
 
 export function AgentFlavorIcon({ flavor, className }: { flavor?: string | null; className?: string }) {
     const normalized = (flavor ?? '').trim().toLowerCase()
+    const claudeGlmBranded = useClaudeGlmBranding()
     const sizeClass = className ?? 'h-4 w-4'
     if (normalized === 'copilot') {
         return (
@@ -57,7 +66,7 @@ export function AgentFlavorIcon({ flavor, className }: { flavor?: string | null;
         )
     }
 
-    const Logo = FLAVOR_LOGOS[normalized]
+    const Logo = (claudeGlmBranded ? GLM_BRANDED_LOGOS[normalized] : undefined) ?? FLAVOR_LOGOS[normalized]
 
     if (Logo) {
         return (

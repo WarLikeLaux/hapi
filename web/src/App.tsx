@@ -19,6 +19,7 @@ import { useVisibilityReporter } from '@/hooks/useVisibilityReporter'
 import { queryKeys } from '@/lib/query-keys'
 import { refreshAllAgyCatalogs } from '@/lib/agyCatalogAnnouncement'
 import { AppContextProvider } from '@/lib/app-context'
+import { ClaudeGlmBrandingSync } from '@/components/ClaudeGlmBrandingSync'
 import { clearMessageWindow, rewindMessageWindow, syncTailMessages } from '@/lib/message-window-store'
 import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { useTranslation } from '@/lib/use-translation'
@@ -542,6 +543,7 @@ function AppInner() {
     return (
         <AppContextProvider value={{ api, token, baseUrl, titleSuggestionAvailable }}>
             <VoiceProvider>
+                <ClaudeGlmBrandingSync />
                 <PwaUpdateBannerWithStatusOffset
                     isSyncing={isSyncing}
                     isReconnecting={showReconnectingBanner}

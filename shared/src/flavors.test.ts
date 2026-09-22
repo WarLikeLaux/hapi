@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
     Capabilities,
     getFlavorLabel,
+    applyClaudeGlmBranding,
     hasCapability,
     isKnownFlavor,
     supportsEffort,
@@ -100,6 +101,19 @@ describe('getFlavorLabel', () => {
     test('null/undefined returns Unknown', () => {
         expect(getFlavorLabel(null)).toBe('Unknown')
         expect(getFlavorLabel(undefined)).toBe('Unknown')
+    })
+
+    test('claude GLM branding toggles the label without touching other flavors', () => {
+        try {
+            applyClaudeGlmBranding(true)
+            expect(getFlavorLabel('claude')).toBe('GLM')
+            expect(getFlavorLabel('codex')).toBe('Codex')
+
+            applyClaudeGlmBranding(false)
+            expect(getFlavorLabel('claude')).toBe('Claude')
+        } finally {
+            applyClaudeGlmBranding(false)
+        }
     })
 })
 
