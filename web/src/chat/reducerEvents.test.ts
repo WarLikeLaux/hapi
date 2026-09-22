@@ -73,3 +73,65 @@ describe('parseMessageAsEvent — usage limit formats', () => {
         expect(parseMessageAsEvent(msg)).toBeNull()
     })
 })
+
+describe('suppressResolvedRetryErrors', () => {
+    it('suppresses intermediate retry error when an agent message exists in the turn', async () => {
+        const { suppressResolvedRetryErrors } = await import('./reducerEvents')
+        const blocks: any[] = [
+            { kind: 'user-text', id: 'u1', text: 'Hello', createdAt: 1 },
+            { kind: 'agent-text', id: 'a1', text: 'Successful answer', createdAt: 2 },
+            {
+                kind: 'agent-event',
+                id: 'e1',
+                createdAt: 3,
+                event: {
+                    type: 'error',
+                    message: 'Your previous response was blocked by content safety filters: Prompt/response was blocked by Google Safety Filters. Retries remaining: 3',
+                },
+            },
+            { kind: 'agent-event', id: 'e2', createdAt: 4, event: { type: 'ready' } },
+        ]
+
+        const filtered = suppressResolvedRetryErrors(blocks)
+        expect(filtered.map((b) => b.id)).toEqual(['u1', 'a1', 'e2'])
+    })
+
+    it('preserves retry error when no agent message exists in the turn (all retries failed)', async () => {
+        const { suppressResolvedRetryErrors } = await import('./reducerEvents')
+        const blocks: any[] = [
+            { kind: 'user-text', id: 'u1', text: 'Hello', createdAt: 1 },
+            {
+                kind: 'agent-event',
+                id: 'e1',
+                createdAt: 2,
+                event: {
+                    type: 'error',
+                    message: 'Your previous response was blocked by content safety filters. Retries remaining: 0',
+                },
+            },
+        ]
+
+        const filtered = suppressResolvedRetryErrors(blocks)
+        expect(filtered.map((b) => b.id)).toEqual(['u1', 'e1'])
+    })
+
+    it('preserves non-retry errors even if an agent message exists', async () => {
+        const { suppressResolvedRetryErrors } = await import('./reducerEvents')
+        const blocks: any[] = [
+            { kind: 'user-text', id: 'u1', text: 'Hello', createdAt: 1 },
+            { kind: 'agent-text', id: 'a1', text: 'Partial answer', createdAt: 2 },
+            {
+                kind: 'agent-event',
+                id: 'e1',
+                createdAt: 3,
+                event: {
+                    type: 'error',
+                    message: 'turn limit reached',
+                },
+            },
+        ]
+
+        const filtered = suppressResolvedRetryErrors(blocks)
+        expect(filtered.map((b) => b.id)).toEqual(['u1', 'a1', 'e1'])
+    })
+})

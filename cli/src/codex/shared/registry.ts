@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
@@ -80,7 +80,12 @@ export async function withThreadOwnership<T>(home: string, threadId: string, own
     return withSettingsFileLock(join(directory, 'ownership'), async () => {
         for (const owner of await readRecords(directory, true)) {
             if (owner.id === ownId || owner.codexHome !== home) continue;
-            if (owner.pendingCreations?.length && runtimeMayBeAlive(owner)) {
+            if (!runtimeMayBeAlive(owner)) {
+                // Garbage-collect dead ownership record so stale files don't accumulate on disk
+                void unlink(join(directory, `${owner.id}.json`)).catch(() => {});
+                continue;
+            }
+            if (owner.pendingCreations?.length) {
                 throw new Error(`Codex runtime ${owner.id} has an unconfirmed creation. Inspect/stop that runtime before cold resume; its thread ID may be unknown.`);
             }
             const match = Object.entries(owner.sessions).find(([, session]) => session.threadId === threadId && session.active);

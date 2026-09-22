@@ -603,6 +603,16 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
                                 if (event.conversationId) {
                                     adoptStreamConversationId(event.conversationId);
                                 }
+                                const isRetryNotice = (err: string | null | undefined): boolean => {
+                                    if (!err) return false;
+                                    return /retries remaining/i.test(err)
+                                        || /attempting to regenerate/i.test(err)
+                                        || /your previous response was blocked/i.test(err);
+                                };
+
+                                const hasResponse = Boolean(event.response?.trim() || plannerResponseSent);
+                                const isResolvedRetry = isRetryNotice(event.error) && hasResponse;
+
                                 // Flush any planner text that never reached a DONE
                                 // line (stream ended / response truncated). A
                                 // SUCCESS result carries the authoritative complete
@@ -611,7 +621,7 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
                                 // response instead of discarding it or leaving a
                                 // partial ("hel" → "hello").
                                 const pending = planner.flushAll();
-                                if (event.status === 'SUCCESS' && event.response?.trim() && pending.length > 0) {
+                                if ((event.status === 'SUCCESS' || isResolvedRetry) && event.response?.trim() && pending.length > 0) {
                                     for (const entry of pending.slice(0, -1)) {
                                         void sendPlanner(entry);
                                     }
@@ -625,9 +635,12 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
                                 // The authoritative result arrived: seal the turn so
                                 // a Stop/kill before child close cannot restore it.
                                 this.turnCompleted = true;
+                                if (isResolvedRetry) {
+                                    logger.debug(`[agy-headless] suppressing resolved retry diagnostic: ${event.error}`);
+                                }
                                 // A failed envelope proves the prompt ran but the
                                 // turn failed; surface it (exit code may still be 0).
-                                if (event.status !== 'SUCCESS') {
+                                if (event.status !== 'SUCCESS' && !isResolvedRetry) {
                                     // `response` is still the model's user-facing
                                     // prose on failed turns; current agy versions
                                     // carry the diagnostic separately in `error`.

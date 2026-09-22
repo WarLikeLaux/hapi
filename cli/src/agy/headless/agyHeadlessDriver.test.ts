@@ -378,6 +378,31 @@ describe('AgyHeadlessDriver', () => {
         );
     });
 
+    it('suppresses resolved retry warnings when an answer was successfully delivered', async () => {
+        const { session, queue, client, sent } = createSession();
+        const stream = [
+            '{"event":"init","conversation_id":"c-f-retry","init":{}}',
+            '{"event":"step_update","step_update":{"conversation_id":"c-f-retry","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"successful answer"}}',
+            '{"event":"result","result":{"conversation_id":"c-f-retry","status":"ERROR","response":"successful answer","error":"Your previous response was blocked by content safety filters: Prompt/response was blocked by Google Safety Filters. Retries remaining: 3","duration_seconds":0.1}}',
+        ];
+        const driver = new AgyHeadlessDriver({ session, spawnAgy: () => fakeAgyProcess(stream) });
+
+        queue.push('hello', { permissionMode: 'request-review' }, 'local-1');
+        const launchPromise = driver.launch();
+        await new Promise((r) => setTimeout(r, 500));
+        queue.close();
+        session.stopKeepAlive();
+        await launchPromise;
+
+        const plannerEntries = sent
+            .map((args) => (args as unknown[])[0] as { type?: string; content?: string } | undefined)
+            .filter((e) => e?.type === 'PLANNER_RESPONSE');
+        expect(plannerEntries.map((e) => e!.content)).toEqual(['successful answer']);
+        expect(client.sendSessionEvent).not.toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'error' })
+        );
+    });
+
     it('does NOT ack the delivery when the turn fails before accepting the prompt', async () => {
         const { session, queue, client } = createSession();
         // Exit non-zero with no user_input step and no result: the prompt was

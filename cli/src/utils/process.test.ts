@@ -10,7 +10,7 @@ vi.mock('cross-spawn', () => ({
     }
 }))
 
-import { getHapiRunnerProcessIdentity } from './process'
+import { getHapiRunnerProcessIdentity, isProcessAlive } from './process'
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')
 
@@ -187,5 +187,17 @@ describe('getHapiRunnerProcessIdentity on POSIX', () => {
         spawnSyncMock.mockReturnValueOnce(completed(''))
 
         expect(getHapiRunnerProcessIdentity(8328)).toBe('unknown')
+    })
+})
+
+describe('isProcessAlive', () => {
+    it('returns false for negative or non-finite numbers', () => {
+        expect(isProcessAlive(-1)).toBe(false)
+        expect(isProcessAlive(0)).toBe(false)
+        expect(isProcessAlive(Number.NaN)).toBe(false)
+    })
+
+    it('returns true for the current process', () => {
+        expect(isProcessAlive(process.pid)).toBe(true)
     })
 })

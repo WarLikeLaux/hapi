@@ -138,3 +138,62 @@ export function foldApiErrorEvents(blocks: ChatBlock[]): ChatBlock[] {
 
     return result
 }
+
+/**
+ * Test whether an error message is an intermediate retry diagnostic
+ * (e.g. content safety filter retry notice) rather than a terminal failure.
+ */
+export function isIntermediateRetryMessage(message: unknown): boolean {
+    if (typeof message !== 'string') return false
+    return (
+        /retries remaining/i.test(message)
+        || /attempting to regenerate/i.test(message)
+        || /your previous response was blocked/i.test(message)
+        || /blocked by (?:content|google) safety filters/i.test(message)
+    )
+}
+
+/**
+ * Suppress intermediate retry error events (e.g. content safety filter retries)
+ * when the turn succeeded in producing an agent response.
+ */
+export function suppressResolvedRetryErrors(blocks: ChatBlock[]): ChatBlock[] {
+    // Partition blocks by user turn (bounded by user-text blocks).
+    // If a turn contains an agent response (agent-text, agent-reasoning, or assistant cli-output),
+    // any intermediate retry error events within that turn are suppressed.
+    const turns: ChatBlock[][] = []
+    let currentTurn: ChatBlock[] = []
+
+    for (const block of blocks) {
+        if (block.kind === 'user-text' && currentTurn.length > 0) {
+            turns.push(currentTurn)
+            currentTurn = []
+        }
+        currentTurn.push(block)
+    }
+    if (currentTurn.length > 0) {
+        turns.push(currentTurn)
+    }
+
+    const result: ChatBlock[] = []
+    for (const turn of turns) {
+        const hasAgentResponse = turn.some(
+            (b) => b.kind === 'agent-text'
+                || b.kind === 'agent-reasoning'
+                || (b.kind === 'cli-output' && b.source === 'assistant')
+        )
+        for (const block of turn) {
+            if (
+                hasAgentResponse
+                && block.kind === 'agent-event'
+                && (block.event as { type: string }).type === 'error'
+                && isIntermediateRetryMessage((block.event as { message?: unknown }).message)
+            ) {
+                continue
+            }
+            result.push(block)
+        }
+    }
+
+    return result
+}
