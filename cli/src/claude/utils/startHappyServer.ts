@@ -28,8 +28,14 @@ import {
 } from '@hapi/protocol/sessionCitation'
 import { PingPeerError, formatInspectPeerReport, formatPeerSessionsList, inspectPeer, listPeerSessions, peerListFetchLimit, pingPeer } from "@/modules/pingPeer/pingPeer";
 import { buildSessionTitleMcpInstructions } from '@/modules/common/sessionTitlePrompt';
+import { applySessionDisplayRename, normalizeSessionDisplayTitle } from "@/agent/sessionDisplayRename";
 
 type StartHappyServerOptions = {
+    /**
+     * When true (default), change_title writes metadata.name (web rename
+     * semantics). Set false for Codex collab so child agents do not rename
+     * the parent HAPI session; the parent launcher applies the title later.
+     */
     emitTitleSummary?: boolean;
     enableChangeTitle?: boolean;
     skillLookup?: {
@@ -76,20 +82,13 @@ function createHapiMcpServer(
             // that write, so persist those calls here.
             const callerName = mcp.server.getClientVersion()?.name;
             const shouldPersistDirectly = emitTitleSummary || callerName !== 'hapi-stdio-bridge';
-            if (emitTitleSummary) {
-                client.sendClaudeSessionMessage({
-                    type: 'summary',
-                    summary: title,
-                    leafUuid: randomUUID()
-                });
+            const normalizedTitle = normalizeSessionDisplayTitle(title);
+            if (!normalizedTitle) {
+                return { success: false, error: 'Title must not be empty' };
             }
             if (shouldPersistDirectly) {
-                client.updateMetadata((metadata) => ({
-                    ...metadata,
-                    name: title
-                }));
+                applySessionDisplayRename(client, normalizedTitle);
             }
-
             return { success: true };
         } catch (error) {
             return { success: false, error: String(error) };
@@ -193,13 +192,14 @@ function createHapiMcpServer(
         }, async (args: { title: string }) => {
             const response = await handler(args.title);
             logger.debug('[hapiMCP] Response:', response);
+            const displayTitle = normalizeSessionDisplayTitle(args.title) ?? args.title;
 
             if (response.success) {
                 return {
                     content: [
                         {
                             type: 'text' as const,
-                            text: `Successfully changed chat title to: "${args.title}"`,
+                            text: `Successfully changed chat title to: "${displayTitle}"`,
                         },
                     ],
                     isError: false,
