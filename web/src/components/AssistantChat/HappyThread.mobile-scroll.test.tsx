@@ -296,6 +296,25 @@ describe('mobile initial scroll settling', () => {
         expect(onViewModeChange).not.toHaveBeenCalledWith('history')
     })
 
+    it('treats an upward wheel over a nested scroll area as explicit intent', () => {
+        const { viewport, onViewModeChange } = renderThread()
+        act(() => {
+            vi.advanceTimersByTime(1_801)
+        })
+
+        const nested = document.createElement('div')
+        nested.setAttribute('data-hapi-nested-scroll', 'true')
+        viewport.appendChild(nested)
+        fireEvent.wheel(nested, { deltaY: -100 })
+
+        // Native chaining moves the chat once the nested area tops out.
+        viewport.scrollTop = 520
+        fireEvent.scroll(viewport)
+
+        expect(viewport.scrollTop).toBe(520)
+        expect(onViewModeChange).toHaveBeenLastCalledWith('history')
+    })
+
     it('still allows an explicit upward gesture after initial settling ends', () => {
         const { viewport, onViewModeChange } = renderThread()
         act(() => {

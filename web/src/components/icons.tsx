@@ -138,3 +138,16 @@ export function WrapIcon(props: IconProps) {
         2
     )
 }
+
+/** Download — tray with an arrow dropping into it. */
+export function DownloadIcon(props: IconProps) {
+    return createIcon(
+        <>
+            <path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5" />
+            <polyline points="16.5 12 12 16.5 7.5 12" />
+            <line x1="12" y1="16.5" x2="12" y2="3" />
+        </>,
+        props,
+        2
+    )
+}
