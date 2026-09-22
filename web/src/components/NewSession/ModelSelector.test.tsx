@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render } from '@testing-library/react'
+import { setClaudeGlmBranded } from '@/lib/claudeGlmBranding'
 
 vi.mock('@/lib/use-translation', () => ({
     useTranslation: () => ({ t: (key: string) => key }),
@@ -51,5 +52,25 @@ describe('ModelSelector', () => {
     it('renders nothing when options are empty', () => {
         const { container } = render(<ModelSelector {...baseProps} options={[]} />)
         expect(container.querySelector('select')).toBeNull()
+    })
+})
+
+describe('ModelSelector GLM-branded claude', () => {
+    afterEach(() => {
+        setClaudeGlmBranded(false)
+    })
+
+    function claudeOptionLabels() {
+        const { container } = render(<ModelSelector {...baseProps} agent="claude" />)
+        return [...container.querySelectorAll('option')].map((option) => option.textContent)
+    }
+
+    it('names the no-pick option after the model a GLM-wired claude actually runs', () => {
+        setClaudeGlmBranded(true)
+        expect(claudeOptionLabels()[0]).toBe('GLM 5.3 Flash')
+    })
+
+    it('keeps the plain Default label while the branding flag is off', () => {
+        expect(claudeOptionLabels()[0]).toBe('Default')
     })
 })

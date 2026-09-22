@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { constructorOptions, listModelsMock } = vi.hoisted(() => ({
+const { constructorOptions, listModelsMock, configDefaultsMock } = vi.hoisted(() => ({
     constructorOptions: [] as unknown[],
-    listModelsMock: vi.fn()
+    listModelsMock: vi.fn(),
+    configDefaultsMock: vi.fn()
 }));
 
 vi.mock('node:os', async () => {
     const actual = await vi.importActual<typeof import('node:os')>('node:os');
     return { ...actual, homedir: vi.fn(() => '/neutral-home') };
 });
+
+vi.mock('@/codex/utils/codexHome', () => ({
+    readCodexConfigDefaults: () => configDefaultsMock()
+}));
 
 vi.mock('@/codex/codexAppServerClient', () => ({
     CodexAppServerClient: class {
@@ -31,6 +36,7 @@ describe('listCodexModels cwd', () => {
     beforeEach(() => {
         constructorOptions.length = 0;
         listModelsMock.mockReset();
+        configDefaultsMock.mockReset().mockReturnValue({ model: null, modelReasoningEffort: null });
         _resetCodexModelsCacheForTests();
     });
 
@@ -118,5 +124,63 @@ describe('listCodexModels cwd', () => {
         await expect(listCodexModels()).rejects.toThrow('app-server exploded');
         await expect(listCodexModels()).rejects.toThrow('app-server exploded');
         expect(constructorOptions).toHaveLength(4);
+    });
+});
+
+describe('listCodexModels config defaults', () => {
+    beforeEach(() => {
+        constructorOptions.length = 0;
+        listModelsMock.mockReset();
+        configDefaultsMock.mockReset().mockReturnValue({ model: null, modelReasoningEffort: null });
+        _resetCodexModelsCacheForTests();
+    });
+
+    const CATALOG = [
+        { id: 'gpt-6-astra', displayName: 'GPT-6-Astra', isDefault: true },
+        { id: 'gpt-6-sol', displayName: 'GPT-6-Sol', isDefault: false }
+    ];
+
+    it('re-pins the default marking to the config model and stamps the config effort', async () => {
+        listModelsMock.mockResolvedValue({ data: CATALOG });
+        configDefaultsMock.mockReturnValue({ model: 'gpt-6-sol', modelReasoningEffort: 'high' });
+
+        const models = await listCodexModels();
+
+        expect(models).toEqual([
+            expect.objectContaining({ id: 'gpt-6-astra', isDefault: false }),
+            expect.objectContaining({
+                id: 'gpt-6-sol',
+                isDefault: true,
+                defaultReasoningEffort: 'high'
+            })
+        ]);
+    });
+
+    it('applies the config override to a cached catalog too, so an edited config shows up at once', async () => {
+        listModelsMock.mockResolvedValue({ data: CATALOG });
+        configDefaultsMock.mockReturnValue({ model: null, modelReasoningEffort: null });
+        await listCodexModels();
+
+        configDefaultsMock.mockReturnValue({ model: 'gpt-6-sol', modelReasoningEffort: 'high' });
+        const models = await listCodexModels();
+
+        expect(listModelsMock).toHaveBeenCalledTimes(1);
+        expect(models.find((model) => model.id === 'gpt-6-sol')).toMatchObject({
+            isDefault: true,
+            defaultReasoningEffort: 'high'
+        });
+    });
+
+    it('matches the config model case-insensitively and leaves the catalog alone when it is absent', async () => {
+        listModelsMock.mockResolvedValue({ data: CATALOG });
+        configDefaultsMock.mockReturnValue({ model: 'GPT-6-SOL', modelReasoningEffort: null });
+
+        const matched = await listCodexModels();
+        expect(matched.find((model) => model.id === 'gpt-6-sol')).toMatchObject({ isDefault: true });
+        expect(matched.find((model) => model.id === 'gpt-6-sol')?.defaultReasoningEffort).toBeNull();
+
+        configDefaultsMock.mockReturnValue({ model: 'gpt-9-vanished', modelReasoningEffort: 'high' });
+        const unmatched = await listCodexModels();
+        expect(unmatched.find((model) => model.id === 'gpt-6-astra')).toMatchObject({ isDefault: true });
     });
 });

@@ -27,7 +27,7 @@ function normalizeCodexComposerReasoningEffort(effort?: string | null): string |
     return trimmedEffort
 }
 
-function formatCodexReasoningEffortLabel(effort: string): string {
+export function formatCodexReasoningEffortLabel(effort: string): string {
     return CODEX_REASONING_EFFORT_LABELS[effort as keyof typeof CODEX_REASONING_EFFORT_LABELS]
         ?? `${effort.charAt(0).toUpperCase()}${effort.slice(1)}`
 }

@@ -16,10 +16,10 @@ const PROBE_TIMEOUT_MS = 15_000
 type AgyCatalog = NonNullable<AgyModelsResponse['availableModels']>
 
 // A probe is a whole agy invocation, so the catalog is served from the last one
-// agy answered. STALE_TTL_MS is the outer bound on that trust: past it the
-// listing stops standing in for the machine even if probes keep failing.
+// agy answered — forever, by design. FRESH_TTL_MS only bounds how long that
+// listing counts as fresh: past it, a hub (re)connect re-asks in the
+// background, while reads keep answering instantly from the cache.
 const FRESH_TTL_MS = 10 * 60_000
-const STALE_TTL_MS = 24 * 60 * 60_000
 
 // Floor between probes after one comes back empty. On a machine where agy hangs
 // on sign-in each attempt costs PROBE_TIMEOUT_MS, and both pickers ask.
@@ -356,11 +356,22 @@ function isCachedCatalogFresh(): boolean {
     return age >= 0 && age < FRESH_TTL_MS
 }
 
+// The hub (re)connect is the one free moment to re-ask: a hub restart is when
+// "the catalog may have moved on" is plausible, and connects while the cache is
+// still fresh (the first connect, reconnection flapping) skip the probe. The
+// answer never blocks anything — it lands in the cache and, when it changed,
+// rides the ordinary catalog-changed announcement to the hub.
+export function refreshAgyCatalogOnHubConnect(): void {
+    if (isCachedCatalogFresh()) {
+        return
+    }
+    void refreshCatalog(false).catch(() => { })
+}
+
 function servableCatalog(): ListAgyModelsResponse | null {
-    if (!cachedCatalog || cachedCatalogAge() >= STALE_TTL_MS) {
+    if (!cachedCatalog) {
         return null
     }
-
 
     const response: ListAgyModelsResponse = { success: true, availableModels: cachedCatalog.models }
     // A sign-in failure rides along with the listing: a picker that looked
@@ -411,9 +422,11 @@ async function answerAgyModels(options?: { refresh?: boolean }): Promise<ListAgy
 
     const cached = servableCatalog()
     if (cached) {
-        // A warning is itself a reason to look again — the user may have signed
-        // in since, and nothing else revalidates a catalog that is still fresh.
-        if (!isCachedCatalogFresh() || lastFailedProbe) {
+        // A failed probe is itself a reason to look again — the user may have
+        // signed in since, and the backoff rate-limits the re-asking. A stale
+        // catalog is no such reason: it is served eternally and revalidated on
+        // hub (re)connect or Retry only.
+        if (lastFailedProbe) {
             void refreshCatalog(false).catch(() => { })
         }
         return cached

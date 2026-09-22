@@ -1,5 +1,6 @@
-import { getAgyModelLabel } from '@hapi/protocol'
+import { DEFAULT_AGY_MODEL, getAgyModelLabel } from '@hapi/protocol'
 import { useTranslation } from '@/lib/use-translation'
+import type { ReactNode } from 'react'
 import type { AgyModelSummary } from '@/types/api'
 
 export type AgyModelSelectorProps = {
@@ -14,6 +15,8 @@ export type AgyModelSelectorProps = {
     selectedModel: string | null
     onModelChange: (modelId: string | null) => void
     onRetry?: () => void
+    /** Rendered inside the section under the select (quick-pick chips). */
+    children?: ReactNode
 }
 
 /** The catalog can change under an open form, so a model the user already picked
@@ -60,6 +63,14 @@ function RetryButton(props: { onRetry?: () => void; isFetching?: boolean }) {
 
 export function AgyModelSelector(props: AgyModelSelectorProps) {
     const { t } = useTranslation()
+    // With no model picked, a session starts on the fork's pinned agy default
+    // (runAgy falls back to DEFAULT_AGY_MODEL). The first option is named after
+    // that model itself — plainer than a "Default — X" prefix — and the catalog
+    // row for the same model is skipped so it is not listed twice.
+    const defaultModelLabel = getAgyModelLabel(DEFAULT_AGY_MODEL) ?? DEFAULT_AGY_MODEL
+    // An explicit pick of the default model launches the same thing, so it is
+    // displayed as the default option rather than a separate row.
+    const selectedValue = props.selectedModel === DEFAULT_AGY_MODEL ? '' : props.selectedModel
 
     if (!props.machineId) {
         return null
@@ -106,14 +117,14 @@ export function AgyModelSelector(props: AgyModelSelectorProps) {
                     ) : null}
                     <select
                         data-testid="agy-model-list"
-                        value={props.selectedModel ?? ''}
+                        value={selectedValue ?? ''}
                         onChange={(e) => props.onModelChange(e.target.value || null)}
                         className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
                     >
-                        <option value="">{t('newSession.model.default')}</option>
+                        <option value="">{defaultModelLabel}</option>
                         {withSelectedModel(
-                            props.availableModels,
-                            props.selectedModel,
+                            props.availableModels.filter((model) => model.modelId !== DEFAULT_AGY_MODEL),
+                            selectedValue,
                             t('newSession.agyModel.notListed')
                         ).map((model) => (
                             <option key={model.modelId} value={model.modelId}>
@@ -121,6 +132,7 @@ export function AgyModelSelector(props: AgyModelSelectorProps) {
                             </option>
                         ))}
                     </select>
+                    {props.children}
                 </div>
             )}
         </div>

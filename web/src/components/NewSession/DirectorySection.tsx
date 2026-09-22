@@ -1,7 +1,8 @@
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import { FloatingOverlay } from '@/components/ChatInput/FloatingOverlay'
+import { getProjectLabelHue } from '@/components/SessionRowSummary'
 import { useTranslation } from '@/lib/use-translation'
 import { getPathDisplayName } from '@/utils/path'
 
@@ -125,7 +126,14 @@ export function DirectorySection(props: {
                                 type="button"
                                 onClick={() => props.onPathClick(path)}
                                 disabled={props.isDisabled}
-                                className="rounded bg-[var(--app-subtle-bg)] px-2 py-1 text-xs text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] transition-colors truncate max-w-[200px] disabled:opacity-50"
+                                className="rounded-[5px] border border-[var(--session-project-border)] bg-[var(--session-project-bg)] px-2 py-1 text-xs font-medium leading-tight text-[var(--session-project-fg)] transition-[filter] hover:brightness-110 truncate max-w-[200px] disabled:opacity-50"
+                                style={{
+                                    // Same hue hashing as the session list project
+                                    // badges, so one project keeps its color in both.
+                                    '--session-project-fg': `light-dark(hsl(${getProjectLabelHue(path)} 78% 27%), hsl(${getProjectLabelHue(path)} 95% 88%))`,
+                                    '--session-project-bg': `light-dark(hsl(${getProjectLabelHue(path)} 92% 89%), hsl(${getProjectLabelHue(path)} 68% 30%))`,
+                                    '--session-project-border': `light-dark(hsl(${getProjectLabelHue(path)} 70% 72%), hsl(${getProjectLabelHue(path)} 68% 45%))`,
+                                } as CSSProperties}
                                 title={path}
                                 aria-label={path}
                             >

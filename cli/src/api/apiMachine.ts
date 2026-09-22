@@ -29,7 +29,7 @@ import { backoff } from '@/utils/time'
 import { getInvokedCwd } from '@/utils/invokedCwd'
 import { RpcHandlerManager } from './rpc/RpcHandlerManager'
 import { registerCommonHandlers } from '../modules/common/registerCommonHandlers'
-import { setAgyCatalogChangeListener } from '../modules/common/agyModels'
+import { refreshAgyCatalogOnHubConnect, setAgyCatalogChangeListener } from '../modules/common/agyModels'
 import {
     listOpencodeModelsForCwd,
     type ListOpencodeModelsForCwdRequest,
@@ -557,6 +557,9 @@ export class ApiMachineClient {
         this.socket.on('connect', () => {
             logger.debug('[API MACHINE] Connected to bot')
             this.rpcHandlerManager.onSocketConnect(this.socket)
+            // A hub (re)start is the one free moment to re-ask agy for its
+            // catalog in the background; the picker itself stays on the cache.
+            refreshAgyCatalogOnHubConnect()
             this.updateRunnerState((state) => ({
                 ...(state ?? {}),
                 status: 'running',

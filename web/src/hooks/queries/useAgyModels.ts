@@ -45,7 +45,12 @@ export function useAgyModels(args: {
             return await api.getMachineAgyModels(machineId, { refresh })
         },
         enabled,
-        staleTime: 60_000,
+        // The probe is an agy invocation that can take tens of seconds, so the
+        // cached catalog is kept fresh-feeling for a long time; real changes
+        // still arrive through the SSE catalog announcement. Retry exists for
+        // the rare moment the cache is actively unwanted.
+        staleTime: 10 * 60_000,
+        refetchOnWindowFocus: false,
         retry: false,
     })
 

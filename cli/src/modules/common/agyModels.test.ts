@@ -10,6 +10,7 @@ import {
     _parseAgyModelsOutputForTests,
     _resetAgyModelsCacheForTests,
     listAgyModels,
+    refreshAgyCatalogOnHubConnect,
     setAgyCatalogChangeListener
 } from './agyModels'
 
@@ -299,22 +300,17 @@ describe('listAgyModels catalog cache', () => {
         expect(result.availableModels).toEqual(CATALOG_A)
     })
 
-    it('answers from the stale catalog immediately and refreshes behind it', async () => {
+    it('answers from the stale catalog immediately without re-probing it', async () => {
+        // A probe is a whole agy invocation; reads never wait on one and never
+        // start one just because the catalog aged. Revalidation happens on a
+        // hub (re)connect or an explicit refresh.
         vi.useFakeTimers()
         await primeCatalog(LIVE_A)
         await vi.advanceTimersByTimeAsync(11 * 60_000)
 
-        const refresh = queueProbe()
         const stale = await listAgyModels()
         expect(stale.availableModels).toEqual(CATALOG_A)
-        expect(spawnMock).toHaveBeenCalledTimes(2)
-
-        finish(refresh, LIVE_B)
-        await vi.advanceTimersByTimeAsync(0)
-
-        const refreshed = await listAgyModels()
-        expect(refreshed.availableModels).toEqual(CATALOG_B)
-        expect(spawnMock).toHaveBeenCalledTimes(2)
+        expect(spawnMock).toHaveBeenCalledTimes(1)
     })
 
     it('runs one probe for callers that arrive together with nothing cached', async () => {
@@ -331,37 +327,56 @@ describe('listAgyModels catalog cache', () => {
         expect(b.availableModels).toEqual(CATALOG_A)
     })
 
-    it('keeps the last known catalog when the background refresh loses auth', async () => {
+    it('keeps answering from the catalog while a failed probe is in its backoff window', async () => {
         vi.useFakeTimers()
         await primeCatalog(LIVE_A)
-        await vi.advanceTimersByTimeAsync(11 * 60_000)
 
         const failing = queueProbe()
-        await listAgyModels()
+        const retried = listAgyModels({ refresh: true })
+        await Promise.resolve()
         finish(failing, AUTH_FAILURE)
-        await vi.advanceTimersByTimeAsync(0)
+        expect(await retried).toMatchObject({ success: true, error: expect.stringContaining('Authentication required') })
 
-        const afterFailure = queueProbe()
         const result = await listAgyModels()
-        expect(result.success).toBe(true)
         expect(result.availableModels).toEqual(CATALOG_A)
-        finish(afterFailure, AUTH_FAILURE)
-        await vi.advanceTimersByTimeAsync(0)
+        expect(spawnMock).toHaveBeenCalledTimes(2)
     })
 
-    it('stops serving a catalog older than a day and waits for the probe', async () => {
+    it('serves a catalog no matter how old it is without waiting for a probe', async () => {
         vi.useFakeTimers()
         await primeCatalog(LIVE_A)
         await vi.advanceTimersByTimeAsync(24 * 60 * 60_000 + 1_000)
 
-        const child = queueProbe()
-        const pending = listAgyModels()
-        await Promise.resolve()
-        finish(child, LIVE_B)
+        const result = await listAgyModels()
+        expect(spawnMock).toHaveBeenCalledTimes(1)
+        expect(result.availableModels).toEqual(CATALOG_A)
+    })
 
-        const result = await pending
+    it('re-probes on a hub connect once the catalog is no longer fresh and announces a change', async () => {
+        vi.useFakeTimers()
+        const changes: number[] = []
+        setAgyCatalogChangeListener(() => changes.push(Date.now()))
+        await primeCatalog(LIVE_A)
+        await vi.advanceTimersByTimeAsync(11 * 60_000)
+
+        const child = queueProbe()
+        refreshAgyCatalogOnHubConnect()
         expect(spawnMock).toHaveBeenCalledTimes(2)
-        expect(result.availableModels).toEqual(CATALOG_B)
+
+        finish(child, LIVE_B)
+        await vi.advanceTimersByTimeAsync(0)
+
+        expect(changes).toHaveLength(1)
+        expect((await listAgyModels()).availableModels).toEqual(CATALOG_B)
+    })
+
+    it('skips the probe on a hub connect while the catalog is still fresh', async () => {
+        vi.useFakeTimers()
+        await primeCatalog(LIVE_A)
+
+        refreshAgyCatalogOnHubConnect()
+
+        expect(spawnMock).toHaveBeenCalledTimes(1)
     })
 
     it('probes again on an explicit refresh even while the catalog is fresh', async () => {
@@ -423,7 +438,7 @@ describe('listAgyModels catalog cache', () => {
         await vi.advanceTimersByTimeAsync(11 * 60_000)
 
         const stalled = queueProbe()
-        await listAgyModels()
+        refreshAgyCatalogOnHubConnect()
         expect(spawnMock).toHaveBeenCalledTimes(2)
 
         const forced = queueProbe()
@@ -493,7 +508,7 @@ describe('listAgyModels catalog cache', () => {
 
         await vi.advanceTimersByTimeAsync(11 * 60_000)
         const refresh = queueProbe()
-        expect((await listAgyModels()).availableModels).toEqual(CATALOG_A)
+        refreshAgyCatalogOnHubConnect()
         finish(refresh, LIVE_B)
         await vi.advanceTimersByTimeAsync(0)
 
@@ -509,7 +524,7 @@ describe('listAgyModels catalog cache', () => {
         await primeCatalog(LIVE_A)
         await vi.advanceTimersByTimeAsync(11 * 60_000)
         const refresh = queueProbe()
-        await listAgyModels()
+        refreshAgyCatalogOnHubConnect()
         finish(refresh, LIVE_A)
         await vi.advanceTimersByTimeAsync(0)
 
@@ -536,7 +551,7 @@ describe('listAgyModels catalog cache', () => {
         await primeCatalog(LIVE_A)
         await vi.advanceTimersByTimeAsync(11 * 60_000)
         const refresh = queueProbe()
-        await listAgyModels()
+        refreshAgyCatalogOnHubConnect()
         finish(refresh, LIVE_B)
         await vi.advanceTimersByTimeAsync(0)
         expect(changes).toHaveLength(1)
@@ -582,7 +597,7 @@ describe('listAgyModels catalog cache', () => {
 
         await vi.advanceTimersByTimeAsync(11 * 60_000)
         const failing = queueProbe()
-        await listAgyModels()
+        refreshAgyCatalogOnHubConnect()
         finish(failing, AUTH_FAILURE)
         await vi.advanceTimersByTimeAsync(0)
 
@@ -596,7 +611,7 @@ describe('listAgyModels catalog cache', () => {
 
         await vi.advanceTimersByTimeAsync(11 * 60_000)
         const first = queueProbe()
-        await listAgyModels()
+        refreshAgyCatalogOnHubConnect()
         finish(first, AUTH_FAILURE)
         await vi.advanceTimersByTimeAsync(0)
 
@@ -709,17 +724,23 @@ describe('listAgyModels catalog cache', () => {
         expect(changes).toHaveLength(1)
     })
 
-    it('revalidates instead of trusting an entry the clock has thrown into the future', async () => {
+    it('revalidates through a hub connect instead of trusting an entry the clock has thrown into the future', async () => {
         vi.useFakeTimers()
         await primeCatalog(LIVE_A)
 
         vi.setSystemTime(Date.now() - 2 * 24 * 60 * 60_000)
-        const probe = queueProbe()
         const served = await listAgyModels()
         expect(served.availableModels).toEqual(CATALOG_A)
+        expect(spawnMock).toHaveBeenCalledTimes(1)
+
+        // The age cannot be trusted, so the cached entry never counts as fresh
+        // and the next hub connect re-asks rather than standing on it.
+        const probe = queueProbe()
+        refreshAgyCatalogOnHubConnect()
         expect(spawnMock).toHaveBeenCalledTimes(2)
         finish(probe, LIVE_B)
         await vi.advanceTimersByTimeAsync(0)
+        expect((await listAgyModels()).availableModels).toEqual(CATALOG_B)
     })
 
     it('surfaces the auth failure when there is no catalog to fall back on', async () => {

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { getProjectLabelHue } from '@/components/SessionRowSummary'
 import { DirectorySection } from './DirectorySection'
 
 vi.mock('@/lib/use-translation', () => ({
@@ -54,5 +55,31 @@ describe('DirectorySection', () => {
 
         fireEvent.click(recentPath)
         expect(onPathClick).toHaveBeenCalledWith(path)
+    })
+
+    it('colors recent path chips with the same project hue as the session list', () => {
+        const path = '/home/user/code/hapi'
+        const hue = getProjectLabelHue(path)
+
+        render(
+            <DirectorySection
+                directory=""
+                suggestions={[]}
+                selectedIndex={0}
+                isDisabled={false}
+                recentPaths={[path]}
+                onDirectoryChange={vi.fn()}
+                onDirectoryFocus={vi.fn()}
+                onDirectoryBlur={vi.fn()}
+                onDirectoryKeyDown={vi.fn()}
+                onSuggestionSelect={vi.fn()}
+                onPathClick={vi.fn()}
+            />
+        )
+
+        const recentPath = screen.getByRole('button', { name: path })
+        const style = recentPath.getAttribute('style') ?? ''
+        expect(style).toContain(`hsl(${hue} 78% 27%)`)
+        expect(style).toContain(`hsl(${hue} 68% 30%)`)
     })
 })
