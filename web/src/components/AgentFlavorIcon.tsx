@@ -6,11 +6,11 @@ import ClaudeColor from '@lobehub/icons/es/Claude/components/Color'
 import CursorMono from '@lobehub/icons/es/Cursor/components/Mono'
 import DeepSeekColor from '@lobehub/icons/es/DeepSeek/components/Color'
 import GeminiColor from '@lobehub/icons/es/Gemini/components/Color'
+import GlmvMono from '@lobehub/icons/es/GLMV/components/Mono'
 import GrokMono from '@lobehub/icons/es/Grok/components/Mono'
 import KimiMono from '@lobehub/icons/es/Kimi/components/Mono'
 import OpenAIMono from '@lobehub/icons/es/OpenAI/components/Mono'
 import OpenCodeMono from '@lobehub/icons/es/OpenCode/components/Mono'
-import ZaiMono from '@lobehub/icons/es/ZAI/components/Mono'
 import type { IconType } from '@lobehub/icons/es/types'
 import { CopilotIcon } from '@/components/icons/CopilotIcon'
 import { useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
@@ -33,9 +33,10 @@ const FLAVOR_LOGOS: Record<string, IconType> = {
 }
 
 // Fork hook: with the hub's `claudeBrandedAsGlm` setting on, the claude
-// flavor (wired to GLM models via z.ai) wears the z.ai mark instead.
+// flavor (wired to GLM models via z.ai) wears the GLM-V mark instead
+// (Mono, so it follows the theme like the codex OpenAI flower).
 const GLM_BRANDED_LOGOS: Record<string, IconType> = {
-    claude: ZaiMono,
+    claude: GlmvMono,
 }
 
 function PiLogo() {
