@@ -625,10 +625,28 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
                                 // The authoritative result arrived: seal the turn so
                                 // a Stop/kill before child close cannot restore it.
                                 this.turnCompleted = true;
-                                // A FAILURE envelope proves the prompt ran but the
+                                // A failed envelope proves the prompt ran but the
                                 // turn failed; surface it (exit code may still be 0).
                                 if (event.status !== 'SUCCESS') {
-                                    resultFailure = event.response?.trim()
+                                    // `response` is still the model's user-facing
+                                    // prose on failed turns; current agy versions
+                                    // carry the diagnostic separately in `error`.
+                                    // Treating response as the error repeats the
+                                    // whole answer in a warning card. Preserve a
+                                    // result-only response when no streamed planner
+                                    // text reached the chat, then report only the
+                                    // actual diagnostic (or a status fallback).
+                                    if (event.response?.trim() && !plannerResponseSent) {
+                                        void sendPlanner({
+                                            step_index: -1,
+                                            source: 'MODEL',
+                                            type: 'PLANNER_RESPONSE',
+                                            status: 'DONE',
+                                            created_at: '',
+                                            content: event.response,
+                                        });
+                                    }
+                                    resultFailure = event.error?.trim()
                                         || `agy turn failed: ${event.status}`;
                                 } else if (event.response?.trim()) {
                                     const response = event.response.trim();

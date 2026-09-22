@@ -320,14 +320,16 @@ describe('AgyHeadlessDriver', () => {
         expect(client.emitMessagesConsumed).toHaveBeenCalledWith(['local-1']);
     });
 
-    it('acks the delivery on a FAILED result envelope (prompt was still accepted)', async () => {
-        const { session, queue, client } = createSession();
+    it('acks the delivery on a failed result envelope (prompt was still accepted)', async () => {
+        const { session, queue, client, sent } = createSession();
         // agy reports a failure result without a user_input step: the prompt was
         // still accepted, so the hub row must be acknowledged (not left stale) —
-        // AND the failure must be surfaced visibly even though agy exits 0.
+        // AND the failure must be surfaced visibly even though agy exits 0. The
+        // response remains user-facing prose; only result.error belongs in the
+        // warning card.
         const stream = [
             '{"event":"init","conversation_id":"c-f","init":{}}',
-            '{"event":"result","result":{"conversation_id":"c-f","status":"FAILURE","response":"","duration_seconds":0.1}}',
+            '{"event":"result","result":{"conversation_id":"c-f","status":"ERROR","response":"partial answer","error":"model stream failed","duration_seconds":0.1}}',
         ];
         const driver = new AgyHeadlessDriver({ session, spawnAgy: () => fakeAgyProcess(stream) });
 
@@ -339,8 +341,40 @@ describe('AgyHeadlessDriver', () => {
         await launchPromise;
 
         expect(client.emitMessagesConsumed).toHaveBeenCalledWith(['local-1']);
+        const plannerEntries = sent
+            .map((args) => (args as unknown[])[0] as { type?: string; content?: string } | undefined)
+            .filter((e) => e?.type === 'PLANNER_RESPONSE');
+        expect(plannerEntries.map((e) => e!.content)).toEqual(['partial answer']);
         expect(client.sendSessionEvent).toHaveBeenCalledWith(
-            expect.objectContaining({ type: 'error', message: expect.stringContaining('agy turn failed') })
+            { type: 'error', message: 'model stream failed' }
+        );
+    });
+
+    it('does not repeat streamed answer text in a failed-turn warning', async () => {
+        const { session, queue, client, sent } = createSession();
+        const stream = [
+            '{"event":"init","conversation_id":"c-f-streamed","init":{}}',
+            '{"event":"step_update","step_update":{"conversation_id":"c-f-streamed","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"complete answer"}}',
+            '{"event":"result","result":{"conversation_id":"c-f-streamed","status":"ERROR","response":"complete answer","error":"turn limit reached","duration_seconds":0.1}}',
+        ];
+        const driver = new AgyHeadlessDriver({ session, spawnAgy: () => fakeAgyProcess(stream) });
+
+        queue.push('hello', { permissionMode: 'request-review' }, 'local-1');
+        const launchPromise = driver.launch();
+        await new Promise((r) => setTimeout(r, 500));
+        queue.close();
+        session.stopKeepAlive();
+        await launchPromise;
+
+        const plannerEntries = sent
+            .map((args) => (args as unknown[])[0] as { type?: string; content?: string } | undefined)
+            .filter((e) => e?.type === 'PLANNER_RESPONSE');
+        expect(plannerEntries.map((e) => e!.content)).toEqual(['complete answer']);
+        expect(client.sendSessionEvent).toHaveBeenCalledWith(
+            { type: 'error', message: 'turn limit reached' }
+        );
+        expect(client.sendSessionEvent).not.toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'error', message: 'complete answer' })
         );
     });
 

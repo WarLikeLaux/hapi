@@ -40,9 +40,15 @@ describe('parseAgyNdjsonLine', () => {
         expect(parseAgyNdjsonLine('{"event":"result","result":{}}')).toEqual({ kind: 'ignored', reason: 'result without status' });
     });
 
-    it('parses a FAILURE result envelope', () => {
-        const event = parseAgyNdjsonLine('{"event":"result","result":{"conversation_id":"abc","status":"FAILURE","response":""}}');
-        expect(event).toEqual({ kind: 'result', conversationId: 'abc', status: 'FAILURE', response: '' });
+    it('parses a failed result envelope including its diagnostic', () => {
+        const event = parseAgyNdjsonLine('{"event":"result","result":{"conversation_id":"abc","status":"ERROR","response":"partial answer","error":"model stream failed"}}');
+        expect(event).toEqual({
+            kind: 'result',
+            conversationId: 'abc',
+            status: 'ERROR',
+            response: 'partial answer',
+            error: 'model stream failed',
+        });
     });
 
     it('parses the result envelope', () => {
@@ -52,6 +58,7 @@ describe('parseAgyNdjsonLine', () => {
             conversationId: 'abc',
             status: 'SUCCESS',
             response: 'OK\n',
+            error: null,
         });
     });
 
