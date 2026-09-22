@@ -31,7 +31,7 @@ export type AgyStreamEvent =
     | { kind: 'planner-delta'; stepIndex: number; delta: string; isDone: boolean; conversationId?: string }
     | { kind: 'tool'; entry: AgyTranscriptEntry; toolCall: AgyToolCall; isDone: boolean; conversationId?: string }
     | { kind: 'checkpoint'; stepIndex: number; conversationId?: string }
-    | { kind: 'result'; conversationId: string; status: string; response: string | null }
+    | { kind: 'result'; conversationId: string; status: string; response: string | null; error: string | null }
     | { kind: 'ignored'; reason: string };
 
 type StepUpdate = {
@@ -52,6 +52,7 @@ type ResultEnvelope = {
     conversation_id?: string;
     status?: string;
     response?: string;
+    error?: string;
 };
 
 /** agy tool ids are snake_case (run_command, view_file, …); transcript entry types are SCREAMING_SNAKE (RUN_COMMAND, VIEW_FILE, …). */
@@ -102,6 +103,7 @@ export function parseAgyNdjsonLine(rawLine: string): AgyStreamEvent {
             conversationId: typeof result.conversation_id === 'string' ? result.conversation_id : '',
             status: result.status,
             response: typeof result.response === 'string' ? result.response : null,
+            error: typeof result.error === 'string' ? result.error : null,
         };
     }
 
