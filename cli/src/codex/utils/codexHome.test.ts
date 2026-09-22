@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { copyCodexConfigFile, resolveCodexHome } from './codexHome';
+import { copyCodexConfigFile, readCodexConfigDefaults, resolveCodexHome } from './codexHome';
 
 const temporaryDirectories: string[] = [];
 
@@ -39,5 +39,29 @@ describe('codexHome', () => {
         const targetHome = await createTemporaryDirectory();
 
         await expect(copyCodexConfigFile(sourceHome, targetHome)).resolves.toBeNull();
+    });
+});
+
+describe('readCodexConfigDefaults', () => {
+    it('reads the top-level model and reasoning effort keys', async () => {
+        const home = await createTemporaryDirectory();
+        await writeFile(join(home, 'config.toml'), [
+            'model = "gpt-6-sol"',
+            'model_reasoning_effort = "high"',
+            '',
+            '[projects."/home/x"]',
+            'model = "ignored"',
+            'trust_level = "trusted"'
+        ].join('\n'));
+
+        expect(readCodexConfigDefaults(home)).toEqual({ model: 'gpt-6-sol', modelReasoningEffort: 'high' });
+    });
+
+    it('ignores keys inside tables and tolerates a missing config', async () => {
+        const home = await createTemporaryDirectory();
+        await writeFile(join(home, 'config.toml'), '[profiles.fast]\nmodel = "gpt-9"\n');
+
+        expect(readCodexConfigDefaults(home)).toEqual({ model: null, modelReasoningEffort: null });
+        expect(readCodexConfigDefaults(join(home, 'nope'))).toEqual({ model: null, modelReasoningEffort: null });
     });
 });

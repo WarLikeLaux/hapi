@@ -1,5 +1,8 @@
+import type { ReactNode } from 'react'
+import { CLAUDE_GLM_DEFAULT_MODEL_LABEL } from '@hapi/protocol'
 import type { AgentType } from './types'
 import { MODEL_OPTIONS } from './types'
+import { useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
 import { useTranslation } from '@/lib/use-translation'
 import { SelectControl } from '@/components/ui/select-control'
 
@@ -12,9 +15,19 @@ export function ModelSelector(props: {
     isLoading?: boolean
     error?: string | null
     onModelChange: (value: string) => void
+    children?: ReactNode
 }) {
     const { t } = useTranslation()
-    const options: Array<{ value: string; label: string; group?: string }> = props.options ?? MODEL_OPTIONS[props.agent]
+    const glmBranded = useClaudeGlmBranding()
+    let options: Array<{ value: string; label: string; group?: string }> = props.options ?? MODEL_OPTIONS[props.agent]
+    if (props.agent === 'claude' && glmBranded) {
+        // A GLM-wired claude runs GLM 5.3 Flash when no model is picked, so
+        // the no-pick option is named after it (same honesty as the codex
+        // default), not a "Default" that hides what will actually run.
+        options = options.map((option) => (option.value === 'auto'
+            ? { ...option, label: CLAUDE_GLM_DEFAULT_MODEL_LABEL }
+            : option))
+    }
     if (options.length === 0) {
         return null
     }
@@ -48,6 +61,7 @@ export function ModelSelector(props: {
                     <option key={option.value} value={option.value}>{option.label}</option>
                 )))}
             </SelectControl>
+            {props.children}
             {props.error ? (
                 <div className="text-xs text-red-600">
                     {props.error}

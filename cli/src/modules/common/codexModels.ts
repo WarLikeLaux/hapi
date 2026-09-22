@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import type { CodexModelsResponse, CodexModelSummary } from '@hapi/protocol/apiTypes';
 import { CodexAppServerClient } from '@/codex/codexAppServerClient';
+import { readCodexConfigDefaults } from '@/codex/utils/codexHome';
 import { getErrorMessage } from './rpcResponses';
 
 export interface ListCodexModelsRequest {
@@ -95,7 +96,35 @@ const CACHE_TTL_MS = 5 * 60_000;
 const cache = new Map<boolean, CacheEntry>();
 const inflight = new Map<boolean, Promise<CodexModelSummary[]>>();
 
+// The app-server's `isDefault` marks its own account-level favorite, not the
+// model a plain `codex` run actually uses — that comes from config.toml's
+// top-level keys. Those win: the catalog's default marking (and the effective
+// default effort) is re-pinned on every call, cached or not, so an edited
+// config shows up without waiting out the catalog cache.
+function applyConfigDefaults(models: CodexModelSummary[]): CodexModelSummary[] {
+    const config = readCodexConfigDefaults();
+    const matched = config.model
+        ? models.find((model) => model.id.toLowerCase() === config.model?.toLowerCase())
+        : undefined;
+    if (!matched) {
+        return models;
+    }
+    return models.map((model) => (
+        model.id === matched.id
+            ? {
+                ...model,
+                isDefault: true,
+                defaultReasoningEffort: config.modelReasoningEffort ?? model.defaultReasoningEffort
+            }
+            : { ...model, isDefault: false }
+    ));
+}
+
 export async function listCodexModels(includeHidden: boolean = false): Promise<CodexModelSummary[]> {
+    return applyConfigDefaults(await listCodexModelsCached(includeHidden));
+}
+
+async function listCodexModelsCached(includeHidden: boolean = false): Promise<CodexModelSummary[]> {
     const cached = cache.get(includeHidden);
     if (cached && cached.expiresAt > Date.now()) {
         return cached.models;

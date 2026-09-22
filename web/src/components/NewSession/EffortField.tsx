@@ -1,6 +1,6 @@
 import { getAgentConfigDescriptor, type PiThinkingLevelMap } from '@hapi/protocol'
 import { getPiThinkingLevelOptions } from '@/components/AssistantChat/piThinkingLevelOptions'
-import { getCodexComposerReasoningEffortOptions } from '@/components/AssistantChat/codexReasoningEffortOptions'
+import { formatCodexReasoningEffortLabel, getCodexComposerReasoningEffortOptions } from '@/components/AssistantChat/codexReasoningEffortOptions'
 import { useTranslation } from '@/lib/use-translation'
 import { SelectControl } from '@/components/ui/select-control'
 import type { AgentType, CodexReasoningEffort, LaunchEffort } from './types'
@@ -19,6 +19,8 @@ export type EffortFieldProps = {
     grokOptions?: Array<{ value: string; label: string }>
     /** Model-dependent reasoning-effort options (Codex). */
     codexReasoningOptions?: Array<{ value: string; name?: string }>
+    /** The effort codex's own config uses by default — the no-pick option is named after it (Codex). */
+    codexDefaultReasoningEffort?: string | null
     /** Model-dependent variant values from the OpenCode catalog (OpenCode). Array = dynamic list, [] = hide field, null/undefined = static fallback. */
     opencodeVariantOptions?: string[] | null
     /** Selected Pi model — hides effort when the model cannot reason and filters levels via thinkingLevelMap. */
@@ -66,7 +68,22 @@ export function EffortField(props: EffortFieldProps) {
                 }))
                 : undefined)
             : undefined
-        if (props.agent === 'opencode') {
+        if (props.agent === 'codex' && modelOptions) {
+            // The no-pick option launches the effort codex's own config uses by
+            // default, so it is named after that effort, and the explicit row
+            // for the same effort is skipped unless the user pinned it.
+            const defaultEffort = props.codexDefaultReasoningEffort?.trim().toLowerCase() || null
+            options = [
+                {
+                    value: 'default',
+                    label: defaultEffort
+                        ? formatCodexReasoningEffortLabel(defaultEffort)
+                        : t('newSession.model.default')
+                },
+                ...modelOptions.filter((option) => option.value !== 'default'
+                    && (option.value !== defaultEffort || props.reasoningEffort === option.value))
+            ]
+        } else if (props.agent === 'opencode') {
             if (props.opencodeVariantOptions !== undefined && props.opencodeVariantOptions !== null) {
                 if (props.opencodeVariantOptions.length === 0) {
                     return null

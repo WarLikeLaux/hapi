@@ -71,6 +71,11 @@ export function applyClaudeGlmBranding(enabled: boolean): void {
     setFlavorLabelOverride('claude', enabled ? 'GLM' : null)
 }
 
+// The model a GLM-wired claude flavor actually runs by default (z.ai's
+// anthropic-compatible endpoint serves GLM 5.3 Flash when no model is set);
+// the create form names its no-pick option after it instead of "Default".
+export const CLAUDE_GLM_DEFAULT_MODEL_LABEL = 'GLM 5.3 Flash'
+
 // --- Convenience functions ---
 export function supportsModelChange(flavor: string | null | undefined): boolean {
     return hasCapability(flavor, Capabilities.ModelChange)

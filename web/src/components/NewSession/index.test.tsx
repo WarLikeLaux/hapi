@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { Machine, PiModelSummary } from '@/types/api'
+import { setClaudeGlmBranded } from '@/lib/claudeGlmBranding'
 import { saveNewSessionFormDraft } from './newSessionFormDraft'
 import {
     loadPreferredLaunchSettings,
@@ -62,10 +64,8 @@ vi.mock('@/hooks/mutations/useSpawnSession', () => ({
 vi.mock('@/hooks/queries/useSessions', () => ({
     useSessions: () => ({ sessions: [], refetch: mocks.refetchSessions })
 }))
-vi.mock('@/hooks/useRecentPaths', () => ({
-    useRecentPaths: () => ({
-        getRecentPaths: () => [],
-        addRecentPath: vi.fn(),
+vi.mock('@/hooks/useLastUsedMachine', () => ({
+    useLastUsedMachine: () => ({
         getLastUsedMachineId: () => null,
         setLastUsedMachineId: vi.fn()
     })
@@ -244,10 +244,13 @@ vi.mock('./OpencodeModelSelector', () => ({
     )
 }))
 vi.mock('./AgyModelSelector', () => ({
-    AgyModelSelector: (props: { selectedModel: string | null; onModelChange: (model: string | null) => void }) => (
-        <button type="button" data-testid="agy-model" onClick={() => props.onModelChange('gemini-3.6-flash-low')}>
-            {props.selectedModel ?? 'auto'}
-        </button>
+    AgyModelSelector: (props: { selectedModel: string | null; onModelChange: (model: string | null) => void; children?: ReactNode }) => (
+        <>
+            <button type="button" data-testid="agy-model" onClick={() => props.onModelChange('gemini-3.6-flash-low')}>
+                {props.selectedModel ?? 'auto'}
+            </button>
+            {props.children}
+        </>
     )
 }))
 vi.mock('./EffortField', () => ({
@@ -382,7 +385,7 @@ describe('NewSession launch preferences', () => {
         expect(mocks.spawnSession).not.toHaveBeenCalled()
     })
 
-    it('restores the last successful model and reasoning effort for the machine and agent', async () => {
+    it('starts codex at Default model and Default reasoning effort, keeping saved permission', async () => {
         savePreferredLaunchSettings('machine-1', 'codex', {
             model: 'gpt-5.6-sol',
             cursorSelectedBase: 'auto',
@@ -403,10 +406,31 @@ describe('NewSession launch preferences', () => {
         )
 
         await waitFor(() => {
-            expect(screen.getByTestId('model')).toHaveTextContent('gpt-5.6-sol')
-            expect(screen.getByTestId('reasoning')).toHaveTextContent('xhigh')
-            expect(screen.getByTestId('permission-mode')).toHaveTextContent('default')
+            // Neither the model nor the reasoning effort is remembered: the
+            // form opens on the CLI's own defaults (codex config decides the
+            // effort), so a stale saved value cannot override the config.
+            expect(screen.getByTestId('model')).toHaveTextContent('auto')
+            expect(screen.getByTestId('reasoning')).toHaveTextContent('default')
         })
+    })
+
+    it('names the codex Default option after the config default model, without a duplicate row', () => {
+        // No pick = codex runs its own config default; the catalog marks that
+        // model, so the option carries its name and the catalog row for the
+        // same id is not repeated.
+        render(
+            <NewSession
+                api={api}
+                machines={[machine]}
+                initialMachineId="machine-1"
+                initialDirectory="C:\\repo"
+                onSuccess={mocks.onSuccess}
+                onCancel={() => {}}
+            />
+        )
+
+        expect(screen.getByTestId('model')).toHaveTextContent('auto')
+        expect(screen.getByTestId('model-options')).toHaveTextContent('GPT-5.6 Sol,GPT-5.6 Terra')
     })
 
     it('uses the new Codex YOLO default independently of another agent legacy value', async () => {
@@ -475,7 +499,7 @@ describe('NewSession launch preferences', () => {
         })
     })
 
-    it('disables creation while a remembered Copilot model is being validated', async () => {
+    it('starts Copilot at Default even with a remembered model', async () => {
         mocks.copilotModelsLoading = true
         savePreferredAgent('copilot')
         savePreferredLaunchSettings('machine-1', 'copilot', {
@@ -496,7 +520,9 @@ describe('NewSession launch preferences', () => {
             />
         )
 
-        await waitFor(() => expect(screen.getByTestId('create')).toBeDisabled())
+        // Auto needs no catalog validation, so creation is not blocked.
+        await waitFor(() => expect(screen.getByTestId('model')).toHaveTextContent('auto'))
+        expect(screen.getByTestId('create')).toBeEnabled()
     })
 
     it('shows dynamic Kimi models with Default for the selected directory', async () => {
@@ -527,7 +553,7 @@ describe('NewSession launch preferences', () => {
         })
     })
 
-    it('restores a remembered Kimi alias instead of resetting it to Default', async () => {
+    it('starts Kimi at Default even with a remembered alias', async () => {
         mocks.kimiModels = [
             { modelId: 'GLM-5.3-flash', provider: 'thehive' }
         ]
@@ -551,7 +577,7 @@ describe('NewSession launch preferences', () => {
         )
 
         await waitFor(() => {
-            expect(screen.getByTestId('model')).toHaveTextContent('GLM-5.3-flash')
+            expect(screen.getByTestId('model')).toHaveTextContent('auto')
             expect(screen.getByTestId('create')).toBeEnabled()
         })
     })
@@ -585,20 +611,13 @@ describe('NewSession launch preferences', () => {
         expect(screen.getByTestId('create')).toBeEnabled()
     })
 
-    it.each([
-        ['model', 'gpt-5.6-sol', 'default'],
-        ['reasoning effort', 'auto', 'xhigh']
-    ])('disables creation while a remembered dynamic %s is being validated', async (
-        _setting,
-        model,
-        modelReasoningEffort
-    ) => {
+    it('ignores a remembered codex reasoning effort instead of validating it', async () => {
         mocks.codexModelsLoading = true
         savePreferredLaunchSettings('machine-1', 'codex', {
-            model,
+            model: 'auto',
             cursorSelectedBase: 'auto',
             effort: 'auto',
-            modelReasoningEffort
+            modelReasoningEffort: 'xhigh'
         })
 
         render(
@@ -612,7 +631,8 @@ describe('NewSession launch preferences', () => {
             />
         )
 
-        await waitFor(() => expect(screen.getByTestId('create')).toBeDisabled())
+        await waitFor(() => expect(screen.getByTestId('reasoning')).toHaveTextContent('default'))
+        expect(screen.getByTestId('create')).toBeEnabled()
     })
 
     it.each([
@@ -682,6 +702,25 @@ describe('NewSession launch preferences', () => {
         })
     })
 
+    it('offers the quick-pick chip for a fork-pinned AGY model and toggles it back to Default', async () => {
+        savePreferredAgent('agy')
+        mocks.agyModels = [
+            { modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' },
+            { modelId: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 (Thinking)' }
+        ]
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
+
+        const chip = screen.getByRole('button', { name: 'Claude Opus 4.6 (Thinking)' })
+        expect(chip).toHaveAttribute('aria-pressed', 'false')
+        fireEvent.click(chip)
+        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('claude-opus-4-6-thinking'))
+        expect(screen.getByRole('button', { name: 'Claude Opus 4.6 (Thinking)' })).toHaveAttribute('aria-pressed', 'true')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Claude Opus 4.6 (Thinking)' }))
+        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
+    })
+
     it('restores the AGY model from a browse-return draft', async () => {
         savePreferredAgent('agy')
         saveNewSessionFormDraft({
@@ -729,12 +768,14 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
     })
 
-    it('blocks Create while a remembered AGY model is awaiting catalog validation', async () => {
+    it('starts AGY at Default even with a remembered model', async () => {
         savePreferredAgent('agy')
         savePreferredLaunchSettings('machine-1', 'agy', { model: 'gemini-3.6-flash-low', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default' })
         mocks.agyModelsLoading = true
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByTestId('create')).toBeDisabled())
+        // Default needs no catalog validation, so creation is not blocked.
+        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
+        expect(screen.getByTestId('create')).toBeEnabled()
     })
 
     it('does not forward the global YOLO preference to managed DSH ACP', async () => {
@@ -818,6 +859,27 @@ describe('NewSession launch preferences', () => {
         })
     })
 
+    it('keeps the effort field and passes the remembered effort while claude is not GLM-branded', async () => {
+        savePreferredAgent('claude')
+        savePreferredLaunchSettings('machine-1', 'claude', {
+            model: 'auto',
+            cursorSelectedBase: 'auto',
+            effort: 'high',
+            modelReasoningEffort: 'default'
+        })
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+
+        expect(screen.getByTestId('launch-effort')).toHaveTextContent('high')
+        fireEvent.click(screen.getByTestId('create'))
+
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session'))
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'claude',
+            effort: 'high'
+        }))
+    })
+
     it('keeps an explicit OpenCode Default selection instead of restoring a concrete model', async () => {
         savePreferredAgent('opencode')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'opencode-session' })
@@ -865,12 +927,12 @@ describe('NewSession launch preferences', () => {
         expect(mocks.opencodeVariantsEnabled).toBe(false)
     })
 
-    it('restores a remembered OpenCode model when it is still advertised', async () => {
+    it('starts OpenCode at Default even with a remembered model', async () => {
         savePreferredAgent('opencode')
         savePreferredLaunchSettings('machine-1', 'opencode', { model: 'provider/model', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'high' })
         mocks.opencodeModels = [{ modelId: 'provider/model', name: 'Model' }]
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByTestId('opencode-model')).toHaveTextContent('provider/model'))
+        await waitFor(() => expect(screen.getByTestId('opencode-model')).toHaveTextContent('default'))
     })
 
     it('persists the selected AGY model only after a successful launch', async () => {
@@ -884,7 +946,7 @@ describe('NewSession launch preferences', () => {
         expect(loadPreferredLaunchSettings('machine-1', 'agy')?.model).toBe('gemini-3.6-flash-low')
     })
 
-    it('does not overwrite AGY model preference after a failed launch', async () => {
+    it('does not persist launch settings after a failed AGY launch', async () => {
         savePreferredAgent('agy')
         savePreferredLaunchSettings('machine-1', 'agy', { model: 'gemini-3.5-flash-low', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default' })
         mocks.agyModels = [
@@ -893,7 +955,8 @@ describe('NewSession launch preferences', () => {
         ]
         mocks.spawnSession.mockResolvedValue({ type: 'error', message: 'spawn failed' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('gemini-3.5-flash-low'))
+        // The remembered model is no longer restored; the form opens on Default.
+        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
         fireEvent.click(screen.getByTestId('agy-model'))
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.notification).toHaveBeenCalledWith('error'))
@@ -1158,12 +1221,15 @@ describe('NewSession launch preferences', () => {
         )
 
         await waitFor(() => {
+            // The draft's model wins over the saved preference, but a draft
+            // reasoning effort for codex is clamped to Default like any other
+            // remembered value — the codex config rules until a manual pick.
             expect(screen.getByTestId('model')).toHaveTextContent('gpt-5.6-terra')
-            expect(screen.getByTestId('reasoning')).toHaveTextContent('max')
+            expect(screen.getByTestId('reasoning')).toHaveTextContent('default')
         })
     })
 
-    it('resets a restored Pi model that left the machine catalog', async () => {
+    it('starts Pi at Default even with a remembered model that left the catalog', async () => {
         savePreferredAgent('pi')
         mocks.piModels = [
             { provider: 'openai-codex', modelId: 'gpt-5.6-sol' },
@@ -1188,7 +1254,6 @@ describe('NewSession launch preferences', () => {
 
         await waitFor(() => {
             expect(screen.getByTestId('model')).toHaveTextContent('auto')
-            expect(screen.getByTestId('launch-effort')).toHaveTextContent('auto')
         })
     })
 
@@ -1227,7 +1292,7 @@ describe('NewSession launch preferences', () => {
         })
     })
 
-    it('keeps a restored xhigh effort when the selected model map opts in', async () => {
+    it('starts Pi at Default and drops its remembered effort when the Default map does not opt in', async () => {
         savePreferredAgent('pi')
         mocks.piModels = [
             {
@@ -1237,6 +1302,8 @@ describe('NewSession launch preferences', () => {
                 thinkingLevelMap: { xhigh: 'xhigh', max: 'max' },
             },
         ]
+        // The remembered model itself is not restored, so the effort it was
+        // saved with (xhigh, map-gated) is reconciled away to auto.
         savePreferredLaunchSettings('machine-1', 'pi', {
             model: 'openai-codex/gpt-5.6-sol',
             cursorSelectedBase: 'auto',
@@ -1256,8 +1323,8 @@ describe('NewSession launch preferences', () => {
         )
 
         await waitFor(() => {
-            expect(screen.getByTestId('model')).toHaveTextContent('openai-codex/gpt-5.6-sol')
-            expect(screen.getByTestId('launch-effort')).toHaveTextContent('xhigh')
+            expect(screen.getByTestId('model')).toHaveTextContent('auto')
+            expect(screen.getByTestId('launch-effort')).toHaveTextContent('auto')
         })
     })
 
@@ -1390,5 +1457,47 @@ describe('NewSession launch preferences', () => {
             expect.stringContaining('/sessions/8d534fba-33d6-4ce4-9d96-64e9e38d61da'),
             expect.stringMatching(/^local-/)
         )
+    })
+})
+
+describe('NewSession GLM-branded claude', () => {
+    beforeEach(() => {
+        localStorage.clear()
+        sessionStorage.clear()
+        mocks.spawnSession.mockReset()
+        mocks.onSuccess.mockReset()
+        mocks.notification.mockReset()
+        mocks.checkPathsExists.mockReset()
+        mocks.checkPathsExists.mockImplementation(async () => ({
+            exists: { 'C:\\repo': true }
+        }))
+        setClaudeGlmBranded(true)
+    })
+
+    afterEach(() => {
+        setClaudeGlmBranded(false)
+    })
+
+    it('hides the effort field and never passes the remembered effort', async () => {
+        savePreferredAgent('claude')
+        savePreferredLaunchSettings('machine-1', 'claude', {
+            model: 'auto',
+            cursorSelectedBase: 'auto',
+            effort: 'high',
+            modelReasoningEffort: 'default'
+        })
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+
+        // GLM serves no effort levels, so the field is gone and a value
+        // remembered from a pre-branding launch cannot leak into the spawn.
+        expect(screen.queryByTestId('launch-effort')).toBeNull()
+        fireEvent.click(screen.getByTestId('create'))
+
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session'))
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'claude',
+            effort: undefined
+        }))
     })
 })

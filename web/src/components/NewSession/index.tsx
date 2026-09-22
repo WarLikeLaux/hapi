@@ -23,9 +23,11 @@ import {
     resolveDirectorySearchTarget,
     useDirectorySuggestions
 } from '@/hooks/useDirectorySuggestions'
-import { useRecentPaths } from '@/hooks/useRecentPaths'
+import { useLastUsedMachine } from '@/hooks/useLastUsedMachine'
+import { getRecentProjectPaths } from '@/hooks/useRecentProjectPaths'
 import { useTranslation } from '@/lib/use-translation'
-import { getCodexModelReasoningEfforts } from '@/lib/codexModelCapabilities'
+import { getClaudeGlmBranded, useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
+import { getCodexModelReasoningEfforts, resolveCodexModel } from '@/lib/codexModelCapabilities'
 import {
     buildNewSessionCursorModelCatalog,
     buildNewSessionCursorPickerState,
@@ -49,7 +51,6 @@ import type { AgentType, LaunchEffort, CodexReasoningEffort, NewSessionServiceTi
 import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
 import { CollaborationModeSelector } from './CollaborationModeSelector'
-import { CodexImportActions } from './CodexImportActions'
 import { PiImportActions } from './PiImportActions'
 import { clearBatchImportedCodexSelection, resolveCodexImportRedirectSessionId } from './codexImportMerge'
 import { AgyModelSelector } from './AgyModelSelector'
@@ -74,7 +75,6 @@ import {
     savePreferredLaunchSettings,
     savePreferredYoloMode,
 } from './preferences'
-import { SessionTypeSelector } from './SessionTypeSelector'
 import { PermissionField } from './PermissionField'
 import { putCodexFirst, resolveDefaultMachineDirectory } from './defaults'
 import { usesNativePermissionSelect, usesSharedPermissionModeState } from '@/lib/codexFamilyPermissionAgents'
@@ -87,6 +87,44 @@ import { useToast } from '@/lib/toast-context'
 import { buildSessionReferenceText } from '@/lib/sessionReference'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { makeClientSideId } from '@/lib/messages'
+
+// Fork quick-pick: models that get one-tap chips under the model select
+// (everything else stays reachable through the dropdown). A chip only
+// renders while the machine actually advertises the model.
+const QUICK_PICK_MODEL_IDS: Partial<Record<AgentType, readonly string[]>> = {
+    codex: ['gpt-6-luna'],
+    agy: ['claude-opus-4-6-thinking'],
+}
+
+// One-tap shortcut for the quick-pick models: tap to launch with one,
+// tap again to fall back to Default.
+function QuickPickChips(props: {
+    options: Array<{ value: string; label: string }>
+    activeValue: string | null
+    isDisabled: boolean
+    onToggle: (value: string) => void
+}) {
+    return (
+        <div className="flex flex-wrap gap-1">
+            {props.options.map((option) => (
+                <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={props.activeValue === option.value}
+                    disabled={props.isDisabled}
+                    onClick={() => props.onToggle(option.value)}
+                    className={`rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                        props.activeValue === option.value
+                            ? 'border-[var(--app-link)] bg-[var(--app-link)] font-medium text-[var(--app-bg)]'
+                            : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)]'
+                    }`}
+                >
+                    {option.label}
+                </button>
+            ))}
+        </div>
+    )
+}
 
 
 
@@ -107,7 +145,7 @@ export function NewSession(props: {
     const { addToast } = useToast()
     const { spawnSession, isPending, error: spawnError } = useSpawnSession(props.api)
     const { sessions, refetch: refetchSessions } = useSessions(props.api)
-    const { getRecentPaths, addRecentPath, getLastUsedMachineId, setLastUsedMachineId } = useRecentPaths()
+    const { getLastUsedMachineId, setLastUsedMachineId } = useLastUsedMachine()
 
     const continueFrom = props.continueFromSession
     const continueAgent = isKnownFlavor(continueFrom?.metadata?.flavor)
@@ -136,6 +174,9 @@ export function NewSession(props: {
     const [collaborationMode, setCollaborationMode] = useState<CodexCollaborationMode>(() => continueFrom?.collaborationMode ?? 'default')
     const [copilotAgentMode, setCopilotAgentMode] = useState<CopilotAgentMode>(() => continueFrom?.copilotAgentMode ?? 'interactive')
     const [yoloMode, setYoloMode] = useState(loadPreferredYoloMode)
+    // Fork: when the hub brands claude as GLM (z.ai), the flavor has no
+    // meaningful effort control and the no-pick model is GLM 5.3 Flash.
+    const claudeGlmBranded = useClaudeGlmBranding()
     const [nativePermissionMode, setNativePermissionMode] = useState<PermissionMode>(() => continueFrom?.permissionMode ?? continueFrom?.metadata?.preferredPermissionMode ?? 'default')
     const [grokPermissionMode, setGrokPermissionMode] = useState<GrokPermissionMode>('default')
     const [sessionType, setSessionType] = useState<SessionType>('simple')
@@ -260,7 +301,9 @@ export function NewSession(props: {
         setModel(draft.model)
         setCursorSelectedBase(draft.cursorSelectedBase)
         setEffort(draft.effort)
-        setModelReasoningEffort(draft.modelReasoningEffort)
+        // Same policy as the mount restore: codex effort is not restored from
+        // a draft, so it cannot override the CLI config behind a hidden value.
+        setModelReasoningEffort(draft.agent === 'opencode' ? draft.modelReasoningEffort : 'default')
         setOpencodeSelectedModel(
             draft.agent === 'opencode' && draft.model !== 'auto' ? draft.model : null
         )
@@ -274,8 +317,10 @@ export function NewSession(props: {
         setYoloMode(draft.yoloMode)
         setNativePermissionMode(draft.nativePermissionMode)
         setGrokPermissionMode(draft.grokPermissionMode)
-        setSessionType(draft.sessionType)
-        setWorktreeName(draft.worktreeName)
+        // The worktree selector is not rendered in this fork, so a stale draft
+        // must not resurrect a worktree launch behind the hidden control.
+        setSessionType('simple')
+        setWorktreeName('')
         clearNewSessionFormDraft()
     }, [
         continueFrom,
@@ -296,7 +341,7 @@ export function NewSession(props: {
             if (!props.initialDirectory) {
                 setDirectory(resolveDefaultMachineDirectory(
                     foundLast,
-                    getRecentPaths(foundLast.id)
+                    getRecentProjectPaths(sessions, foundLast.id)
                 ))
             }
         } else if (props.machines[0]) {
@@ -305,11 +350,11 @@ export function NewSession(props: {
             if (!props.initialDirectory) {
                 setDirectory(resolveDefaultMachineDirectory(
                     firstMachine,
-                    getRecentPaths(firstMachine.id)
+                    getRecentProjectPaths(sessions, firstMachine.id)
                 ))
             }
         }
-    }, [props.machines, machineId, getLastUsedMachineId, getRecentPaths, props.initialDirectory])
+    }, [props.machines, machineId, getLastUsedMachineId, sessions, props.initialDirectory])
 
     const selectedMachine = useMemo(
         () => (machineId ? props.machines.find((machine) => machine.id === machineId) ?? null : null),
@@ -350,8 +395,18 @@ export function NewSession(props: {
         [selectedMachine]
     )
     const codexModelOptions = useMemo(() => {
-        const options = [{ value: 'auto', label: 'Default' }]
+        // With no model picked, codex runs whatever its own config default is,
+        // and the catalog marks that model — so the "no pick" option is named
+        // after it instead of a blind "Default". Until the catalog lands,
+        // the plain word stays. The catalog row for the default model itself
+        // is skipped (picking the option already launches it) unless the user
+        // explicitly pinned that id.
+        const defaultModel = resolveCodexModel(codexModelsState.models, 'auto')
+        const options = [{ value: 'auto', label: defaultModel?.displayName ?? 'Default' }]
         for (const codexModel of codexModelsState.models) {
+            if (codexModel.id === defaultModel?.id && model !== codexModel.id) {
+                continue
+            }
             options.push({
                 value: codexModel.id,
                 label: codexModel.displayName
@@ -362,9 +417,20 @@ export function NewSession(props: {
         }
         return options
     }, [codexModelsState.models, model])
+    const codexQuickPickOptions = useMemo(() => (
+        codexModelOptions.filter((option) => (
+            option.value !== 'auto'
+            && (QUICK_PICK_MODEL_IDS.codex ?? []).includes(option.value.toLowerCase())
+        ))
+    ), [codexModelOptions])
     const codexSupportedReasoningEfforts = useMemo(
         () => getCodexModelReasoningEfforts(codexModelsState.models, model),
         [codexModelsState.models, model]
+    )
+    // The effort codex's config uses by default — named on the no-pick option.
+    const codexDefaultReasoningEffort = useMemo(
+        () => resolveCodexModel(codexModelsState.models, 'auto')?.defaultReasoningEffort ?? null,
+        [codexModelsState.models]
     )
     const codexReasoningEffortOptions = useMemo(
         () => codexSupportedReasoningEfforts?.map((value) => ({ value })),
@@ -552,8 +618,8 @@ export function NewSession(props: {
     })
 
     const recentPaths = useMemo(
-        () => getRecentPaths(machineId),
-        [getRecentPaths, machineId]
+        () => getRecentProjectPaths(sessions, machineId),
+        [sessions, machineId]
     )
 
     const trimmedDirectory = directory.trim()
@@ -731,6 +797,11 @@ export function NewSession(props: {
         machineId,
         enabled: agent === 'agy' && Boolean(machineId)
     })
+    const agyQuickPickOptions = useMemo(() => (
+        agyModelsState.availableModels
+            .filter((model) => (QUICK_PICK_MODEL_IDS.agy ?? []).includes(model.modelId.toLowerCase()))
+            .map((model) => ({ value: model.modelId, label: model.name ?? model.modelId }))
+    ), [agyModelsState.availableModels])
     const piModelsState = usePiModelsForMachine({
         api: props.api,
         machineId,
@@ -917,20 +988,25 @@ export function NewSession(props: {
             legacyYoloAgent === agent
         )
 
-        setModel(agent === 'opencode' ? 'auto' : preferred.model)
+        // The model choice is deliberately not remembered: every fresh form
+        // starts at the agent's own default (its CLI config decides), and a
+        // concrete model is picked per launch. The per-machine preference only
+        // carries effort/permission touches.
+        setModel('auto')
         setCursorSelectedBase(preferred.cursorSelectedBase)
-        setEffort(preferred.effort)
-        setModelReasoningEffort(preferred.modelReasoningEffort)
+        // A GLM-branded claude hides the effort field; the remembered value
+        // must not silently survive where the user cannot see or change it.
+        setEffort(agent === 'claude' && getClaudeGlmBranded() ? 'auto' : preferred.effort)
+        // Codex effort is not remembered either: it starts at Default, which
+        // defers to codex's own config (this fork pins high there), so a
+        // stale remembered value cannot keep overriding the config.
+        setModelReasoningEffort(agent === 'opencode' ? preferred.modelReasoningEffort : 'default')
         if (usesSharedPermissionMode) {
             setNativePermissionMode(preferred.permissionMode ?? 'default')
         }
-        setOpencodeSelectedModel(
-            agent === 'opencode' && preferred.model !== 'auto' ? preferred.model : null
-        )
+        setOpencodeSelectedModel(null)
         agyModelPickedByUserRef.current = false
-        setAgySelectedModel(
-            agent === 'agy' && preferred.model !== 'auto' ? preferred.model : null
-        )
+        setAgySelectedModel(null)
     }, [agent, legacyYoloAgent, machineId, usesSharedPermissionMode])
 
     useEffect(() => {
@@ -1436,9 +1512,9 @@ export function NewSession(props: {
         setPiImportMachineId(null)
         const machine = props.machines.find((candidate) => candidate.id === newMachineId)
         setDirectory(machine
-            ? resolveDefaultMachineDirectory(machine, getRecentPaths(newMachineId))
+            ? resolveDefaultMachineDirectory(machine, getRecentProjectPaths(sessions, newMachineId))
             : '')
-    }, [getRecentPaths, props.machines])
+    }, [sessions, props.machines])
 
     const handleCursorBaseChange = useCallback((baseKey: string) => {
         if (baseKey === 'auto') {
@@ -1630,7 +1706,9 @@ export function NewSession(props: {
                     : agent === 'cursor'
                         ? (model === 'auto' || !model ? 'auto' : model)
                         : (model !== 'auto' ? model : undefined)
-            const resolvedEffort = (agent === 'claude' || agent === 'grok' || agent === 'pi') && effort !== 'auto'
+            // GLM has no effort levels: a branded claude never passes one,
+            // even if a remembered value was restored before the flag arrived.
+            const resolvedEffort = ((agent === 'claude' && !claudeGlmBranded) || agent === 'grok' || agent === 'pi') && effort !== 'auto'
                 ? effort
                 : undefined
             const resolvedModelReasoningEffort = (agent === 'codex' || agent === 'opencode') && modelReasoningEffort !== 'default'
@@ -1684,7 +1762,6 @@ export function NewSession(props: {
                     savePreferredLaunchSettings(machineId, agent, preferredLaunchSettings)
                     clearNewSessionFormDraft()
                     setLastUsedMachineId(machineId)
-                    addRecentPath(machineId, trimmedDirectory)
                     props.onSuccess(resumedSessionId)
                     return
                 }
@@ -1714,7 +1791,6 @@ export function NewSession(props: {
                 savePreferredLaunchSettings(machineId, agent, preferredLaunchSettings)
                 clearNewSessionFormDraft()
                 setLastUsedMachineId(machineId)
-                addRecentPath(machineId, trimmedDirectory)
                 props.onSuccess(reopened.sessionId)
                 return
             }
@@ -1761,7 +1837,6 @@ export function NewSession(props: {
                 savePreferredLaunchSettings(machineId, agent, preferredLaunchSettings)
                 clearNewSessionFormDraft()
                 setLastUsedMachineId(machineId)
-                addRecentPath(machineId, trimmedDirectory)
                 props.onSuccess(result.sessionId)
                 return
             }
@@ -1843,13 +1918,17 @@ export function NewSession(props: {
                     {t('newSession.continue.description', { title: getSessionTitle(continueFrom) })}
                 </div>
             ) : null}
-            <MachineSelector
-                machines={props.machines}
-                machineId={machineId}
-                isLoading={props.isLoading}
-                isDisabled={isFormDisabled}
-                onChange={handleMachineChange}
-            />
+            {/* Fork: a single-machine setup needs no picker; it would only be
+                one more thing to scroll past on the phone. */}
+            {props.machines.length > 1 ? (
+                <MachineSelector
+                    machines={props.machines}
+                    machineId={machineId}
+                    isLoading={props.isLoading}
+                    isDisabled={isFormDisabled}
+                    onChange={handleMachineChange}
+                />
+            ) : null}
             {runnerSpawnError ? (
                 <div className="px-3 py-2 text-xs text-red-600">
                     Runner last spawn error: {runnerSpawnError}
@@ -1871,14 +1950,9 @@ export function NewSession(props: {
                 onPathClick={handlePathClick}
                 onChooseFolder={props.onChooseFolder ? handleChooseFolderClick : undefined}
             />
-            <SessionTypeSelector
-                sessionType={sessionType}
-                worktreeName={worktreeName}
-                worktreeInputRef={worktreeInputRef}
-                isDisabled={isFormDisabled}
-                onSessionTypeChange={setSessionType}
-                onWorktreeNameChange={setWorktreeName}
-            />
+            {/* Fork: worktree launches are never used here, so the type
+                selector is not rendered — sessions always launch in place
+                (`sessionType` stays 'simple'; the draft restore clamps it). */}
             <AgentSelector
                 agent={agent}
                 agents={availableAgents}
@@ -1905,19 +1979,8 @@ export function NewSession(props: {
                     {t('newSession.noAvailableAgents')}
                 </div>
             ) : null}
-            {agent === 'codex' ? (
-                <CodexImportActions
-                    selectedSession={selectedCodexImportSession}
-                    isLoading={isLoadingCodexImportSessions}
-                    isDisabled={isFormDisabled}
-                    error={codexImportError}
-                    onChooseHistory={() => {
-                        setIsCodexImportDialogOpen(true)
-                        void loadCodexImportSessions()
-                    }}
-                    onClear={() => setSelectedCodexImportSessionId(null)}
-                />
-            ) : null}
+            {/* Fork: codex history import is never used here, so its entry
+                point is not rendered; the plumbing stays dormant. */}
             {agent === 'pi' ? (
                 <PiImportActions
                     selectedSession={selectedPiImportSession}
@@ -1945,7 +2008,20 @@ export function NewSession(props: {
                         setAgySelectedModel(modelId)
                     }}
                     onRetry={agyModelsState.refetch}
-                />
+                >
+                    {agyQuickPickOptions.length > 0 ? (
+                        <QuickPickChips
+                            options={agyQuickPickOptions}
+                            activeValue={agySelectedModel}
+                            isDisabled={isFormDisabled || Boolean(agyModelsState.error)}
+                            onToggle={(value) => {
+                                const next = agySelectedModel === value ? null : value
+                                agyModelPickedByUserRef.current = next !== null
+                                setAgySelectedModel(next)
+                            }}
+                        />
+                    ) : null}
+                </AgyModelSelector>
             ) : agent === 'opencode' ? (
                 <OpencodeModelSelector
                     cwd={deferredDirectory}
@@ -2040,10 +2116,19 @@ export function NewSession(props: {
                                             ? `${t('newSession.model.loadFailed')}: ${piModelsState.error}`
                                     : null}
                         onModelChange={setModel}
-                    />
+                    >
+                        {agent === 'codex' && codexQuickPickOptions.length > 0 ? (
+                            <QuickPickChips
+                                options={codexQuickPickOptions}
+                                activeValue={model}
+                                isDisabled={isFormDisabled || Boolean(codexModelsState.error)}
+                                onToggle={(value) => setModel(model === value ? 'auto' : value)}
+                            />
+                        ) : null}
+                    </ModelSelector>
                 )
             )}
-            {showPiLaunchConfig ? (
+            {showPiLaunchConfig && !(agent === 'claude' && claudeGlmBranded) ? (
                 <EffortField
                     agent={agent}
                     effort={effort}
@@ -2053,6 +2138,7 @@ export function NewSession(props: {
                     isDisabled={isFormDisabled || (agent === 'codex' && codexModelsState.isLoading)}
                     grokOptions={agent === 'grok' ? grokEffortOptions : undefined}
                     codexReasoningOptions={agent === 'codex' ? codexReasoningEffortOptions : undefined}
+                    codexDefaultReasoningEffort={agent === 'codex' ? codexDefaultReasoningEffort : undefined}
                     opencodeVariantOptions={agent === 'opencode' ? opencodeVariantOptions : undefined}
                     piSelectedModel={agent === 'pi' ? piSelectedModel : null}
                 />
