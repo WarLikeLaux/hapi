@@ -644,6 +644,8 @@ export default {
   'media.displayed.unavailable': '{label}不可用：{error}',
   'media.displayed.previewNamed': '预览 {fileName}',
   'media.displayed.download': '下载',
+  'media.displayed.copy': '复制',
+  'media.displayed.copied': '已复制',
 
   // Tool card
   'tool.askQuestion': '其他',

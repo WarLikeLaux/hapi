@@ -646,6 +646,8 @@ export default {
   'media.displayed.unavailable': '{label} is unavailable. {error}',
   'media.displayed.previewNamed': 'Preview {fileName}',
   'media.displayed.download': 'Download',
+  'media.displayed.copy': 'Copy',
+  'media.displayed.copied': 'Copied',
 
   // Tool card
   'tool.askQuestion': 'Other',

@@ -126,18 +126,52 @@ describe('GeneratedImageCard video fetch', () => {
         })
     })
 
-    it('opens Markdown in a preview dialog with a separate download action', async () => {
+    it('renders small Markdown inline on mount with a working copy button', async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { writeText },
+        })
         const { getGeneratedImageBlob } = renderCard({
             mimeType: 'text/markdown',
             fileName: 'notes.md',
-            getGeneratedImageBlob: vi.fn(async () => new Blob(['# Preview heading'], { type: 'text/markdown' })),
+            getGeneratedImageBlob: vi.fn(async () => new Blob(['# Inline heading'], { type: 'text/markdown' })),
         })
 
-        expect(getGeneratedImageBlob).not.toHaveBeenCalled()
+        expect(await screen.findByRole('heading', { name: 'Inline heading' })).toBeInTheDocument()
+        expect(getGeneratedImageBlob).toHaveBeenCalledWith('session-1', 'img-1')
+        expect(screen.queryByRole('button', { name: 'Preview notes.md' })).not.toBeInTheDocument()
+        expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('download', 'notes.md')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+
+        await waitFor(() => expect(writeText).toHaveBeenCalledWith('# Inline heading'))
+        expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+    })
+
+    it('keeps large Markdown behind the preview dialog with copy and download actions', async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { writeText },
+        })
+        const largeMarkdown = `# Big report\n\n${'paragraph line\n'.repeat(1200)}`
+        renderCard({
+            mimeType: 'text/markdown',
+            fileName: 'notes.md',
+            getGeneratedImageBlob: vi.fn(async () => new Blob([largeMarkdown], { type: 'text/markdown' })),
+        })
+
+        expect(await screen.findByRole('button', { name: 'Preview notes.md' })).toBeInTheDocument()
+        expect(screen.queryByRole('heading', { name: 'Big report' })).not.toBeInTheDocument()
+
         fireEvent.click(screen.getByRole('button', { name: 'Preview notes.md' }))
 
-        expect(await screen.findByRole('heading', { name: 'Preview heading' })).toBeInTheDocument()
+        expect(await screen.findByRole('heading', { name: 'Big report' })).toBeInTheDocument()
         expect(screen.getByRole('dialog')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+
+        await waitFor(() => expect(writeText).toHaveBeenCalledWith(largeMarkdown))
         expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('download', 'notes.md')
         expect(screen.queryByRole('link', { name: /Download notes\.md/ })).not.toBeInTheDocument()
     })

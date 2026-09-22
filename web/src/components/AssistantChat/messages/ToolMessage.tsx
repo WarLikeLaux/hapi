@@ -9,6 +9,8 @@ import { ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
 import { getEventPresentation } from '@/chat/presentation'
 import { CodeBlock } from '@/components/CodeBlock'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { CheckIcon, CopyIcon, DownloadIcon } from '@/components/icons'
 import { MessageStatusIndicator } from '@/components/AssistantChat/messages/MessageStatusIndicator'
 import { ToolCard } from '@/components/ToolCard/ToolCard'
 import { useHappyChatContext } from '@/components/AssistantChat/context'
@@ -54,6 +56,8 @@ function isGeneratedImageBlock(value: unknown): value is GeneratedImageBlock {
 }
 
 const MIN_INLINE_IMAGE_DIMENSION = 64
+/** Markdown up to this size renders directly in the chat card instead of behind a preview button. */
+const INLINE_MARKDOWN_MAX_CHARS = 10_000
 
 export function isHtmlFileName(fileName: string): boolean {
     return /\.html?$/i.test(fileName)
@@ -116,6 +120,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     const [loadMedia, setLoadMedia] = useState(false)
     const [markdownContent, setMarkdownContent] = useState<string | null>(null)
     const [markdownPreviewOpen, setMarkdownPreviewOpen] = useState(false)
+    const { copied, copy } = useCopyToClipboard()
     const objectUrlRef = useRef<string | null>(null)
     const isVideo = isInlineVideoMimeType(props.block.mimeType)
     const isAudio = isInlineAudioMimeType(props.block.mimeType)
@@ -125,8 +130,12 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     const isMarkdown = isFile && isMarkdownFileName(props.block.fileName)
     const mediaLabel = t(inlineMediaLabelKey(props.block.mimeType))
     const mediaHeader = t('media.displayed.header', { label: mediaLabel, fileName: props.block.fileName })
-    // Non-image media can be tens of MB; wait for explicit user intent before downloading.
-    const shouldFetch = isImage || isHtml || loadMedia
+    // Markdown is small text and renders inline, so it fetches eagerly; the remaining
+    // non-image media can be tens of MB and wait for explicit user intent.
+    const shouldFetch = isImage || isHtml || isMarkdown || loadMedia
+    const inlineMarkdown = !error && markdownContent !== null && markdownContent.length <= INLINE_MARKDOWN_MAX_CHARS
+        ? markdownContent
+        : null
 
     useEffect(() => {
         return () => {
@@ -192,24 +201,72 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     }, [ctx.api, ctx.sessionId, props.block.fileName, props.block.imageId, isHtml, isImage, isMarkdown, shouldFetch])
 
     const openMarkdownPreview = () => {
-        setLoadMedia(true)
         setMarkdownPreviewOpen(true)
     }
 
     return (
         <div className="max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3">
-            <div className="mb-2 min-w-0 truncate text-xs font-medium text-[var(--app-hint)]">
-                {mediaHeader}
+            <div className="mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-[var(--app-hint)]">
+                <span className="min-w-0 truncate">{mediaHeader}</span>
+                {inlineMarkdown !== null ? (
+                    <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                        <button
+                            type="button"
+                            data-hapi-share-export-exclude="true"
+                            onClick={() => void copy(inlineMarkdown)}
+                            title={copied ? t('media.displayed.copied') : t('media.displayed.copy')}
+                            aria-label={copied ? t('media.displayed.copied') : t('media.displayed.copy')}
+                            className="flex shrink-0 items-center rounded-md p-1 text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+                        >
+                            {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
+                        </button>
+                        {objectUrl ? (
+                            <a
+                                href={objectUrl}
+                                download={props.block.fileName}
+                                data-hapi-share-export-exclude="true"
+                                title={t('media.displayed.download')}
+                                aria-label={t('media.displayed.download')}
+                                className="flex shrink-0 items-center rounded-md p-1 text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+                            >
+                                <DownloadIcon className="h-3.5 w-3.5" />
+                            </a>
+                        ) : null}
+                    </span>
+                ) : null}
             </div>
             {isMarkdown ? (
-                <button
-                    type="button"
-                    onClick={openMarkdownPreview}
-                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-4 py-3 text-left text-sm font-medium text-[var(--app-fg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
-                >
-                    <FileIcon fileName={props.block.fileName} size={24} />
-                    <span className="min-w-0 truncate">{t('media.displayed.previewNamed', { fileName: props.block.fileName })}</span>
-                </button>
+                error ? (
+                    <div className="text-sm text-[var(--app-hint)]">
+                        {t('media.displayed.unavailable', { label: mediaLabel, error })}
+                    </div>
+                ) : inlineMarkdown !== null ? (
+                    <div className="overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)]">
+                        <div
+                            data-hapi-nested-scroll="true"
+                            // No overscroll containment: native scroll chaining must
+                            // pass to the outer chat viewport (see reasoning.tsx).
+                            className="max-h-[min(60rem,80dvh)] overflow-y-auto px-4 py-3"
+                        >
+                            {inlineMarkdown.length === 0 ? (
+                                <div className="text-sm text-[var(--app-hint)]">{t('file.page.empty')}</div>
+                            ) : (
+                                <MarkdownRenderer content={inlineMarkdown} standalone />
+                            )}
+                        </div>
+                    </div>
+                ) : markdownContent === null ? (
+                    <div className="h-24 w-72 max-w-full animate-pulse rounded-xl bg-[var(--app-subtle-bg)]" />
+                ) : (
+                    <button
+                        type="button"
+                        onClick={openMarkdownPreview}
+                        className="flex w-full items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-4 py-3 text-left text-sm font-medium text-[var(--app-fg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+                    >
+                        <FileIcon fileName={props.block.fileName} size={24} />
+                        <span className="min-w-0 truncate">{t('media.displayed.previewNamed', { fileName: props.block.fileName })}</span>
+                    </button>
+                )
             ) : objectUrl ? (
                 isVideo ? (
                     <div className="flex min-h-32 min-w-[12rem] items-center justify-center rounded-xl bg-[var(--app-subtle-bg)]">
@@ -272,10 +329,20 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                         className="flex max-h-[calc(100dvh-24px)] max-w-4xl flex-col overflow-hidden p-0 sm:max-h-[86vh]"
                     >
                         <DialogHeader className="shrink-0 border-b border-[var(--app-divider)] px-4 py-4 text-left">
-                            <div className="flex min-w-0 items-center gap-3 pr-10">
+                            <div className="flex min-w-0 items-center gap-1 pr-10">
                                 <DialogTitle className="min-w-0 flex-1 truncate">
                                     {props.block.fileName}
                                 </DialogTitle>
+                                {markdownContent !== null ? (
+                                    <button
+                                        type="button"
+                                        data-hapi-share-export-exclude="true"
+                                        onClick={() => void copy(markdownContent)}
+                                        className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-[var(--app-link)] hover:bg-[var(--app-subtle-bg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+                                    >
+                                        {copied ? t('media.displayed.copied') : t('media.displayed.copy')}
+                                    </button>
+                                ) : null}
                                 {objectUrl ? (
                                     <a
                                         href={objectUrl}

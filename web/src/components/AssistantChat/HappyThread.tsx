@@ -1034,11 +1034,16 @@ export function HappyThread(props: {
         }
 
         const handleWheel = (event: WheelEvent) => {
-            if (isNestedScrollEvent(event)) return
-            keyboardResumeActive = false
+            const isNested = isNestedScrollEvent(event)
             if (event.deltaY >= 0) {
-                wheelIntentUntil = 0
+                if (!isNested) {
+                    keyboardResumeActive = false
+                    wheelIntentUntil = 0
+                }
                 return
+            }
+            if (!isNested) {
+                keyboardResumeActive = false
             }
             // One trigger per gesture: a trackpad swipe is a burst of wheel
             // events. Remember the gesture before the following scroll event
@@ -1049,7 +1054,17 @@ export function HappyThread(props: {
                 wheelLatched = false
             }
             lastWheelAt = now
+            // An upward wheel over a nested scroll area is still an explicit
+            // gesture: once the area tops out, native chaining moves the chat,
+            // and without this arming the snap-back guard misreads that chained
+            // motion as a layout glitch and yanks the viewport to the bottom.
             wheelIntentUntil = now + WHEEL_GESTURE_GAP_MS
+            // Nested scrollers never demand older history directly; the scroll
+            // handler re-arms demand when chained motion actually reaches the
+            // top preload area.
+            if (isNested) {
+                return
+            }
             if (!needsViewportCoverageRef.current() || wheelLatched) {
                 return
             }
