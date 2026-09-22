@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import type React from 'react'
 import type { AppendMessage, AttachmentAdapter, ThreadMessageLike } from '@assistant-ui/react'
 import { useExternalMessageConverter, useExternalStoreRuntime } from '@assistant-ui/react'
+import { MessageRepository } from '@assistant-ui/core/internal'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import {
@@ -1001,6 +1002,13 @@ export function useHappyRuntime(props: {
         messagesVersion: props.messagesVersion,
         historyVersion: props.historyVersion
     }), [props.messagesVersion, props.historyVersion])
+    // assistant-ui's repository keeps branch links for overlapping IDs. A
+    // bounded prepend replaces both ends of the visible window, so reuse would
+    // retain the evicted tail. Start a clean repository for each history page.
+    const messageRepository = useMemo(
+        () => new MessageRepository(),
+        [props.session.id, props.historyVersion]
+    )
 
     // Memoize the adapter to avoid recreating on every render
     // useExternalStoreRuntime may use adapter identity for subscriptions
@@ -1009,6 +1017,7 @@ export function useHappyRuntime(props: {
         isRunning,
         messages: convertedMessages,
         extras,
+        unstable_messageRepositoryInstance: messageRepository,
         onNew,
         onCancel,
         adapters: props.attachmentAdapter ? { attachments: props.attachmentAdapter } : undefined,
@@ -1020,6 +1029,7 @@ export function useHappyRuntime(props: {
         isRunning,
         convertedMessages,
         extras,
+        messageRepository,
         onNew,
         onCancel,
         props.attachmentAdapter

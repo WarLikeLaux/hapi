@@ -57,6 +57,7 @@ function chatContext(overrides: Partial<HappyChatContextValue> = {}): HappyChatC
 }
 
 const STORAGE_KEY = 'hapi-allowed-schemes'
+const OPEN_NEW_TAB_STORAGE_KEY = 'hapi-open-external-links-in-new-tab'
 
 beforeEach(() => {
     localStorage.clear()
@@ -439,6 +440,51 @@ describe('markdown <A> component — fail-closed path-like hrefs (#1452)', () =>
         renderA({ href: '/settings', children: 'settings' }, chatContext())
         expect(document.querySelector('a')!.getAttribute('href')).toBe('/settings')
         expect(document.querySelector('.aui-md-a-inert')).toBeNull()
+    })
+})
+
+// ── "open external links in a new tab" setting (Settings > Display > Links) ──
+
+describe('markdown <A> component — open external links in new tab setting', () => {
+    it('keeps the fork-safe new-tab default for an external http(s) link', () => {
+        renderA({ href: 'https://example.com', children: 'link' })
+        expect(document.querySelector('a')!.getAttribute('target')).toBe('_blank')
+    })
+
+    it('forces target="_blank" + rel="noopener noreferrer" when the setting is enabled', () => {
+        localStorage.setItem(OPEN_NEW_TAB_STORAGE_KEY, 'true')
+        renderA({ href: 'https://example.com', children: 'link' })
+        const link = document.querySelector('a')!
+        expect(link.getAttribute('target')).toBe('_blank')
+        expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    })
+
+    it('preserves the fork new-tab behavior for relative/SPA hrefs', () => {
+        localStorage.setItem(OPEN_NEW_TAB_STORAGE_KEY, 'true')
+        renderA({ href: '/settings', children: 'settings' }, chatContext())
+        expect(document.querySelector('a')!.getAttribute('target')).toBe('_blank')
+    })
+
+    it('preserves the fork new-tab behavior for non-http(s) IANA schemes', () => {
+        localStorage.setItem(OPEN_NEW_TAB_STORAGE_KEY, 'true')
+        renderA({ href: 'mailto:a@b.com', children: 'mail' })
+        expect(document.querySelector('a')!.getAttribute('target')).toBe('_blank')
+    })
+
+    it('updates an already-rendered link when the setting changes via storage event (settings page in another tab, or Settings > Display in this one after context refactor)', () => {
+        renderA({ href: 'https://example.com', children: 'link' })
+        expect(document.querySelector('a')!.getAttribute('target')).toBe('_blank')
+
+        act(() => {
+            localStorage.setItem(OPEN_NEW_TAB_STORAGE_KEY, 'false')
+            window.dispatchEvent(new StorageEvent('storage', {
+                key: OPEN_NEW_TAB_STORAGE_KEY,
+                newValue: 'false',
+                storageArea: localStorage,
+            }))
+        })
+
+        expect(document.querySelector('a')!.getAttribute('target')).toBeNull()
     })
 })
 

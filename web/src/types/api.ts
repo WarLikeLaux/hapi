@@ -29,6 +29,8 @@ export type {
     GitComparisonScope,
     GrokModelsResponse,
     GrokModelSummary,
+    KimiModelsResponse,
+    KimiModelSummary,
     CopilotModelsResponse,
     CopilotModelSummary,
     GrokReasoningEffortResponse,
