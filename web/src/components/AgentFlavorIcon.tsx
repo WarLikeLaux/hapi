@@ -3,12 +3,12 @@
 // components only depend on react and es-toolkit.
 import AntigravityColor from '@lobehub/icons/es/Antigravity/components/Color'
 import ClaudeColor from '@lobehub/icons/es/Claude/components/Color'
-import CodexColor from '@lobehub/icons/es/Codex/components/Color'
 import CursorMono from '@lobehub/icons/es/Cursor/components/Mono'
 import DeepSeekColor from '@lobehub/icons/es/DeepSeek/components/Color'
 import GeminiColor from '@lobehub/icons/es/Gemini/components/Color'
 import GrokMono from '@lobehub/icons/es/Grok/components/Mono'
 import KimiMono from '@lobehub/icons/es/Kimi/components/Mono'
+import OpenAIMono from '@lobehub/icons/es/OpenAI/components/Mono'
 import OpenCodeMono from '@lobehub/icons/es/OpenCode/components/Mono'
 import ZaiMono from '@lobehub/icons/es/ZAI/components/Mono'
 import type { IconType } from '@lobehub/icons/es/types'
@@ -16,13 +16,14 @@ import { CopilotIcon } from '@/components/icons/CopilotIcon'
 import { useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
 
 // Brand logos per agent flavor. Color variant where it stays visible on both
-// light and dark surfaces (claude/codex/gemini); Mono (currentColor) where the
+// light and dark surfaces (claude/gemini); Mono (currentColor) where the
 // package ships no Color variant — or where, like KimiColor, the main glyph is
-// hard-coded #fff and would vanish on the default light theme.
+// hard-coded #fff and would vanish on the default light theme. Codex wears the
+// OpenAI flower (fork hook: the Codex CLI talks to ChatGPT).
 const FLAVOR_LOGOS: Record<string, IconType> = {
     agy: AntigravityColor,
     claude: ClaudeColor,
-    codex: CodexColor,
+    codex: OpenAIMono,
     dsh: DeepSeekColor,
     cursor: CursorMono,
     gemini: GeminiColor,
