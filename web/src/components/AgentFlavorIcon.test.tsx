@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import { render } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, render } from '@testing-library/react'
 import { AGENT_FLAVORS } from '@hapi/protocol'
 import { AgentFlavorIcon } from './AgentFlavorIcon'
+import { getClaudeGlmBranded, setClaudeGlmBranded } from '@/lib/claudeGlmBranding'
 
 // Flavors backed by a @lobehub/icons brand logo.
 const LOGO_FLAVORS = AGENT_FLAVORS.filter((f) => f !== 'pi')
@@ -11,6 +12,11 @@ function getWrapper(container: HTMLElement): HTMLElement {
     if (!wrapper) throw new Error('AgentFlavorIcon did not render a <span>')
     return wrapper
 }
+
+afterEach(() => {
+    cleanup()
+    setClaudeGlmBranded(false)
+})
 
 describe('AgentFlavorIcon', () => {
     it.each(LOGO_FLAVORS)('renders an inline SVG brand logo for the %s flavor', (flavor) => {
@@ -75,5 +81,18 @@ describe('AgentFlavorIcon', () => {
     it('marks the icon aria-hidden for screen readers (decorative only)', () => {
         const { container } = render(<AgentFlavorIcon flavor="claude" />)
         expect(getWrapper(container).getAttribute('aria-hidden')).toBe('true')
+    })
+
+    it('swaps the claude mark for the z.ai logo while GLM branding is on', () => {
+        const unbranded = render(<AgentFlavorIcon flavor="claude" />)
+        const unbrandedSvg = unbranded.container.querySelector('svg')?.innerHTML ?? ''
+
+        setClaudeGlmBranded(true)
+        expect(getClaudeGlmBranded()).toBe(true)
+
+        const branded = render(<AgentFlavorIcon flavor="claude" />)
+        const brandedSvg = branded.container.querySelector('svg')?.innerHTML ?? ''
+        expect(brandedSvg).not.toBe('')
+        expect(brandedSvg).not.toBe(unbrandedSvg)
     })
 })

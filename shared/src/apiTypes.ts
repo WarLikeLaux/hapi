@@ -68,7 +68,13 @@ export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>
 export const HubSettingsResponseSchema = z.object({
     sessionSummaryContract: z.boolean(),
     /** Show compact AGENT_NOTIFY_SUMMARY in chat (default off / hide). */
-    sessionSummaryInChat: z.boolean()
+    sessionSummaryInChat: z.boolean(),
+    /**
+     * Brand the claude flavor as GLM (z.ai) in labels, icons, and hub
+     * notifications. For forks that wire the Claude Code CLI to GLM models;
+     * purely cosmetic, default off.
+     */
+    claudeBrandedAsGlm: z.boolean()
 })
 
 export type HubSettingsResponse = z.infer<typeof HubSettingsResponseSchema>
@@ -76,10 +82,11 @@ export type HubSettingsResponse = z.infer<typeof HubSettingsResponseSchema>
 export const UpdateHubSettingsRequestSchema = z
     .object({
         sessionSummaryContract: z.boolean().optional(),
-        sessionSummaryInChat: z.boolean().optional()
+        sessionSummaryInChat: z.boolean().optional(),
+        claudeBrandedAsGlm: z.boolean().optional()
     })
     .refine(
-        (data) => data.sessionSummaryContract !== undefined || data.sessionSummaryInChat !== undefined,
+        (data) => data.sessionSummaryContract !== undefined || data.sessionSummaryInChat !== undefined || data.claudeBrandedAsGlm !== undefined,
         { message: 'At least one hub setting field is required' }
     )
 

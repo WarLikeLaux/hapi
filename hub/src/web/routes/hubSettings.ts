@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import {
+    applyClaudeGlmBranding,
     UpdateHubSettingsRequestSchema,
     UpdateWorkspacePinsRequestSchema,
     type HubSettingsResponse,
@@ -18,12 +19,20 @@ const OWNER_ONLY_ERROR = 'Hub settings are only available to the hub owner'
 function toHubSettings(settings: Settings): HubSettingsResponse {
     return {
         sessionSummaryContract: settings.sessionSummaryContract === true,
-        sessionSummaryInChat: settings.sessionSummaryInChat === true
+        sessionSummaryInChat: settings.sessionSummaryInChat === true,
+        claudeBrandedAsGlm: settings.claudeBrandedAsGlm === true
     }
 }
 
 export function createHubSettingsRoutes(dataDir: string): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
+
+    // Hub-side branding: notifications resolve agent names through
+    // `getFlavorLabel`, so keep the in-process override in sync with the
+    // persisted setting — at boot and after every owner update.
+    void readSettingsOrThrow(getSettingsFile(dataDir))
+        .then((settings) => applyClaudeGlmBranding(settings.claudeBrandedAsGlm === true))
+        .catch(() => applyClaudeGlmBranding(false))
 
     // Authenticated readers (any namespace) can observe hub-wide display/emit
     // flags. Mutations stay owner-only below.
@@ -50,9 +59,13 @@ export function createHubSettingsRoutes(dataDir: string): Hono<WebAppEnv> {
             if (parsed.data.sessionSummaryInChat !== undefined) {
                 settings.sessionSummaryInChat = parsed.data.sessionSummaryInChat
             }
+            if (parsed.data.claudeBrandedAsGlm !== undefined) {
+                settings.claudeBrandedAsGlm = parsed.data.claudeBrandedAsGlm
+            }
             return {
                 settings,
-                result: toHubSettings(settings)
+                result: toHubSettings(settings),
+                afterCommit: () => applyClaudeGlmBranding(settings.claudeBrandedAsGlm === true)
             }
         })
         c.header('Cache-Control', 'no-store')

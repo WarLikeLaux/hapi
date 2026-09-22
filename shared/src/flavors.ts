@@ -50,7 +50,25 @@ export function hasCapability(flavor: string | null | undefined, cap: Capability
 
 export function getFlavorLabel(flavor: string | null | undefined): string {
     if (!isKnownFlavor(flavor)) return 'Unknown'
-    return FLAVOR_LABELS[flavor]
+    return FLAVOR_LABEL_OVERRIDES[flavor] ?? FLAVOR_LABELS[flavor]
+}
+
+// --- Runtime display overrides (not persisted) ---
+// Fork hook: the claude flavor may actually run GLM models via z.ai; the hub
+// setting `claudeBrandedAsGlm` brands its label (web + hub notifications)
+// without touching the flavor id, capabilities, or stored sessions.
+const FLAVOR_LABEL_OVERRIDES: Partial<Record<AgentFlavor, string>> = {}
+
+export function setFlavorLabelOverride(flavor: AgentFlavor, label: string | null): void {
+    if (label === null) {
+        delete FLAVOR_LABEL_OVERRIDES[flavor]
+    } else {
+        FLAVOR_LABEL_OVERRIDES[flavor] = label
+    }
+}
+
+export function applyClaudeGlmBranding(enabled: boolean): void {
+    setFlavorLabelOverride('claude', enabled ? 'GLM' : null)
 }
 
 // --- Convenience functions ---

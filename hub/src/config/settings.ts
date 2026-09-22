@@ -46,6 +46,11 @@ export interface Settings {
      * Default off: render/copy strip the footer; store stays raw.
      */
     sessionSummaryInChat?: boolean
+    /**
+     * When true, the claude flavor is labeled GLM (z.ai) in web UI and hub
+     * notifications. Cosmetic fork hook for Claude-Code-CLI-wired-to-GLM setups.
+     */
+    claudeBrandedAsGlm?: boolean
     /** Workspace browser pins shared by the owner's web clients. */
     workspacePins?: Array<{ machineId: string; path: string }>
     /**
