@@ -94,11 +94,13 @@ describe('buildAgyHeadlessArgs', () => {
     it('builds the per-turn print-mode args', () => {
         const args = buildAgyHeadlessArgs({
             prompt: 'hello',
+            workspaceDir: '/tmp',
             permissionMode: 'request-review',
         });
         expect(args).toEqual([
             '-p', 'hello',
             '--output-format', 'stream-json',
+            '--add-dir', '/tmp',
             '--print-timeout', '30m',
         ]);
     });
@@ -106,12 +108,15 @@ describe('buildAgyHeadlessArgs', () => {
     it('adds resume/model/mode/effort/skip-permissions flags', () => {
         const args = buildAgyHeadlessArgs({
             prompt: 'hi',
+            workspaceDir: '/tmp',
             conversationId: 'conv-1',
             model: 'gemini-3.5-flash-medium',
             permissionMode: 'always-proceed',
             mode: 'plan',
             effort: 'high',
         });
+        expect(args).toContain('--add-dir');
+        expect(args).toContain('/tmp');
         expect(args).toContain('--conversation');
         expect(args).toContain('conv-1');
         expect(args).toContain('--model');
@@ -124,7 +129,7 @@ describe('buildAgyHeadlessArgs', () => {
     });
 
     it('omits --dangerously-skip-permissions for request-review', () => {
-        const args = buildAgyHeadlessArgs({ prompt: 'hi', permissionMode: 'request-review' });
+        const args = buildAgyHeadlessArgs({ prompt: 'hi', workspaceDir: '/tmp', permissionMode: 'request-review' });
         expect(args).not.toContain('--dangerously-skip-permissions');
     });
 });
