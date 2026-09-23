@@ -29,16 +29,23 @@ const MAX_UNACCEPTED_RETRIES = 3;
  * Per-turn spawn args for agy's headless print mode:
  *
  *   agy -p <msg> --conversation <uuid> --output-format stream-json \
- *       --model <slug> --mode accept-edits|plan --effort <level> \
- *       --print-timeout 30m [--dangerously-skip-permissions]
+ *       --add-dir <workspace> --model <slug> --mode accept-edits|plan \
+ *       --effort <level> --print-timeout 30m [--dangerously-skip-permissions]
  *
  * One spawn per user turn (the only official multi-turn headless channel is
  * `--conversation` resume; the TUI is not used at all). The conversation id is
  * learned from the `init` event on the first turn and persisted to session
  * metadata, so every later turn resumes the same brain conversation.
+ *
+ * `--add-dir` must be an absolute path (agy rejects relative ones). Without it
+ * a headless conversation lands in the service `default-cli-project` with no
+ * active workspace: agy still spawns tools in CWD but does not pre-inject the
+ * project's `.agents/skills` into `<skills>` or AGENTS.md into `<user_rules>`,
+ * so only global skills and rules reach the model.
  */
 export function buildAgyHeadlessArgs(opts: {
     prompt: string;
+    workspaceDir: string;
     conversationId?: string;
     model?: string;
     permissionMode: PermissionMode;
@@ -46,6 +53,7 @@ export function buildAgyHeadlessArgs(opts: {
     effort?: 'low' | 'medium' | 'high';
 }): string[] {
     const args = ['-p', opts.prompt, '--output-format', 'stream-json'];
+    args.push('--add-dir', opts.workspaceDir);
     if (opts.conversationId) {
         args.push('--conversation', opts.conversationId);
     }
@@ -396,6 +404,7 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
             : undefined;
         const args = buildAgyHeadlessArgs({
             prompt,
+            workspaceDir: this.session.path,
             conversationId: this.conversationId ?? undefined,
             model: sessionModel,
             permissionMode: mode.permissionMode,
