@@ -82,7 +82,8 @@ export async function runAgy(opts: {
         process.env.HAPI_HTTP_MCP_URL = hapiMcpServer.url;
         hapiTitleToolAvailable = hapiMcpServer.toolNames.includes('change_title');
     } catch (error) {
-        logger.warn('[agy] HAPI MCP bridge unavailable; continuing without agent-driven titles', error);
+        logger.warn('[agy] HAPI MCP bridge unavailable; continuing without agent-driven titles',
+            error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : error);
         hapiMcpServer?.stop();
         hapiMcpServer = null;
     }

@@ -66,6 +66,46 @@ describe('ensureAgyHapiMcpConfig', () => {
         await expect(readFile(path, 'utf8')).resolves.toBe(original)
     })
 
+    it('adopts a legacy unmarked entry that points at our own bridge binary', async () => {
+        // Versions before the HAPI_MANAGED_SESSION_BRIDGE marker wrote the
+        // entry without env; treating those as user-managed made every later
+        // agy session drop the bridge (and with it all HAPI MCP tools).
+        const path = await temporaryConfigPath()
+        await mkdir(dirname(path), { recursive: true })
+        await writeFile(path, JSON.stringify({
+            mcpServers: {
+                'hapi-session': {
+                    command: '/opt/hapi',
+                    args: ['mcp', '--tools', 'change_title'],
+                },
+            },
+        }))
+
+        await expect(ensureAgyHapiMcpConfig({
+            command: '/opt/hapi',
+            args: ['mcp', '--tools', 'change_title,display_media'],
+        }, path)).resolves.toBe(true)
+
+        const config = JSON.parse(await readFile(path, 'utf8'))
+        expect(config.mcpServers['hapi-session']).toEqual({
+            command: '/opt/hapi',
+            args: ['mcp', '--tools', 'change_title,display_media'],
+            env: { HAPI_MANAGED_SESSION_BRIDGE: '1' },
+        })
+    })
+
+    it('still refuses an unmarked reserved entry whose command is not ours', async () => {
+        const path = await temporaryConfigPath()
+        await mkdir(dirname(path), { recursive: true })
+        const original = JSON.stringify({
+            mcpServers: { 'hapi-session': { command: 'my-custom-server' } },
+        })
+        await writeFile(path, original)
+
+        await expect(ensureAgyHapiMcpConfig({ command: 'hapi', args: ['mcp'] }, path))
+            .rejects.toThrow('already user-managed')
+    })
+
     it('preserves permissions and auto-allows only the HAPI title tool', async () => {
         const path = await temporaryConfigPath()
         await mkdir(dirname(path), { recursive: true })

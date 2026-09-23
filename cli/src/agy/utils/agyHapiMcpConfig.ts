@@ -62,7 +62,13 @@ export async function ensureAgyHapiMcpConfig(
     const existingServers = asRecord(root.mcpServers) ?? {}
     const existing = asRecord(existingServers[HAPI_MCP_SERVER_NAME])
     const existingEnv = asRecord(existing?.env)
-    if (existing && existingEnv?.[HAPI_MANAGED_ENV] !== '1') {
+    // An unmarked entry pointing at our own bridge binary is a leftover from
+    // the pre-marker format this function used to write; adopt it instead of
+    // deadlocking every later session behind "already user-managed".
+    const legacyUnmarkedBridge = existing !== null
+        && existingEnv === null
+        && existing.command === command.command
+    if (existing && existingEnv?.[HAPI_MANAGED_ENV] !== '1' && !legacyUnmarkedBridge) {
         throw new Error(`Antigravity MCP server name "${HAPI_MCP_SERVER_NAME}" is already user-managed`)
     }
     const desired = {
