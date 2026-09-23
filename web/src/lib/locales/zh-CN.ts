@@ -1233,6 +1233,10 @@ export default {
   'settings.about.buildId': '构建 ID',
   'settings.about.buildTime': '构建时间',
   'settings.about.protocolVersion': '协议版本',
+  'settings.about.resetCache': '离线缓存',
+  'settings.about.resetCacheDescription': '清除离线缓存和 Service Worker，然后从网络重新加载应用。已保存的偏好设置会保留。',
+  'settings.about.resetCache.action': '清空缓存并刷新',
+  'settings.about.resetCache.busy': '清除中…',
 
   // Browse / Workspace
   'browse.title': '浏览',

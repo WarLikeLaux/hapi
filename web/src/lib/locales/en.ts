@@ -1235,6 +1235,10 @@ export default {
   'settings.about.buildId': 'Build ID',
   'settings.about.buildTime': 'Build Time',
   'settings.about.protocolVersion': 'Protocol Version',
+  'settings.about.resetCache': 'Offline cache',
+  'settings.about.resetCacheDescription': 'Drops the offline caches and the service worker, then reloads the app from the network. Saved preferences are kept.',
+  'settings.about.resetCache.action': 'Clear cache & reload',
+  'settings.about.resetCache.busy': 'Clearing…',
 
   // Browse / Workspace
   'browse.title': 'Browse',

@@ -209,7 +209,11 @@ function serveEmbeddedAsset(asset: EmbeddedWebAsset): Response {
         'Content-Type': asset.mimeType
     }
 
-    if (asset.path === '/sw.js') {
+    // The shell documents must never come from an HTTP cache: a stale
+    // index.html pins mobile installs to an old asset bundle however
+    // aggressively the service worker checks for updates. Hashed /assets/*
+    // stay immutable and cacheable; the manifest names them.
+    if (asset.path === '/sw.js' || asset.path === '/index.html' || asset.path === '/manifest.webmanifest') {
         headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         headers['CDN-Cache-Control'] = 'no-store'
         headers['Cloudflare-CDN-Cache-Control'] = 'no-store'
