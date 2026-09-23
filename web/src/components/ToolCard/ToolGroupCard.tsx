@@ -293,71 +293,80 @@ export function ToolGroupCard(props: {
         ? null
         : subtitle ?? t('toolGroup.toolCount', { n: props.block.tools.length })
     const fileCount = props.block.summary.fileTargets.length
+    const hasTiming = groupTiming.startedAt != null || groupTiming.completedAt != null || groupTiming.durationMs != null
+    const hasSubRow = hasTiming || Boolean(summaryBadgeText) || fileCount > 0
 
     return (
         <Card className="overflow-hidden rounded-[20px] bg-[var(--app-tool-group-bg)] shadow-none">
-            <CardHeader className={cn('space-y-0 p-3', subtitle ? 'pb-2' : null)}>
+            <CardHeader className={cn('space-y-0 p-3', hasSubRow ? 'pb-2.5' : null)}>
                 <button
                     type="button"
                     onClick={() => setOpen((value) => !value)}
                     className="w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
                     aria-expanded={open}
                 >
-                    <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0 flex flex-1 flex-col gap-1">
-                            <div className="min-w-0 flex items-center gap-2">
+                    <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                            <div className="min-w-0 flex items-center gap-2 flex-1">
                                 <div className="shrink-0 flex h-3.5 w-3.5 items-center justify-center text-[var(--app-tool-card-accent)] leading-none">
                                     <DetailsIcon open={open} />
                                 </div>
-                                <CardTitle className="min-w-0 truncate whitespace-nowrap text-sm font-medium leading-tight text-[var(--app-fg)]">
+                                <CardTitle className="min-w-0 truncate text-sm font-medium leading-tight text-[var(--app-fg)]">
                                     {primaryTitle}
                                 </CardTitle>
                             </div>
-                            <ToolTimingSummary
-                                startedAt={groupTiming.startedAt}
-                                completedAt={groupTiming.completedAt}
-                                durationMs={groupTiming.durationMs}
-                                typography="group"
-                            />
+
+                            <div className="flex shrink-0 items-center gap-1.5 text-[var(--app-hint)]">
+                                {groupTiming.running ? (
+                                    <span className={toolStatusColorClass('running')} aria-label={t('toolGroup.rowStatus.running')}>
+                                        <ToolStatusIcon state="running" />
+                                    </span>
+                                ) : null}
+                                {props.block.summary.runningCount > 0 ? (
+                                    <SummaryBadge
+                                        className="bg-sky-500/10 text-sky-600"
+                                        text={t('toolGroup.badge.running', { n: props.block.summary.runningCount })}
+                                    />
+                                ) : null}
+                                {props.block.summary.pendingCount > 0 ? (
+                                    <SummaryBadge
+                                        className="bg-amber-500/10 text-amber-700"
+                                        text={t('toolGroup.badge.pending', { n: props.block.summary.pendingCount })}
+                                    />
+                                ) : null}
+                                {props.block.summary.errorCount > 0 ? (
+                                    <SummaryBadge
+                                        className="bg-red-500/10 text-red-600"
+                                        text={t('toolGroup.badge.error', { n: props.block.summary.errorCount })}
+                                    />
+                                ) : null}
+                            </div>
                         </div>
 
-                        <div className="flex shrink-0 items-center gap-2 self-center text-[var(--app-hint)]">
-                            {groupTiming.running ? (
-                                <span className={toolStatusColorClass('running')} aria-label={t('toolGroup.rowStatus.running')}>
-                                    <ToolStatusIcon state="running" />
-                                </span>
-                            ) : null}
-                            {summaryBadgeText ? (
-                                <SummaryBadge
-                                    className="bg-[var(--app-subtle-bg)] text-xs font-normal text-[var(--app-hint)]"
-                                    text={summaryBadgeText}
+                        {hasSubRow ? (
+                            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 text-xs text-[var(--app-hint)]">
+                                <ToolTimingSummary
+                                    startedAt={groupTiming.startedAt}
+                                    completedAt={groupTiming.completedAt}
+                                    durationMs={groupTiming.durationMs}
+                                    typography="group"
                                 />
-                            ) : null}
-                            {props.block.summary.runningCount > 0 ? (
-                                <SummaryBadge
-                                    className="bg-sky-500/10 text-sky-600"
-                                    text={t('toolGroup.badge.running', { n: props.block.summary.runningCount })}
-                                />
-                            ) : null}
-                            {props.block.summary.pendingCount > 0 ? (
-                                <SummaryBadge
-                                    className="bg-amber-500/10 text-amber-700"
-                                    text={t('toolGroup.badge.pending', { n: props.block.summary.pendingCount })}
-                                />
-                            ) : null}
-                            {props.block.summary.errorCount > 0 ? (
-                                <SummaryBadge
-                                    className="bg-red-500/10 text-red-600"
-                                    text={t('toolGroup.badge.error', { n: props.block.summary.errorCount })}
-                                />
-                            ) : null}
-                            {fileCount > 0 ? (
-                                <SummaryBadge
-                                    className="bg-[var(--app-subtle-bg)] text-[var(--app-hint)]"
-                                    text={t('toolGroup.badge.fileTargets', { n: fileCount })}
-                                />
-                            ) : null}
-                        </div>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    {summaryBadgeText ? (
+                                        <SummaryBadge
+                                            className="bg-[var(--app-subtle-bg)] text-xs font-normal text-[var(--app-hint)]"
+                                            text={summaryBadgeText}
+                                        />
+                                    ) : null}
+                                    {fileCount > 0 ? (
+                                        <SummaryBadge
+                                            className="bg-[var(--app-subtle-bg)] text-xs font-normal text-[var(--app-hint)]"
+                                            text={t('toolGroup.badge.fileTargets', { n: fileCount })}
+                                        />
+                                    ) : null}
+                                </div>
+                            </div>
+                        ) : null}
                     </div>
                 </button>
             </CardHeader>
