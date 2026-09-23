@@ -31,6 +31,7 @@ import { isQueuedForInvocation } from '@/lib/messages'
 import { inactiveSessionCanResume } from '@/lib/sessionResume'
 import {
     getCodexModelReasoningEfforts,
+    resolveCodexModel,
     supportsCodexReasoningEffort
 } from '@/lib/codexModelCapabilities'
 import { createSerialAsyncQueue } from '@/lib/serialAsyncQueue'
@@ -1006,6 +1007,14 @@ function SessionChatInner(props: SessionChatProps) {
     const codexReasoningEffortOptions = useMemo(
         () => codexSupportedReasoningEfforts?.map((value) => ({ value })),
         [codexSupportedReasoningEfforts]
+    )
+    // The effort codex's own config uses when the session sets none — the
+    // composer names its no-pick reasoning-effort option after it.
+    const codexDefaultReasoningEffort = useMemo(
+        () => agentFlavor === 'codex'
+            ? resolveCodexModel(codexModelsState.models, props.session.model)?.defaultReasoningEffort ?? null
+            : null,
+        [agentFlavor, codexModelsState.models, props.session.model]
     )
     const opencodeModelsState = useOpencodeModels({
         api: props.api,
@@ -2083,6 +2092,7 @@ function SessionChatInner(props: SessionChatProps) {
                                     ? opencodeReasoningEffortState.options
                                     : undefined
                         }
+                        defaultModelReasoningEffort={agentFlavor === 'codex' ? codexDefaultReasoningEffort : undefined}
                         availableEffortOptions={
                             agentFlavor === 'grok' && grokEffortState.options.length > 0
                                 ? grokEffortState.options

@@ -42,10 +42,6 @@ export function getComposerToolbarJustifyContent(
             : 'flex-start'
 }
 
-function ChevronIcon() {
-    return <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2.5 3.75L5 6.25L7.5 3.75" /></svg>
-}
-
 function VoiceAssistantIcon() {
     return (
         <svg
@@ -343,14 +339,13 @@ export function ComposerToolbarItemPreview(props: { item: ComposerToolbarItemId;
             case 'scratchlist': return <ScratchlistToggleIcon />
             case 'schedule': return <ScheduleIcon className="h-[18px] w-[18px]" />
             case 'model':
-            case 'effort':
-                return <><span className="max-w-24 truncate text-xs font-medium">{props.label}</span><ChevronIcon /></>
+                return <span className="max-w-24 truncate text-xs font-medium">{props.label}</span>
         }
     })()
-    const isTextControl = props.item === 'model' || props.item === 'effort'
+    const isTextControl = props.item === 'model'
     return (
         <span
-            className={`flex h-8 items-center justify-center rounded-full text-[var(--app-fg)]/60 ${isTextControl ? 'gap-1 px-3' : 'w-8'}`}
+            className={`flex h-8 items-center justify-center rounded-full text-[var(--app-fg)]/60 ${isTextControl ? 'px-1' : 'w-8'}`}
             aria-hidden="true"
         >
             {icon}
@@ -636,17 +631,9 @@ export function ComposerButtons(props: {
     // The composer must surface that constraint at UI time so the user never
     // builds a submission the hub will reject — see hub/web/routes/messages.ts.
     hasAttachments?: boolean
-    // Generic model/effort value buttons
+    // Display-only model pill (label may include the effort, e.g.
+    // "GPT-6-Sol (High)"); both are picked in the settings sheet)
     modelValueLabel?: string
-    modelValueButtonRef?: Ref<HTMLButtonElement>
-    modelValueDisabled?: boolean
-    modelValueOpen?: boolean
-    onModelValueToggle?: () => void
-    effortValueLabel?: string
-    effortValueButtonRef?: Ref<HTMLButtonElement>
-    effortValueDisabled?: boolean
-    effortValueOpen?: boolean
-    onEffortValueToggle?: () => void
     // Scratchlist drawer toggle. When `onScratchlistToggle` is provided, a
     // notepad icon appears next to the schedule-send icon. Click toggles
     // composer-send-routing between chat and scratchlist; SessionChat owns
@@ -720,44 +707,15 @@ export function ComposerButtons(props: {
                 </ToolbarItemSlot>
 
                 <ToolbarItemSlot item="model">
+                {/* Display-only pill: model and effort are picked in the
+                    settings sheet, so the label is not a control. */}
                 {props.modelValueLabel ? (
-                    <button
-                        ref={props.modelValueButtonRef}
-                        type="button"
-                        aria-label={props.modelValueLabel}
+                    <span
                         title={props.modelValueLabel}
-                        className={`flex h-8 items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors ${
-                            props.modelValueOpen
-                                ? 'bg-[var(--app-secondary-bg)] text-[var(--app-link)]'
-                                : 'text-[var(--app-fg)]/60 hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)]'
-                        }`}
-                        onClick={props.onModelValueToggle}
-                        disabled={props.modelValueDisabled}
+                        className="flex h-8 items-center rounded-full px-1 text-xs font-medium text-[var(--app-fg)]/60"
                     >
                         {props.modelValueLabel}
-                        <ChevronIcon />
-                    </button>
-                ) : null}
-                </ToolbarItemSlot>
-
-                <ToolbarItemSlot item="effort">
-                {props.effortValueLabel ? (
-                    <button
-                        ref={props.effortValueButtonRef}
-                        type="button"
-                        aria-label={props.effortValueLabel}
-                        title={props.effortValueLabel}
-                        className={`flex h-8 items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors ${
-                            props.effortValueOpen
-                                ? 'bg-[var(--app-secondary-bg)] text-[var(--app-link)]'
-                                : 'text-[var(--app-fg)]/60 hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)]'
-                        }`}
-                        onClick={props.onEffortValueToggle}
-                        disabled={props.effortValueDisabled}
-                    >
-                        {props.effortValueLabel}
-                        <ChevronIcon />
-                    </button>
+                    </span>
                 ) : null}
                 </ToolbarItemSlot>
 
