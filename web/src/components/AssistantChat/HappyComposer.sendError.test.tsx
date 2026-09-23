@@ -122,9 +122,10 @@ vi.mock('@/components/AssistantChat/ComposerButtons', () => ({
         pendingSchedule: PendingSchedule | null
         expanded: boolean
         onExpandedToggle: () => void
+        showSettingsButton?: boolean
+        settingsDisabled?: boolean
+        onSettingsToggle?: () => void
         modelValueLabel?: string
-        modelValueDisabled?: boolean
-        onModelValueToggle?: () => void
     }) => (
         <div>
             <button type="button" onClick={props.onSend}>send</button>
@@ -133,9 +134,10 @@ vi.mock('@/components/AssistantChat/ComposerButtons', () => ({
             </button>
             <button type="button" onClick={() => props.onSchedule({ type: 'absolute', ms: 9000 })}>select schedule</button>
             <button type="button" onClick={props.onClearSchedule}>clear schedule</button>
-            {props.modelValueLabel ? (
-                <button type="button" disabled={props.modelValueDisabled} onClick={props.onModelValueToggle}>{props.modelValueLabel}</button>
+            {props.showSettingsButton ? (
+                <button type="button" disabled={props.settingsDisabled} onClick={props.onSettingsToggle}>Settings</button>
             ) : null}
+            {props.modelValueLabel ? <span>{props.modelValueLabel}</span> : null}
             <output data-testid="pending-schedule">{JSON.stringify(props.pendingSchedule)}</output>
         </div>
     ),
@@ -284,14 +286,13 @@ it('keeps Pi model selection available while a message is pending', () => {
 
     act(() => controls.current!.setThreadDisabled(true))
 
-    // Mid-turn Pi keeps its model control live (#1442): the value button opens
-    // the unified settings sheet, whose provider-grouped rows stay clickable.
-    const valueButton = screen.getByRole('button', { name: 'Pi model' })
-    expect(valueButton).not.toBeDisabled()
-    fireEvent.click(valueButton)
+    // Mid-turn Pi keeps its model control live (#1442): the gear opens the
+    // unified settings sheet, whose provider-grouped rows stay clickable.
+    const gear = screen.getByRole('button', { name: 'Settings' })
+    expect(gear).not.toBeDisabled()
+    fireEvent.click(gear)
     const modelRows = screen.getAllByRole('button', { name: 'Pi model' })
-    expect(modelRows.length).toBeGreaterThan(1)
-    // The sheet renders before the toolbar in the DOM, so the first match is the row.
+    expect(modelRows.length).toBeGreaterThan(0)
     fireEvent.click(modelRows[0])
     expect(runtime.modelChanges).toEqual([{ provider: 'pi', modelId: 'pi-model' }])
 })

@@ -83,4 +83,32 @@ describe('getCodexComposerReasoningEffortOptions', () => {
             { value: 'medium', label: 'Medium' }
         ])
     })
+
+    it('names the no-pick option after the config default effort (Codex)', () => {
+        expect(getCodexComposerReasoningEffortOptions(null, 'codex', null, 'high')).toEqual([
+            { value: null, label: 'High' },
+            { value: 'low', label: 'Low' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'xhigh', label: 'XHigh' }
+        ])
+    })
+
+    it('keeps the explicit default-effort row when the user pinned it (Codex)', () => {
+        expect(getCodexComposerReasoningEffortOptions('high', 'codex', null, 'high')).toEqual([
+            { value: null, label: 'High' },
+            { value: 'low', label: 'Low' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'high', label: 'High' },
+            { value: 'xhigh', label: 'XHigh' }
+        ])
+    })
+
+    it('ignores unknown default effort casing and blanks (Codex)', () => {
+        expect(getCodexComposerReasoningEffortOptions(null, 'codex', null, '  High ')).toEqual([
+            { value: null, label: 'High' },
+            { value: 'low', label: 'Low' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'xhigh', label: 'XHigh' }
+        ])
+    })
 })

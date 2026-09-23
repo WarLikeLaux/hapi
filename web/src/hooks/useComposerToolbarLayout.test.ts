@@ -13,7 +13,6 @@ describe('DEFAULT_COMPOSER_TOOLBAR_LAYOUT', () => {
             'settings',
             'expand',
             'model',
-            'effort',
             'terminal',
             'switch',
             'voiceMic',
@@ -71,21 +70,20 @@ describe('normalizeComposerToolbarLayout', () => {
     it('reorders across a hidden split boundary in single-column modes', () => {
         const layout = normalizeComposerToolbarLayout({
             mode: 'right',
-            left: ['attachment', 'settings', 'model', 'effort', 'terminal'],
+            left: ['attachment', 'settings', 'model', 'terminal'],
             right: ['abort', 'switch', 'voiceMic', 'scratchlist', 'schedule'],
         })
         const result = moveComposerToolbarItemInSingleLayout(layout, 'attachment', 7)
 
-        expect([...result.left, ...result.right].slice(0, 10)).toEqual([
+        expect([...result.left, ...result.right].slice(0, 9)).toEqual([
             'settings',
             'model',
-            'effort',
             'terminal',
             'expand',
             'abort',
             'switch',
-            'attachment',
             'voiceMic',
+            'attachment',
             'scratchlist',
         ])
         expect(result.left).toHaveLength(layout.left.length)

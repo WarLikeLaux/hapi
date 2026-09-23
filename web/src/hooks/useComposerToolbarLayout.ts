@@ -5,7 +5,6 @@ export const COMPOSER_TOOLBAR_ITEM_IDS = [
     'settings',
     'expand',
     'model',
-    'effort',
     'terminal',
     'abort',
     'switch',

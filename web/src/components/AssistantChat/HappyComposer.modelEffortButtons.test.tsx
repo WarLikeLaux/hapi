@@ -3,6 +3,7 @@ import type { ReactNode, TextareaHTMLAttributes } from 'react'
 import { useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
+import { setClaudeGlmBranded } from '@/lib/claudeGlmBranding'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import type { ComposerSendIntent } from '@/lib/messageDelivery'
 import type { ComposerToolbarLayout } from '@/hooks/useComposerToolbarLayout'
@@ -142,6 +143,7 @@ function renderComposer(agentFlavor: string, overrides: Partial<Parameters<typeo
 describe('HappyComposer generic model/effort value buttons', () => {
     afterEach(() => {
         cleanup()
+        setClaudeGlmBranded(false)
         runtime.setSnapshot = null
         runtime.narrowViewport = false
         runtime.toolbarLayout = null
@@ -149,50 +151,30 @@ describe('HappyComposer generic model/effort value buttons', () => {
         runtime.sentIntents = []
     })
 
-    it('shows model and effort value buttons for Claude on wide viewports', () => {
+    it('shows the model pill with inline effort for Claude on wide viewports', () => {
         renderComposer('claude')
-        expect(screen.getByRole('button', { name: 'Sonnet 4' })).toBeTruthy()
-        expect(screen.getByRole('button', { name: 'High' })).toBeTruthy()
+        expect(screen.getByText('Sonnet 4 (High)')).toBeTruthy()
+        expect(screen.queryByRole('button', { name: 'High' })).toBeNull()
         expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
     })
 
-    it('shows only the model button for flavors without effort support', () => {
+    it('shows the model pill for flavors without effort support', () => {
         renderComposer('codex')
-        expect(screen.getByRole('button', { name: 'Sonnet 4' })).toBeTruthy()
+        expect(screen.getByText('Sonnet 4')).toBeTruthy()
         expect(screen.queryByRole('button', { name: 'High' })).toBeNull()
     })
 
-    it('hides value buttons on narrow viewports, keeping settings', () => {
+    it('hides the model pill on narrow viewports, keeping settings', () => {
         runtime.narrowViewport = true
         renderComposer('claude')
-        expect(screen.queryByRole('button', { name: 'Sonnet 4' })).toBeNull()
+        expect(screen.queryByText('Sonnet 4 (High)')).toBeNull()
         expect(screen.queryByRole('button', { name: 'High' })).toBeNull()
         expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
     })
 
-    it('opens only the Model section from the model button (anchored open)', () => {
+    it('keeps the model pill non-interactive (selection lives in the settings sheet)', () => {
         renderComposer('claude')
-        fireEvent.click(screen.getByRole('button', { name: 'Sonnet 4' }))
-        expect(screen.getByText('Model')).toBeTruthy()
-        // Anchored open: the other sections stay collapsed.
-        expect(screen.queryByText('Permission Mode')).toBeNull()
-        expect(screen.queryByText('Effort')).toBeNull()
-    })
-
-    it('opens only the Effort section from the effort button (anchored open)', () => {
-        renderComposer('claude')
-        fireEvent.click(screen.getByRole('button', { name: 'High' }))
-        expect(screen.getByText('Effort')).toBeTruthy()
-        expect(screen.queryByText('Model')).toBeNull()
-        expect(screen.queryByText('Permission Mode')).toBeNull()
-    })
-
-    it('switches from the Model to the Effort section without closing the sheet', () => {
-        renderComposer('claude')
-        fireEvent.click(screen.getByRole('button', { name: 'Sonnet 4' }))
-        expect(screen.getByText('Model')).toBeTruthy()
-        fireEvent.click(screen.getByRole('button', { name: 'High' }))
-        expect(screen.getByText('Effort')).toBeTruthy()
+        fireEvent.click(screen.getByText('Sonnet 4 (High)'))
         expect(screen.queryByText('Model')).toBeNull()
     })
 
@@ -205,16 +187,6 @@ describe('HappyComposer generic model/effort value buttons', () => {
         expect(screen.getByText('Effort')).toBeTruthy()
     })
 
-    it('expands an anchored sheet to the full sheet when the gear is clicked', () => {
-        renderComposer('claude')
-        fireEvent.click(screen.getByRole('button', { name: 'Sonnet 4' }))
-        expect(screen.queryByText('Effort')).toBeNull()
-        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-        expect(screen.getByText('Model')).toBeTruthy()
-        expect(screen.getByText('Effort')).toBeTruthy()
-        expect(screen.getByText('Permission Mode')).toBeTruthy()
-    })
-
     it('shows generic value buttons for Pi with the provider-qualified model label', () => {
         renderComposer('pi', {
             piModels: [
@@ -223,9 +195,9 @@ describe('HappyComposer generic model/effort value buttons', () => {
             ],
             piSelectedModel: { provider: 'gemini', modelId: 'gemini-2.5-pro' },
         })
-        // Pi uses the same value buttons as every other flavor.
-        expect(screen.getByRole('button', { name: 'Gemini 2.5 Pro' })).toBeTruthy()
-        expect(screen.getByRole('button', { name: 'High' })).toBeTruthy()
+        // Pi uses the same display-only model pill as every other flavor.
+        expect(screen.getByText('Gemini 2.5 Pro (High)')).toBeTruthy()
+        expect(screen.queryByRole('button', { name: 'High' })).toBeNull()
         expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
     })
 
@@ -237,13 +209,13 @@ describe('HappyComposer generic model/effort value buttons', () => {
             ],
             piSelectedModel: { provider: 'gemini', modelId: 'gemini-2.5-pro' },
         })
-        fireEvent.click(screen.getByRole('button', { name: 'Gemini 2.5 Pro' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         expect(screen.getByText('Model')).toBeTruthy()
-        // The value button label and the matching sheet row share the model name.
-        expect(screen.getAllByText('Gemini 2.5 Pro').length).toBeGreaterThan(1)
+        // The sheet row for the selected provider keeps the bare model name.
+        expect(screen.getAllByText('Gemini 2.5 Pro').length).toBeGreaterThan(0)
         expect(screen.getByText('Vertex Gemini 2.5 Pro')).toBeTruthy()
-        // Anchored open from the model button: the Effort section stays collapsed.
-        expect(screen.queryByText('Effort')).toBeNull()
+        // The full sheet from the gear includes the Effort section.
+        expect(screen.getByText('Effort')).toBeTruthy()
     })
 
     it('keeps the gear reachable on narrow viewports even when the toolbar layout hides it', () => {
@@ -255,9 +227,9 @@ describe('HappyComposer generic model/effort value buttons', () => {
             hidden: ['settings', 'abort'],
         }
         renderComposer('claude')
-        // Narrow mode collapses the value buttons into the settings sheet, so the
+        // Narrow mode collapses the model pill into the settings sheet, so the
         // gear must stay visible regardless of the persisted layout.
-        expect(screen.queryByRole('button', { name: 'Sonnet 4' })).toBeNull()
+        expect(screen.queryByText('Sonnet 4 (High)')).toBeNull()
         expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
     })
 
@@ -287,7 +259,7 @@ describe('HappyComposer generic model/effort value buttons', () => {
             ],
             piSelectedModel: { provider: 'vertex', modelId: 'gemini-2.5-pro' },
         })
-        fireEvent.click(screen.getByRole('button', { name: 'Vertex Gemini 2.5 Pro' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         const sheetRow = (name: string) => screen.getAllByText(name)
             .map((el) => el.closest('button'))
             .find((btn) => btn?.className.includes('w-full'))!
@@ -313,7 +285,7 @@ describe('HappyComposer generic model/effort value buttons', () => {
         expect(screen.queryByText('Default')).toBeNull()
     })
 
-    it('clears Cursor variant drill-down when the sheet is closed through the value button', () => {
+    it('clears Cursor variant drill-down when the sheet is closed and reopened through the gear', () => {
         renderComposer('cursor', {
             model: 'composer-2.5-fast',
             selectedModelBase: 'composer-2.5',
@@ -329,9 +301,8 @@ describe('HappyComposer generic model/effort value buttons', () => {
                 ]
                 : [],
         })
-        // Open from the value button (label resolves to the selected base).
-        const valueButton = screen.getByRole('button', { name: 'Composer 2.5' })
-        fireEvent.click(valueButton)
+        // Open from the gear (the model pill is display-only).
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         // Drill into the multi-variant base row: the Model section is replaced
         // by the variant sub-list with a back control.
         const baseRow = screen.getAllByRole('button', { name: 'Composer 2.5' })
@@ -339,10 +310,10 @@ describe('HappyComposer generic model/effort value buttons', () => {
         fireEvent.click(baseRow)
         expect(screen.queryByText('Model')).toBeNull()
         expect(screen.getByText('← Models')).toBeTruthy()
-        // Close and reopen through the value button: drill-down must reset to
-        // the base model list (same behavior as the gear toggle).
-        fireEvent.click(valueButton)
-        fireEvent.click(valueButton)
+        // Close and reopen through the gear: drill-down must reset to the
+        // base model list.
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         expect(screen.queryByText('← Models')).toBeNull()
         expect(screen.getByText('Model')).toBeTruthy()
     })
@@ -359,7 +330,7 @@ describe('HappyComposer generic model/effort value buttons', () => {
         // (the old dedicated control was disabled in this state too). The
         // model value button must not render either: a bare session id has no
         // provider and the sheet has no Model section to open.
-        expect(screen.queryByRole('button', { name: 'gemini-2.5-pro' })).toBeNull()
+        expect(screen.queryByText('gemini-2.5-pro')).toBeNull()
         expect(screen.queryByRole('button', { name: 'High' })).toBeNull()
         expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull()
     })
@@ -374,11 +345,11 @@ describe('HappyComposer generic model/effort value buttons', () => {
             piSelectedModel: { provider: 'gemini', modelId: 'gemini-2.5-pro' },
             onEffortChange: (level) => effortChanges.push(level),
         })
-        // Open the sheet from the 'High' value button, then re-click the 'High' row.
-        fireEvent.click(screen.getByRole('button', { name: 'High' }))
+        // Open the sheet from the gear (effort has no dedicated toolbar button
+        // anymore), then re-click the 'High' row to clear the pinned level.
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         const effortRows = screen.getAllByRole('button', { name: 'High' })
-        expect(effortRows.length).toBeGreaterThan(1)
-        // The sheet renders before the toolbar in the DOM, so the first match is the row.
+        expect(effortRows.length).toBeGreaterThan(0)
         fireEvent.click(effortRows[0])
         expect(effortChanges).toEqual([null])
     })
@@ -404,7 +375,7 @@ describe('HappyComposer generic model/effort value buttons', () => {
             </I18nProvider>
         )
         // Open the sheet while controls are live.
-        fireEvent.click(screen.getByRole('button', { name: 'Gemini 2.5 Pro' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         const sheetRow = () => screen.getAllByRole('button', { name: 'Gemini 2.5 Pro' })
             .find((btn) => btn.className.includes('w-full'))!
         expect(sheetRow()).not.toBeDisabled()
@@ -419,30 +390,65 @@ describe('HappyComposer generic model/effort value buttons', () => {
 
     it('maps the default selection (model=null) onto the localized default option label', () => {
         renderComposer('claude', { model: null })
-        expect(screen.getByRole('button', { name: 'Default' })).toBeTruthy()
-        expect(screen.queryByRole('button', { name: 'Sonnet 4' })).toBeNull()
+        expect(screen.getByText('Default (High)')).toBeTruthy()
+        expect(screen.queryByText('Sonnet 4')).toBeNull()
     })
 
     it('maps auto/default wire values onto the localized default option label', () => {
         renderComposer('claude', { model: 'auto' })
-        expect(screen.getByRole('button', { name: 'Default' })).toBeTruthy()
+        expect(screen.getByText('Default (High)')).toBeTruthy()
     })
 
-    it('toggles the settings sheet closed when the model value button is clicked again', () => {
-        renderComposer('claude')
-        const modelButton = screen.getAllByRole('button', { name: 'Sonnet 4' })[0]
-        fireEvent.click(modelButton)
+    it('shows the pinned reasoning effort inline on the Codex model pill', () => {
+        renderComposer('codex', {
+            modelReasoningEffort: 'high',
+            onModelReasoningEffortChange: vi.fn(),
+            availableModelReasoningEffortOptions: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }],
+        })
+        expect(screen.getByText('Sonnet 4 (High)')).toBeTruthy()
+        expect(screen.queryByRole('button', { name: 'High' })).toBeNull()
+    })
+
+    it('names the Codex inline effort after the config default effort when nothing is pinned', () => {
+        renderComposer('codex', {
+            modelReasoningEffort: null,
+            defaultModelReasoningEffort: 'high',
+            onModelReasoningEffortChange: vi.fn(),
+            availableModelReasoningEffortOptions: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }],
+        })
+        // Nothing is pinned, but the no-pick state runs the config default (high).
+        expect(screen.getByText('Sonnet 4 (High)')).toBeTruthy()
+    })
+
+    it('opens the full sheet with Reasoning Effort from the gear for Codex', () => {
+        renderComposer('codex', {
+            modelReasoningEffort: 'high',
+            onModelReasoningEffortChange: vi.fn(),
+            availableModelReasoningEffortOptions: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }],
+        })
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        expect(screen.getByText('Reasoning Effort')).toBeTruthy()
         expect(screen.getByText('Model')).toBeTruthy()
-        fireEvent.click(modelButton)
-        expect(screen.queryByText('Model')).toBeNull()
     })
 
-    it('toggles the settings sheet closed when the effort value button is clicked again', () => {
-        renderComposer('claude')
-        const effortButton = screen.getAllByRole('button', { name: 'High' })[0]
-        fireEvent.click(effortButton)
-        expect(screen.getByText('Effort')).toBeTruthy()
-        fireEvent.click(effortButton)
+    it('labels the GLM-branded claude model pill after the default GLM model and hides effort', () => {
+        setClaudeGlmBranded(true)
+        renderComposer('claude', { model: null })
+        expect(screen.getByText('GLM 5.3 Flash')).toBeTruthy()
+        expect(screen.queryByRole('button', { name: 'Default' })).toBeNull()
+        // GLM has no effort levels: no effort button even though effort="high".
+        expect(screen.queryByRole('button', { name: 'Auto' })).toBeNull()
+        expect(screen.queryByRole('button', { name: 'High' })).toBeNull()
+    })
+
+    it('keeps the Model sheet section but drops Effort for GLM-branded claude', () => {
+        setClaudeGlmBranded(true)
+        renderComposer('claude', { model: null })
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        expect(screen.getByText('Model')).toBeTruthy()
+        // The value button caption and the matching sheet row share the label.
+        expect(screen.getAllByText('GLM 5.3 Flash').length).toBeGreaterThan(1)
         expect(screen.queryByText('Effort')).toBeNull()
+        expect(screen.getByText('Permission Mode')).toBeTruthy()
     })
 })

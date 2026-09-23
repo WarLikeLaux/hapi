@@ -2,6 +2,7 @@ import {
     getCodexCollaborationModeOptions,
     getCopilotAgentModeOptions,
     getPermissionModeOptionsForFlavor,
+    CLAUDE_GLM_DEFAULT_MODEL_LABEL,
     type CopilotAgentMode
 } from '@hapi/protocol'
 import { ComposerPrimitive, useAui, useAuiState } from '@assistant-ui/react'
@@ -55,7 +56,8 @@ import type { ScratchlistParkResult } from '@/lib/scratchlistAttachmentFlow'
 import { useTranslation } from '@/lib/use-translation'
 import { getModelOptionsForFlavor, getNextModelForFlavor } from './modelOptions'
 import { getClaudeComposerEffortOptions } from './claudeEffortOptions'
-import { getCodexComposerReasoningEffortOptions } from './codexReasoningEffortOptions'
+import { formatCodexReasoningEffortLabel, getCodexComposerReasoningEffortOptions } from './codexReasoningEffortOptions'
+import { useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
 import { getDisplayedCodexServiceTier } from './codexFastMode'
 import { getPiThinkingLevelOptions, getHighestThinkingLevel, isThinkingLevelSupported } from './piThinkingLevelOptions'
 import { groupModelsByProvider } from './piModelGroups'
@@ -312,6 +314,8 @@ export function HappyComposer(props: {
      *  disambiguates when two providers share a modelId). */
     piSelectedModel?: { provider: string; modelId: string } | null
     availableModelReasoningEffortOptions?: Array<{ value: string; name?: string }>
+    /** Codex: the effort codex's own config uses when nothing is set — names the no-pick option. */
+    defaultModelReasoningEffort?: string | null
     availableEffortOptions?: Array<{ value: string; name?: string }>
     /** Cursor: selected base model key (not wire id). */
     selectedModelBase?: string | null
@@ -416,6 +420,7 @@ export function HappyComposer(props: {
         piModels,
         piSelectedModel,
         availableModelReasoningEffortOptions,
+        defaultModelReasoningEffort,
         availableEffortOptions,
         selectedModelBase,
         selectedModelVariant,
@@ -592,8 +597,6 @@ export function HappyComposer(props: {
     const richInputRef = useRef<RichComposerInputHandle>(null)
     const richComposerFueAnchorRef = useRef<HTMLDivElement>(null)
     const settingsButtonRef = useRef<HTMLButtonElement>(null)
-    const modelValueButtonRef = useRef<HTMLButtonElement>(null)
-    const effortValueButtonRef = useRef<HTMLButtonElement>(null)
     const settingsOverlayRef = useRef<HTMLDivElement>(null)
     // `composer.text === ''` alone is not enough to identify the empty state
     // created by a send. A user can type and delete a fresh draft before the
@@ -1024,9 +1027,24 @@ export function HappyComposer(props: {
         () => agentFlavor === 'copilot' ? getCopilotAgentModeOptions() : [],
         [agentFlavor]
     )
+    // Fork: the hub brands claude as GLM (z.ai); there the no-pick model is
+    // GLM 5.3 Flash and the flavor has no meaningful effort control — same
+    // honesty rules as the create form (ModelSelector / EffortField).
+    const claudeGlmBranded = useClaudeGlmBranding()
+    const isGlmBrandedClaude = agentFlavor === 'claude' && claudeGlmBranded
     const modelOptions = useMemo(
-        () => getModelOptionsForFlavor(agentFlavor, model, availableModelOptions),
-        [agentFlavor, model, availableModelOptions]
+        () => {
+            const options = getModelOptionsForFlavor(agentFlavor, model, availableModelOptions)
+            if (!isGlmBrandedClaude) {
+                return options
+            }
+            // The no-pick option launches GLM 5.3 Flash, so it is named after
+            // it instead of a blind "Default".
+            return options.map((option) => (option.value === null
+                ? { ...option, label: CLAUDE_GLM_DEFAULT_MODEL_LABEL }
+                : option))
+        },
+        [agentFlavor, model, availableModelOptions, isGlmBrandedClaude]
     )
 
     // Cursor dual picker: after choosing a multi-variant base, drill into variant
@@ -1057,10 +1075,12 @@ export function HappyComposer(props: {
             ? getCodexComposerReasoningEffortOptions(
                 modelReasoningEffort,
                 agentFlavor,
-                availableModelReasoningEffortOptions
+                availableModelReasoningEffortOptions,
+                // Only codex's config default is known; OpenCode variants have none.
+                agentFlavor === 'codex' ? defaultModelReasoningEffort : null
             )
             : [],
-        [agentFlavor, modelReasoningEffort, availableModelReasoningEffortOptions]
+        [agentFlavor, modelReasoningEffort, availableModelReasoningEffortOptions, defaultModelReasoningEffort]
     )
     // Pi: group models by provider for hierarchical display
     const piModelGroups = useMemo(
@@ -1519,8 +1539,6 @@ export function HappyComposer(props: {
             if (!(target instanceof Node)) return
             if (settingsOverlayRef.current?.contains(target)) return
             if (settingsButtonRef.current?.contains(target)) return
-            if (modelValueButtonRef.current?.contains(target)) return
-            if (effortValueButtonRef.current?.contains(target)) return
             dismissSettings()
         }
 
@@ -1608,7 +1626,9 @@ export function HappyComposer(props: {
     // fallback levels would mutate a set_thinking_level the model may reject.
     const piEffortUnavailable = agentFlavor === 'pi'
         && (!selectedPiModel || selectedPiModel.reasoning === false)
-    const showEffortSettings = Boolean(onEffortChange && supportsEffort(agentFlavor) && !piEffortUnavailable)
+    // A GLM-wired claude has no effort levels at all (the create form hides
+    // the field too), so neither the sheet section nor the value button renders.
+    const showEffortSettings = Boolean(onEffortChange && supportsEffort(agentFlavor) && !piEffortUnavailable && !isGlmBrandedClaude)
     const showFastModeSettings = Boolean(onServiceTierChange)
     const showModelAreaSettings = showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings
     const showOtherSettings = showFastModeSettings || showCollaborationSettings || showCopilotAgentModeSettings
@@ -1655,6 +1675,8 @@ export function HappyComposer(props: {
     const effortValueLabel = useMemo(() => {
         if (isNarrowViewport) return undefined
         if (!onEffortChange || !supportsEffort(agentFlavor)) return undefined
+        // GLM-wired claude has no effort levels — the button must not render.
+        if (isGlmBrandedClaude) return undefined
         // Pi: without a resolved catalog entry there is no capability map to
         // derive levels from; hide the button until the selected model is known.
         if (agentFlavor === 'pi') {
@@ -1668,23 +1690,32 @@ export function HappyComposer(props: {
         }
         const option = claudeEffortOptions.find((candidate) => candidate.value === effort)
         return option?.label ?? (effort ? effort : undefined)
-    }, [isNarrowViewport, onEffortChange, agentFlavor, selectedPiModel, effort, claudeEffortOptions])
+    }, [isNarrowViewport, onEffortChange, agentFlavor, isGlmBrandedClaude, selectedPiModel, effort, claudeEffortOptions])
+    // Codex/OpenCode have no launch-effort capability; their reasoning effort
+    // is surfaced inline on the model pill label instead.
+    const reasoningEffortValueLabel = useMemo(() => {
+        if (isNarrowViewport) return undefined
+        if (!onModelReasoningEffortChange) return undefined
+        if (agentFlavor !== 'codex' && agentFlavor !== 'opencode') return undefined
+        // Same gate as the sheet section: without rows there is nothing to show.
+        if (codexReasoningEffortOptions.length === 0) return undefined
+        const option = codexReasoningEffortOptions.find((candidate) => candidate.value === modelReasoningEffort)
+        return option?.label
+            ?? (modelReasoningEffort ? formatCodexReasoningEffortLabel(modelReasoningEffort) : 'Default')
+    }, [isNarrowViewport, onModelReasoningEffortChange, agentFlavor, modelReasoningEffort, codexReasoningEffortOptions])
+    // One pill shows "Model (Effort)"; the effort itself is picked in the
+    // settings sheet (gear), not from the toolbar.
+    const modelPillLabel = useMemo(() => {
+        const effortPart = effortValueLabel ?? reasoningEffortValueLabel
+        if (!modelValueLabel || !effortPart) return modelValueLabel
+        return `${modelValueLabel} (${effortPart})`
+    }, [modelValueLabel, effortValueLabel, reasoningEffortValueLabel])
 
     // Wrapper for DOM onClick consumers: never leak the MouseEvent into the
     // `section` parameter (the gear must always open the full sheet).
     const handleGearToggle = useCallback(() => {
         handleSettingsToggle(null)
     }, [handleSettingsToggle])
-
-    const handleModelValueToggle = useCallback(() => {
-        if (modelEffortControlsDisabled) return
-        handleSettingsToggle('model')
-    }, [modelEffortControlsDisabled, handleSettingsToggle])
-
-    const handleEffortValueToggle = useCallback(() => {
-        if (modelEffortControlsDisabled) return
-        handleSettingsToggle('effort')
-    }, [modelEffortControlsDisabled, handleSettingsToggle])
 
     const overlayPositionClass = isExpanded
         ? 'absolute z-10 bottom-12 mb-2'
@@ -2339,8 +2370,6 @@ export function HappyComposer(props: {
                             showSettingsButton={showSettingsButton}
                             settingsButtonRef={settingsButtonRef}
                             settingsDisabled={modelEffortControlsDisabled}
-                            modelValueButtonRef={modelValueButtonRef}
-                            effortValueButtonRef={effortValueButtonRef}
                             onSettingsToggle={handleGearToggle}
                             expanded={isExpanded}
                             onExpandedToggle={handleExpandedToggle}
@@ -2367,14 +2396,7 @@ export function HappyComposer(props: {
                             onSchedule={handleUserSchedule}
                             onClearSchedule={onUserClearSchedule}
                             hasAttachments={blocksScheduling}
-                            modelValueLabel={modelValueLabel}
-                            modelValueDisabled={modelEffortControlsDisabled}
-                            modelValueOpen={showSettings && settingsSection !== 'effort'}
-                            onModelValueToggle={handleModelValueToggle}
-                            effortValueLabel={effortValueLabel}
-                            effortValueDisabled={modelEffortControlsDisabled}
-                            effortValueOpen={showSettings && settingsSection !== 'model'}
-                            onEffortValueToggle={handleEffortValueToggle}
+                            modelValueLabel={modelPillLabel}
                             scratchlistMode={props.scratchlistMode}
                             scratchlistCount={props.scratchlistCount}
                             onScratchlistToggle={props.onScratchlistToggle}
