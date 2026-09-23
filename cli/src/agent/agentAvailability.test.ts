@@ -45,6 +45,19 @@ describe('agent executable resolution', () => {
             available: false,
             reason: 'not_found',
         })
+    })
+
+    it('keeps fork-disabled agents out of the pickers even when installed', () => {
+        expect(getAgentAvailability('gemini', { PATH: '' })).toEqual({
+            agent: 'gemini',
+            available: false,
+            reason: 'not_found',
+        })
+        expect(getAgentAvailability('kimi', { PATH: '' })).toEqual({
+            agent: 'kimi',
+            available: false,
+            reason: 'not_found',
+        })
         expect(getAgentAvailability('claude', { PATH: '' })).toEqual({
             agent: 'claude',
             available: false,

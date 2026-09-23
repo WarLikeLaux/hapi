@@ -14,6 +14,7 @@ import type { SyncEvent } from '../sync/syncEngine'
 import { TerminalRegistry } from './terminalRegistry'
 import { clearUserTerminalBuffer } from './userTerminalBuffer'
 import type { CliSocketWithData, SocketData, SocketServer } from './socketTypes'
+import type { QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
 
 const jwtPayloadSchema = z.object({
     uid: z.number(),
@@ -44,6 +45,7 @@ export type SocketServerDeps = {
     onSessionIdle?: (sessionId: string, time: number) => void
     onSessionEnd?: (payload: { sid: string; time: number }) => void
     onMachineAlive?: (payload: { machineId: string; time: number; health?: unknown }) => void
+    onQuotaUpdate?: (machineId: string, report: { capturedAt: number; quotas: QuotaWindow[]; unavailable: QuotaUnavailable[] }) => void
     onBackgroundTaskDelta?: (sessionId: string, delta: { started: number; completed: number }) => void
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
     onAgentProgress?: (sessionId: string, at: number) => void
@@ -134,6 +136,7 @@ export function createSocketServer(deps: SocketServerDeps): {
         onSessionIdle: deps.onSessionIdle,
         onSessionEnd: deps.onSessionEnd,
         onMachineAlive: deps.onMachineAlive,
+        onQuotaUpdate: deps.onQuotaUpdate,
         onWebappEvent: deps.onWebappEvent,
         onBackgroundTaskDelta: deps.onBackgroundTaskDelta,
         onSessionActivity: deps.onSessionActivity,

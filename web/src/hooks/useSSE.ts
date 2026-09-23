@@ -824,6 +824,10 @@ export function useSSE(options: {
                 void applyAgyCatalogAnnouncement(queryClient, event.machineId)
             }
 
+            if (event.type === 'machine-quotas-updated') {
+                void queryClient.invalidateQueries({ queryKey: queryKeys.quotas })
+            }
+
             if (event.type === 'machine-updated') {
                 if (isMachineRecord(event.data)) {
                     upsertMachine(event.data)

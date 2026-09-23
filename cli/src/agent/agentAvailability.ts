@@ -73,7 +73,9 @@ export function getAgentAvailability(
     env: LaunchEnvironment = process.env,
     context: LaunchContext = 'runner',
 ): AgentAvailabilityEntry {
-    if (agent === 'gemini') {
+    if (agent === 'gemini' || agent === 'kimi') {
+        // Fork: gemini has no wrapper here, and the kimi-cli a uv tool left on
+        // PATH is not an agent this fork uses — both stay out of the pickers.
         return { agent, available: false, reason: 'not_found' }
     }
 

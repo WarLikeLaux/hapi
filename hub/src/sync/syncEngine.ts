@@ -16,6 +16,7 @@ import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpReq
 import type { SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { ImplementCodexPlanResult } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
+import type { MachineQuotaSnapshot, QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
 import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
 import { randomUUID } from 'node:crypto'
@@ -197,6 +198,8 @@ export class SyncEngine {
     private readonly sessionReadyIds = new Set<string>()
     /** Same-ID PTY rows with a resume currently in flight. */
     private readonly ptyResumeInFlightIds = new Set<string>()
+    /** Latest quota report per machine. In-memory: runners repush on reconnect. */
+    private readonly quotaReports = new Map<string, { capturedAt: number; receivedAt: number; quotas: QuotaWindow[]; unavailable: QuotaUnavailable[] }>()
     /** PTY rows kept fail-closed after a metadata write/clear failure. */
     private readonly ptyResumeQuarantinedIds = new Set<string>()
     /** Original Pi rows with a native resume currently in flight. */
@@ -428,6 +431,32 @@ export class SyncEngine {
 
     getOnlineMachinesByNamespace(namespace: string): Machine[] {
         return this.machineCache.getOnlineMachinesByNamespace(namespace)
+    }
+
+    storeMachineQuotas(
+        machineId: string,
+        report: { capturedAt: number; quotas: QuotaWindow[]; unavailable: QuotaUnavailable[] }
+    ): void {
+        this.quotaReports.set(machineId, { ...report, receivedAt: Date.now() })
+    }
+
+    /** Last quota report per machine in the namespace; machines without a report are omitted. */
+    getQuotasByNamespace(namespace: string): MachineQuotaSnapshot[] {
+        const snapshots: MachineQuotaSnapshot[] = []
+        for (const machine of this.machineCache.getMachinesByNamespace(namespace)) {
+            const report = this.quotaReports.get(machine.id)
+            if (!report) continue
+            snapshots.push({
+                machineId: machine.id,
+                displayName: machine.metadata?.displayName ?? null,
+                online: machine.active,
+                capturedAt: report.capturedAt,
+                receivedAt: report.receivedAt,
+                quotas: report.quotas,
+                unavailable: report.unavailable
+            })
+        }
+        return snapshots
     }
 
     async renameMachine(machineId: string, displayName: string): Promise<void> {

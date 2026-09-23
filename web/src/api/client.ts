@@ -67,6 +67,7 @@ import type {
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
+import type { QuotasResponse } from '@hapi/protocol/quotas'
 import type { CancelMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
 import type {
@@ -930,6 +931,10 @@ export class ApiClient {
 
     async getMachines(): Promise<MachinesResponse> {
         return await this.request<MachinesResponse>('/api/machines')
+    }
+
+    async getQuotas(): Promise<QuotasResponse> {
+        return await this.request<QuotasResponse>('/api/quotas')
     }
 
     /** Pass an empty string to clear the custom name and fall back to the hostname. */

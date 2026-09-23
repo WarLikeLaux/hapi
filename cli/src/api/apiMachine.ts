@@ -65,6 +65,7 @@ import { homedir } from 'node:os'
 import type { CursorChatStoreStatus } from '@hapi/protocol/apiTypes'
 import { MachinePathPolicy } from './machinePathPolicy'
 import { getAgentAvailabilityResponse } from '@/agent/agentAvailability'
+import { QuotaReporter } from '@/quota/quotaReporter'
 
 export { normalizeWindowsDriveRoot } from './machinePathPolicy'
 
@@ -108,6 +109,7 @@ export class ApiMachineClient {
     private keepAliveInterval: NodeJS.Timeout | null = null
     private keepAliveStartTimeout: ReturnType<typeof setTimeout> | null = null
     private rpcHandlerManager: RpcHandlerManager
+    private quotaReporter: QuotaReporter | null = null
 
     private readonly pathPolicy: MachinePathPolicy
 
@@ -599,12 +601,20 @@ export class ApiMachineClient {
             }
 
             this.startKeepAlive()
+
+            if (!this.quotaReporter) {
+                this.quotaReporter = new QuotaReporter(this.machine.id, (update) => {
+                    this.socket.emit('machine-quota-update', update)
+                })
+            }
+            this.quotaReporter.start()
         })
 
         this.socket.on('disconnect', () => {
             logger.debug('[API MACHINE] Disconnected from bot')
             this.rpcHandlerManager.onSocketDisconnect()
             this.stopKeepAlive()
+            this.quotaReporter?.stop()
         })
 
         this.socket.on('rpc-request', async (data: { method: string; params: string }, callback: (response: string) => void) => {
@@ -700,6 +710,7 @@ export class ApiMachineClient {
 
     shutdown(): void {
         this.stopKeepAlive()
+        this.quotaReporter?.stop()
         // The listener holds this client, and the socket is about to close.
         setAgyCatalogChangeListener(null)
         if (this.socket) {

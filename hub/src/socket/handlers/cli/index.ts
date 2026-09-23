@@ -1,4 +1,5 @@
 import type { CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
+import type { QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
 import type { Store, StoredMachine, StoredSession } from '../../../store'
 import type { RpcRegistry } from '../../rpcRegistry'
 import type { SyncEvent } from '../../../sync/syncEngine'
@@ -49,6 +50,7 @@ export type CliHandlersDeps = {
     onSessionIdle?: (sessionId: string, time: number) => void
     onSessionEnd?: (payload: SessionEndPayload) => void
     onMachineAlive?: (payload: MachineAlivePayload) => void
+    onQuotaUpdate?: (machineId: string, report: { capturedAt: number; quotas: QuotaWindow[]; unavailable: QuotaUnavailable[] }) => void
     onWebappEvent?: (event: SyncEvent) => void
     onBackgroundTaskDelta?: (sessionId: string, delta: { started: number; completed: number }) => void
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
@@ -86,7 +88,7 @@ const SESSION_ACCESS_CACHE_TTL_MS = 1_000
 const SESSION_ACCESS_CACHE_MAX_SESSIONS = 64
 
 export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlersDeps): void {
-    const { io, store, rpcRegistry, terminalRegistry, onSessionAlive, onSessionReady, onSessionBusy, onSessionIdle, onSessionEnd, onMachineAlive, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onAgentProgress, onSweepImmediateQueued, onMessagesConsumed } = deps
+    const { io, store, rpcRegistry, terminalRegistry, onSessionAlive, onSessionReady, onSessionBusy, onSessionIdle, onSessionEnd, onMachineAlive, onQuotaUpdate, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onAgentProgress, onSweepImmediateQueued, onMessagesConsumed } = deps
     const terminalNamespace = io.of('/terminal')
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
 
@@ -193,6 +195,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
         resolveMachineAccess,
         emitAccessError,
         onMachineAlive,
+        onQuotaUpdate,
         onWebappEvent
     })
     registerTerminalHandlers(socket, {
