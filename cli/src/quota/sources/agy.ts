@@ -213,6 +213,35 @@ function accountPrefixFromStatus(status: unknown): string | null {
     return prefix ? prefix : null
 }
 
+export function mergeAgyWindows(
+    fresh: QuotaWindow[],
+    previous: QuotaWindow[],
+    livePrefixes: Set<string>
+): QuotaWindow[] {
+    const merged = new Map<string, QuotaWindow>()
+    for (const quotaWindow of fresh) {
+        merged.set(quotaWindow.source, quotaWindow)
+    }
+
+    if (livePrefixes.size > 0) {
+        for (const quotaWindow of previous) {
+            if (!isAgyWindowSource(quotaWindow.source)) continue
+            const prefix = quotaWindow.source.split(':')[1]
+            if (prefix && livePrefixes.has(prefix) && !merged.has(quotaWindow.source)) {
+                merged.set(quotaWindow.source, quotaWindow)
+            }
+        }
+    } else {
+        for (const quotaWindow of previous) {
+            if (isAgyWindowSource(quotaWindow.source) && !merged.has(quotaWindow.source)) {
+                merged.set(quotaWindow.source, quotaWindow)
+            }
+        }
+    }
+
+    return [...merged.values()].sort((a, b) => a.source.localeCompare(b.source))
+}
+
 /**
  * Polls every discoverable agy language server and merges measurements over
  * the previous snapshot. With live accounts present, only they are reported
@@ -221,7 +250,7 @@ function accountPrefixFromStatus(status: unknown): string | null {
  */
 export async function collectAgyQuotas(previous: QuotaWindow[], nowSec: number): Promise<CollectorResult> {
     const targets = await discoverAgyTargets()
-    const merged = new Map<string, QuotaWindow>()
+    const fresh: QuotaWindow[] = []
     const livePrefixes = new Set<string>()
 
     for (const { port, csrfToken } of targets) {
@@ -232,22 +261,11 @@ export async function collectAgyQuotas(previous: QuotaWindow[], nowSec: number):
         const summary = await agyCall(port, 'RetrieveUserQuotaSummary', csrfToken)
         if (!summary) continue
         for (const quotaWindow of extractAgyWindows(summary, (kind) => agySourceId(prefix, kind), nowSec)) {
-            merged.set(quotaWindow.source, quotaWindow)
+            fresh.push(quotaWindow)
         }
     }
 
-    if (livePrefixes.size > 0) {
-        for (const quotaWindow of previous) {
-            if (!isAgyWindowSource(quotaWindow.source)) continue
-            const prefix = quotaWindow.source.split(':')[1]
-            if (prefix && livePrefixes.has(prefix)) merged.set(quotaWindow.source, quotaWindow)
-        }
-    } else {
-        for (const quotaWindow of previous) {
-            if (isAgyWindowSource(quotaWindow.source)) merged.set(quotaWindow.source, quotaWindow)
-        }
-    }
-
-    if (merged.size === 0) return { kind: 'skipped' }
-    return { kind: 'ok', windows: [...merged.values()].sort((a, b) => a.source.localeCompare(b.source)) }
+    const windows = mergeAgyWindows(fresh, previous, livePrefixes)
+    if (windows.length === 0) return { kind: 'skipped' }
+    return { kind: 'ok', windows }
 }
