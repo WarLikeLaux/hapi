@@ -16,7 +16,8 @@ describe('NewSession preferences', () => {
 
     it('loads defaults when storage is empty', () => {
         expect(loadPreferredAgent()).toBe('codex')
-        expect(loadPreferredYoloMode()).toBe(false)
+        // Fork: YOLO is the launch default; only a stored 'off' opts out.
+        expect(loadPreferredYoloMode()).toBe(true)
     })
 
     it('loads saved values from storage', () => {
@@ -144,7 +145,7 @@ describe('NewSession preferences', () => {
             cursorSelectedBase: 'auto',
             effort: 'auto',
             modelReasoningEffort: 'default',
-            permissionMode: 'default'
+            permissionMode: 'bypassPermissions'
         })
     })
 
@@ -178,7 +179,7 @@ describe('NewSession preferences', () => {
             cursorSelectedBase: 'auto',
             effort: 'auto',
             modelReasoningEffort: 'default',
-            permissionMode: 'default'
+            permissionMode: 'yolo'
         })
     })
 
@@ -198,12 +199,13 @@ describe('NewSession preferences', () => {
         })
     })
 
-    it('migrates the legacy YOLO preference for Codex only', () => {
-        savePreferredYoloMode(true)
-
+    it('defaults the codex family to YOLO regardless of the legacy toggle', () => {
+        // The legacy stored toggle migrated into per-flavor defaults; it no
+        // longer changes what a fresh launch resolves to.
         expect(resolvePreferredLaunchSettings('codex', null, true).permissionMode).toBe('yolo')
-        expect(resolvePreferredLaunchSettings('copilot', null, true).permissionMode).toBe('default')
         expect(resolvePreferredLaunchSettings('codex', null, false).permissionMode).toBe('yolo')
+        expect(resolvePreferredLaunchSettings('copilot', null, true).permissionMode).toBe('yolo')
+        expect(resolvePreferredLaunchSettings('copilot', null, false).permissionMode).toBe('yolo')
     })
 
     it('uses YOLO for a new Codex launch and preserves later explicit choices', () => {
@@ -236,9 +238,9 @@ describe('NewSession preferences', () => {
         expect(localStorage.getItem('hapi:newSession:codexYoloDefault:v1')).toBe('true')
     })
 
-    it('migrates the legacy YOLO preference for Claude to bypassPermissions', () => {
+    it('defaults Claude to bypassPermissions regardless of the legacy toggle', () => {
         expect(resolvePreferredLaunchSettings('claude', null, true).permissionMode).toBe('bypassPermissions')
-        expect(resolvePreferredLaunchSettings('claude', null, false).permissionMode).toBe('default')
+        expect(resolvePreferredLaunchSettings('claude', null, false).permissionMode).toBe('bypassPermissions')
     })
 
     it('round-trips a Claude permission mode through storage', () => {
@@ -286,7 +288,7 @@ describe('NewSession preferences', () => {
             cursorSelectedBase: 'auto',
             effort: 'auto',
             modelReasoningEffort: 'default',
-            permissionMode: 'default'
+            permissionMode: 'yolo'
         })
     })
 })
