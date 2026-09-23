@@ -1,9 +1,11 @@
 import type { ClientToServerEvents } from '@hapi/protocol'
+import { MachineQuotaUpdateSchema } from '@hapi/protocol/quotas'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { Store, StoredMachine } from '../../../store'
 import type { SyncEvent } from '../../../sync/syncEngine'
 import type { CliSocketWithData } from '../../socketTypes'
+import type { QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
 import type { AccessErrorReason, AccessResult } from './types'
 
 type MachineAlivePayload = {
@@ -40,11 +42,12 @@ export type MachineHandlersDeps = {
     resolveMachineAccess: ResolveMachineAccess
     emitAccessError: EmitAccessError
     onMachineAlive?: (payload: MachineAlivePayload) => void
+    onQuotaUpdate?: (machineId: string, report: { capturedAt: number; quotas: QuotaWindow[]; unavailable: QuotaUnavailable[] }) => void
     onWebappEvent?: (event: SyncEvent) => void
 }
 
 export function registerMachineHandlers(socket: CliSocketWithData, deps: MachineHandlersDeps): void {
-    const { store, resolveMachineAccess, emitAccessError, onMachineAlive, onWebappEvent } = deps
+    const { store, resolveMachineAccess, emitAccessError, onMachineAlive, onQuotaUpdate, onWebappEvent } = deps
 
     socket.on('machine-alive', (data: MachineAlivePayload) => {
         if (!data || typeof data.machineId !== 'string' || typeof data.time !== 'number') {
@@ -155,6 +158,21 @@ export function registerMachineHandlers(socket: CliSocketWithData, deps: Machine
             return
         }
         onWebappEvent?.({ type: 'machine-agy-models-updated', machineId: id })
+    })
+
+    socket.on('machine-quota-update', (data: unknown) => {
+        const parsed = MachineQuotaUpdateSchema.safeParse(data)
+        if (!parsed.success) {
+            return
+        }
+        const { machineId } = parsed.data
+        const machineAccess = resolveMachineAccess(machineId)
+        if (!machineAccess.ok) {
+            emitAccessError('machine', machineId, machineAccess.reason)
+            return
+        }
+        onQuotaUpdate?.(machineId, parsed.data)
+        onWebappEvent?.({ type: 'machine-quotas-updated', machineId })
     })
 
     socket.on('machine-update-metadata', handleMachineMetadataUpdate)

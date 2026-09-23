@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { CodexCollaborationMode, PermissionMode } from './modes'
 import type { CopilotAgentMode } from './copilotModes'
 import type { SessionEndReason } from './schemas'
+import type { MachineQuotaUpdate } from './quotas'
 export { SessionEndReasonSchema, type SessionEndReason } from './schemas'
 
 export type SocketErrorReason = 'namespace-missing' | 'access-denied' | 'not-found'
@@ -287,6 +288,8 @@ export interface ClientToServerEvents {
     'machine-update-state': (data: { machineId: string; expectedVersion: number; runnerState: unknown | null }, cb: (answer: MachineUpdateStateAck) => void) => void
     /** The machine's `agy models` listing changed on a background re-check. */
     'machine-agy-models-changed': (data: { machineId: string }) => void
+    /** Runner pushes its normalized subscription-quota snapshot; fire-and-forget, latest wins. */
+    'machine-quota-update': (data: MachineQuotaUpdate) => void
     'rpc-register': (data: { method: string }) => void
     'rpc-unregister': (data: { method: string }) => void
     'terminal:ready': (data: TerminalReadyPayload) => void

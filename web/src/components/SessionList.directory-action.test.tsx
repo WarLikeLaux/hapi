@@ -242,58 +242,8 @@ describe('SessionList time filter', () => {
         vi.useRealTimers()
     })
 
-    it('keeps the date filter beside collapsed search and filters without expanding it', () => {
-        const recent = makeSession({
-            id: 'recent',
-            updatedAt: Date.now(),
-            metadata: { path: '/work/recent', name: 'Recent session' }
-        })
-        const old = makeSession({
-            id: 'old',
-            updatedAt: new Date(2020, 0, 1).getTime(),
-            metadata: { path: '/work/old', name: 'Old session' }
-        })
-
-        renderWithProviders(
-            <SessionList
-                sessions={[recent, old]}
-                selectedSessionId={null}
-                onSelect={vi.fn()}
-                onNewSession={vi.fn()}
-                onRefresh={vi.fn()}
-                isLoading={false}
-                renderHeader={false}
-                api={null}
-            />
-        )
-
-        expect(screen.getByRole('button', { name: /Recent session/ })).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: /Old session/ })).toBeInTheDocument()
-
-        const searchButton = screen.getByRole('button', { name: SEARCH_LABEL })
-        const filterButton = screen.getByRole('button', { name: 'Filter sessions by last activity' })
-        const searchControl = searchButton.parentElement
-        expect(searchControl?.nextElementSibling).toBe(filterButton)
-        expect(searchControl?.parentElement).toBe(filterButton.parentElement)
-        expect(searchControl?.parentElement).toHaveClass('relative', 'gap-1')
-        expect(screen.queryByPlaceholderText(SEARCH_PLACEHOLDER)).toBeNull()
-
-        fireEvent.click(filterButton)
-        const emptyDate = screen.getByRole('button', { name: new Date(2026, 6, 17).toLocaleDateString() })
-        const activeDate = screen.getByRole('button', { name: `${new Date(2026, 6, 18).toLocaleDateString()}, has session activity` })
-        expect(emptyDate).toHaveClass('text-[var(--app-hint)]')
-        expect(activeDate).toHaveClass('text-[var(--app-fg)]')
-        expect(activeDate).toHaveAttribute('title', `${new Date(2026, 6, 18).toLocaleDateString()}, has session activity`)
-        fireEvent.click(emptyDate)
-        fireEvent.click(activeDate)
-
-        expect(screen.getByRole('button', { name: /Recent session/ })).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: /Old session/ })).toBeNull()
-        expect(screen.queryByPlaceholderText(SEARCH_PLACEHOLDER)).toBeNull()
-        expect(filterButton).toHaveAttribute('title', '2026-07-17 – 2026-07-18')
-        expect(filterButton).toHaveAccessibleName('Filter sessions by last activity: 2026-07-17 – 2026-07-18')
-        expect(filterButton).toHaveFocus()
-    })
+    // The standalone header calendar was removed; the date filter lives inside
+    // the expanded search field (embedded variant below).
 
     it('highlights today without requiring hover or session activity', () => {
         const old = makeSession({

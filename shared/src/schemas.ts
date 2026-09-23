@@ -635,6 +635,13 @@ export const SyncEventSchema = z.discriminatedUnion('type', [
     MachineChangedSchema.extend({
         type: z.literal('machine-agy-models-updated')
     }),
+    /**
+     * The machine pushed a new subscription-quota snapshot. Carries no data:
+     * clients refetch the quotas route, which answers from the hub's cache.
+     */
+    MachineChangedSchema.extend({
+        type: z.literal('machine-quotas-updated')
+    }),
     SessionEventBaseSchema.extend({
         type: z.literal('toast'),
         data: z.object({

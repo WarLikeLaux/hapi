@@ -19,6 +19,7 @@ import {
 } from '@/lib/sessionNavigation'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
+import { QuotaLimitsModal } from '@/components/QuotaLimitsModal'
 import { SessionList } from '@/components/SessionList'
 import { NewSession } from '@/components/NewSession'
 import { WorkspaceBrowser } from '@/components/WorkspaceBrowser'
@@ -72,6 +73,7 @@ import SettingsMachinesPage from '@/routes/settings/machines'
 import SettingsAboutPage from '@/routes/settings/about'
 import SettingsStoragePage from '@/routes/settings/storage'
 import SettingsUsagePage from '@/routes/settings/usage'
+import SettingsLimitsPage from '@/routes/settings/limits'
 import SharePage from '@/routes/share'
 import { ChatConversationPage, ChatsIndexPage, ChatsPage } from '@/routes/chats'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
@@ -118,7 +120,7 @@ function PlusIcon(props: { className?: string }) {
     )
 }
 
-function FolderOpenIcon(props: { className?: string }) {
+function LimitsGaugeIcon(props: { className?: string }) {
     return (
         <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -132,7 +134,8 @@ function FolderOpenIcon(props: { className?: string }) {
             strokeLinejoin="round"
             className={props.className}
         >
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            <path d="m12 14 4-4" />
+            <path d="M3.34 19a10 10 0 1 1 17.32 0" />
         </svg>
     )
 }
@@ -166,6 +169,7 @@ function SessionsPage() {
     const { addToast } = useToast()
     const { sessions, isLoading, error, refetch } = useSessions(api)
     const [initializedHub, setInitializedHub] = useState<string | null>(null)
+    const [limitsOpen, setLimitsOpen] = useState(false)
     const { machines } = useMachines(api, true)
     const handleRefresh = useCallback(() => {
         return (async () => {
@@ -224,6 +228,7 @@ function SessionsPage() {
 
     return (
         <>
+            <QuotaLimitsModal isOpen={limitsOpen} onClose={() => setLimitsOpen(false)} />
             <div className="flex h-full min-h-0">
             <div
                 className={`${isSessionsIndex ? 'flex' : 'hidden split:flex'} w-full shrink-0 flex-col bg-[var(--app-bg)]`}
@@ -258,16 +263,14 @@ function SessionsPage() {
                         renderHeader={false}
                         headerActions={(
                             <div className="flex items-center gap-2">
-                                {canBrowse && (
-                                    <button
-                                        type="button"
-                                        onClick={() => navigate({ to: '/browse' })}
-                                        className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
-                                        title={t('browse.nav')}
-                                    >
-                                        <FolderOpenIcon className="h-5 w-5" />
-                                    </button>
-                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => setLimitsOpen(true)}
+                                    className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
+                                    title={t('settings.limits.title')}
+                                >
+                                    <LimitsGaugeIcon className="h-5 w-5" />
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => navigate({ to: '/settings' })}
@@ -1343,6 +1346,12 @@ const settingsUsageRoute = createRoute({
     component: SettingsUsagePage,
 })
 
+const settingsLimitsRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'limits',
+    component: SettingsLimitsPage,
+})
+
 // Web Share Target landing route. Service worker (`web/src/sw.ts`)
 // intercepts the manifest's `POST /share` and 303-redirects here with an
 // IDB transfer id. `error=ingest` is set when the SW failed to write IDB.
@@ -1382,6 +1391,7 @@ export const routeTree = rootRoute.addChildren([
         settingsMachinesRoute,
         settingsStorageRoute,
         settingsUsageRoute,
+        settingsLimitsRoute,
         settingsAboutRoute,
     ]),
     shareRoute,
