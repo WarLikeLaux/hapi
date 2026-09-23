@@ -53,9 +53,15 @@ export function savePreferredAgent(agent: AgentType): void {
 
 export function loadPreferredYoloMode(): boolean {
     try {
-        return localStorage.getItem(YOLO_STORAGE_KEY) === 'true'
+        const stored = localStorage.getItem(YOLO_STORAGE_KEY)
+        // Fork: YOLO is the launch default; only an explicit stored 'off'
+        // turns it off.
+        if (stored === null) {
+            return true
+        }
+        return stored === 'true'
     } catch {
-        return false
+        return true
     }
 }
 
@@ -181,7 +187,7 @@ export function resolvePreferredLaunchSettings(
     const legacyYoloBridgeMode = preferredPermissionMode === undefined && legacyYolo && LEGACY_YOLO_BRIDGE_AGENTS.includes(agent)
         ? resolveHapiYoloPermissionMode(agent)
         : null
-    const defaultPermissionMode = agent === 'codex' ? 'yolo' : 'default'
+    const defaultPermissionMode = resolveHapiYoloPermissionMode(agent) ?? 'default'
     const permissionMode = usesSharedPermissionMode
         ? preferredPermissionMode
             ? availablePermissionModes.includes(preferredPermissionMode)

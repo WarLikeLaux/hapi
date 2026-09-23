@@ -37,6 +37,9 @@ const mocks = vi.hoisted(() => ({
     opencodeVariantsLoading: false,
     opencodeVariantsEnabled: false,
     piDialogSelection: ['pi-native-1'] as string[],
+    cursorModels: [] as Array<{ modelId: string; name?: string }>,
+    cursorSkus: [] as Array<{ modelId: string; name?: string }>,
+    cursorModelsLoading: false,
     piModels: [] as PiModelSummary[],
     piModelsLoading: false,
     piModelsError: null as string | null,
@@ -123,10 +126,10 @@ vi.mock('@/hooks/queries/useAgyModels', () => ({
 }))
 vi.mock('@/hooks/queries/useCursorModelsForMachine', () => ({
     useCursorModelsForMachine: () => ({
-        availableModels: [],
-        cliModelSkus: [],
+        availableModels: mocks.cursorModels,
+        cliModelSkus: mocks.cursorSkus,
         currentModelId: null,
-        isLoading: false,
+        isLoading: mocks.cursorModelsLoading,
         error: null,
         refetch: vi.fn()
     })
@@ -230,6 +233,7 @@ vi.mock('./PermissionField', () => ({
             <button type="button" data-testid="permission-mode-plan" onClick={() => props.onNativeChange('plan')}>
                 {props.nativeValue}
             </button>
+            <div data-testid="yolo-toggle">{props.yoloMode ? 'on' : 'off'}</div>
         </>
     )
 }))
@@ -816,7 +820,9 @@ describe('NewSession launch preferences', () => {
 
         // Starts as codex; picking the mocked native-select button sets the
         // shared nativePermissionMode state to 'yolo', a value 'claude' does
-        // not carry in its own permission catalog.
+        // not carry in its own permission catalog. Switching flavors lands on
+        // claude's own YOLO-equivalent default (fork: YOLO everywhere), so the
+        // codex-picked 'yolo' itself still never reaches the claude payload.
         await waitFor(() => expect(screen.getByDisplayValue('codex')).toBeChecked())
         fireEvent.click(screen.getByTestId('permission-mode'))
         fireEvent.click(screen.getByDisplayValue('claude'))
@@ -826,7 +832,7 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session'))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'claude',
-            permissionMode: 'default'
+            permissionMode: 'bypassPermissions'
         }))
     })
 
@@ -841,11 +847,12 @@ describe('NewSession launch preferences', () => {
         })
     })
 
-    it('does not preselect bypassPermissions for Claude from a legacy YOLO value owned by another flavor', async () => {
+    it('lands Claude on its own YOLO-equivalent default instead of another flavor\'s legacy YOLO inheritance', async () => {
         // hapi:newSession:yolo is a flavor-agnostic global key. The legacyYoloAgent
         // snapshot (captured once at mount, see index.tsx) is what stops a YOLO
-        // toggle left on under cursor from silently preselecting bypassPermissions
-        // the next time Claude is picked.
+        // toggle left on under cursor from being inherited by Claude. Fork:
+        // Claude still opens at its YOLO-equivalent mode — as the default, not
+        // as an inheritance from another flavor's toggle.
         savePreferredAgent('cursor')
         savePreferredYoloMode(true)
 
@@ -855,7 +862,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByDisplayValue('claude'))
 
         await waitFor(() => {
-            expect(screen.getByTestId('permission-mode')).toHaveTextContent('default')
+            expect(screen.getByTestId('permission-mode')).toHaveTextContent('bypassPermissions')
         })
     })
 
@@ -1499,5 +1506,86 @@ describe('NewSession GLM-branded claude', () => {
             agent: 'claude',
             effort: undefined
         }))
+    })
+})
+
+describe('NewSession fork launch defaults', () => {
+    beforeEach(() => {
+        localStorage.clear()
+        sessionStorage.clear()
+        mocks.spawnSession.mockReset()
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'fork-session' })
+        mocks.onSuccess.mockReset()
+        mocks.notification.mockReset()
+        mocks.checkPathsExists.mockReset()
+        mocks.checkPathsExists.mockImplementation(async () => ({
+            exists: { 'C:\\repo': true }
+        }))
+        mocks.availableAgents.splice(
+            0,
+            mocks.availableAgents.length,
+            ...['agy', 'claude', 'codex', 'dsh', 'copilot', 'cursor', 'grok', 'kimi', 'opencode', 'pi']
+                .map((agent) => ({ agent, available: true }))
+        )
+        mocks.cursorModels = []
+        mocks.cursorSkus = []
+        mocks.cursorModelsLoading = false
+        mocks.agyModels = [{ modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' }]
+        savePreferredAgent('codex')
+    })
+
+    it('lands a fresh Claude form on its YOLO-equivalent despite a remembered Default', async () => {
+        savePreferredAgent('claude')
+        savePreferredLaunchSettings('machine-1', 'claude', {
+            model: 'auto',
+            cursorSelectedBase: 'auto',
+            effort: 'auto',
+            modelReasoningEffort: 'default',
+            permissionMode: 'default'
+        })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+
+        // Fork: remembered permission modes no longer pin the form; every
+        // fresh launch opens on the flavor's own YOLO-equivalent.
+        await waitFor(() => expect(screen.getByTestId('permission-mode')).toHaveTextContent('bypassPermissions'))
+    })
+
+    it('lands a fresh Codex form on YOLO with no stored preference', async () => {
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+
+        expect(screen.getByTestId('permission-mode')).toHaveTextContent('yolo')
+    })
+
+    it('hides the codex collaboration and fast-mode selectors', () => {
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+
+        expect(screen.queryByText('newSession.collaborationMode')).toBeNull()
+        expect(screen.queryByText('newSession.fastMode')).toBeNull()
+    })
+
+    it('defaults a fresh Cursor launch to Compose 2.5 with the YOLO toggle on', async () => {
+        savePreferredAgent('cursor')
+        mocks.cursorModels = [{ modelId: 'composer-2.5', name: 'Compose 2.5' }, { modelId: 'grep-5', name: 'Grep 5' }]
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+
+        await waitFor(() => expect(screen.getByTestId('model')).toHaveTextContent('composer-2.5'))
+        expect(screen.getByTestId('yolo-toggle')).toHaveTextContent('on')
+
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('fork-session'))
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'cursor',
+            model: 'composer-2.5',
+            yolo: true
+        }))
+    })
+
+    it('keeps Cursor on Auto when the catalog has no Compose 2.5', async () => {
+        savePreferredAgent('cursor')
+        mocks.cursorModels = [{ modelId: 'grep-5', name: 'Grep 5' }]
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+
+        await waitFor(() => expect(screen.getByTestId('model')).toBeInTheDocument())
+        expect(screen.getByTestId('model')).toHaveTextContent('auto')
     })
 })

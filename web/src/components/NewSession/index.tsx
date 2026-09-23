@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary, Session } from '@/types/api'
-import { isKnownFlavor, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
+import { isKnownFlavor, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
 import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
@@ -38,7 +38,7 @@ import {
     resolveWireIdForBaseChange,
     shouldShowCursorModelsUnavailable
 } from './newSessionCursorModels'
-import { buildCursorEffortPickerOptions, resolveCursorVariantOptions } from '@/lib/cursorModelOptions'
+import { buildCursorEffortPickerOptions, resolveCursorVariantOptions, resolveDefaultCursorVariantWire } from '@/lib/cursorModelOptions'
 import {
     clearNewSessionFormDraft,
     loadNewSessionFormDraft,
@@ -50,7 +50,6 @@ import { isOpencodeReasoningEffortValid } from './types'
 import type { AgentType, LaunchEffort, CodexReasoningEffort, NewSessionServiceTier, SessionType } from './types'
 import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
-import { CollaborationModeSelector } from './CollaborationModeSelector'
 import { PiImportActions } from './PiImportActions'
 import { clearBatchImportedCodexSelection, resolveCodexImportRedirectSessionId } from './codexImportMerge'
 import { AgyModelSelector } from './AgyModelSelector'
@@ -171,14 +170,19 @@ export function NewSession(props: {
     const [modelReasoningEffort, setModelReasoningEffort] = useState<CodexReasoningEffort>(() => continueFrom?.modelReasoningEffort ?? 'default')
     const [opencodeSelectedModel, setOpencodeSelectedModel] = useState<string | null | undefined>(undefined)
     const [serviceTier, setServiceTier] = useState<NewSessionServiceTier>(() => continueFrom?.serviceTier === 'fast' ? 'fast' : 'standard')
-    const [collaborationMode, setCollaborationMode] = useState<CodexCollaborationMode>(() => continueFrom?.collaborationMode ?? 'default')
+    // Fork: the collaboration-mode selector is dormant; a hidden field must
+    // not carry a non-default mode into the spawn, so it stays at 'default'.
+    const [collaborationMode, setCollaborationMode] = useState<CodexCollaborationMode>('default')
     const [copilotAgentMode, setCopilotAgentMode] = useState<CopilotAgentMode>(() => continueFrom?.copilotAgentMode ?? 'interactive')
     const [yoloMode, setYoloMode] = useState(loadPreferredYoloMode)
     // Fork: when the hub brands claude as GLM (z.ai), the flavor has no
     // meaningful effort control and the no-pick model is GLM 5.3 Flash.
     const claudeGlmBranded = useClaudeGlmBranding()
-    const [nativePermissionMode, setNativePermissionMode] = useState<PermissionMode>(() => continueFrom?.permissionMode ?? continueFrom?.metadata?.preferredPermissionMode ?? 'default')
-    const [grokPermissionMode, setGrokPermissionMode] = useState<GrokPermissionMode>('default')
+    // Fork: YOLO is the launch default for every flavor — native-select
+    // flavors start at their own YOLO-equivalent mode (claude/grok map to
+    // bypassPermissions, codex family to yolo).
+    const [nativePermissionMode, setNativePermissionMode] = useState<PermissionMode>(() => continueFrom?.permissionMode ?? continueFrom?.metadata?.preferredPermissionMode ?? resolveHapiYoloPermissionMode(continueAgent ?? loadPreferredAgent()) ?? 'default')
+    const [grokPermissionMode, setGrokPermissionMode] = useState<GrokPermissionMode>('bypassPermissions')
     const [sessionType, setSessionType] = useState<SessionType>('simple')
     const [worktreeName, setWorktreeName] = useState('')
     const [directoryCreationConfirmed, setDirectoryCreationConfirmed] = useState(false)
@@ -312,7 +316,7 @@ export function NewSession(props: {
             draft.agent === 'agy' && draft.model !== 'auto' ? draft.model : null
         )
         setServiceTier(draft.serviceTier)
-        setCollaborationMode(draft.collaborationMode)
+        setCollaborationMode('default')
         setCopilotAgentMode(draft.copilotAgentMode)
         setYoloMode(draft.yoloMode)
         setNativePermissionMode(draft.nativePermissionMode)
@@ -390,6 +394,7 @@ export function NewSession(props: {
     // this machine); one the user just picked is kept, because the catalog can
     // change under an open form while they are looking at it.
     const agyModelPickedByUserRef = useRef(false)
+    const cursorModelPickedByUserRef = useRef(false)
     const runnerSpawnError = useMemo(
         () => formatRunnerSpawnError(selectedMachine),
         [selectedMachine]
@@ -463,7 +468,9 @@ export function NewSession(props: {
             setModel('auto')
         }
     }, [agent, codexModelsState.error, codexModelsState.isLoading, codexModelsState.models, model])
-    const showCodexFastMode = agent === 'codex'
+    // Fork: fast mode is dormant — the selector stays hidden and codex always
+    // launches on the standard tier, same treatment as the worktree picker.
+    const showCodexFastMode = false
         && !codexModelsState.error
         && codexModelAdvertisesFastTier(model === 'auto' ? null : model, codexModelsState.models)
 
@@ -528,6 +535,9 @@ export function NewSession(props: {
         model
     ])
 
+    // Fork: a fresh Cursor launch defaults to Compose 2.5 instead of leaving
+    // Cursor's own Auto pick; once the user explicitly chooses (including
+    // Auto), the default never applies again for this mount.
     const cursorBaseSelectValue = useMemo(
         () => resolveNewSessionCursorBaseSelectValue(cursorPicker, cursorSelectedBase),
         [cursorPicker, cursorSelectedBase]
@@ -1002,12 +1012,47 @@ export function NewSession(props: {
         // stale remembered value cannot keep overriding the config.
         setModelReasoningEffort(agent === 'opencode' ? preferred.modelReasoningEffort : 'default')
         if (usesSharedPermissionMode) {
-            setNativePermissionMode(preferred.permissionMode ?? 'default')
+            // Fork: YOLO is the launch default for every flavor. A remembered
+            // mode no longer pins the form (a stored 'default' kept claude
+            // milder than intended) — pick a milder mode per launch instead.
+            setNativePermissionMode(resolveHapiYoloPermissionMode(agent) ?? 'default')
         }
         setOpencodeSelectedModel(null)
         agyModelPickedByUserRef.current = false
         setAgySelectedModel(null)
     }, [agent, legacyYoloAgent, machineId, usesSharedPermissionMode])
+
+    // Fork: a fresh Cursor launch defaults to Compose 2.5 instead of leaving
+    // Cursor's own Auto pick; once the user explicitly chooses (including
+    // Auto), the default never applies again for this mount. Declared after
+    // the mount restore so the restore's `setModel('auto')` cannot win the
+    // same commit and silently cancel the default.
+    useEffect(() => {
+        if (agent !== 'cursor' || cursorModelsState.isLoading || cursorModelsState.error) {
+            return
+        }
+        if (model !== 'auto' || cursorModelPickedByUserRef.current) {
+            return
+        }
+        const composerBaseKey = [...availableCursorCatalog.variantsByBase.keys()]
+            .find((candidate) => /^composer[-_ ]?2\.5$/i.test(candidate))
+        if (!composerBaseKey) {
+            return
+        }
+        const composerWire = resolveDefaultCursorVariantWire(composerBaseKey, availableCursorCatalog)
+        if (!composerWire) {
+            return
+        }
+        setModel(composerWire)
+        setCursorSelectedBase(composerBaseKey)
+    }, [
+        agent,
+        availableCursorCatalog,
+        cursorModelsState.error,
+        cursorModelsState.isLoading,
+        cursorSelectedBase,
+        model
+    ])
 
     useEffect(() => {
         if (
@@ -2047,6 +2092,7 @@ export function NewSession(props: {
                                 ? `${t('newSession.model.loadFailed')}: ${cursorModelsState.error}`
                                 : null}
                             onModelChange={(value) => {
+                                cursorModelPickedByUserRef.current = true
                                 if (cursorPicker.mode === 'dual') {
                                     handleCursorBaseChange(value)
                                     return
@@ -2158,12 +2204,9 @@ export function NewSession(props: {
                 }}
                 onYoloToggle={setYoloMode}
             />
-            <CollaborationModeSelector
-                agent={agent}
-                value={collaborationMode}
-                isDisabled={isFormDisabled}
-                onChange={setCollaborationMode}
-            />
+            {/* Fork: the collaboration-mode selector is dormant — codex
+                launches with its own default mode and the field stays out of
+                the form. State/plumbing remain for a future restore. */}
             <CopilotAgentModeSelector
                 agent={agent}
                 value={copilotAgentMode}
