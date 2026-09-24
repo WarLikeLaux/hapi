@@ -6,9 +6,9 @@ import {
 
 describe('directory filesystem suggestions', () => {
     it('lists the parent directory for a partially typed project name', () => {
-        expect(resolveDirectorySearchTarget('/workspace/code/tele', ['/workspace/code'])).toEqual({
+        expect(resolveDirectorySearchTarget('/workspace/code/proj', ['/workspace/code'])).toEqual({
             directory: '/workspace/code',
-            nameQuery: 'tele'
+            nameQuery: 'proj'
         })
     })
 
@@ -24,23 +24,23 @@ describe('directory filesystem suggestions', () => {
     })
 
     it('supports Windows workspace paths case-insensitively', () => {
-        expect(resolveDirectorySearchTarget('C:\\Code\\Tele', ['c:\\code'])).toEqual({
+        expect(resolveDirectorySearchTarget('C:\\Code\\Proj', ['c:\\code'])).toEqual({
             directory: 'C:\\Code',
-            nameQuery: 'Tele'
+            nameQuery: 'Proj'
         })
     })
 
     it('returns every matching child directory and excludes files', () => {
-        const target = { directory: '/workspace/code', nameQuery: 'tele' }
+        const target = { directory: '/workspace/code', nameQuery: 'proj' }
         expect(getMatchingDirectoryPaths(target, [
-            { name: 'myapp-web', type: 'directory' },
-            { name: 'notes-myapp', type: 'directory' },
-            { name: 'myapp-api', type: 'directory' },
-            { name: 'myapp.txt', type: 'file' }
+            { name: 'project-web', type: 'directory' },
+            { name: 'notes-project', type: 'directory' },
+            { name: 'project-api', type: 'directory' },
+            { name: 'project.txt', type: 'file' }
         ])).toEqual([
-            '/workspace/code/myapp-api',
-            '/workspace/code/myapp-web',
-            '/workspace/code/notes-myapp'
+            '/workspace/code/project-api',
+            '/workspace/code/project-web',
+            '/workspace/code/notes-project'
         ])
     })
 })
