@@ -18,21 +18,27 @@ describe('cursorAuthPaths', () => {
 })
 
 describe('parseCursorMonthlyUsage', () => {
-    it('prefers cents math from limit and remaining', () => {
+    it('sends the raw percent plus the pool-weighted estimate', () => {
         expect(parseCursorMonthlyUsage({
             billingCycleEnd: String(CYCLE_END_MS),
             planUsage: { limit: 2000, remaining: 500 }
         }, NOW_SEC)).toEqual({
             source: CURSOR_MONTHLY_SOURCE,
             usedPercent: 75,
+            weightedPercent: 18.75,
+            usedCents: 1500,
+            limitCents: 2000,
             resetsAt: CYCLE_END_MS / 1000,
             measuredAt: NOW_SEC
         })
     })
 
-    it('falls back to the totalPercentUsed fraction', () => {
+    it('omits cents and weighted fields in the percent fallback', () => {
         const quotaWindow = parseCursorMonthlyUsage({ billingCycleEnd: '0', planUsage: { totalPercentUsed: 0.3 } }, NOW_SEC)
         expect(quotaWindow).toEqual({ source: CURSOR_MONTHLY_SOURCE, usedPercent: 30, resetsAt: null, measuredAt: NOW_SEC })
+        expect(quotaWindow?.usedCents).toBeUndefined()
+        expect(quotaWindow?.limitCents).toBeUndefined()
+        expect(quotaWindow?.weightedPercent).toBeUndefined()
     })
 
     it('treats the unlimited sentinel as unusable cents data', () => {

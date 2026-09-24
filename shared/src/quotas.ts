@@ -22,7 +22,22 @@ export const QuotaWindowSchema = z.object({
     /** Unix seconds; null when the provider did not report a reset time. */
     resetsAt: z.number().nullable(),
     /** Unix seconds of the runner's measurement — the base for staleness display. */
-    measuredAt: z.number()
+    measuredAt: z.number(),
+    /**
+     * Exact spend and limit in cents when the provider reports absolute
+     * amounts (`cursor:monthly` sends API-equivalent cents). Percent-only
+     * sources omit both.
+     */
+    usedCents: z.number().min(0).optional(),
+    limitCents: z.number().min(0).optional(),
+    /**
+     * Provider-meter estimate of the same spend, sent when the provider's own
+     * dashboard applies a weighting `usedPercent` does not (`cursor:monthly`
+     * divides raw cents by the Cursor Models pool factor, see the CLI
+     * collector). Clients mirror the provider's dashboard display from it.
+     * Sources without such a weighting omit it.
+     */
+    weightedPercent: z.number().min(0).max(100).optional()
 })
 
 export type QuotaWindow = z.infer<typeof QuotaWindowSchema>

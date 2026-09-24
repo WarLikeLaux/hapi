@@ -1216,6 +1216,7 @@ export default {
   'settings.limits.error': 'Unable to load limits',
   'settings.limits.empty': 'No limits reported yet. Connect a runner with a configured agent to see its usage here.',
   'settings.limits.used': '{percent}% used',
+  'settings.limits.usedApprox': '{approx}% ≈ {percent}% used',
   'settings.limits.resets': 'Resets {relative} ({absolute})',
   'settings.limits.resetsSoon': 'Resets soon',
   'settings.limits.resetsUnknown': 'Reset time unknown',
