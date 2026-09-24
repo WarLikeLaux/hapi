@@ -30,6 +30,13 @@ function PinnedSectionIcon(props: { className?: string }) {
 import { cn } from '@/lib/utils'
 import { isWorkingSession } from '@/lib/navigationBadges'
 import { useTranslation } from '@/lib/use-translation'
+import { ContextTabBar } from '@/components/ContextTabBar'
+import { useSessionContextFilter } from '@/hooks/useSessionContextFilter'
+import {
+    computeContextStats,
+    resolveSessionContext,
+    type SessionContextId,
+} from '@/lib/sessionContexts'
 import { DEFAULT_SESSION_PREVIEW_LIMIT, useSessionPreviewLimit } from '@/hooks/useSessionPreviewLimit'
 import { useSessionListStatusMode } from '@/hooks/useSessionListStatusMode'
 import { useShowActiveSessionsOnly } from '@/hooks/useShowActiveSessionsOnly'
@@ -82,6 +89,7 @@ type SessionGroup = {
 type ProjectMenuState = {
     key: string
     title: string
+    directory: string
     sessions: SessionSummary[]
     anchorPoint: { x: number; y: number }
 }
@@ -664,6 +672,8 @@ function ProjectActionMenu(props: {
     state: ProjectMenuState | null
     onClose: () => void
     onDelete: (target: ProjectMenuState) => void
+    currentContext?: SessionContextId
+    onSetContext?: (context: SessionContextId | null) => void
 }) {
     const { t } = useTranslation()
     const anchorPoint = props.state?.anchorPoint ?? { x: 0, y: 0 }
@@ -686,6 +696,37 @@ function ProjectActionMenu(props: {
             <div className="max-w-64 truncate px-3 py-1.5 text-xs font-medium text-[var(--app-hint)]" title={target.title}>
                 {target.title}
             </div>
+            {props.onSetContext ? (
+                <div className="border-b border-[var(--app-border)] pb-1 mb-1">
+                    <div className="px-3 py-1 text-[11px] font-semibold text-[var(--app-hint)] uppercase tracking-wider">
+                        {t('sessions.context.setLabel')}
+                    </div>
+                    <div className="flex items-center gap-1 px-1">
+                        {(['work', 'lab', 'chill'] as const).map((ctx) => {
+                            const isCurrent = props.currentContext === ctx
+                            return (
+                                <button
+                                    key={ctx}
+                                    type="button"
+                                    className={cn(
+                                        'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors cursor-pointer',
+                                        isCurrent
+                                            ? 'bg-[var(--app-link)] text-white font-medium'
+                                            : 'text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)]'
+                                    )}
+                                    onClick={() => {
+                                        props.onClose()
+                                        props.onSetContext?.(isCurrent ? null : ctx)
+                                    }}
+                                >
+                                    <span>{ctx === 'work' ? '💼' : ctx === 'lab' ? '🧪' : '💬'}</span>
+                                    <span>{t(`sessions.context.${ctx}`)}</span>
+                                </button>
+                            )
+                        })}
+                    </div>
+                </div>
+            ) : null}
             <div role="menu">
                 <button
                     type="button"
@@ -1461,6 +1502,7 @@ export function SessionList(props: {
         setProjectMenu({
             key: group.key,
             title,
+            directory: group.directory,
             sessions: props.sessions.filter((session) => getSessionProjectKey(session) === group.key),
             anchorPoint: point,
         })
@@ -1514,11 +1556,30 @@ export function SessionList(props: {
         () => props.sessions.filter(session => shouldShowSessionInSidebar(session, selectedSessionId)),
         [props.sessions, selectedSessionId]
     )
+    const {
+        activeContext,
+        setActiveContext,
+        projectOverrides,
+        setProjectContextOverride,
+    } = useSessionContextFilter()
+
+    const contextStats = useMemo(
+        () => computeContextStats(sidebarSessions, projectOverrides),
+        [sidebarSessions, projectOverrides, lastSeenVersion]
+    )
+
+    const contextFilteredSessions = useMemo(() => {
+        if (activeContext === 'all') return sidebarSessions
+        return sidebarSessions.filter(
+            (session) => resolveSessionContext(session, projectOverrides) === activeContext
+        )
+    }, [sidebarSessions, activeContext, projectOverrides])
+
     const allSessions = useMemo(
         () => showActiveSessionsOnly
-            ? filterActiveSessionsOnly(sidebarSessions, selectedSessionId)
-            : sidebarSessions,
-        [sidebarSessions, selectedSessionId, showActiveSessionsOnly]
+            ? filterActiveSessionsOnly(contextFilteredSessions, selectedSessionId)
+            : contextFilteredSessions,
+        [contextFilteredSessions, selectedSessionId, showActiveSessionsOnly]
     )
     const unreadSessionCount = useMemo(
         () => getUnreadSessionCount(readableSessions),
@@ -1537,9 +1598,9 @@ export function SessionList(props: {
     )
     const projectTimeScopedSessions = useMemo(
         () => timeRange === null
-            ? sidebarSessions
-            : sidebarSessions.filter(session => sessionMatchesTimeRange(session, timeRange)),
-        [sidebarSessions, timeRange?.start, timeRange?.end] // eslint-disable-line react-hooks/exhaustive-deps
+            ? contextFilteredSessions
+            : contextFilteredSessions.filter(session => sessionMatchesTimeRange(session, timeRange)),
+        [contextFilteredSessions, timeRange?.start, timeRange?.end] // eslint-disable-line react-hooks/exhaustive-deps
     )
     const searchScoreIndex = useMemo(
         () => hasTextQuery
@@ -1567,8 +1628,8 @@ export function SessionList(props: {
         [allSessions, hasTextQuery, isFiltering, normalizedQuery, searchScoreIndex, timeScopedSessions, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
     )
     const allGroups = useMemo(
-        () => groupSessionsByDirectory(sidebarSessions, projectDisplayNames),
-        [projectDisplayNames, sidebarSessions]
+        () => groupSessionsByDirectory(contextFilteredSessions, projectDisplayNames),
+        [projectDisplayNames, contextFilteredSessions]
     )
     const machineFilters = useMemo(
         () => groupByMachine(allGroups, resolveMachineLabel),
@@ -1615,7 +1676,7 @@ export function SessionList(props: {
                     searchScoreIndex
                 )
                 : projectTimeScopedSessions
-            : sidebarSessions
+            : contextFilteredSessions
         return activeMachineFilter === null
             ? searched
             : searched.filter((session) => (
@@ -1623,13 +1684,13 @@ export function SessionList(props: {
             ))
     }, [
         activeMachineFilter,
+        contextFilteredSessions,
         hasTextQuery,
         isFiltering,
         machineLabelsById,
         normalizedQuery,
         projectTimeScopedSessions,
         searchScoreIndex,
-        sidebarSessions,
         timeRange?.end,
         timeRange?.start,
     ]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -2270,7 +2331,7 @@ export function SessionList(props: {
                             {showMachineFilterBar ? (
                                 <MachineFilterMenu
                                     machines={machineFilterItems}
-                                    totalCount={sidebarSessions.length}
+                                    totalCount={contextFilteredSessions.length}
                                     value={activeMachineFilter}
                                     onChange={setMachineFilter}
                                 />
@@ -2302,10 +2363,16 @@ export function SessionList(props: {
                 </div>
             ) : null}
 
+            <ContextTabBar
+                activeContext={activeContext}
+                onSelectContext={setActiveContext}
+                stats={contextStats}
+            />
+
             {showMachineFilterBar ? (
                 <MachineFilterBar
                     machines={machineFilterItems}
-                    totalCount={sidebarSessions.length}
+                    totalCount={contextFilteredSessions.length}
                     value={activeMachineFilter}
                     onChange={setMachineFilter}
                 />
@@ -2342,7 +2409,7 @@ export function SessionList(props: {
                     />
                 ) : null}
 
-                {props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null) && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
+                {props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null || activeContext !== 'all') && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
                     <div className="px-4 py-8 text-center text-sm text-[var(--app-hint)]">
                         {t('sessions.search.noResults')}
                     </div>
@@ -2437,6 +2504,12 @@ export function SessionList(props: {
                 state={projectMenu}
                 onClose={() => setProjectMenu(null)}
                 onDelete={setProjectDeleteTarget}
+                currentContext={projectMenu && projectMenu.sessions[0] ? resolveSessionContext(projectMenu.sessions[0], projectOverrides) : undefined}
+                onSetContext={(ctx) => {
+                    if (projectMenu) {
+                        setProjectContextOverride(projectMenu.directory, ctx)
+                    }
+                }}
             />
             <ConfirmDialog
                 isOpen={projectDeleteTarget !== null}

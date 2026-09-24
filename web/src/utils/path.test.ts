@@ -19,21 +19,21 @@ describe('getPathDisplayName', () => {
 
 describe('getPathDisplayNames', () => {
     it('uses bare project names when they are unique', () => {
-        expect(getPathDisplayNames(['/home/user/code/hapi', '/home/user/code/difit']))
+        expect(getPathDisplayNames(['/home/alice/code/hapi', '/home/alice/code/difit']))
             .toEqual(new Map([
-                ['/home/user/code/hapi', 'hapi'],
-                ['/home/user/code/difit', 'difit'],
+                ['/home/alice/code/hapi', 'hapi'],
+                ['/home/alice/code/difit', 'difit'],
             ]))
     })
 
     it('adds only enough parent directories to disambiguate collisions', () => {
         expect(getPathDisplayNames([
-            '/home/user/code/hapi',
-            '/home/user/work/hapi',
+            '/home/alice/code/hapi',
+            '/home/alice/work/hapi',
             '/srv/code/hapi',
         ])).toEqual(new Map([
-            ['/home/user/code/hapi', 'user/code/hapi'],
-            ['/home/user/work/hapi', 'work/hapi'],
+            ['/home/alice/code/hapi', 'alice/code/hapi'],
+            ['/home/alice/work/hapi', 'work/hapi'],
             ['/srv/code/hapi', 'srv/code/hapi'],
         ]))
     })

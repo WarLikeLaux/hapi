@@ -75,19 +75,19 @@ describe('SessionRowSummary background status', () => {
                 <SessionRowSummary
                     session={makeSummary()}
                     projectLabel="hapi"
-                    projectPath="/home/user/code/hapi"
+                    projectPath="/workspace/hapi"
                     branchLabel="custom"
                 />
             </I18nProvider>
         )
 
-        expect(screen.getByTitle('hapi — /home/user/code/hapi · custom')).toHaveTextContent(
+        expect(screen.getByTitle('hapi — /workspace/hapi · custom')).toHaveTextContent(
             'hapi · custom'
         )
         const projectLabel = screen.getByTestId('session-project-label')
         expect(projectLabel).toHaveTextContent('hapi')
         expect(projectLabel.style.getPropertyValue('--session-project-bg')).toContain(
-            `${getProjectLabelHue('/home/user/code/hapi')}`
+            `${getProjectLabelHue('/workspace/hapi')}`
         )
         expect(projectLabel).toHaveClass('bg-[var(--session-project-bg)]')
         expect(projectLabel).toHaveClass('rounded-[5px]')
@@ -95,10 +95,10 @@ describe('SessionRowSummary background status', () => {
     })
 
     it('assigns stable distinct colors from full project paths', () => {
-        const apiHue = getProjectLabelHue('/home/user/code/myapp-api')
-        const php8Hue = getProjectLabelHue('/home/user/code/myapp-api-php8')
+        const apiHue = getProjectLabelHue('/workspace/project-api')
+        const php8Hue = getProjectLabelHue('/workspace/project-api-v2')
 
-        expect(apiHue).toBe(getProjectLabelHue('/home/user/code/myapp-api'))
+        expect(apiHue).toBe(getProjectLabelHue('/workspace/project-api'))
         expect(apiHue).not.toBe(php8Hue)
     })
 
