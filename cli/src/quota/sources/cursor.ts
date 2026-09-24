@@ -9,6 +9,15 @@ const CURSOR_USAGE_URL = 'https://api2.cursor.sh/aiserver.v1.DashboardService/Ge
 const CURSOR_TIMEOUT_MS = 20_000
 // Hard-coded backend sentinel for "no limit"; there is no meaningful percent then.
 const UNLIMITED_SENTINEL = 2147483647
+// Cursor does not publish how it weights the Cursor Models pool (Composer,
+// Grok) against the included quota ("we don't officially publish the exact
+// multiplier", forum staff, 2026-07). Every usage event reports requestsCosts
+// = chargedCents / 4: either a pool weight or the legacy $0.04-per-request
+// unit (product id "pro-legacy"). The dashboard's integer percent matches
+// this divisor as of 2026-09 (62c/4 over 2000c rounds to "1%"). Re-derive by
+// fitting requestsCosts against tokenUsage.totalCents from
+// DashboardService/GetFilteredUsageEvents if the meters ever disagree.
+const CURSOR_MODELS_WEIGHT = 4
 
 /** Platform auth.json locations holding the CLI OAuth token (`accessToken`). */
 export function cursorAuthPaths(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string[] {
@@ -36,10 +45,13 @@ export async function readCursorAccessToken(paths: string[] = cursorAuthPaths())
 }
 
 /**
- * GetCurrentPeriodUsage response → monthly spent percent. Cents math
- * (`(limit − remaining) / limit`) is preferred; the reported
- * `planUsage.totalPercentUsed` fraction (0–1) is the fallback. Returns null
- * when neither is usable or the account is unlimited.
+ * GetCurrentPeriodUsage response → monthly spent percents. `usedPercent` is
+ * the raw cents math (`limit − remaining`); `weightedPercent` applies the
+ * Cursor Models pool factor (see CURSOR_MODELS_WEIGHT) so clients can mirror
+ * the dashboard's own integer display. Cents math is preferred; the reported
+ * `planUsage.totalPercentUsed` fraction (0–1) is the raw fallback and has no
+ * weighted variant. Returns null when neither is usable or the account is
+ * unlimited.
  */
 export function parseCursorMonthlyUsage(payload: unknown, nowSec: number): QuotaWindow | null {
     if (typeof payload !== 'object' || payload === null) return null
@@ -52,9 +64,13 @@ export function parseCursorMonthlyUsage(payload: unknown, nowSec: number): Quota
     const limit = typeof entry.limit === 'number' ? entry.limit : Number.NaN
     const remaining = typeof entry.remaining === 'number' ? entry.remaining : Number.NaN
     if (Number.isFinite(limit) && limit > 0 && limit !== UNLIMITED_SENTINEL && Number.isFinite(remaining)) {
+        const usedCents = Math.max(0, Math.round(limit - remaining))
         return {
             source: CURSOR_MONTHLY_SOURCE,
-            usedPercent: clampPercent(((limit - remaining) / limit) * 100),
+            usedPercent: clampPercent((usedCents / limit) * 100),
+            weightedPercent: clampPercent((usedCents / CURSOR_MODELS_WEIGHT / limit) * 100),
+            usedCents,
+            limitCents: Math.round(limit),
             resetsAt,
             measuredAt: nowSec
         }

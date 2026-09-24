@@ -1214,6 +1214,7 @@ export default {
   'settings.limits.error': '无法加载限额',
   'settings.limits.empty': '暂无限额上报。连接已配置智能体的 Runner 后即可在此查看用量。',
   'settings.limits.used': '已用 {percent}%',
+  'settings.limits.usedApprox': '{approx}% ≈ 已用 {percent}%',
   'settings.limits.resets': '{relative} 重置（{absolute}）',
   'settings.limits.resetsSoon': '即将重置',
   'settings.limits.resetsUnknown': '重置时间未知',
