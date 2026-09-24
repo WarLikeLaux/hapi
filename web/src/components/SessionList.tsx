@@ -277,6 +277,33 @@ export function sortSessionsByNewestAgentActivity(sessions: SessionSummary[]): S
     ))
 }
 
+export function isNewEmptySession(session: SessionSummary): boolean {
+    if (!session.active) return false
+    if (session.hasConversationContent) return false
+    if ((session.lastMessageAt ?? 0) > 0) return false
+    if ((session.lastAgentMessageAt ?? 0) > 0) return false
+    return true
+}
+
+export function getEmptySessionTime(session: SessionSummary): number {
+    return session.createdAt || session.activeAt || session.updatedAt || 0
+}
+
+export function sortActiveSessions(sessions: SessionSummary[]): SessionSummary[] {
+    return [...sessions].sort((a, b) => {
+        const aEmpty = isNewEmptySession(a)
+        const bEmpty = isNewEmptySession(b)
+        if (aEmpty && !bEmpty) return -1
+        if (!aEmpty && bEmpty) return 1
+        if (aEmpty && bEmpty) {
+            const timeA = getEmptySessionTime(a)
+            const timeB = getEmptySessionTime(b)
+            return timeB - timeA || a.id.localeCompare(b.id)
+        }
+        return getSessionUnreadActivityAt(b) - getSessionUnreadActivityAt(a) || a.id.localeCompare(b.id)
+    })
+}
+
 export function getSessionDedupKey(session: SessionSummary): string | null {
     const agentId = session.metadata?.agentSessionId?.trim()
     if (!agentId) return null
@@ -1631,7 +1658,7 @@ export function SessionList(props: {
         if (!pinInProgressSessions) {
             return []
         }
-        const active = sortSessionsByNewestAgentActivity(
+        const active = sortActiveSessions(
             machineFilteredSessions.filter((session) => (
                 session.active
                 && !session.globalPinned
