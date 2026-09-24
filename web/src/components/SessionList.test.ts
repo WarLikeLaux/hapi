@@ -17,6 +17,7 @@ import {
     getSessionUserActivityAt,
     getWorktreeSessionLabel,
     getVisibleSessionPreview,
+    isNewEmptySession,
     isSidebarEmptySessionStub,
     normalizeSearch,
     prepareSidebarSessions,
@@ -24,6 +25,7 @@ import {
     sessionMatchesTimeRange,
     shouldShowPinnedDivider,
     shouldShowSessionInSidebar,
+    sortActiveSessions,
     sortSessionsByNewestAgentActivity,
     sortSessionsByNewestUserActivity,
     sortSessionsByUserActivity
@@ -574,6 +576,66 @@ describe('user-authored session ordering', () => {
 
         expect(sortSessionsByNewestAgentActivity(sessions).map((session) => session.id))
             .toEqual(['newer-agent', 'older-agent'])
+    })
+
+    it('identifies new empty sessions correctly', () => {
+        expect(isNewEmptySession(makeSession({ id: 'active-empty', active: true, hasConversationContent: false }))).toBe(true)
+        expect(isNewEmptySession(makeSession({ id: 'inactive-empty', active: false, hasConversationContent: false }))).toBe(false)
+        expect(isNewEmptySession(makeSession({ id: 'active-with-content', active: true, hasConversationContent: true }))).toBe(false)
+        expect(isNewEmptySession(makeSession({ id: 'active-with-lastMessage', active: true, lastMessageAt: 100 }))).toBe(false)
+        expect(isNewEmptySession(makeSession({ id: 'active-with-agentMessage', active: true, lastAgentMessageAt: 100 }))).toBe(false)
+    })
+
+    it('sorts newly opened sessions without messages to the top of Active sessions', () => {
+        const sessions = [
+            makeSession({
+                id: 'active-older-agent',
+                active: true,
+                lastAgentMessageAt: 5000,
+                hasConversationContent: true,
+            }),
+            makeSession({
+                id: 'active-recent-agent',
+                active: true,
+                lastAgentMessageAt: 8000,
+                hasConversationContent: true,
+            }),
+            makeSession({
+                id: 'brand-new-session',
+                active: true,
+                createdAt: 1000,
+                hasConversationContent: false,
+            }),
+        ]
+
+        expect(sortActiveSessions(sessions).map((s) => s.id))
+            .toEqual(['brand-new-session', 'active-recent-agent', 'active-older-agent'])
+    })
+
+    it('sorts multiple newly opened sessions by newest creation time first at the top', () => {
+        const sessions = [
+            makeSession({
+                id: 'active-chatting',
+                active: true,
+                lastAgentMessageAt: 9000,
+                hasConversationContent: true,
+            }),
+            makeSession({
+                id: 'first-new-session',
+                active: true,
+                createdAt: 1000,
+                hasConversationContent: false,
+            }),
+            makeSession({
+                id: 'second-new-session',
+                active: true,
+                createdAt: 2000,
+                hasConversationContent: false,
+            }),
+        ]
+
+        expect(sortActiveSessions(sessions).map((s) => s.id))
+            .toEqual(['second-new-session', 'first-new-session', 'active-chatting'])
     })
 })
 
