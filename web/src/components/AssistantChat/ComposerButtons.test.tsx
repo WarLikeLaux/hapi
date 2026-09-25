@@ -210,7 +210,7 @@ describe('DictationButton', () => {
             />,
         )
 
-        fireEvent.click(getButton('Dictate'))
+        fireEvent.click(getButton(/^Dictate/))
         expect(onVoiceToggle).toHaveBeenCalledOnce()
     })
 })
