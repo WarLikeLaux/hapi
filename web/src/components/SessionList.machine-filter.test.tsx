@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
+import { AppContextTestProvider } from '@/test/app-context'
 import { ToastProvider } from '@/lib/toast-context'
 import { SessionList } from './SessionList'
 
@@ -47,7 +48,7 @@ function renderWithProviders(children: ReactNode) {
         <QueryClientProvider client={queryClient}>
             <ToastProvider>
                 <I18nProvider>
-                    {children}
+                    <AppContextTestProvider>{children}</AppContextTestProvider>
                 </I18nProvider>
             </ToastProvider>
         </QueryClientProvider>

@@ -1123,7 +1123,7 @@ const chatConversationRoute = createRoute({
 const sessionFilesRoute = createRoute({
     getParentRoute: () => sessionDetailRoute,
     path: 'files',
-    validateSearch: (search: Record<string, unknown>): { tab?: 'changes' | 'directories'; query?: string; comparison?: 'last-commit' | 'branch' } => {
+    validateSearch: (search: Record<string, unknown>): { tab?: 'changes' | 'directories'; query?: string; comparison?: 'last-commit' | 'branch'; display?: 'diff' } => {
         const tabValue = typeof search.tab === 'string' ? search.tab : undefined
         const tab = tabValue === 'directories'
             ? 'directories'
@@ -1136,11 +1136,13 @@ const sessionFilesRoute = createRoute({
         const comparison = search.comparison === 'last-commit' || search.comparison === 'branch'
             ? search.comparison
             : undefined
+        const display = search.display === 'diff' ? 'diff' : undefined
 
         return {
             ...(tab ? { tab } : {}),
             ...(query ? { query } : {}),
             ...(comparison ? { comparison } : {}),
+            ...(display ? { display } : {}),
         }
     },
     component: FilesPage,

@@ -31,7 +31,7 @@ function WorkingIcon(props: { className?: string }) {
 }
 
 const chipBaseClass =
-    'inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] cursor-pointer select-none'
+    'inline-flex min-h-7 shrink-0 items-center justify-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] cursor-pointer select-none sm:justify-start sm:gap-1.5 sm:px-2.5'
 
 const chipSelectedClass =
     'border-[var(--app-link)] bg-[var(--app-link)]/10 text-[var(--app-link)] font-semibold shadow-sm'
@@ -77,12 +77,18 @@ export function ContextTabBar(props: ContextTabBarProps) {
                         type="button"
                         role="tab"
                         aria-selected={isSelected}
+                        aria-label={title}
                         onClick={() => props.onSelectContext(ctx.id)}
                         className={cn(chipBaseClass, isSelected ? chipSelectedClass : chipIdleClass)}
                         title={title}
                     >
-                        <span className="text-[13px] leading-none" aria-hidden="true">{ctx.icon}</span>
-                        <span className="truncate">{label}</span>
+                        <span
+                            className="inline-flex size-4 shrink-0 items-center justify-center text-sm leading-none"
+                            aria-hidden="true"
+                        >
+                            {ctx.icon}
+                        </span>
+                        <span className="hidden truncate sm:inline">{label}</span>
 
                         {tabStats.workingCount > 0 ? (
                             <span

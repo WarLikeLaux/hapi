@@ -16,11 +16,27 @@ import type { WebAppEnv } from '../middleware/auth'
 
 const OWNER_ONLY_ERROR = 'Hub settings are only available to the hub owner'
 
+function normalizeContextOverrides(
+    raw: Settings['sessionContextOverrides'] | Settings['projectContextOverrides']
+): Record<string, 'work' | 'lab' | 'chill'> {
+    if (!raw || typeof raw !== 'object') return {}
+    const out: Record<string, 'work' | 'lab' | 'chill'> = {}
+    for (const [key, value] of Object.entries(raw)) {
+        if (!key || (value !== 'work' && value !== 'lab' && value !== 'chill')) continue
+        out[key] = value
+        if (Object.keys(out).length >= 500) break
+    }
+    return out
+}
+
 function toHubSettings(settings: Settings): HubSettingsResponse {
     return {
         sessionSummaryContract: settings.sessionSummaryContract === true,
         sessionSummaryInChat: settings.sessionSummaryInChat === true,
-        claudeBrandedAsGlm: settings.claudeBrandedAsGlm === true
+        claudeBrandedAsGlm: settings.claudeBrandedAsGlm === true,
+        workContextAliases: Array.isArray(settings.workContextAliases) ? settings.workContextAliases : [],
+        sessionContextOverrides: normalizeContextOverrides(settings.sessionContextOverrides),
+        projectContextOverrides: normalizeContextOverrides(settings.projectContextOverrides),
     }
 }
 
@@ -61,6 +77,15 @@ export function createHubSettingsRoutes(dataDir: string): Hono<WebAppEnv> {
             }
             if (parsed.data.claudeBrandedAsGlm !== undefined) {
                 settings.claudeBrandedAsGlm = parsed.data.claudeBrandedAsGlm
+            }
+            if (parsed.data.workContextAliases !== undefined) {
+                settings.workContextAliases = parsed.data.workContextAliases
+            }
+            if (parsed.data.sessionContextOverrides !== undefined) {
+                settings.sessionContextOverrides = normalizeContextOverrides(parsed.data.sessionContextOverrides)
+            }
+            if (parsed.data.projectContextOverrides !== undefined) {
+                settings.projectContextOverrides = normalizeContextOverrides(parsed.data.projectContextOverrides)
             }
             return {
                 settings,

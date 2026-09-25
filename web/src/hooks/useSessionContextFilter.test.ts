@@ -40,4 +40,29 @@ describe('useSessionContextFilter', () => {
         })
         expect(result.current.projectOverrides['/home/code/test']).toBeUndefined()
     })
+
+    it('sets and removes session-level context overrides', () => {
+        const { result } = renderHook(() => useSessionContextFilter())
+        act(() => {
+            result.current.setSessionContextOverride('sess-1', 'chill')
+        })
+        expect(result.current.sessionOverrides['sess-1']).toBe('chill')
+        expect(result.current.contextOptions.sessionOverrides?.['sess-1']).toBe('chill')
+        expect(localStorage.getItem('hapi-session-context-map')).toBe(JSON.stringify({ 'sess-1': 'chill' }))
+
+        act(() => {
+            result.current.setSessionContextOverride('sess-1', null)
+        })
+        expect(result.current.sessionOverrides['sess-1']).toBeUndefined()
+        expect(localStorage.getItem('hapi-session-context-map')).toBeNull()
+    })
+
+    it('sets and persists work context aliases', () => {
+        const { result } = renderHook(() => useSessionContextFilter())
+        act(() => {
+            result.current.setWorkAliases(['mywork', 'backend'])
+        })
+        expect(result.current.workAliases).toEqual(['mywork', 'backend'])
+        expect(localStorage.getItem('hapi-context-work-aliases')).toBe(JSON.stringify(['mywork', 'backend']))
+    })
 })

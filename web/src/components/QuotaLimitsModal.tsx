@@ -10,6 +10,8 @@ function snapshotLabel(snapshot: MachineQuotaSnapshot): string {
     return snapshot.displayName ?? snapshot.machineId.slice(0, 8)
 }
 
+const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const
+
 /** Quick limits glance from the sidebar header gauge button. */
 export function QuotaLimitsModal(props: { isOpen: boolean; onClose: () => void }) {
     const { t } = useTranslation()
@@ -23,6 +25,11 @@ export function QuotaLimitsModal(props: { isOpen: boolean; onClose: () => void }
     }, [props.isOpen, refetch])
 
     const showMachineLabels = snapshots.length > 1
+    // The cheat sheet earns its place only when a weekday name is actually
+    // visible in the rows above, i.e. some reset is more than a day away.
+    const hasWeekdayResets = snapshots.some((snapshot) =>
+        snapshot.quotas.some((quotaWindow) => (quotaWindow.resetsAt ?? 0) * 1000 - Date.now() > 24 * 3_600_000)
+    )
 
     return (
         <Dialog open={props.isOpen} onOpenChange={(open) => { if (!open) props.onClose() }}>
@@ -58,6 +65,24 @@ export function QuotaLimitsModal(props: { isOpen: boolean; onClose: () => void }
                             </div>
                         ))
                     )}
+                    {hasWeekdayResets ? (
+                        <details className="group mt-2">
+                            <summary className="flex cursor-pointer list-none items-center gap-2 px-1 py-1 text-xs text-[var(--app-hint)] [&::-webkit-details-marker]:hidden">
+                                {t('settings.limits.weekdays.title')}
+                                <span className="ml-auto text-[10px] transition-transform group-open:rotate-180" aria-hidden="true">▼</span>
+                            </summary>
+                            <table className="mt-1 w-full pb-1 text-xs">
+                                <tbody className="divide-y divide-[var(--app-divider)]">
+                                    {WEEKDAY_KEYS.map((day) => (
+                                        <tr key={day}>
+                                            <td className="py-1 font-medium capitalize text-[var(--app-fg)]">{day}</td>
+                                            <td className="py-1 text-right text-[var(--app-hint)]">{t(`settings.limits.weekdays.${day}`)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </details>
+                    ) : null}
                 </div>
             </DialogContent>
         </Dialog>

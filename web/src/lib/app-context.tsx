@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
 
-type AppContextValue = {
+export type AppContextValue = {
     api: ApiClient
     token: string
     baseUrl: string

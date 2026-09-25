@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
+import { AppContextTestProvider } from '@/test/app-context'
 import { ToastProvider } from '@/lib/toast-context'
 import { SessionList } from './SessionList'
 
@@ -41,7 +42,9 @@ function renderWithProviders(children: ReactNode) {
             }
         })}>
             <ToastProvider>
-                <I18nProvider>{children}</I18nProvider>
+                <I18nProvider>
+                    <AppContextTestProvider>{children}</AppContextTestProvider>
+                </I18nProvider>
             </ToastProvider>
         </QueryClientProvider>
     )
@@ -150,16 +153,18 @@ describe('SessionList mark all as read', () => {
             <QueryClientProvider client={queryClient}>
                 <ToastProvider>
                     <I18nProvider>
-                        <SessionList
-                            sessions={sessions}
-                            selectedSessionId={null}
-                            onSelect={vi.fn()}
-                            onNewSession={vi.fn()}
-                            onRefresh={vi.fn()}
-                            isLoading={false}
-                            renderHeader={false}
-                            api={null}
-                        />
+                        <AppContextTestProvider>
+                            <SessionList
+                                sessions={sessions}
+                                selectedSessionId={null}
+                                onSelect={vi.fn()}
+                                onNewSession={vi.fn()}
+                                onRefresh={vi.fn()}
+                                isLoading={false}
+                                renderHeader={false}
+                                api={null}
+                            />
+                        </AppContextTestProvider>
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>

@@ -35,7 +35,10 @@ describe('GET/PUT /api/hub-settings', () => {
         expect(await response.json()).toEqual({
             sessionSummaryContract: false,
             sessionSummaryInChat: false,
-            claudeBrandedAsGlm: false
+            claudeBrandedAsGlm: false,
+            workContextAliases: [],
+            sessionContextOverrides: {},
+            projectContextOverrides: {}
         })
     })
 
@@ -50,14 +53,20 @@ describe('GET/PUT /api/hub-settings', () => {
         expect(await put.json()).toEqual({
             sessionSummaryContract: true,
             sessionSummaryInChat: false,
-            claudeBrandedAsGlm: false
+            claudeBrandedAsGlm: false,
+            workContextAliases: [],
+            sessionContextOverrides: {},
+            projectContextOverrides: {}
         })
 
         const get = await app.request('/api/hub-settings')
         expect(await get.json()).toEqual({
             sessionSummaryContract: true,
             sessionSummaryInChat: false,
-            claudeBrandedAsGlm: false
+            claudeBrandedAsGlm: false,
+            workContextAliases: [],
+            sessionContextOverrides: {},
+            projectContextOverrides: {}
         })
     })
 
@@ -74,14 +83,20 @@ describe('GET/PUT /api/hub-settings', () => {
         expect(await put.json()).toEqual({
             sessionSummaryContract: false,
             sessionSummaryInChat: true,
-            claudeBrandedAsGlm: true
+            claudeBrandedAsGlm: true,
+            workContextAliases: [],
+            sessionContextOverrides: {},
+            projectContextOverrides: {}
         })
 
         const get = await app.request('/api/hub-settings')
         expect(await get.json()).toEqual({
             sessionSummaryContract: false,
             sessionSummaryInChat: true,
-            claudeBrandedAsGlm: true
+            claudeBrandedAsGlm: true,
+            workContextAliases: [],
+            sessionContextOverrides: {},
+            projectContextOverrides: {}
         })
     })
 
@@ -98,7 +113,10 @@ describe('GET/PUT /api/hub-settings', () => {
         expect(await put.json()).toEqual({
             sessionSummaryContract: true,
             sessionSummaryInChat: true,
-            claudeBrandedAsGlm: false
+            claudeBrandedAsGlm: false,
+            workContextAliases: [],
+            sessionContextOverrides: {},
+            projectContextOverrides: {}
         })
     })
 
@@ -138,7 +156,10 @@ describe('GET/PUT /api/hub-settings', () => {
         expect(await get.json()).toEqual({
             sessionSummaryContract: false,
             sessionSummaryInChat: true,
-            claudeBrandedAsGlm: false
+            claudeBrandedAsGlm: false,
+            workContextAliases: [],
+            sessionContextOverrides: {},
+            projectContextOverrides: {}
         })
 
         const put = await tenantApp.request('/api/hub-settings', {
@@ -157,7 +178,10 @@ describe('GET/PUT /api/hub-settings', () => {
         expect(await response.json()).toEqual({
             sessionSummaryContract: true,
             sessionSummaryInChat: true,
-            claudeBrandedAsGlm: false
+            claudeBrandedAsGlm: false,
+            workContextAliases: [],
+            sessionContextOverrides: {},
+            projectContextOverrides: {}
         })
     })
 

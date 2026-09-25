@@ -1,4 +1,12 @@
-import { useId } from 'react'
+import {
+    useEffect,
+    useId,
+    useLayoutEffect,
+    useRef,
+    useState,
+    type CSSProperties,
+    type KeyboardEvent as ReactKeyboardEvent,
+} from 'react'
 import { useTranslation } from '@/lib/use-translation'
 import { HoverTooltip } from '@/components/HoverTooltip'
 import { safeCopyToClipboard } from '@/lib/clipboard'
@@ -6,6 +14,7 @@ import { buildSessionReferenceText } from '@/lib/sessionReference'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
 import { CopyIcon } from '@/components/icons'
+import { SESSION_CONTEXTS, type SessionContextId } from '@/lib/sessionContexts'
 
 type SessionActionMenuProps = {
     isOpen: boolean
@@ -18,6 +27,8 @@ type SessionActionMenuProps = {
     sessionPinned?: boolean
     sessionGlobalPinned?: boolean
     onSetPinMode?: (mode: 'none' | 'project' | 'global') => void
+    currentContext?: SessionContextId
+    onSetContext?: (context: SessionContextId | null) => void
     onExport?: () => void
     onMarkUnread?: () => void
     onSyncCodex?: () => void
@@ -228,6 +239,48 @@ function TrashIcon(props: { className?: string }) {
     )
 }
 
+function TagIcon(props: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+            <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
+            <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" />
+        </svg>
+    )
+}
+
+function ChevronRightIcon(props: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+            <path d="m9 18 6-6-6-6" />
+        </svg>
+    )
+}
+
+function CheckIcon(props: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+            <path d="M20 6 9 17l-5-5" />
+        </svg>
+    )
+}
+
+function NoContextIcon(props: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+            <circle cx="12" cy="12" r="10" />
+            <path d="m4.9 4.9 14.2 14.2" />
+        </svg>
+    )
+}
+
 export function SessionActionMenu(props: SessionActionMenuProps) {
     const { t } = useTranslation()
     const { haptic } = usePlatform()
@@ -242,6 +295,8 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         sessionPinned = false,
         sessionGlobalPinned = false,
         onSetPinMode,
+        currentContext,
+        onSetContext,
         onExport,
         onMarkUnread,
         onSyncCodex,
@@ -264,6 +319,92 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const internalId = useId()
     const resolvedMenuId = menuId ?? `session-action-menu-${internalId}`
     const headingId = `${resolvedMenuId}-heading`
+
+    // Context flyout: opens on hover or click next to the Context item.
+    const [contextOpen, setContextOpen] = useState(false)
+    const [contextSubmenuStyle, setContextSubmenuStyle] = useState<CSSProperties>({})
+    const contextCloseTimer = useRef<number | null>(null)
+    const contextItemRef = useRef<HTMLButtonElement | null>(null)
+    const contextSubmenuRef = useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+        if (isOpen) return
+        setContextOpen(false)
+        if (contextCloseTimer.current !== null) {
+            window.clearTimeout(contextCloseTimer.current)
+            contextCloseTimer.current = null
+        }
+    }, [isOpen])
+
+    // Keep the flyout inside the viewport: prefer the menu's outer right
+    // edge, fall back to the left side of the menu, and on narrow screens
+    // clamp it back inside so it stays visible even if it overlaps the menu.
+    useLayoutEffect(() => {
+        if (!contextOpen) return
+        const item = contextItemRef.current
+        const submenu = contextSubmenuRef.current
+        if (!item || !submenu) return
+        const itemRect = item.getBoundingClientRect()
+        const submenuRect = submenu.getBoundingClientRect()
+        const padding = 8
+        // The wrapper ends inside the menu's border (1px) and padding (4px),
+        // so a 4px gap would leave the flyout overlapping the menu edge; 5px
+        // puts it flush with the menu's outer right border.
+        const submenuGap = 5
+
+        let viewportLeft = itemRect.right + submenuGap
+        if (viewportLeft + submenuRect.width > window.innerWidth - padding) {
+            viewportLeft = itemRect.left - submenuGap - submenuRect.width
+        }
+        viewportLeft = Math.max(viewportLeft, padding)
+
+        let top = itemRect.top
+        if (top + submenuRect.height > window.innerHeight - padding) {
+            top = window.innerHeight - padding - submenuRect.height
+        }
+
+        setContextSubmenuStyle({
+            left: `${viewportLeft - itemRect.left}px`,
+            right: 'auto',
+            top: `${Math.max(top, padding) - itemRect.top}px`,
+        })
+    }, [contextOpen])
+
+    const clearContextCloseTimer = () => {
+        if (contextCloseTimer.current !== null) {
+            window.clearTimeout(contextCloseTimer.current)
+            contextCloseTimer.current = null
+        }
+    }
+
+    const openContextSubmenu = () => {
+        clearContextCloseTimer()
+        setContextOpen(true)
+    }
+
+    const scheduleContextSubmenuClose = () => {
+        clearContextCloseTimer()
+        contextCloseTimer.current = window.setTimeout(() => setContextOpen(false), 150)
+    }
+
+    const closeContextSubmenu = (refocusTrigger: boolean) => {
+        clearContextCloseTimer()
+        setContextOpen(false)
+        if (refocusTrigger) contextItemRef.current?.focus()
+    }
+
+    const handleContextSelect = (context: SessionContextId | null) => {
+        onClose()
+        onSetContext?.(context)
+    }
+
+    const handleContextOptionKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+        if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+            event.preventDefault()
+            event.stopPropagation()
+            closeContextSubmenu(true)
+        }
+    }
 
     const handleRename = () => {
         onClose()
@@ -347,6 +488,16 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const baseItemClassName =
         'flex w-full items-center gap-3 rounded-md py-2 pl-3 pr-[42px] text-left text-base transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
 
+    // Submenu options keep the same left inset but a normal right inset; the
+    // check mark sits at the trailing edge via ml-auto.
+    const contextOptionClassName =
+        'flex w-full items-center gap-3 rounded-md py-2 pl-3 pr-3 text-left text-base transition-colors hover:bg-[var(--app-subtle-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
+
+    // The Context trigger hugs its current value and chevron to the right
+    // edge, so it uses a tight pr-2 instead of the mirrored text inset.
+    const contextTriggerClassName =
+        'flex w-full items-center gap-3 rounded-md py-2 pl-3 pr-2 text-left text-base transition-colors hover:bg-[var(--app-subtle-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
+
     return (
         <div
             ref={menuRef}
@@ -359,6 +510,113 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
             >
                 {t('session.more')}
             </div>
+            {onSetContext ? (
+                <div
+                    className="relative"
+                    onPointerEnter={(event) => {
+                        // Touch taps synthesize a mouse enter right before the
+                        // click, which would instantly re-close the flyout;
+                        // only react to real hovering pointers.
+                        if (event.pointerType === 'mouse' || event.pointerType === 'pen') {
+                            openContextSubmenu()
+                        }
+                    }}
+                    onPointerLeave={(event) => {
+                        if (event.pointerType === 'mouse' || event.pointerType === 'pen') {
+                            scheduleContextSubmenuClose()
+                        }
+                    }}
+                >
+                    <button
+                        ref={contextItemRef}
+                        type="button"
+                        role="menuitem"
+                        aria-haspopup="menu"
+                        aria-expanded={contextOpen}
+                        className={contextTriggerClassName}
+                        onClick={() => {
+                            if (contextOpen) {
+                                closeContextSubmenu(false)
+                            } else {
+                                openContextSubmenu()
+                            }
+                        }}
+                        onKeyDown={(event) => {
+                            if (event.key === 'ArrowRight' && !contextOpen) {
+                                event.preventDefault()
+                                openContextSubmenu()
+                                const firstOption = contextSubmenuRef.current?.querySelector<HTMLElement>(
+                                    '[role="menuitemradio"]'
+                                )
+                                firstOption?.focus()
+                            }
+                        }}
+                    >
+                        <TagIcon className="text-[var(--app-hint)]" />
+                        {t('sessions.context.setLabel')}
+                        <span className="ml-auto flex items-center gap-1.5 text-[var(--app-hint)]">
+                            {currentContext && currentContext !== 'all' ? (
+                                <>
+                                    <span aria-hidden="true">
+                                        {SESSION_CONTEXTS.find((ctx) => ctx.id === currentContext)?.icon}
+                                    </span>
+                                    {t(`sessions.context.${currentContext}`)}
+                                </>
+                            ) : (
+                                t('sessions.context.none')
+                            )}
+                            <ChevronRightIcon />
+                        </span>
+                    </button>
+                    {contextOpen ? (
+                        <div
+                            ref={contextSubmenuRef}
+                            role="menu"
+                            aria-label={t('sessions.context.setLabel')}
+                            className="absolute left-full top-0 z-50 w-max min-w-40 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-1 shadow-lg animate-menu-pop"
+                            style={contextSubmenuStyle}
+                        >
+                            <button
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={!currentContext || currentContext === 'all'}
+                                className={contextOptionClassName}
+                                onClick={() => handleContextSelect(null)}
+                                onKeyDown={handleContextOptionKeyDown}
+                            >
+                                <NoContextIcon className="text-[var(--app-hint)]" />
+                                {t('sessions.context.none')}
+                                {!currentContext || currentContext === 'all' ? (
+                                    <CheckIcon className="ml-auto text-[var(--app-link)]" />
+                                ) : null}
+                            </button>
+                            {SESSION_CONTEXTS.filter((ctx) => ctx.id !== 'all').map((ctx) => {
+                                const isCurrent = currentContext === ctx.id
+                                return (
+                                    <button
+                                        key={ctx.id}
+                                        type="button"
+                                        role="menuitemradio"
+                                        aria-checked={isCurrent}
+                                        className={contextOptionClassName}
+                                        onClick={() => handleContextSelect(ctx.id)}
+                                        onKeyDown={handleContextOptionKeyDown}
+                                    >
+                                        <span
+                                            aria-hidden="true"
+                                            className="flex w-[18px] justify-center text-base leading-none"
+                                        >
+                                            {ctx.icon}
+                                        </span>
+                                        {t(ctx.labelKey)}
+                                        {isCurrent ? <CheckIcon className="ml-auto text-[var(--app-link)]" /> : null}
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
             <div
                 id={resolvedMenuId}
                 role="menu"

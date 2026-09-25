@@ -61,14 +61,34 @@ function sourceLabel(source: string, t: (key: string) => string): string {
 function formatReset(resetsAt: number | null, t: (key: string, params?: Record<string, string | number>) => string): string {
     if (!resetsAt) return t('settings.limits.resetsUnknown')
     const target = new Date(resetsAt * 1000)
-    const absolute = target.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     const diffMs = target.getTime() - Date.now()
+    // Beyond a day out the weekday matters more than the countdown, so the
+    // absolute gains a full English weekday ("Saturday, Sep 26, 06:20 PM").
+    // Pinned to en-US so the label reads consistently regardless of locale.
+    const absolute = diffMs > 24 * 3_600_000
+        ? target.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : target.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     if (diffMs <= 0) return t('settings.limits.resetsSoon')
-    const hours = Math.floor(diffMs / 3_600_000)
-    const relative = hours >= 24
-        ? t('settings.limits.inDays', { days: Math.floor(hours / 24) })
-        : t('settings.limits.inHours', { hours })
-    return t('settings.limits.resets', { relative, absolute })
+    // Precision tiers shrink as the horizon grows: <1min → under a minute,
+    // <1h → minutes, <12h → h m, <24h → hours, <48h → d h, else whole days
+    // (≥2 there, so the plural key is safe). Zero tails collapse ("5h" not "5h 0m").
+    const minutes = Math.floor(diffMs / 60_000)
+    if (minutes < 1) return t('settings.limits.resets', { relative: t('settings.limits.inUnderMinute'), absolute })
+    if (minutes < 60) return t('settings.limits.resets', { relative: t('settings.limits.inMinutes', { minutes }), absolute })
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) {
+        const mins = minutes % 60
+        const relative = hours < 12 && mins !== 0
+            ? t('settings.limits.inHoursMinutes', { hours, minutes: mins })
+            : t('settings.limits.inHours', { hours })
+        return t('settings.limits.resets', { relative, absolute })
+    }
+    if (hours < 48) {
+        const hrs = hours % 24
+        if (hrs === 0) return t('settings.limits.resets', { relative: t('settings.limits.inDay'), absolute })
+        return t('settings.limits.resets', { relative: t('settings.limits.inDaysHours', { days: 1, hours: hrs }), absolute })
+    }
+    return t('settings.limits.resets', { relative: t('settings.limits.inDays', { days: Math.floor(hours / 24) }), absolute })
 }
 
 function formatAge(ageMs: number, t: (key: string, params?: Record<string, string | number>) => string): string {

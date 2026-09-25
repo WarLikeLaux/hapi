@@ -13,6 +13,7 @@ import { SessionHeader } from '@/components/SessionHeader'
 import { LoadingState } from '@/components/LoadingState'
 import { useAppContext } from '@/lib/app-context'
 import { useAppGoBack } from '@/hooks/useAppGoBack'
+import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe'
 import { useGitStatusFiles } from '@/hooks/queries/useGitStatusFiles'
 import { useGitComparisonFiles } from '@/hooks/queries/useGitComparisonFiles'
 import { useSession } from '@/hooks/queries/useSession'
@@ -358,10 +359,24 @@ export default function FilesPage() {
     const { sessionId } = useParams({ from: '/sessions/$sessionId/files' })
     const search = useSearch({ from: '/sessions/$sessionId/files' })
     const { session } = useSession(api, sessionId)
+
+    // Phone navigation: swipe right goes back to the chat from the diff view.
+    const pageSwipeRef = useRef<HTMLDivElement>(null)
+    useHorizontalSwipe(pageSwipeRef, {
+        onSwipeRight: () => {
+            navigate({
+                to: '/sessions/$sessionId',
+                params: { sessionId },
+                ...PRESERVE_SESSION_SIDEBAR_SCROLL,
+            })
+        },
+    })
     const scrollRef = useRef<HTMLDivElement>(null)
 
     const [activeTab, setActiveTab] = useState<FilesTab>(() => search.tab ?? readFilesTab())
-    const [changesDisplay, setChangesDisplay] = useState<ChangesDisplay>('files')
+    const [changesDisplay, setChangesDisplay] = useState<ChangesDisplay>(() =>
+        search.display === 'diff' ? 'diff' : 'files'
+    )
     const [directorySort, setDirectorySort] = useState<DirectorySort>(readDirectorySort)
     const [fileMenu, setFileMenu] = useState<{ path: string; point: AnchoredMenuPoint } | null>(null)
     const searchQuery = search.query ?? ''
@@ -619,7 +634,7 @@ export default function FilesPage() {
     }
 
     return (
-        <div className="flex h-full min-h-0 flex-col">
+        <div ref={pageSwipeRef} className="flex h-full min-h-0 flex-col">
             <SessionHeader
                 session={session}
                 onBack={goBack}
