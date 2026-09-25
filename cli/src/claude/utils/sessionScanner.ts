@@ -1,5 +1,6 @@
 import { RawJSONLines, RawJSONLinesSchema } from "../types";
 import { basename, join } from "node:path";
+import { createHash } from "node:crypto";
 import { open, stat } from "node:fs/promises";
 import { logger } from "@/ui/logger";
 import { getProjectPath } from "./path";
@@ -171,6 +172,32 @@ function messageKey(message: RawJSONLines): string {
 }
 
 /**
+ * Re-emit a queue-operation task-notification as a user entry.
+ *
+ * Claude Code delivers background task completions (and async agent
+ * notifications) by enqueueing a `<task-notification>` record; the JSONL
+ * stores it as `{"type":"queue-operation","content":"<task-notification>..."}`.
+ * Downstream consumers (hub `extractBackgroundTaskDelta`, web sidechain
+ * normalizer) parse the older delivery shape — a `type:'user'` entry whose
+ * `message.content` is that same string — so restore that shape here. The
+ * synthetic uuid is a digest of the content so an enqueue and its remove
+ * replay collapse into one event.
+ */
+function taskNotificationFromQueueOperation(message: Record<string, unknown>): RawJSONLines | null {
+    if (typeof message.content !== 'string') return null;
+    if (!message.content.trimStart().startsWith('<task-notification>')) return null;
+    const digest = createHash('sha1').update(message.content).digest('hex').slice(0, 16);
+    return {
+        type: 'user',
+        uuid: `queued-task-${digest}`,
+        isSidechain: false,
+        sessionId: typeof message.sessionId === 'string' ? message.sessionId : undefined,
+        timestamp: typeof message.timestamp === 'string' ? message.timestamp : undefined,
+        message: { role: 'user', content: message.content },
+    };
+}
+
+/**
  * Whether a trailing segment (after the last newline) is already a complete
  * JSON value. A record still being written parses as incomplete, so this
  * distinguishes a flushed final record with no terminating newline from a
@@ -268,6 +295,19 @@ export async function readSessionLog(filePath: string, startByte: number): Promi
         }
         try {
             const message = JSON.parse(l);
+            // Task-notification deliveries are written as queue-operation
+            // records. They are the only completion signal for background
+            // tasks, so they must reach the hub: re-emit them in the
+            // historical user-entry shape that the hub's background-task
+            // counter and the web sidechain normalizer both already parse.
+            // Every other queue-operation stays an internal event.
+            if (message.type === 'queue-operation') {
+                const synthetic = taskNotificationFromQueueOperation(message);
+                if (synthetic) {
+                    messages.push({ event: synthetic });
+                }
+                continue;
+            }
             // Silently skip known internal Claude Code state/tracking events.
             if (message.type && INTERNAL_CLAUDE_EVENT_TYPES.has(message.type)) {
                 continue;

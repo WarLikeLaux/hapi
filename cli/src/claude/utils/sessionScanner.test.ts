@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createSessionScanner, readSessionLog } from './sessionScanner'
 import { RawJSONLines } from '../types'
+import { createHash } from 'node:crypto'
 import { mkdir, writeFile, appendFile, rm, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir, homedir } from 'node:os'
@@ -222,5 +223,46 @@ describe('sessionScanner', () => {
       expect(result.events[0].event.uuid).toBe('u1')
     }
     expect(result.nextCursor).toBe(Buffer.byteLength(only))
+  })
+
+  it('re-emits queue-operation task notifications as user entries and drops other queue operations', async () => {
+    const filePath = join(testDir, 'queue-operations.jsonl')
+    const notification = JSON.stringify({
+      type: 'queue-operation',
+      operation: 'enqueue',
+      timestamp: '2026-09-25T18:58:09.354Z',
+      sessionId: 'session-1',
+      content: '<task-notification>\n<task-id>task-1</task-id>\n<status>completed</status>\n</task-notification>'
+    })
+    const removeReplay = JSON.stringify({
+      type: 'queue-operation',
+      operation: 'remove',
+      timestamp: '2026-09-25T18:58:10.000Z',
+      sessionId: 'session-1',
+      content: '<task-notification>\n<task-id>task-1</task-id>\n<status>completed</status>\n</task-notification>'
+    })
+    const plainEnqueue = JSON.stringify({
+      type: 'queue-operation',
+      operation: 'enqueue',
+      timestamp: '2026-09-25T18:58:11.000Z',
+      sessionId: 'session-1',
+      content: 'a plain queued user message'
+    })
+    const dequeue = JSON.stringify({ type: 'queue-operation', operation: 'dequeue', timestamp: '2026-09-25T18:58:12.000Z' })
+    await writeFile(filePath, [notification, removeReplay, plainEnqueue, dequeue].join('\n') + '\n')
+
+    const result = await readSessionLog(filePath, 0)
+    // Both the notification and its remove replay are re-emitted, but with the
+    // same content-hash uuid — the base scanner dedups by that key, so
+    // downstream consumers see the notification exactly once.
+    expect(result.events).toHaveLength(2)
+    const expectedUuid = 'queued-task-' + createHash('sha1').update(JSON.parse(notification).content).digest('hex').slice(0, 16)
+    expect(result.events.map((e) => (e.event.type === 'user' ? e.event.uuid : null))).toEqual([expectedUuid, expectedUuid])
+    const event = result.events[0].event
+    expect(event.type).toBe('user')
+    if (event.type === 'user') {
+      expect(event.message.content).toBe(JSON.parse(notification).content)
+      expect(event.timestamp).toBe('2026-09-25T18:58:09.354Z')
+    }
   })
 })
