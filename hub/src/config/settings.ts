@@ -53,6 +53,12 @@ export interface Settings {
     claudeBrandedAsGlm?: boolean
     /** Workspace browser pins shared by the owner's web clients. */
     workspacePins?: Array<{ machineId: string; path: string }>
+    /** Configured workplace directory/keyword aliases for session context categorization. */
+    workContextAliases?: string[]
+    /** Manual per-session context tags shared across web clients. */
+    sessionContextOverrides?: Record<string, 'work' | 'lab' | 'chill'>
+    /** Manual per-project context tags shared across web clients. */
+    projectContextOverrides?: Record<string, 'work' | 'lab' | 'chill'>
     /**
      * Hub-side provider API keys / endpoints managed from Settings.
      * Env vars still win when set at process start (ops override).

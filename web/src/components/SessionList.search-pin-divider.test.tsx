@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
+import { AppContextTestProvider } from '@/test/app-context'
 import { ToastProvider } from '@/lib/toast-context'
 import { SessionList } from './SessionList'
 
@@ -82,16 +83,18 @@ function renderList(sessions: SessionSummary[]) {
         >
             <ToastProvider>
                 <I18nProvider>
-                    <SessionList
-                        sessions={sessions}
-                        selectedSessionId={null}
-                        onSelect={vi.fn()}
-                        onNewSession={vi.fn()}
-                        onRefresh={vi.fn()}
-                        isLoading={false}
-                        renderHeader={false}
-                        api={null}
-                    />
+                    <AppContextTestProvider>
+                        <SessionList
+                            sessions={sessions}
+                            selectedSessionId={null}
+                            onSelect={vi.fn()}
+                            onNewSession={vi.fn()}
+                            onRefresh={vi.fn()}
+                            isLoading={false}
+                            renderHeader={false}
+                            api={null}
+                        />
+                    </AppContextTestProvider>
                 </I18nProvider>
             </ToastProvider>
         </QueryClientProvider>

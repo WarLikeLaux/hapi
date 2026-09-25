@@ -6,6 +6,7 @@ import { useAppContext } from '@/lib/app-context'
 import {
     countUnreadConversations,
     countWorkingSessions,
+    isWorkingSession,
 } from '@/lib/navigationBadges'
 import { queryKeys } from '@/lib/query-keys'
 import {
@@ -79,7 +80,7 @@ export function PrimarySectionNav() {
     const unreadChatCount = countUnreadConversations(conversations.data ?? [])
     const unreadAgentCount = useMemo(
         () => initializedHub === baseUrl
-            ? getUnreadSessionCount(visibleSessions)
+            ? getUnreadSessionCount(visibleSessions.filter(session => !isWorkingSession(session)))
             : 0,
         [baseUrl, initializedHub, lastSeenVersion, visibleSessions]
     )

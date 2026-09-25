@@ -441,3 +441,45 @@ describe('SessionActionMenu - Copy reference action', () => {
         })
     })
 })
+
+describe('SessionActionMenu - Context action', () => {
+    it('opens a context flyout with options when the Context item is activated', () => {
+        const onSetContext = vi.fn()
+        const onClose = vi.fn()
+        renderMenu({ onSetContext, onClose, currentContext: 'lab' })
+
+        expect(screen.queryByRole('menuitemradio', { name: /Work/ })).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('menuitem', { name: /Context/ }))
+
+        expect(screen.getByRole('menu', { name: 'Context' })).toBeInTheDocument()
+        expect(screen.getByRole('menuitemradio', { name: /Work/ })).toBeInTheDocument()
+        expect(screen.getByRole('menuitemradio', { name: /Lab/ })).toHaveAttribute('aria-checked', 'true')
+        expect(screen.getByRole('menuitemradio', { name: /Work/ })).toHaveAttribute('aria-checked', 'false')
+        expect(screen.getByRole('menuitemradio', { name: /Chill/ })).toBeInTheDocument()
+        expect(onSetContext).not.toHaveBeenCalled()
+    })
+
+    it('applies a context from the flyout and closes the menu', () => {
+        const onSetContext = vi.fn()
+        const onClose = vi.fn()
+        renderMenu({ onSetContext, onClose, currentContext: 'lab' })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: /Context/ }))
+        fireEvent.click(screen.getByRole('menuitemradio', { name: /Work/ }))
+
+        expect(onSetContext).toHaveBeenCalledWith('work')
+        expect(onClose).toHaveBeenCalled()
+    })
+
+    it('clears the context with the None option', () => {
+        const onSetContext = vi.fn()
+        renderMenu({ onSetContext, onClose: vi.fn(), currentContext: 'lab' })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: /Context/ }))
+        fireEvent.click(screen.getByRole('menuitemradio', { name: /None/ }))
+
+        expect(onSetContext).toHaveBeenCalledWith(null)
+    })
+})
+

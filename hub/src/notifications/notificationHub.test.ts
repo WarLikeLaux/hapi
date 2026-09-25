@@ -169,6 +169,52 @@ describe('NotificationHub', () => {
         hub.stop()
     })
 
+    it('suppresses ready notifications while background tasks are running', async () => {
+        const engine = new FakeSyncEngine()
+        const channel = new StubChannel()
+        const hub = new NotificationHub(engine as unknown as SyncEngine, [channel], {
+            permissionDebounceMs: 1,
+            readyCooldownMs: 20
+        })
+
+        const session = createSession({ backgroundTaskCount: 2 })
+        engine.setSession(session)
+
+        const readyEvent: SyncEvent = {
+            type: 'message-received',
+            sessionId: session.id,
+            message: {
+                id: 'message-1',
+                seq: 1,
+                localId: null,
+                createdAt: 0,
+                content: {
+                    role: 'agent',
+                    content: {
+                        id: 'event-1',
+                        type: 'event',
+                        data: { type: 'ready' }
+                    }
+                }
+            }
+        }
+
+        // Main turn ended while two background tasks are still outstanding:
+        // no "ready" push, and the cooldown budget is not consumed.
+        engine.emit(readyEvent)
+        await sleep(5)
+        expect(channel.readySessions).toHaveLength(0)
+
+        // Final task completed (counter zeroed by its task-notification), the
+        // settling turn emitted its ready: announce once.
+        session.backgroundTaskCount = 0
+        engine.emit(readyEvent)
+        await sleep(5)
+        expect(channel.readySessions).toHaveLength(1)
+
+        hub.stop()
+    })
+
     it('sends task notifications for task_notification system messages', async () => {
         const engine = new FakeSyncEngine()
         const channel = new StubChannel()

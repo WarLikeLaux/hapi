@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '@/types/api'
 import type { ApiClient } from '@/api/client'
 import { I18nProvider } from '@/lib/i18n-context'
+import { AppContextTestProvider } from '@/test/app-context'
 import { ToastProvider, useToast } from '@/lib/toast-context'
 import { resolveSessionHeaderMachineLabel, SessionHeader } from './SessionHeader'
 
@@ -45,13 +46,15 @@ function renderHeader(session: Session, extra?: { serviceTier?: string | null; t
         <QueryClientProvider client={new QueryClient()}>
             <ToastProvider>
                 <I18nProvider>
-                    <SessionHeader
-                        session={session}
-                        serviceTier={extra?.serviceTier}
-                        titleSuggestionAvailable={extra?.titleSuggestionAvailable}
-                        onBack={vi.fn()}
-                        api={null}
-                    />
+                    <AppContextTestProvider>
+                        <SessionHeader
+                            session={session}
+                            serviceTier={extra?.serviceTier}
+                            titleSuggestionAvailable={extra?.titleSuggestionAvailable}
+                            onBack={vi.fn()}
+                            api={null}
+                        />
+                    </AppContextTestProvider>
                 </I18nProvider>
             </ToastProvider>
         </QueryClientProvider>
@@ -134,6 +137,7 @@ describe('SessionHeader', () => {
         } as unknown as ApiClient
 
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -142,6 +146,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
@@ -179,6 +184,7 @@ describe('SessionHeader', () => {
         })
 
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -186,6 +192,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
@@ -210,6 +217,7 @@ describe('SessionHeader', () => {
         } as unknown as ApiClient
 
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -218,6 +226,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
@@ -236,6 +245,7 @@ describe('SessionHeader', () => {
         } as unknown as ApiClient
 
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -248,6 +258,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
@@ -264,6 +275,7 @@ describe('SessionHeader', () => {
         } as unknown as ApiClient
 
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -276,6 +288,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         fireEvent.click(screen.getByTitle('More actions'))
@@ -296,6 +309,7 @@ describe('SessionHeader', () => {
         const queryClient = new QueryClient()
         const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={queryClient}>
                 <ToastProvider>
                     <I18nProvider>
@@ -316,6 +330,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
@@ -335,6 +350,7 @@ describe('SessionHeader', () => {
             importPiSessions: vi.fn()
         } as unknown as import('@/api/client').ApiClient
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -349,6 +365,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
@@ -358,6 +375,7 @@ describe('SessionHeader', () => {
     it('renders and toggles the agent terminal control', () => {
         const onToggleTerminal = vi.fn()
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -371,6 +389,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         const terminal = screen.getByRole('button', { name: 'Terminal' })
@@ -404,6 +423,7 @@ describe('SessionHeader', () => {
         expect(screen.getByTestId('session-header-reasoning')).toHaveTextContent('reasoning xhigh')
 
         rerender(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -419,6 +439,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         expect(screen.queryByTestId('session-header-reasoning')).not.toBeInTheDocument()
@@ -463,6 +484,7 @@ describe('SessionHeader', () => {
         } as unknown as ApiClient
 
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -470,6 +492,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         expect(await screen.findByTestId('session-header-branch')).toHaveTextContent('branch: feature/live-branch')
@@ -554,6 +577,7 @@ describe('SessionHeader', () => {
         }
 
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -561,6 +585,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         fireEvent.click(screen.getByTitle('More actions'))
@@ -576,6 +601,7 @@ describe('SessionHeader', () => {
         } as unknown as ApiClient
 
         render(
+            <AppContextTestProvider>
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
@@ -584,6 +610,7 @@ describe('SessionHeader', () => {
                     </I18nProvider>
                 </ToastProvider>
             </QueryClientProvider>
+            </AppContextTestProvider>
         )
 
         fireEvent.click(screen.getByTitle('More actions'))

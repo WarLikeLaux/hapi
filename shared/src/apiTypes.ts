@@ -65,6 +65,11 @@ export const CreateSessionResponseSchema = z.object({
 
 export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>
 
+export const SessionContextTagSchema = z.enum(['work', 'lab', 'chill'])
+export type SessionContextTag = z.infer<typeof SessionContextTagSchema>
+
+export const SessionContextOverridesSchema = z.record(z.string().min(1).max(512), SessionContextTagSchema)
+
 export const HubSettingsResponseSchema = z.object({
     sessionSummaryContract: z.boolean(),
     /** Show compact AGENT_NOTIFY_SUMMARY in chat (default off / hide). */
@@ -74,7 +79,13 @@ export const HubSettingsResponseSchema = z.object({
      * notifications. For forks that wire the Claude Code CLI to GLM models;
      * purely cosmetic, default off.
      */
-    claudeBrandedAsGlm: z.boolean()
+    claudeBrandedAsGlm: z.boolean(),
+    /** Configured workplace directory/keyword aliases for session context categorization. */
+    workContextAliases: z.array(z.string()).optional(),
+    /** Manual per-session context tags shared across web clients. */
+    sessionContextOverrides: SessionContextOverridesSchema.optional(),
+    /** Manual per-project context tags shared across web clients. */
+    projectContextOverrides: SessionContextOverridesSchema.optional()
 })
 
 export type HubSettingsResponse = z.infer<typeof HubSettingsResponseSchema>
@@ -83,12 +94,35 @@ export const UpdateHubSettingsRequestSchema = z
     .object({
         sessionSummaryContract: z.boolean().optional(),
         sessionSummaryInChat: z.boolean().optional(),
-        claudeBrandedAsGlm: z.boolean().optional()
+        claudeBrandedAsGlm: z.boolean().optional(),
+        workContextAliases: z.array(z.string()).optional(),
+        sessionContextOverrides: SessionContextOverridesSchema.optional(),
+        projectContextOverrides: SessionContextOverridesSchema.optional()
     })
     .refine(
-        (data) => data.sessionSummaryContract !== undefined || data.sessionSummaryInChat !== undefined || data.claudeBrandedAsGlm !== undefined,
+        (data) => data.sessionSummaryContract !== undefined
+            || data.sessionSummaryInChat !== undefined
+            || data.claudeBrandedAsGlm !== undefined
+            || data.workContextAliases !== undefined
+            || data.sessionContextOverrides !== undefined
+            || data.projectContextOverrides !== undefined,
         { message: 'At least one hub setting field is required' }
     )
+    .superRefine((data, ctx) => {
+        const maps = [
+            { key: 'sessionContextOverrides' as const, value: data.sessionContextOverrides },
+            { key: 'projectContextOverrides' as const, value: data.projectContextOverrides },
+        ]
+        for (const entry of maps) {
+            if (entry.value && Object.keys(entry.value).length > 500) {
+                ctx.addIssue({
+                    code: 'custom',
+                    message: `${entry.key} exceeds 500 entries`,
+                    path: [entry.key],
+                })
+            }
+        }
+    })
 
 export type UpdateHubSettingsRequest = z.infer<typeof UpdateHubSettingsRequestSchema>
 

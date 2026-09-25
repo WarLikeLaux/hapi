@@ -12,6 +12,8 @@ import { useThemeColors, type ThemeColorKeyId } from '@/hooks/useThemeColors'
 import { useSessionHeaderMetadata, type SessionHeaderMetadataKey } from '@/hooks/useSessionHeaderMetadata'
 import { useAppBadgePreference } from '@/hooks/useAppBadgePreference'
 import { useOpenExternalLinksInNewTab } from '@/hooks/useOpenExternalLinksInNewTab'
+import { useSessionContextFilter } from '@/hooks/useSessionContextFilter'
+import { useSessionContextHubSync } from '@/hooks/useSessionContextHubSync'
 import { SettingsChoiceGroup, SettingsFieldLabel, SettingsPageContent, SettingsRow, SettingsSection, SettingsSwitch } from '@/components/settings/SettingsPrimitives'
 
 function MinusIcon() {
@@ -102,6 +104,46 @@ function SessionPreviewLimitControl() {
     )
 }
 
+function WorkContextAliasesControl() {
+    const { t } = useTranslation()
+    const hubContextSync = useSessionContextHubSync()
+    const { workAliases, setWorkAliases } = useSessionContextFilter(hubContextSync)
+    const [draft, setDraft] = useState(() => workAliases.join(', '))
+
+    useEffect(() => {
+        setDraft(workAliases.join(', '))
+    }, [workAliases])
+
+    const commit = () => {
+        const next = draft.split(',').map((s) => s.trim()).filter(Boolean)
+        setWorkAliases(next)
+    }
+
+    return (
+        <div className="px-3 py-2">
+            <SettingsFieldLabel description={t('settings.display.workAliases.desc')}>
+                {t('settings.display.workAliases')}
+            </SettingsFieldLabel>
+            <div className="mt-1 flex items-center">
+                <input
+                    type="text"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={commit}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            commit()
+                            e.currentTarget.blur()
+                        }
+                    }}
+                    placeholder={t('settings.display.workAliases.placeholder')}
+                    className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-1.5 text-sm text-[var(--app-fg)] outline-none focus:border-[var(--app-link)]"
+                />
+            </div>
+        </div>
+    )
+}
+
 function ThemeColorControls() {
     const { t } = useTranslation()
     const { keys, getPickerValue, isCustomized, hasAnyCustom, setColor, resetColor, resetAll } = useThemeColors()
@@ -188,6 +230,7 @@ export default function SettingsDisplayPage() {
                     options={getSessionListStatusModeOptions().map((option) => ({ value: option.value, label: t(option.labelKey) }))}
                     onChange={setSessionListStatusMode}
                 />
+                <WorkContextAliasesControl />
             </SettingsSection>
 
             <SettingsSection title={t('settings.display.sessionHeader')} description={t('settings.display.sessionHeader.description')}>

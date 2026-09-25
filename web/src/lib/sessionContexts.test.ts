@@ -68,6 +68,14 @@ describe('sessionContexts', () => {
             expect(detectDefaultSessionContext(sess3)).toBe('chill')
         })
 
+        it('classifies based on configured work aliases', () => {
+            const sess = makeTestSession({
+                metadata: { path: '/repos/my-special-project', name: 'special' }
+            })
+            expect(detectDefaultSessionContext(sess, ['special'])).toBe('work')
+            expect(detectDefaultSessionContext(sess, ['other'])).toBe('lab')
+        })
+
         it('classifies other distinct projects as lab', () => {
             const sess1 = makeTestSession({
                 metadata: { path: '/home/user/projects/pet-tool', name: 'pet-tool' }
@@ -82,6 +90,20 @@ describe('sessionContexts', () => {
     })
 
     describe('resolveSessionContext with user overrides', () => {
+        it('prioritizes manual session-level override over everything else', () => {
+            const sess = makeTestSession({
+                id: 'sess-manual-1',
+                metadata: { path: '/work/internal-service', name: 'internal-service' }
+            })
+            // Project override says 'work', but session override says 'chill'
+            const result = resolveSessionContext(sess, {
+                sessionOverrides: { 'sess-manual-1': 'chill' },
+                projectOverrides: { '/work/internal-service': 'work' },
+                workAliases: ['internal-service'],
+            })
+            expect(result).toBe('chill')
+        })
+
         it('respects path overrides over heuristic', () => {
             const sess = makeTestSession({
                 metadata: { path: '/work/internal-service', name: 'internal-service' }
@@ -137,6 +159,34 @@ describe('sessionContexts', () => {
 
             expect(stats.chill.totalCount).toBe(1)
             expect(stats.chill.workingCount).toBe(0)
+        })
+
+        it('does not count working sessions as unread', () => {
+            localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({
+                'work-working': 100,
+                'work-idle': 100,
+            }))
+
+            const workWorking = makeTestSession({
+                id: 'work-working',
+                metadata: { path: '/work/service-api' },
+                thinking: true,
+                active: true,
+                updatedAt: 500,
+            })
+            const workIdleUnread = makeTestSession({
+                id: 'work-idle',
+                metadata: { path: '/work/service-api' },
+                thinking: false,
+                active: false,
+                updatedAt: 500,
+            })
+
+            const stats = computeContextStats([workWorking, workIdleUnread])
+            expect(stats.work.workingCount).toBe(1)
+            // Only the idle unread session is counted as unread; the working session is not.
+            expect(stats.work.unreadCount).toBe(1)
+            expect(stats.all.unreadCount).toBe(1)
         })
     })
 })

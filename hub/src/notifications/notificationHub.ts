@@ -154,6 +154,18 @@ export class NotificationHub {
             return
         }
 
+        // A persisted ready event only means the main turn ended. While
+        // background tasks (async subagents, background shells) are still
+        // outstanding the agent is not done: it will be woken again by each
+        // task's completion. Staying quiet here leaves the session marked
+        // working ("Background tasks running") and the final ready — after
+        // the last task-notification zeroes the counter — announces it once,
+        // truthfully. Checked before the cooldown stamp so the suppressed
+        // ready cannot consume the next one's cooldown budget.
+        if ((session.backgroundTaskCount ?? 0) > 0) {
+            return
+        }
+
         const now = Date.now()
         const last = this.lastReadyNotificationAt.get(sessionId) ?? 0
         if (now - last < this.readyCooldownMs) {

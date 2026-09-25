@@ -330,6 +330,9 @@ html:has(.chat-scroll-y) #root {
 .app-scroll-y {
     overflow-y: auto;
     overscroll-behavior-y: contain;
+    /* Nothing pans horizontally here; `none` also keeps the browser from
+     * hijacking horizontal swipes for its back/forward navigation. */
+    overscroll-behavior-x: none;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
 }

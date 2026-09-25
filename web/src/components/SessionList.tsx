@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SessionListScrollAnchor } from './SessionListScrollAnchor'
 import type { SessionSummary } from '@/types/api'
 import { SESSION_LIFECYCLE_IDLE } from '@hapi/protocol'
@@ -10,7 +10,8 @@ import {
 } from '@/lib/sessionListSearch'
 import type { SessionSearchScoreIndex } from '@/lib/sessionListSearch'
 import { useLongPress } from '@/hooks/useLongPress'
-import { usePlatform } from '@/hooks/usePlatform'
+import { getPlatform, usePlatform } from '@/hooks/usePlatform'
+import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
@@ -32,7 +33,10 @@ import { isWorkingSession } from '@/lib/navigationBadges'
 import { useTranslation } from '@/lib/use-translation'
 import { ContextTabBar } from '@/components/ContextTabBar'
 import { useSessionContextFilter } from '@/hooks/useSessionContextFilter'
+import { useSessionContextHubSync } from '@/hooks/useSessionContextHubSync'
+import { SessionContextPicker } from '@/components/SessionContextPicker'
 import {
+    SESSION_CONTEXTS,
     computeContextStats,
     resolveSessionContext,
     type SessionContextId,
@@ -701,30 +705,11 @@ function ProjectActionMenu(props: {
                     <div className="px-3 py-1 text-[11px] font-semibold text-[var(--app-hint)] uppercase tracking-wider">
                         {t('sessions.context.setLabel')}
                     </div>
-                    <div className="flex items-center gap-1 px-1">
-                        {(['work', 'lab', 'chill'] as const).map((ctx) => {
-                            const isCurrent = props.currentContext === ctx
-                            return (
-                                <button
-                                    key={ctx}
-                                    type="button"
-                                    className={cn(
-                                        'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors cursor-pointer',
-                                        isCurrent
-                                            ? 'bg-[var(--app-link)] text-white font-medium'
-                                            : 'text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)]'
-                                    )}
-                                    onClick={() => {
-                                        props.onClose()
-                                        props.onSetContext?.(isCurrent ? null : ctx)
-                                    }}
-                                >
-                                    <span>{ctx === 'work' ? '💼' : ctx === 'lab' ? '🧪' : '💬'}</span>
-                                    <span>{t(`sessions.context.${ctx}`)}</span>
-                                </button>
-                            )
-                        })}
-                    </div>
+                    <SessionContextPicker
+                        currentContext={props.currentContext}
+                        onClose={props.onClose}
+                        onSelect={(ctx) => props.onSetContext?.(ctx)}
+                    />
                 </div>
             ) : null}
             <div role="menu">
@@ -1147,6 +1132,8 @@ function SessionItem(props: {
     machineLabel?: string
     activityTimeBasis?: SessionActivityTimeBasis
     lastSeenVersion: number
+    currentContext?: SessionContextId
+    onSetContext?: (context: SessionContextId | null) => void
 }) {
     const { t } = useTranslation()
     const { addToast } = useToast()
@@ -1315,6 +1302,8 @@ function SessionItem(props: {
                 sessionActive={s.active}
                 sessionPinned={Boolean(s.pinned)}
                 sessionGlobalPinned={Boolean(s.globalPinned)}
+                currentContext={props.currentContext}
+                onSetContext={props.onSetContext}
                 onSetPinMode={(mode) => void handleSetPinMode(mode)}
                 onRename={() => setRenameOpen(true)}
                 onExport={() => setExportOpen(true)}
@@ -1556,24 +1545,30 @@ export function SessionList(props: {
         () => props.sessions.filter(session => shouldShowSessionInSidebar(session, selectedSessionId)),
         [props.sessions, selectedSessionId]
     )
+    const hubContextSync = useSessionContextHubSync()
+
     const {
         activeContext,
         setActiveContext,
         projectOverrides,
         setProjectContextOverride,
-    } = useSessionContextFilter()
+        sessionOverrides,
+        setSessionContextOverride,
+        workAliases,
+        contextOptions,
+    } = useSessionContextFilter(hubContextSync)
 
     const contextStats = useMemo(
-        () => computeContextStats(sidebarSessions, projectOverrides),
-        [sidebarSessions, projectOverrides, lastSeenVersion]
+        () => computeContextStats(sidebarSessions, contextOptions),
+        [sidebarSessions, contextOptions, lastSeenVersion]
     )
 
     const contextFilteredSessions = useMemo(() => {
         if (activeContext === 'all') return sidebarSessions
         return sidebarSessions.filter(
-            (session) => resolveSessionContext(session, projectOverrides) === activeContext
+            (session) => resolveSessionContext(session, contextOptions) === activeContext
         )
-    }, [sidebarSessions, activeContext, projectOverrides])
+    }, [sidebarSessions, activeContext, contextOptions])
 
     const allSessions = useMemo(
         () => showActiveSessionsOnly
@@ -1925,6 +1920,8 @@ export function SessionList(props: {
                                 machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
                                 activityTimeBasis={activityTimeBasis}
                                 lastSeenVersion={lastSeenVersion}
+                                currentContext={resolveSessionContext(s, contextOptions)}
+                                onSetContext={(ctx) => setSessionContextOverride(s.id, ctx)}
                             />
                         ))}
                     </div>
@@ -1993,6 +1990,8 @@ export function SessionList(props: {
                                     machineLabel={resolveMachineLabel(session.metadata?.machineId ?? null)}
                                     activityTimeBasis="agent"
                                     lastSeenVersion={lastSeenVersion}
+                                    currentContext={resolveSessionContext(session, contextOptions)}
+                                    onSetContext={(ctx) => setSessionContextOverride(session.id, ctx)}
                                 />
                             ))}
                             {hiddenCount > 0 ? (
@@ -2100,6 +2099,8 @@ export function SessionList(props: {
                                     showDetailedStatus={showDetailedStatus}
                                     activityTimeBasis="user"
                                     lastSeenVersion={lastSeenVersion}
+                                    currentContext={resolveSessionContext(s, contextOptions)}
+                                    onSetContext={(ctx) => setSessionContextOverride(s.id, ctx)}
                                 />
                             </div>
                         ))}
@@ -2305,6 +2306,29 @@ export function SessionList(props: {
         }
     }, [])
 
+    // Horizontal swipes switch the active context tab on touch devices, so a
+    // deliberate swipe falls through to tab navigation instead of the
+    // browser's back/forward gesture. The tab bar itself is ignored: a swipe
+    // there scrolls it natively.
+    const activeContextRef = useRef(activeContext)
+    useEffect(() => {
+        activeContextRef.current = activeContext
+    }, [activeContext])
+
+    const stepContextTab = useCallback((step: 1 | -1) => {
+        const order = SESSION_CONTEXTS.map((ctx) => ctx.id)
+        const index = order.indexOf(activeContextRef.current)
+        const next = order[index + step]
+        if (!next || next === activeContextRef.current) return
+        getPlatform().haptic.selection()
+        setActiveContext(next)
+    }, [setActiveContext])
+
+    useHorizontalSwipe(scrollContainerRef, {
+        onSwipeLeft: () => stepContextTab(1),
+        onSwipeRight: () => stepContextTab(-1),
+    }, { ignoreSelector: '[role="tablist"]' })
+
     return (
         <div className="flex min-h-0 w-full flex-1 flex-col">
             <div className="session-list-scrollbar-offset mx-auto w-full max-w-content shrink-0">
@@ -2462,6 +2486,8 @@ export function SessionList(props: {
                                             machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
                                             activityTimeBasis="user"
                                             lastSeenVersion={lastSeenVersion}
+                                            currentContext={resolveSessionContext(s, contextOptions)}
+                                            onSetContext={(ctx) => setSessionContextOverride(s.id, ctx)}
                                         />
                                     ))}
                                 </div>
@@ -2504,7 +2530,7 @@ export function SessionList(props: {
                 state={projectMenu}
                 onClose={() => setProjectMenu(null)}
                 onDelete={setProjectDeleteTarget}
-                currentContext={projectMenu && projectMenu.sessions[0] ? resolveSessionContext(projectMenu.sessions[0], projectOverrides) : undefined}
+                currentContext={projectMenu && projectMenu.sessions[0] ? resolveSessionContext(projectMenu.sessions[0], contextOptions) : undefined}
                 onSetContext={(ctx) => {
                     if (projectMenu) {
                         setProjectContextOverride(projectMenu.directory, ctx)
