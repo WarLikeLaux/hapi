@@ -19,6 +19,11 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 - For changes that affect visible UI or UX, deploy the uncommitted change for user review, but do not commit or push it until the user explicitly accepts the visual result. After acceptance, commit and push the reviewed files.
 - A user's explicit request to avoid deployment, commits, or pushes overrides these defaults. Never include unrelated worktree changes in an automatic commit.
 
+## Pitbox
+
+- `.pitbox/config` pins the main branch to `custom`. The pitbox tools and `integrate` skill describe the slot workflow.
+- After collecting slots, run `bun typecheck && bun run test`. Follow the delivery policy above for deployment and push. The local deploy command is `bun run deploy:local-hub`; run it only when no session is mid-turn.
+
 ## Find context when needed
 
 Start with the task's files; read only relevant sections of these references, not a fixed sequence of READMEs.
