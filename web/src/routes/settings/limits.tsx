@@ -48,7 +48,6 @@ const WINDOW_LABEL_KEYS: Record<string, string> = {
     '5h': 'settings.limits.window.5h',
     weekly: 'settings.limits.window.weekly',
     monthly: 'settings.limits.window.monthly',
-    video: 'settings.limits.window.video',
 }
 
 // Account segments stay out of the label: they are noisy on narrow screens

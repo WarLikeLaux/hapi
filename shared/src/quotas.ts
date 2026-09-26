@@ -14,7 +14,6 @@ import { z } from 'zod'
  *   - `agy:<email>:weekly`  — Antigravity account weekly Gemini window
  *   - `minimax:5h`          — MiniMax coding-plan 5-hour window (MiniMax Code)
  *   - `minimax:weekly`      — MiniMax coding-plan weekly window
- *   - `minimax:video`       — MiniMax coding-plan video-model quota
  *
  * `usedPercent` is how much is SPENT (0..100), matching every provider's own
  * reporting; remaining is `100 - usedPercent`.

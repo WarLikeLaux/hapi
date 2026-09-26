@@ -6,7 +6,6 @@ import { clampPercent, errorMessage, type CollectorResult } from '../types'
 
 export const MINIMAX_5H_SOURCE = 'minimax:5h'
 export const MINIMAX_WEEKLY_SOURCE = 'minimax:weekly'
-export const MINIMAX_VIDEO_SOURCE = 'minimax:video'
 
 const MINIMAX_TIMEOUT_MS = 15_000
 const MINIMAX_DEFAULT_REGION = 'en'
@@ -115,8 +114,7 @@ function buildWindow(source: string, row: MinimaxRemainsRow, kind: 'interval' | 
 /**
  * MiniMax coding-plan quota response (`/v1/api/openplatform/coding_plan/remains`):
  * `{ base_resp: { status_code }, model_remains: [...] }` where the `general`
- * row carries the 5-hour and weekly windows and a `video` row (when present)
- * carries the video-model quota. Windows report remaining; QuotaWindow
+ * row carries the 5-hour and weekly windows. Rows report remaining; QuotaWindow
  * reports spend, so the percent flips.
  */
 export function parseMinimaxQuotaResponse(payload: unknown, nowSec: number): QuotaWindow[] | null {
@@ -132,11 +130,6 @@ export function parseMinimaxQuotaResponse(payload: unknown, nowSec: number): Quo
     if (fiveHour) windows.push(fiveHour)
     const weekly = buildWindow(MINIMAX_WEEKLY_SOURCE, general, 'weekly', nowSec)
     if (weekly) windows.push(weekly)
-    const videoRow = parsedRows.find((row) => typeof row.model_name === 'string' && /video/i.test(row.model_name))
-    if (videoRow) {
-        const video = buildWindow(MINIMAX_VIDEO_SOURCE, videoRow, 'interval', nowSec)
-        if (video) windows.push(video)
-    }
     return windows.length > 0 ? windows : null
 }
 

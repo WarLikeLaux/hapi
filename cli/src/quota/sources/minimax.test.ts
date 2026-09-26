@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
     MINIMAX_5H_SOURCE,
-    MINIMAX_VIDEO_SOURCE,
     MINIMAX_WEEKLY_SOURCE,
     minimaxBaseUrl,
     parseMinimaxQuotaResponse,
@@ -26,14 +25,6 @@ const SAMPLE_PAYLOAD = {
             current_weekly_status: 1,
             current_weekly_remaining_percent: 66,
             weekly_end_time: (NOW_SEC + 7 * 24 * 3_600) * 1000
-        },
-        {
-            model_name: 'video-01',
-            current_interval_status: 1,
-            current_interval_remaining_percent: 66,
-            current_interval_total_count: 3,
-            current_interval_usage_count: 2,
-            end_time: (NOW_SEC + 3_600) * 1000
         }
     ],
     base_resp: { status_code: 0 }
@@ -51,7 +42,7 @@ describe('minimaxBaseUrl', () => {
 })
 
 describe('parseMinimaxQuotaResponse', () => {
-    it('parses 5h, weekly and video windows and flips remaining to spent', () => {
+    it('parses 5h and weekly windows and flips remaining to spent', () => {
         expect(parseMinimaxQuotaResponse(SAMPLE_PAYLOAD, NOW_SEC)).toEqual([
             {
                 source: MINIMAX_5H_SOURCE,
@@ -63,12 +54,6 @@ describe('parseMinimaxQuotaResponse', () => {
                 source: MINIMAX_WEEKLY_SOURCE,
                 usedPercent: 34,
                 resetsAt: NOW_SEC + 7 * 24 * 3_600,
-                measuredAt: NOW_SEC
-            },
-            {
-                source: MINIMAX_VIDEO_SOURCE,
-                usedPercent: 34,
-                resetsAt: NOW_SEC + 3_600,
                 measuredAt: NOW_SEC
             }
         ])
@@ -106,16 +91,17 @@ describe('parseMinimaxQuotaResponse', () => {
         ])
     })
 
-    it('prefers the general row over the first row', () => {
+    it('prefers the general row over the first row and ignores other rows', () => {
         const payload = {
             model_remains: [
                 { model_name: 'video', current_interval_remaining_percent: 10 },
                 { model_name: 'general', current_interval_remaining_percent: 20 }
             ]
         }
-        const windows = parseMinimaxQuotaResponse(payload, NOW_SEC)
-        expect(windows?.find((w) => w.source === MINIMAX_5H_SOURCE)?.usedPercent).toBe(80)
-        expect(windows?.find((w) => w.source === MINIMAX_VIDEO_SOURCE)?.usedPercent).toBe(90)
+        // The general row has no weekly fields, so only the 5h window parses.
+        expect(parseMinimaxQuotaResponse(payload, NOW_SEC)).toEqual([
+            { source: MINIMAX_5H_SOURCE, usedPercent: 80, resetsAt: null, measuredAt: NOW_SEC }
+        ])
     })
 
     it('returns null for malformed payloads', () => {

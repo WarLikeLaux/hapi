@@ -1253,7 +1253,6 @@ export default {
   'settings.limits.window.5h': '5小时',
   'settings.limits.window.weekly': '周',
   'settings.limits.window.monthly': '月',
-  'settings.limits.window.video': '视频',
   'settings.limits.weekdays.title': '星期对照',
   'settings.limits.weekdays.sunday': '星期日',
   'settings.limits.weekdays.monday': '星期一',

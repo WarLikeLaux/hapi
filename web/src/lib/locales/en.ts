@@ -1255,7 +1255,6 @@ export default {
   'settings.limits.window.5h': '5h',
   'settings.limits.window.weekly': 'week',
   'settings.limits.window.monthly': 'month',
-  'settings.limits.window.video': 'video',
   'settings.limits.weekdays.title': 'Weekdays',
   'settings.limits.weekdays.sunday': 'воскресенье',
   'settings.limits.weekdays.monday': 'понедельник',
