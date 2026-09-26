@@ -215,7 +215,7 @@ describe('NotificationHub', () => {
         hub.stop()
     })
 
-    it('sends task notifications for task_notification system messages', async () => {
+    it('sends failed task notifications for task_notification system messages', async () => {
         const engine = new FakeSyncEngine()
         const channel = new StubChannel()
         const hub = new NotificationHub(engine as unknown as SyncEngine, [channel], {
@@ -241,8 +241,8 @@ describe('NotificationHub', () => {
                         data: {
                             type: 'system',
                             subtype: 'task_notification',
-                            status: 'completed',
-                            summary: 'Commit T4 finished'
+                            status: 'failed',
+                            summary: 'Commit T4 failed'
                         }
                     }
                 }
@@ -254,9 +254,53 @@ describe('NotificationHub', () => {
 
         expect(channel.taskNotifications).toHaveLength(1)
         expect(channel.taskNotifications[0]?.notification).toEqual({
-            status: 'completed',
-            summary: 'Commit T4 finished'
+            status: 'failed',
+            summary: 'Commit T4 failed'
         })
+
+        hub.stop()
+    })
+
+    it('suppresses successful task notifications so only failures notify', async () => {
+        const engine = new FakeSyncEngine()
+        const channel = new StubChannel()
+        const hub = new NotificationHub(engine as unknown as SyncEngine, [channel], {
+            permissionDebounceMs: 1,
+            readyCooldownMs: 20
+        })
+
+        const session = createSession()
+        engine.setSession(session)
+
+        const taskNotificationEvent = (id: string, status: string): SyncEvent => ({
+            type: 'message-received',
+            sessionId: session.id,
+            message: {
+                id,
+                seq: 2,
+                localId: null,
+                createdAt: 0,
+                content: {
+                    type: 'output',
+                    data: {
+                        type: 'user',
+                        content: `<task-notification>\n<status>${status}</status>\n<summary>Extract JSON-RPC method names</summary>\n</task-notification>`
+                    }
+                }
+            }
+        } as SyncEvent)
+
+        // A turn that fanned out background subagents completes one task at a
+        // time; each success would otherwise page every channel. The ready
+        // notification announces the actual end of work.
+        engine.emit(taskNotificationEvent('message-done', 'completed'))
+        await sleep(5)
+        expect(channel.taskNotifications).toHaveLength(0)
+
+        engine.emit(taskNotificationEvent('message-failed', 'failed'))
+        await sleep(5)
+        expect(channel.taskNotifications).toHaveLength(1)
+        expect(channel.taskNotifications[0]?.notification.status).toBe('failed')
 
         hub.stop()
     })
