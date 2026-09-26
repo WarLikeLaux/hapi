@@ -76,6 +76,7 @@ const BUILTIN_DESCRIPTORS: Record<AgentFlavor, AgentConfigFieldDescriptor[]> = {
         PERMISSION
     ),
     kimi: fields({ ...MODEL, optionSource: 'directory' }, PERMISSION),
+    minimax: fields({ ...MODEL, optionSource: 'session' }, PERMISSION),
     opencode: fields(
         { ...MODEL, optionSource: 'directory' },
         { id: 'effort', section: 'effort', kind: 'select', optionSource: 'model', availability: 'both' },
@@ -108,6 +109,7 @@ export function resolveHapiYoloPermissionMode(flavor: AgentFlavor): PermissionMo
         case 'cursor':
         case 'gemini':
         case 'kimi':
+        case 'minimax':
         case 'opencode':
             return 'yolo'
         case 'dsh':

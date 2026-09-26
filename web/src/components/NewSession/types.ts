@@ -43,6 +43,9 @@ export const MODEL_OPTIONS: Record<AgentType, { value: string; label: string }[]
     kimi: [
         { value: 'auto', label: 'Default' },
     ],
+    minimax: [
+        { value: 'auto', label: 'Default' },
+    ],
     copilot: [
         { value: 'auto', label: 'Auto' },
     ],

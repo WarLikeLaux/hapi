@@ -47,6 +47,7 @@ import type {
     GitComparisonScope,
     GrokModelsResponse,
     KimiModelsResponse,
+    MinimaxModelsResponse,
     CopilotModelsResponse,
     GrokReasoningEffortResponse,
     ListDirectoryResponse,
@@ -1173,6 +1174,12 @@ export class ApiClient {
     async getSessionKimiModels(sessionId: string): Promise<KimiModelsResponse> {
         return await this.request<KimiModelsResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/kimi-models`
+        )
+    }
+
+    async getSessionMinimaxModels(sessionId: string): Promise<MinimaxModelsResponse> {
+        return await this.request<MinimaxModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/minimax-models`
         )
     }
 

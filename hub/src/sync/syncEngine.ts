@@ -56,6 +56,7 @@ import {
     type RpcListGrokModelsResponse,
     type RpcListCopilotModelsResponse,
     type RpcListKimiModelsResponse,
+    type RpcListMinimaxModelsResponse,
     type RpcListGrokReasoningEffortOptionsResponse,
     type RpcListOpencodeReasoningEffortOptionsResponse,
     type RpcCursorModel,
@@ -99,6 +100,7 @@ export type {
     RpcListGrokModelsResponse,
     RpcListCopilotModelsResponse,
     RpcListKimiModelsResponse,
+    RpcListMinimaxModelsResponse,
     RpcListGrokReasoningEffortOptionsResponse,
     RpcListOpencodeReasoningEffortOptionsResponse,
     RpcCursorModel,
@@ -2979,6 +2981,7 @@ export class SyncEngine {
         if (flavor === 'agy') return metadata.agySessionId ?? null
         if (flavor === 'cursor') return metadata.cursorSessionId ?? null
         if (flavor === 'kimi') return metadata.kimiSessionId ?? null
+        if (flavor === 'minimax') return metadata.minimaxSessionId ?? null
         if (flavor === 'copilot') return metadata.copilotSessionId ?? null
         if (flavor === 'pi') return metadata.piSessionId ?? null
         // The official DSH ACP server creates fresh sessions only; never fall
@@ -4167,6 +4170,7 @@ export class SyncEngine {
             && (prev?.cursorSessionId ?? null) === (next.cursorSessionId ?? null)
             && (prev?.piSessionId ?? null) === (next.piSessionId ?? null)
             && (prev?.kimiSessionId ?? null) === (next.kimiSessionId ?? null)
+            && (prev?.minimaxSessionId ?? null) === (next.minimaxSessionId ?? null)
             && (prev?.agySessionId ?? null) === (next.agySessionId ?? null)
             && (prev?.copilotSessionId ?? null) === (next.copilotSessionId ?? null)
     }
@@ -4632,6 +4636,10 @@ export class SyncEngine {
 
     async listKimiModelsForSession(sessionId: string): Promise<RpcListKimiModelsResponse> {
         return await this.rpcGateway.listKimiModelsForSession(sessionId)
+    }
+
+    async listMinimaxModelsForSession(sessionId: string): Promise<RpcListMinimaxModelsResponse> {
+        return await this.rpcGateway.listMinimaxModelsForSession(sessionId)
     }
 
     /** Generic Pi RPC — delegates to rpcGateway.callPiRpc. */

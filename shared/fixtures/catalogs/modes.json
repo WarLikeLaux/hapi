@@ -192,6 +192,28 @@
                 "tone": "danger"
             }
         ],
+        "minimax": [
+            {
+                "label": "Default",
+                "mode": "default",
+                "tone": "neutral"
+            },
+            {
+                "label": "Auto",
+                "mode": "auto",
+                "tone": "warning"
+            },
+            {
+                "label": "Plan Mode",
+                "mode": "plan",
+                "tone": "info"
+            },
+            {
+                "label": "Yolo",
+                "mode": "yolo",
+                "tone": "danger"
+            }
+        ],
         "opencode": [
             {
                 "label": "Default",
