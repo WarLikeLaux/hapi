@@ -50,7 +50,10 @@ type PendingScrollRestore = {
     targetHistoryVersion: number | null
 }
 
-type HistoryLoadSource = 'coverage' | 'user' | 'consumer'
+/** Who asked for an older page: an explicit upward gesture ('user') or a
+ *  consumer feature locating an out-of-window target ('consumer'). The store
+ *  owns the initial coverage backfill; the thread never auto-loads history. */
+type HistoryLoadSource = 'user' | 'consumer'
 type PullToLoadState = 'idle' | 'pulling' | 'ready'
 
 type HistoryLoaderState = {
@@ -278,10 +281,6 @@ export function shouldLoadOlderForViewport(params: {
     }
     return params.sentinelBottom >= params.viewportTop - preloadMarginPx
         && params.sentinelTop <= params.viewportTop + preloadMarginPx
-}
-
-export function getHistoryCoverageRetryDelay(deadline: number, now: number): number {
-    return Math.max(0, deadline - now) + 16
 }
 
 const SCROLL_TO_BOTTOM_BUTTON_CLASS = 'absolute bottom-0 right-2 z-10 h-6 w-6 rounded-full border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-0 text-[var(--app-fg)] hover:bg-[var(--app-bg)]'
@@ -634,7 +633,6 @@ export function HappyThread(props: {
     const onCancelLoadMoreRef = useRef(props.onCancelLoadMore)
     const pendingLoadPromiseRef = useRef<Promise<OlderHistoryLoadResult> | null>(null)
     const pendingLoadResolveRef = useRef<((value: OlderHistoryLoadResult) => void) | null>(null)
-    const coverageCheckTimerRef = useRef<number | null>(null)
     const failureRetryTimerRef = useRef<number | null>(null)
     const tailScrollInProgressRef = useRef(false)
     const historyLoaderRef = useRef<HistoryLoaderState>({
@@ -716,13 +714,6 @@ export function HappyThread(props: {
         initialScrollTimersRef.current = []
     }, [])
 
-    const clearCoverageCheckTimer = useCallback(() => {
-        if (coverageCheckTimerRef.current !== null) {
-            window.clearTimeout(coverageCheckTimerRef.current)
-            coverageCheckTimerRef.current = null
-        }
-    }, [])
-
     const clearFailureRetryTimer = useCallback(() => {
         if (failureRetryTimerRef.current !== null) {
             window.clearTimeout(failureRetryTimerRef.current)
@@ -751,7 +742,6 @@ export function HappyThread(props: {
         onCancelLoadMoreRef.current()
         isLoadingMoreRef.current = false
         pendingScrollRef.current = null
-        clearCoverageCheckTimer()
         clearFailureRetryTimer()
         historyLoaderRef.current = {
             ...state,
@@ -762,7 +752,7 @@ export function HappyThread(props: {
             autoPaused: true
         }
         settlePendingLoad('transient-stop')
-    }, [clearCoverageCheckTimer, clearFailureRetryTimer, settlePendingLoad])
+    }, [clearFailureRetryTimer, settlePendingLoad])
 
     // Track scroll position to toggle autoScroll (stable listener using refs)
     useEffect(() => {
@@ -880,11 +870,11 @@ export function HappyThread(props: {
                 return
             }
 
-            // Scroll position is the source of truth. The loader controller
-            // decides whether this demand may start a request; programmatic
-            // scroll events cannot bypass backoff or a paused coverage run.
-            if (needsCoverage) {
-                void requestOlderRef.current(explicitUpwardIntent ? 'user' : 'coverage')
+            // Scroll position is the source of truth. Only an explicit upward
+            // gesture starts an older-page request; ordinary browsing through
+            // a covered viewport never loads history on its own.
+            if (explicitUpwardIntent) {
+                void requestOlderRef.current('user')
             }
 
             if (intent.isScrollingUp && intent.distanceFromBottom > MANUAL_SCROLL_EPSILON_PX) {
@@ -1242,13 +1232,11 @@ export function HappyThread(props: {
         initialScrollSessionRef.current = null
         initialScrollDeadlineRef.current = 0
         clearInitialScrollTimers()
-        clearCoverageCheckTimer()
         clearFailureRetryTimer()
         settlePendingLoad('transient-stop')
     }, [
         props.sessionId,
         clearInitialScrollTimers,
-        clearCoverageCheckTimer,
         clearFailureRetryTimer,
         settlePendingLoad
     ])
@@ -1294,11 +1282,10 @@ export function HappyThread(props: {
         return () => {
             historyLoaderRef.current.runId += 1
             clearInitialScrollTimers()
-            clearCoverageCheckTimer()
             clearFailureRetryTimer()
             settlePendingLoad('transient-stop')
         }
-    }, [clearInitialScrollTimers, clearCoverageCheckTimer, clearFailureRetryTimer, settlePendingLoad])
+    }, [clearInitialScrollTimers, clearFailureRetryTimer, settlePendingLoad])
 
     useEffect(() => {
         if (forceScrollTokenRef.current === props.forceScrollToken) {
@@ -1326,20 +1313,6 @@ export function HappyThread(props: {
     }, [])
     needsViewportCoverageRef.current = needsViewportCoverage
 
-    const scheduleCoverageAfterSettling = useCallback(() => {
-        clearCoverageCheckTimer()
-        if (historyLoaderRef.current.autoPaused) {
-            return
-        }
-        const delay = getHistoryCoverageRetryDelay(initialScrollDeadlineRef.current, Date.now())
-        coverageCheckTimerRef.current = window.setTimeout(() => {
-            coverageCheckTimerRef.current = null
-            if (needsViewportCoverage()) {
-                void requestOlderRef.current('coverage')
-            }
-        }, delay)
-    }, [clearCoverageCheckTimer, needsViewportCoverage])
-
     const startHistoryLoadAttempt = useCallback((runId: number): void => {
         const state = historyLoaderRef.current
         if (state.runId !== runId || !pendingLoadPromiseRef.current) {
@@ -1360,13 +1333,6 @@ export function HappyThread(props: {
                 autoPaused
             }
             settlePendingLoad(result)
-            if (
-                result === 'transient-stop'
-                && !isSyncingTailRef.current
-                && !isLoadingMoreRef.current
-            ) {
-                scheduleCoverageAfterSettling()
-            }
         }
 
         if (state.source !== 'consumer' && !needsViewportCoverage()) {
@@ -1482,7 +1448,6 @@ export function HappyThread(props: {
     }, [
         clearFailureRetryTimer,
         needsViewportCoverage,
-        scheduleCoverageAfterSettling,
         settlePendingLoad
     ])
     startHistoryLoadAttemptRef.current = startHistoryLoadAttempt
@@ -1493,22 +1458,13 @@ export function HappyThread(props: {
         }
 
         let state = historyLoaderRef.current
-        if (source === 'coverage') {
-            if (state.autoPaused) {
-                return Promise.resolve('terminal-stop')
-            }
-            if (isInitialScrollSettling() || !needsViewportCoverage()) {
-                return Promise.resolve('transient-stop')
-            }
-        } else {
-            // Explicit consumers must not be swallowed by the initial
-            // scroll-to-bottom settling window.
-            initialScrollDeadlineRef.current = 0
-            clearInitialScrollTimers()
-            if (source === 'user' && state.autoPaused) {
-                state = { ...state, autoPaused: false }
-                historyLoaderRef.current = state
-            }
+        // Explicit consumers must not be swallowed by the initial
+        // scroll-to-bottom settling window.
+        initialScrollDeadlineRef.current = 0
+        clearInitialScrollTimers()
+        if (source === 'user' && state.autoPaused) {
+            state = { ...state, autoPaused: false }
+            historyLoaderRef.current = state
         }
 
         if (
@@ -1523,7 +1479,6 @@ export function HappyThread(props: {
             return Promise.resolve('terminal-stop')
         }
 
-        clearCoverageCheckTimer()
         clearFailureRetryTimer()
         const runId = state.runId + 1
         historyLoaderRef.current = {
@@ -1540,11 +1495,8 @@ export function HappyThread(props: {
         startHistoryLoadAttemptRef.current(runId)
         return loadPromise
     }, [
-        clearCoverageCheckTimer,
         clearFailureRetryTimer,
-        clearInitialScrollTimers,
-        isInitialScrollSettling,
-        needsViewportCoverage
+        clearInitialScrollTimers
     ])
     requestOlderRef.current = requestOlder
 
@@ -1572,34 +1524,6 @@ export function HappyThread(props: {
     }, [loadOlderForOutline, props.onOutlineItemClick, props.onOutlineOpenChange])
 
     useEffect(() => {
-        if (
-            !props.hasMoreMessages
-            || props.isSyncingTail
-            || props.isLoadingMoreMessages
-        ) {
-            clearCoverageCheckTimer()
-            return
-        }
-        if (!needsViewportCoverage()) {
-            return
-        }
-        if (isInitialScrollSettling()) {
-            scheduleCoverageAfterSettling()
-            return
-        }
-        void requestOlderRef.current('coverage')
-    }, [
-        props.hasMoreMessages,
-        props.isSyncingTail,
-        props.isLoadingMoreMessages,
-        props.messagesVersion,
-        isInitialScrollSettling,
-        needsViewportCoverage,
-        scheduleCoverageAfterSettling,
-        clearCoverageCheckTimer
-    ])
-
-    useEffect(() => {
         const content = contentRef.current
         if (!content || typeof ResizeObserver === 'undefined') {
             return
@@ -1620,26 +1544,10 @@ export function HappyThread(props: {
             ) {
                 scrollToBottomInstant()
             }
-            // Late content growth can leave the viewport near the top without
-            // a scroll event. Submit demand through the same controller; an
-            // in-flight load, backoff, or paused run remains exclusive.
-            if (!pendingScrollRef.current && needsViewportCoverage()) {
-                if (isInitialScrollSettling()) {
-                    scheduleCoverageAfterSettling()
-                } else {
-                    void requestOlderRef.current('coverage')
-                }
-            }
         })
         observer.observe(content)
         return () => observer.disconnect()
-    }, [
-        scrollToBottomInstant,
-        scrollToBottomSmooth,
-        isInitialScrollSettling,
-        needsViewportCoverage,
-        scheduleCoverageAfterSettling
-    ])
+    }, [scrollToBottomInstant, scrollToBottomSmooth])
 
     useLayoutEffect(() => {
         const pending = pendingScrollRef.current

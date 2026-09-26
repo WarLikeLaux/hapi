@@ -30,7 +30,7 @@
         {
             "expectedRequests": [
                 {
-                    "limit": 20
+                    "limit": 200
                 }
             ],
             "op": "sync-tail",
@@ -40,8 +40,53 @@
                         {
                             "content": {
                                 "content": {
+                                    "text": "u-7",
+                                    "type": "text"
+                                },
+                                "role": "user"
+                            },
+                            "createdAt": 7000,
+                            "id": "u-7",
+                            "invokedAt": 7000,
+                            "localId": null,
+                            "seq": 7
+                        },
+                        {
+                            "content": {
+                                "content": {
                                     "data": {
-                                        "message": "a-10",
+                                        "message": "a-7",
+                                        "type": "message"
+                                    },
+                                    "type": "codex"
+                                },
+                                "role": "agent"
+                            },
+                            "createdAt": 8000,
+                            "id": "a-7",
+                            "invokedAt": 8000,
+                            "localId": null,
+                            "seq": 8
+                        },
+                        {
+                            "content": {
+                                "content": {
+                                    "text": "u-8",
+                                    "type": "text"
+                                },
+                                "role": "user"
+                            },
+                            "createdAt": 9000,
+                            "id": "u-8",
+                            "invokedAt": 9000,
+                            "localId": null,
+                            "seq": 9
+                        },
+                        {
+                            "content": {
+                                "content": {
+                                    "data": {
+                                        "message": "a-8",
                                         "type": "message"
                                     },
                                     "type": "codex"
@@ -49,7 +94,7 @@
                                 "role": "agent"
                             },
                             "createdAt": 10000,
-                            "id": "a-10",
+                            "id": "a-8",
                             "invokedAt": 10000,
                             "localId": null,
                             "seq": 10
@@ -62,8 +107,8 @@
                         "limit": 200,
                         "nextAfterAt": null,
                         "nextAfterSeq": null,
-                        "nextBeforeAt": 10000,
-                        "nextBeforeSeq": 10,
+                        "nextBeforeAt": 7000,
+                        "nextBeforeSeq": 7,
                         "reset": false,
                         "snapshotHeadAt": 10000,
                         "snapshotHeadSeq": 10
@@ -78,8 +123,8 @@
             },
             "expectedRequests": [
                 {
-                    "beforeAt": 10000,
-                    "beforeSeq": 10,
+                    "beforeAt": 7000,
+                    "beforeSeq": 7,
                     "limit": 200
                 },
                 {

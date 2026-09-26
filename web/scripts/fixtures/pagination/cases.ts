@@ -126,10 +126,31 @@ function pageResponse(
     }
 }
 
-function paddedAgentRun(fromSeq: number, toSeq: number): DecryptedMessage[] {
+/** One user prompt and its agent reply: two conversation units at
+ *  consecutive seq/at values. Pages built from whole exchanges reach the
+ *  store's initial coverage target (2 user + 2 agent units) immediately, so a
+ *  cold sync needs no backfill pages beyond the scripted ones. */
+function exchange(init: { index: number; baseSeq: number; baseAt: number }): DecryptedMessage[] {
+    return [
+        userMessage({
+            id: `u-${init.index}`,
+            seq: init.baseSeq,
+            createdAt: init.baseAt,
+            invokedAt: init.baseAt
+        }),
+        agentMessage({ id: `a-${init.index}`, seq: init.baseSeq + 1, at: init.baseAt + 1_000 })
+    ]
+}
+
+/** Exchanges `from..to` laid out back to back starting at (baseSeq, baseAt). */
+function exchangeRun(from: number, to: number, baseSeq: number, baseAt: number): DecryptedMessage[] {
     const rows: DecryptedMessage[] = []
-    for (let seq = fromSeq; seq <= toSeq; seq += 1) {
-        rows.push(agentMessage({ id: `a-${String(seq).padStart(3, '0')}`, seq, at: seq * 1000 }))
+    for (let index = from; index <= to; index += 1) {
+        rows.push(...exchange({
+            index,
+            baseSeq: baseSeq + (index - from) * 2,
+            baseAt: baseAt + (index - from) * 2_000
+        }))
     }
     return rows
 }
@@ -137,41 +158,44 @@ function paddedAgentRun(fromSeq: number, toSeq: number): DecryptedMessage[] {
 export const paginationFixtureCases: PaginationFixtureCase[] = [
     {
         name: 'latest-page-then-sse-ingest',
-        description: 'Cold start: a latest page seeds the window, epoch, older cursor (page.nextBefore) and newest cursor (page.snapshotHead); a live SSE message appends and advances the newest cursor to its position.',
+        description: 'Cold start: a latest page (carrying the initial two user/agent exchanges, so no coverage backfill follows) seeds the window, epoch, older cursor (page.nextBefore) and newest cursor (page.snapshotHead); a live SSE message appends and advances the newest cursor to its position.',
         ops: [
             {
                 op: 'sync-tail',
                 responses: [
                     pageResponse([
-                        agentMessage({ id: 'a-1', seq: 1, at: 1_000 }),
-                        agentMessage({ id: 'a-2', seq: 2, at: 2_000 })
+                        ...exchange({ index: 1, baseSeq: 1, baseAt: 1_000 }),
+                        ...exchange({ index: 2, baseSeq: 3, baseAt: 3_000 })
                     ], {
                         direction: 'latest',
                         epoch: 0,
                         hasMore: true,
                         nextBefore: { at: 1_000, seq: 1 },
-                        snapshotHead: { at: 2_000, seq: 2 }
+                        snapshotHead: { at: 4_000, seq: 4 }
                     })
                 ]
             },
             {
                 op: 'sse-messages',
-                messages: [agentMessage({ id: 'a-3', seq: 3, at: 3_000 })]
+                messages: [agentMessage({ id: 'a-3', seq: 5, at: 5_000 })]
             }
         ]
     },
     {
         name: 'fetch-older-before-cursor',
-        description: 'Older pagination sends the compound (beforeAt, beforeSeq) pair from the current older cursor, prepends the rows, and adopts the response page.nextBefore as the new older cursor and page.hasMore as the exhaustion flag.',
+        description: 'Older pagination sends the compound (beforeAt, beforeSeq) pair from the current older cursor, prepends the rows, and adopts the response page.nextBefore as the new older cursor and page.hasMore as the exhaustion flag. The prepended page adds a conversation unit, so the bounded unit-seeking loop stops after one request.',
         ops: [
             {
                 op: 'sync-tail',
                 responses: [
-                    pageResponse([agentMessage({ id: 'a-10', seq: 10, at: 10_000 })], {
+                    pageResponse([
+                        ...exchange({ index: 7, baseSeq: 7, baseAt: 7_000 }),
+                        ...exchange({ index: 8, baseSeq: 9, baseAt: 9_000 })
+                    ], {
                         direction: 'latest',
                         epoch: 4,
                         hasMore: true,
-                        nextBefore: { at: 10_000, seq: 10 },
+                        nextBefore: { at: 7_000, seq: 7 },
                         snapshotHead: { at: 10_000, seq: 10 }
                     })
                 ]
@@ -179,11 +203,11 @@ export const paginationFixtureCases: PaginationFixtureCase[] = [
             {
                 op: 'fetch-older',
                 responses: [
-                    pageResponse([agentMessage({ id: 'a-9', seq: 9, at: 9_000 })], {
+                    pageResponse([agentMessage({ id: 'a-6', seq: 6, at: 6_000 })], {
                         direction: 'before',
                         epoch: 4,
                         hasMore: false,
-                        nextBefore: { at: 9_000, seq: 9 }
+                        nextBefore: { at: 6_000, seq: 6 }
                     })
                 ]
             }
@@ -196,11 +220,14 @@ export const paginationFixtureCases: PaginationFixtureCase[] = [
             {
                 op: 'sync-tail',
                 responses: [
-                    pageResponse([agentMessage({ id: 'a-10', seq: 10, at: 10_000 })], {
+                    pageResponse([
+                        ...exchange({ index: 7, baseSeq: 7, baseAt: 7_000 }),
+                        ...exchange({ index: 8, baseSeq: 9, baseAt: 9_000 })
+                    ], {
                         direction: 'latest',
                         epoch: 1,
                         hasMore: true,
-                        nextBefore: { at: 10_000, seq: 10 },
+                        nextBefore: { at: 7_000, seq: 7 },
                         snapshotHead: { at: 10_000, seq: 10 }
                     })
                 ]
@@ -412,18 +439,18 @@ export const paginationFixtureCases: PaginationFixtureCase[] = [
     },
     {
         name: 'trim-preserves-queued-and-recomputes-cursor',
-        description: 'Tail-mode overflow past the 400-row visible window trims the oldest regular rows: queued rows are never trimmed (the regular budget shrinks by their count), hasMore flips true, and the older cursor is recomputed from the oldest kept row.',
+        description: 'Tail-mode overflow past the 120-conversation-unit budget trims whole oldest units (a user prompt or a consecutive agent run): the queued row is never trimmed, hasMore flips true, and the older cursor is recomputed from the oldest kept row. The initial page already carries the initial coverage, so the cold sync stops without backfill.',
         ops: [
             {
                 op: 'sync-tail',
                 responses: [
                     pageResponse([
-                        ...paddedAgentRun(1, 199),
+                        ...exchangeRun(1, 60, 1, 1_000),
                         userMessage({
-                            id: 'q-200',
-                            seq: 200,
+                            id: 'q-121',
+                            seq: 121,
                             localId: 'local-q',
-                            createdAt: 350_000,
+                            createdAt: 121_000,
                             invokedAt: null,
                             text: 'still queued'
                         })
@@ -432,13 +459,13 @@ export const paginationFixtureCases: PaginationFixtureCase[] = [
                         epoch: 0,
                         hasMore: false,
                         nextBefore: { at: 1_000, seq: 1 },
-                        snapshotHead: { at: 350_000, seq: 200 }
+                        snapshotHead: { at: 121_000, seq: 121 }
                     })
                 ]
             },
             {
                 op: 'sse-messages',
-                messages: paddedAgentRun(201, 402)
+                messages: exchangeRun(61, 63, 122, 122_000)
             }
         ]
     },

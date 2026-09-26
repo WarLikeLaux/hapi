@@ -1,12 +1,12 @@
 {
-    "description": "Cold start: a latest page seeds the window, epoch, older cursor (page.nextBefore) and newest cursor (page.snapshotHead); a live SSE message appends and advances the newest cursor to its position.",
+    "description": "Cold start: a latest page (carrying the initial two user/agent exchanges, so no coverage backfill follows) seeds the window, epoch, older cursor (page.nextBefore) and newest cursor (page.snapshotHead); a live SSE message appends and advances the newest cursor to its position.",
     "expectedState": {
         "epoch": 0,
         "hasMore": true,
         "messages": [
             {
                 "createdAt": 1000,
-                "id": "a-1",
+                "id": "u-1",
                 "invokedAt": 1000,
                 "localId": null,
                 "optimistic": false,
@@ -15,7 +15,7 @@
             },
             {
                 "createdAt": 2000,
-                "id": "a-2",
+                "id": "a-1",
                 "invokedAt": 2000,
                 "localId": null,
                 "optimistic": false,
@@ -24,17 +24,35 @@
             },
             {
                 "createdAt": 3000,
-                "id": "a-3",
+                "id": "u-2",
                 "invokedAt": 3000,
                 "localId": null,
                 "optimistic": false,
                 "queued": false,
                 "seq": 3
+            },
+            {
+                "createdAt": 4000,
+                "id": "a-2",
+                "invokedAt": 4000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 4
+            },
+            {
+                "createdAt": 5000,
+                "id": "a-3",
+                "invokedAt": 5000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 5
             }
         ],
         "newestCursor": {
-            "at": 3000,
-            "seq": 3
+            "at": 5000,
+            "seq": 5
         },
         "olderCursor": {
             "at": 1000,
@@ -48,13 +66,27 @@
         {
             "expectedRequests": [
                 {
-                    "limit": 20
+                    "limit": 200
                 }
             ],
             "op": "sync-tail",
             "responses": [
                 {
                     "messages": [
+                        {
+                            "content": {
+                                "content": {
+                                    "text": "u-1",
+                                    "type": "text"
+                                },
+                                "role": "user"
+                            },
+                            "createdAt": 1000,
+                            "id": "u-1",
+                            "invokedAt": 1000,
+                            "localId": null,
+                            "seq": 1
+                        },
                         {
                             "content": {
                                 "content": {
@@ -66,11 +98,25 @@
                                 },
                                 "role": "agent"
                             },
-                            "createdAt": 1000,
+                            "createdAt": 2000,
                             "id": "a-1",
-                            "invokedAt": 1000,
+                            "invokedAt": 2000,
                             "localId": null,
-                            "seq": 1
+                            "seq": 2
+                        },
+                        {
+                            "content": {
+                                "content": {
+                                    "text": "u-2",
+                                    "type": "text"
+                                },
+                                "role": "user"
+                            },
+                            "createdAt": 3000,
+                            "id": "u-2",
+                            "invokedAt": 3000,
+                            "localId": null,
+                            "seq": 3
                         },
                         {
                             "content": {
@@ -83,11 +129,11 @@
                                 },
                                 "role": "agent"
                             },
-                            "createdAt": 2000,
+                            "createdAt": 4000,
                             "id": "a-2",
-                            "invokedAt": 2000,
+                            "invokedAt": 4000,
                             "localId": null,
-                            "seq": 2
+                            "seq": 4
                         }
                     ],
                     "page": {
@@ -100,8 +146,8 @@
                         "nextBeforeAt": 1000,
                         "nextBeforeSeq": 1,
                         "reset": false,
-                        "snapshotHeadAt": 2000,
-                        "snapshotHeadSeq": 2
+                        "snapshotHeadAt": 4000,
+                        "snapshotHeadSeq": 4
                     }
                 }
             ]
@@ -119,11 +165,11 @@
                         },
                         "role": "agent"
                     },
-                    "createdAt": 3000,
+                    "createdAt": 5000,
                     "id": "a-3",
-                    "invokedAt": 3000,
+                    "invokedAt": 5000,
                     "localId": null,
-                    "seq": 3
+                    "seq": 5
                 }
             ],
             "op": "sse-messages"
