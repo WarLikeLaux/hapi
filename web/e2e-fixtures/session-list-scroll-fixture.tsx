@@ -2,9 +2,11 @@ import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SessionList } from '../src/components/SessionList'
+import { AppContextProvider } from '../src/lib/app-context'
 import { I18nProvider } from '../src/lib/i18n-context'
 import { ToastProvider } from '../src/lib/toast-context'
 import type { SessionSummary } from '../src/types/api'
+import type { ApiClient } from '../src/api/client'
 import '../src/index.css'
 
 localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
@@ -40,6 +42,8 @@ function Fixture() {
 
 createRoot(document.getElementById('root')!).render(
     <React.StrictMode><QueryClientProvider client={new QueryClient()}>
-        <ToastProvider><I18nProvider><Fixture /></I18nProvider></ToastProvider>
+        <AppContextProvider value={{ api: null as unknown as ApiClient, token: '', baseUrl: '' }}>
+            <ToastProvider><I18nProvider><Fixture /></I18nProvider></ToastProvider>
+        </AppContextProvider>
     </QueryClientProvider></React.StrictMode>,
 )
