@@ -4,6 +4,8 @@ import '../src/index.css'
 import { I18nProvider } from '../src/lib/i18n-context'
 import { ToastProvider } from '../src/lib/toast-context'
 import { SessionList } from '../src/components/SessionList'
+import { AppContextProvider } from '../src/lib/app-context'
+import type { ApiClient } from '../src/api/client'
 import type { SessionSummary } from '../src/types/api'
 
 const sessions: SessionSummary[] = Array.from({ length: 40 }, (_, index) => ({
@@ -44,17 +46,19 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <ToastProvider>
             <I18nProvider>
                 <div className="flex h-screen min-h-0 flex-col">
-                    <SessionList
-                        sessions={sessions}
-                        selectedSessionId={null}
-                        onSelect={() => {}}
-                        onNewSession={() => {}}
-                        onRefresh={() => {}}
-                        isLoading={false}
-                        renderHeader={false}
-                        api={null}
-                        machineLabelsById={{ 'fixture-machine': 'Fixture machine' }}
-                    />
+                    <AppContextProvider value={{ api: null as unknown as ApiClient, token: '', baseUrl: '' }}>
+                        <SessionList
+                            sessions={sessions}
+                            selectedSessionId={null}
+                            onSelect={() => {}}
+                            onNewSession={() => {}}
+                            onRefresh={() => {}}
+                            isLoading={false}
+                            renderHeader={false}
+                            api={null}
+                            machineLabelsById={{ 'fixture-machine': 'Fixture machine' }}
+                        />
+                    </AppContextProvider>
                 </div>
             </I18nProvider>
         </ToastProvider>
