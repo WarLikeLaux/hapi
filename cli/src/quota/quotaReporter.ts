@@ -1,5 +1,6 @@
 import type { MachineQuotaUpdate, QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
 import { logger } from '@/ui/logger'
+import { CredentialWatcher, defaultCredentialWatchDirs } from './credentialWatcher'
 import { collectAgyQuotas } from './sources/agy'
 import { collectCodexQuotas } from './sources/codex'
 import { collectCursorQuota } from './sources/cursor'
@@ -14,16 +15,29 @@ type QuotaReport = Omit<MachineQuotaUpdate, 'machineId'>
  * Periodically collects subscription-quota windows on the runner machine and
  * pushes the normalized snapshot to the hub. Sources without local
  * credentials are silently omitted; tokens never leave the machine.
+ *
+ * In addition to the fixed poll cadence, a {@link CredentialWatcher} fires an
+ * immediate re-poll whenever one of the local credential files changes on
+ * disk — mcode's silent token refresh lands through that path so the UI does
+ * not lag the underlying token state by up to one full poll interval.
  */
 export class QuotaReporter {
     private timer: NodeJS.Timeout | null = null
     private inFlight = false
     private last: QuotaReport | null = null
+    private readonly credentialWatchDirs: readonly string[]
+    private readonly credentialWatcher: CredentialWatcher
 
     constructor(
         private readonly machineId: string,
-        private readonly emit: (update: MachineQuotaUpdate) => void
-    ) {}
+        private readonly emit: (update: MachineQuotaUpdate) => void,
+        options: { credentialWatchDirs?: readonly string[] } = {}
+    ) {
+        this.credentialWatchDirs = options.credentialWatchDirs ?? defaultCredentialWatchDirs()
+        this.credentialWatcher = new CredentialWatcher(() => {
+            void this.collect()
+        })
+    }
 
     start(): void {
         this.stopTimer()
@@ -37,10 +51,12 @@ export class QuotaReporter {
             void this.collect()
         }, QUOTA_POLL_INTERVAL_MS)
         this.timer.unref?.()
+        this.credentialWatcher.watchPaths(this.credentialWatchDirs)
     }
 
     stop(): void {
         this.stopTimer()
+        this.credentialWatcher.stop()
     }
 
     async collect(): Promise<void> {
