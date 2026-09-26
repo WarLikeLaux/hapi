@@ -3,6 +3,7 @@ import { logger } from '@/ui/logger'
 import { collectAgyQuotas } from './sources/agy'
 import { collectCodexQuotas } from './sources/codex'
 import { collectCursorQuota } from './sources/cursor'
+import { collectMinimaxQuotas } from './sources/minimax'
 import { collectZaiQuota } from './sources/zai'
 
 const QUOTA_POLL_INTERVAL_MS = 5 * 60_000
@@ -48,17 +49,18 @@ export class QuotaReporter {
         try {
             const nowSec = Math.floor(Date.now() / 1000)
             const previousAgy = (this.last?.quotas ?? []).filter((quotaWindow) => quotaWindow.source.startsWith('agy:'))
-            const [zai, codex, agy, cursor] = await Promise.all([
+            const [zai, codex, agy, cursor, minimax] = await Promise.all([
                 collectZaiQuota(nowSec),
                 collectCodexQuotas(nowSec),
                 collectAgyQuotas(previousAgy, nowSec),
-                collectCursorQuota(nowSec)
+                collectCursorQuota(nowSec),
+                collectMinimaxQuotas(nowSec)
             ])
 
             const next: QuotaReport = {
                 capturedAt: nowSec,
-                quotas: [zai, codex, agy, cursor].flatMap((result) => (result.kind === 'ok' ? result.windows : [])),
-                unavailable: [zai, codex, agy, cursor].flatMap((result) => (
+                quotas: [zai, codex, agy, cursor, minimax].flatMap((result) => (result.kind === 'ok' ? result.windows : [])),
+                unavailable: [zai, codex, agy, cursor, minimax].flatMap((result) => (
                     result.kind === 'unavailable'
                         ? [{ source: result.source, reason: result.reason, ...(result.detail ? { detail: result.detail } : {}) }]
                         : []
