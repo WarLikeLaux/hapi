@@ -122,6 +122,11 @@ export function sharedLaunchConfig(options: SharedLaunchOptions, cwd: string): {
     }
     if (extraDirs.length) config['sandbox_workspace_write.writable_roots'] = extraDirs.map(path => resolve(directory, path));
     if (provider) config.model_provider = provider;
+    // Codex 0.157 hides request_user_input in the Default collaboration mode
+    // ("unavailable in Default mode"), which silently disabled HAPI question
+    // forwarding. Opt in launch-wide so every root, permission mode and the
+    // attached TUI keep surfacing questions to the HAPI approval UI.
+    config['features.default_mode_request_user_input'] = true;
     const permission = options.permissionMode ? resolveCodexPermissionModeConfig(options.permissionMode) : undefined;
     if (permission) {
         // Explicit HAPI permission selection wins on every launch surface:
