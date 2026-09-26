@@ -1249,6 +1249,7 @@ export default {
   'settings.limits.source.codex': 'Codex',
   'settings.limits.source.cursor': 'Cursor',
   'settings.limits.source.agy': 'Antigravity',
+  'settings.limits.source.minimax': 'MiniMax Code',
   'settings.limits.window.5h': '5小时',
   'settings.limits.window.weekly': '周',
   'settings.limits.window.monthly': '月',

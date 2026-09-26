@@ -12,6 +12,8 @@ import { z } from 'zod'
  *   - `cursor:monthly`      — Cursor monthly billing-cycle window
  *   - `agy:<email>:5h`      — Antigravity account 5-hour Gemini window
  *   - `agy:<email>:weekly`  — Antigravity account weekly Gemini window
+ *   - `minimax:5h`          — MiniMax coding-plan 5-hour window (MiniMax Code)
+ *   - `minimax:weekly`      — MiniMax coding-plan weekly window
  *
  * `usedPercent` is how much is SPENT (0..100), matching every provider's own
  * reporting; remaining is `100 - usedPercent`.

@@ -1251,6 +1251,7 @@ export default {
   'settings.limits.source.codex': 'Codex',
   'settings.limits.source.cursor': 'Cursor',
   'settings.limits.source.agy': 'Antigravity',
+  'settings.limits.source.minimax': 'MiniMax Code',
   'settings.limits.window.5h': '5h',
   'settings.limits.window.weekly': 'week',
   'settings.limits.window.monthly': 'month',
