@@ -54,7 +54,7 @@ export function ContextTabBar(props: ContextTabBarProps) {
             role="tablist"
             aria-label={t('sessions.context.tabsLabel')}
             className={cn(
-                'flex items-center gap-1 px-2 pb-1.5 overflow-x-auto scrollbar-none',
+                'flex items-center gap-1 pl-4 pr-2 pb-1.5 overflow-x-auto scrollbar-none',
                 props.className
             )}
         >

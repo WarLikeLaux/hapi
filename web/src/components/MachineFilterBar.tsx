@@ -105,7 +105,7 @@ export function MachineFilterBar(props: {
         <div
             role="group"
             aria-label={t('sessions.machineFilter.label')}
-            className="flex flex-wrap items-center gap-1.5 px-2 pb-2 max-md:hidden"
+            className="flex flex-wrap items-center gap-1.5 pl-4 pr-2 pb-2 max-md:hidden"
         >
             <button
                 type="button"
