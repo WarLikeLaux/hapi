@@ -125,6 +125,40 @@ describe('SessionList mark all as read', () => {
         expect(screen.queryByRole('dialog')).toBeNull()
     })
 
+    it('excludes active and working sessions from the count and leaves them unread', async () => {
+        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({
+            active: 1000,
+            working: 1000,
+            recent: 1000,
+        }))
+        renderSessionList([
+            makeSession({ id: 'active', active: true, updatedAt: 2000, metadata: { path: '/work/active', name: 'Active' } }),
+            makeSession({ id: 'working', active: true, thinking: true, updatedAt: 2000, metadata: { path: '/work/working', name: 'Working' } }),
+            makeSession({ id: 'recent', updatedAt: 2000, metadata: { path: '/work/recent', name: 'Recent' } }),
+        ])
+
+        fireEvent.click(screen.getByRole('button', { name: 'Mark all as read (1)' }))
+        expect(screen.getByText('This will mark 1 unread sessions as read on this device.')).toBeTruthy()
+        fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+        await waitFor(() => {
+            expect(screen.queryByRole('button', { name: 'Mark all as read (1)' })).toBeNull()
+        })
+        expect(JSON.parse(localStorage.getItem('hapi.sessionLastSeen.v1')!)).toMatchObject({
+            active: 1000,
+            working: 1000,
+            recent: 2000,
+        })
+    })
+
+    it('hides the action when only active sessions are unread', () => {
+        renderSessionList([
+            makeSession({ id: 'active', active: true, updatedAt: 2000, metadata: { path: '/work/active', name: 'Active' } }),
+        ])
+
+        expect(screen.queryByRole('button', { name: 'Mark all as read (1)' })).toBeNull()
+    })
+
     it('leaves unread state unchanged when the confirmation is cancelled', () => {
         localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ unread: 1000 }))
         renderSessionList([
