@@ -125,7 +125,7 @@ describe('SessionList mark all as read', () => {
         expect(screen.queryByRole('dialog')).toBeNull()
     })
 
-    it('excludes active and working sessions from the bulk action and leaves them unread', async () => {
+    it('marks active and working sessions read too', async () => {
         localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({
             active: 1000,
             working: 1000,
@@ -137,30 +137,19 @@ describe('SessionList mark all as read', () => {
             makeSession({ id: 'recent', updatedAt: 2000, metadata: { path: '/work/recent', name: 'Recent' } }),
         ])
 
-        // The button counts every unread session, but only the non-working
-        // one will be marked — the dialog states that narrower number.
         fireEvent.click(screen.getByRole('button', { name: 'Mark all as read (3)' }))
-        expect(screen.getByText('This will mark 1 unread sessions as read on this device.')).toBeTruthy()
+        expect(screen.getByText('This will mark 3 unread sessions as read on this device.')).toBeTruthy()
         fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
-        // Active and working sessions keep their unread state, so the button
-        // stays visible with the remaining count.
         await waitFor(() => {
-            expect(screen.getByRole('button', { name: 'Mark all as read (2)' })).toBeTruthy()
+            expect(screen.queryByRole('button', { name: 'Mark all as read (3)' })).toBeNull()
         })
         expect(JSON.parse(localStorage.getItem('hapi.sessionLastSeen.v1')!)).toMatchObject({
-            active: 1000,
-            working: 1000,
+            active: 2000,
+            working: 2000,
             recent: 2000,
         })
-    })
-
-    it('keeps the action visible when only active sessions are unread', () => {
-        renderSessionList([
-            makeSession({ id: 'active', active: true, updatedAt: 2000, metadata: { path: '/work/active', name: 'Active' } }),
-        ])
-
-        expect(screen.getByRole('button', { name: 'Mark all as read (1)' })).toBeTruthy()
+        expect(screen.queryByRole('dialog')).toBeNull()
     })
 
     it('leaves unread state unchanged when the confirmation is cancelled', () => {
