@@ -497,11 +497,11 @@ export function SessionHeader(props: {
         <>
             <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
                 <div className="mx-auto w-full max-w-content p-3">
-                {/* Title row wraps: a short title keeps the action buttons on
-                    the top line right-aligned; a long title takes the whole
-                    line and the buttons wrap to their own line right below. */}
+                {/* Title group wraps internally: the model/agent summary sits
+                    on its own line under the title text, and a long title
+                    drops the right-aligned action buttons to a line below. */}
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-2">
-                    <div className="flex min-w-0 flex-[1_1_max-content] items-center gap-2 sm:flex-1">
+                    <div className="flex min-w-0 flex-[1_1_max-content] flex-wrap items-center gap-x-2 gap-y-1 sm:flex-1">
                     {/* Back button */}
                     <button
                         type="button"
@@ -579,6 +579,24 @@ export function SessionHeader(props: {
                             ) : null}
                         </div>
                     </div>
+
+                    {/* The model/agent summary lives inside the title group on
+                        its own full-width line: indented to the title text and
+                        always directly below the title, above any wrapped
+                        action buttons. */}
+                    {mobileSummary ? (
+                        <button
+                            type="button"
+                            data-testid="session-header-mobile-summary"
+                            className="ml-10 flex w-full min-w-0 items-center gap-1 overflow-hidden rounded text-left text-xs text-[var(--app-hint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
+                            aria-haspopup="dialog"
+                            onClick={() => setDetailsOpen(true)}
+                        >
+                            {headerMetadata.agent && agentLabel ? <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" /> : null}
+                            <span data-testid={showMobileModel ? 'session-header-mobile-model' : undefined} className="truncate">{mobileSummary}</span>
+                            {showMobileModel && isModelChanging ? <ModelChangingStatus /> : null}
+                        </button>
+                    ) : null}
                     </div>
 
                     <div data-testid="session-header-mobile-actions" className="ml-auto flex shrink-0 items-center gap-2 sm:contents">
@@ -662,19 +680,6 @@ export function SessionHeader(props: {
                         </button>
                     </div>
                 </div>
-                {mobileSummary ? (
-                    <button
-                        type="button"
-                        data-testid="session-header-mobile-summary"
-                        className="flex min-w-0 items-center gap-1 overflow-hidden rounded text-left text-xs text-[var(--app-hint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
-                        aria-haspopup="dialog"
-                        onClick={() => setDetailsOpen(true)}
-                    >
-                        {headerMetadata.agent && agentLabel ? <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" /> : null}
-                        <span data-testid={showMobileModel ? 'session-header-mobile-model' : undefined} className="truncate">{mobileSummary}</span>
-                        {showMobileModel && isModelChanging ? <ModelChangingStatus /> : null}
-                    </button>
-                ) : null}
                 </div>
             </div>
 

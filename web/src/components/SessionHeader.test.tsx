@@ -538,6 +538,9 @@ describe('SessionHeader', () => {
         expect(model).toHaveTextContent('gpt-6-astra')
         expect(model.parentElement?.textContent).not.toContain('codex')
         expect(summaryButton).toHaveClass('sm:hidden')
+        // The summary sits on its own line inside the title group, indented
+        // under the title text.
+        expect(summaryButton).toHaveClass('ml-10', 'w-full')
         expect(screen.getByTestId('session-header-mobile-actions')).toHaveClass('ml-auto', 'shrink-0')
         expect(screen.getByTestId('session-header-open-difit')).toHaveClass('max-sm:hidden')
         fireEvent.click(detailsButton)
