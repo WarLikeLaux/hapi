@@ -33,6 +33,14 @@ describe('shared launch configuration', () => {
         expect(sharedLaunchConfig({ serviceTier: 'standard' }, '/tmp').threadParams.serviceTier).toBeNull();
         expect(sharedLaunchConfig({ serviceTier: 'fast' }, '/tmp').threadParams.serviceTier).toBe('priority');
     });
+    it('enables Default-mode question forwarding on every launch surface', () => {
+        for (const options of [{}, { permissionMode: 'yolo' as const }, { codexArgs: ['-c', 'features.default_mode_request_user_input=false'] }]) {
+            const result = sharedLaunchConfig({ ...options }, '/tmp');
+            expect(result.serverArgs).toContain('-c');
+            expect(result.serverArgs).toContain('features.default_mode_request_user_input=true');
+            expect(result.threadParams.config).toHaveProperty('features.default_mode_request_user_input', true);
+        }
+    });
     it('normalizes short flags, forwards configuration and resolves cwd exactly once', () => {
         const result = sharedLaunchConfig({ codexArgs: ['-C', 'project', '-mcustom', '-a', 'never', '--search', '--add-dir', '../extra', '-c', 'model_reasoning_effort="high"'] }, '/tmp');
         expect(result.cwd).toBe('/tmp/project'); expect(result.tuiArgs).not.toContain('-C');
