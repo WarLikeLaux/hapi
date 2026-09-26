@@ -11,6 +11,7 @@ import { resolveSessionContext } from '@/lib/sessionContexts'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useScratchlistCount } from '@/lib/use-scratchlist-count'
 import { formatReopenError } from '@/lib/reopenError'
 import { formatReasoningLabel, getReasoningEffortForFlavor } from '@/lib/codexStatusLabels'
@@ -279,8 +280,8 @@ export function SessionHeader(props: {
         [headerMetadata.lastActive, lastActiveAt, t, relativeTimeTick]
     )
     const ageAbsolute = ageLabel ? formatAbsoluteDateTime(lastActiveAt) : null
+    const showMobileModel = headerMetadata.model && modelLabel !== null
     const mobileSecondary = selectMobileSessionHeaderSecondary({
-        model: headerMetadata.model && modelLabel !== null,
         reasoning: headerMetadata.reasoning && reasoningLabel !== null,
         branch: headerMetadata.branch && gitBranch !== null,
         machine: headerMetadata.machine && machineLabel !== null,
@@ -290,9 +291,10 @@ export function SessionHeader(props: {
         worktree: headerMetadata.worktree && Boolean(worktreeBranch),
         fastMode: headerMetadata.fastMode && showFastBadge,
     })
-    const showMobileMetadata = (headerMetadata.agent && agentLabel !== null) || mobileSecondary !== null
+    const showMobileMetadata = showMobileModel || (headerMetadata.agent && agentLabel !== null) || mobileSecondary !== null
 
     const [menuOpen, setMenuOpen] = useState(false)
+    const [branchOpen, setBranchOpen] = useState(false)
     const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
     const menuId = useId()
     const menuAnchorRef = useRef<HTMLButtonElement | null>(null)
@@ -505,22 +507,37 @@ export function SessionHeader(props: {
                         </svg>
                     </button>
 
-                    {/* Session info - two lines: title and path */}
+                    {/* Session title and compact metadata */}
                     <div className="min-w-0 flex-1">
                         <div className="truncate font-semibold">
                             {title}
                         </div>
                         {showMobileMetadata ? (
-                            <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-xs text-[var(--app-hint)] sm:hidden">
-                                {headerMetadata.agent && agentLabel ? (
-                                    <span className="inline-flex shrink-0 items-center gap-1">
-                                        <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" />
-                                        {agentLabel}
-                                    </span>
+                            <div className="flex min-w-0 flex-col items-start overflow-hidden text-xs text-[var(--app-hint)] sm:hidden">
+                                {showMobileModel || (headerMetadata.agent && agentLabel) ? (
+                                    <div className="flex max-w-full min-w-0 items-center gap-1">
+                                        {headerMetadata.agent && agentLabel ? (
+                                            <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" />
+                                        ) : null}
+                                        {showMobileModel && modelLabel ? (
+                                            <span data-testid="session-header-mobile-model" className="truncate" title={modelLabel.value}>
+                                                {modelLabel.value}{isModelChanging ? <ModelChangingStatus /> : null}
+                                            </span>
+                                        ) : <span className="truncate">{agentLabel}</span>}
+                                    </div>
                                 ) : null}
-                                {mobileSecondary === 'model' && modelLabel ? <span className="inline-flex truncate items-center gap-1.5">{headerMetadata.showLabels ? `${t(modelLabel.key)}: ` : ''}{modelLabel.value}{isModelChanging ? <ModelChangingStatus /> : null}</span> : null}
                                 {mobileSecondary === 'reasoning' && reasoningLabel ? <span className="truncate">{reasoningLabel}</span> : null}
-                                {mobileSecondary === 'branch' && gitBranch ? <span className="truncate">{headerMetadata.showLabels ? `${t('session.item.branch')}: ` : ''}{gitBranch}</span> : null}
+                                {mobileSecondary === 'branch' && gitBranch ? (
+                                    <button
+                                        type="button"
+                                        data-testid="session-header-mobile-branch"
+                                        className="min-h-5 max-w-full truncate text-left underline decoration-dotted underline-offset-2 focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)]"
+                                        aria-label={`${t('session.item.branch')}: ${gitBranch}`}
+                                        onClick={() => setBranchOpen(true)}
+                                    >
+                                        {gitBranch}
+                                    </button>
+                                ) : null}
                                 {mobileSecondary === 'machine' && machineLabel ? <span className="truncate">{headerMetadata.showLabels ? `${t('session.item.machine')}: ` : ''}{machineLabel}</span> : null}
                                 {mobileSecondary === 'lastActive' && ageLabel ? <span className="truncate" title={ageAbsolute ?? undefined}>{ageLabel}</span> : null}
                                 {mobileSecondary === 'updatedAt' && updatedAtLabel ? <span className="truncate">{headerMetadata.showLabels ? `${t('session.header.updatedAt')}: ` : ''}{updatedAtLabel}</span> : null}
@@ -655,6 +672,15 @@ export function SessionHeader(props: {
                     </button>
                 </div>
             </div>
+
+            <Dialog open={branchOpen && Boolean(gitBranch)} onOpenChange={setBranchOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{t('session.item.branch')}</DialogTitle>
+                    </DialogHeader>
+                    <p className="mt-4 break-all select-text text-sm text-[var(--app-fg)]">{gitBranch}</p>
+                </DialogContent>
+            </Dialog>
 
             <SessionActionMenu
                 isOpen={menuOpen}

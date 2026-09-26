@@ -510,6 +510,28 @@ describe('SessionHeader', () => {
         expect(screen.queryByTestId('session-header-machine')).not.toBeInTheDocument()
     })
 
+    it('shows the model before the branch on mobile and opens the full branch name', async () => {
+        const branch = 'feature/long-mobile-branch-name'
+        const api = {
+            getGitStatus: vi.fn().mockResolvedValue({
+                success: true,
+                stdout: `# branch.oid abcdef123456\n# branch.head ${branch}\n`
+            }),
+            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
+            getScratchlist: vi.fn().mockResolvedValue({ entries: [] })
+        } as unknown as ApiClient
+
+        renderHeaderWithApi(baseSession({ model: 'gpt-6-astra' }), api)
+
+        const model = screen.getByTestId('session-header-mobile-model')
+        const branchButton = await screen.findByTestId('session-header-mobile-branch')
+        expect(model).toHaveTextContent('gpt-6-astra')
+        expect(model.parentElement?.textContent).not.toContain('codex')
+        expect(branchButton).toHaveAttribute('aria-label', `branch: ${branch}`)
+        fireEvent.click(branchButton)
+        expect(screen.getByRole('dialog')).toHaveTextContent(branch)
+    })
+
     it('advances relative age on the minute tick without a session prop change', () => {
         vi.useFakeTimers()
         const now = new Date('2026-07-29T16:00:00.000Z')
