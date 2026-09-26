@@ -154,18 +154,14 @@ export class NotificationHub {
             return
         }
 
-        // A persisted ready event only means the main turn ended. While
-        // background tasks (async subagents, background shells) are still
-        // outstanding the agent is not done: it will be woken again by each
-        // task's completion. Staying quiet here leaves the session marked
-        // working ("Background tasks running") and the final ready — after
-        // the last task-notification zeroes the counter — announces it once,
-        // truthfully. Checked before the cooldown stamp so the suppressed
-        // ready cannot consume the next one's cooldown budget.
-        if ((session.backgroundTaskCount ?? 0) > 0) {
-            return
-        }
-
+        // A persisted ready event only means the main turn ended, and that is
+        // exactly what the operator wants to hear about: the agent is idle
+        // and waiting for them. A nonzero backgroundTaskCount must NOT gate
+        // this — background shells can outlive the turn by hours and some
+        // completions never reach the hub, so the counter can stick above
+        // zero and would silence every subsequent ready forever (the "no
+        // ready notifications" regression). Each wake turn re-announces at
+        // most once per cooldown, so a fan-out turn stays bounded.
         const now = Date.now()
         const last = this.lastReadyNotificationAt.get(sessionId) ?? 0
         if (now - last < this.readyCooldownMs) {
@@ -185,10 +181,9 @@ export class NotificationHub {
         // Background-task completions arrive once per task, so a turn that
         // fanned out N subagents would ring every channel N times with
         // "Task completed". The truthful end-of-work signal is the ready
-        // notification, which sendReadyNotification already holds back until
-        // backgroundTaskCount drains. Success summaries are noise; only
-        // failures are worth interrupting the operator for (the same policy
-        // ServerChanChannel already applies).
+        // notification. Success summaries are noise; only failures are worth
+        // interrupting the operator for (the same policy ServerChanChannel
+        // already applies).
         const normalizedStatus = notification.status?.trim().toLowerCase()
         const isFailure = normalizedStatus === 'failed'
             || normalizedStatus === 'error'
