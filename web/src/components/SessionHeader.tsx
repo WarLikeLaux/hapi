@@ -291,10 +291,21 @@ export function SessionHeader(props: {
         worktree: headerMetadata.worktree && Boolean(worktreeBranch),
         fastMode: headerMetadata.fastMode && showFastBadge,
     })
-    const showMobileMetadata = showMobileModel || (headerMetadata.agent && agentLabel !== null) || mobileSecondary !== null
+    const mobileSecondaryValue = mobileSecondary === 'reasoning' ? reasoningLabel
+        : mobileSecondary === 'branch' ? gitBranch
+        : mobileSecondary === 'machine' ? machineLabel
+        : mobileSecondary === 'lastActive' ? ageLabel
+        : mobileSecondary === 'updatedAt' ? updatedAtLabel
+        : mobileSecondary === 'createdAt' ? createdAtLabel
+        : mobileSecondary === 'worktree' ? worktreeBranch
+        : mobileSecondary === 'fastMode' ? 'fast'
+        : null
+    const mobileSummary = showMobileModel ? modelLabel?.value
+        : headerMetadata.agent && agentLabel ? agentLabel
+        : mobileSecondaryValue
 
     const [menuOpen, setMenuOpen] = useState(false)
-    const [branchOpen, setBranchOpen] = useState(false)
+    const [detailsOpen, setDetailsOpen] = useState(false)
     const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
     const menuId = useId()
     const menuAnchorRef = useRef<HTMLButtonElement | null>(null)
@@ -485,12 +496,12 @@ export function SessionHeader(props: {
     return (
         <>
             <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
-                <div className="mx-auto w-full max-w-content flex items-center gap-2 p-3">
+                <div className="mx-auto grid w-full max-w-content grid-cols-[2rem_minmax(0,1fr)_auto] grid-rows-[auto_auto] items-center gap-x-2 p-3 sm:flex sm:gap-2">
                     {/* Back button */}
                     <button
                         type="button"
                         onClick={props.onBack}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
+                        className="col-start-1 row-start-1 flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -507,45 +518,30 @@ export function SessionHeader(props: {
                         </svg>
                     </button>
 
-                    {/* Session title and compact metadata */}
-                    <div className="min-w-0 flex-1">
-                        <div className="truncate font-semibold">
-                            {title}
-                        </div>
-                        {showMobileMetadata ? (
-                            <div className="flex min-w-0 flex-col items-start overflow-hidden text-xs text-[var(--app-hint)] sm:hidden">
-                                {showMobileModel || (headerMetadata.agent && agentLabel) ? (
-                                    <div className="flex max-w-full min-w-0 items-center gap-1">
-                                        {headerMetadata.agent && agentLabel ? (
-                                            <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" />
-                                        ) : null}
-                                        {showMobileModel && modelLabel ? (
-                                            <span data-testid="session-header-mobile-model" className="truncate" title={modelLabel.value}>
-                                                {modelLabel.value}{isModelChanging ? <ModelChangingStatus /> : null}
-                                            </span>
-                                        ) : <span className="truncate">{agentLabel}</span>}
-                                    </div>
-                                ) : null}
-                                {mobileSecondary === 'reasoning' && reasoningLabel ? <span className="truncate">{reasoningLabel}</span> : null}
-                                {mobileSecondary === 'branch' && gitBranch ? (
-                                    <button
-                                        type="button"
-                                        data-testid="session-header-mobile-branch"
-                                        className="min-h-5 max-w-full truncate text-left underline decoration-dotted underline-offset-2 focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)]"
-                                        aria-label={`${t('session.item.branch')}: ${gitBranch}`}
-                                        onClick={() => setBranchOpen(true)}
-                                    >
-                                        {gitBranch}
-                                    </button>
-                                ) : null}
-                                {mobileSecondary === 'machine' && machineLabel ? <span className="truncate">{headerMetadata.showLabels ? `${t('session.item.machine')}: ` : ''}{machineLabel}</span> : null}
-                                {mobileSecondary === 'lastActive' && ageLabel ? <span className="truncate" title={ageAbsolute ?? undefined}>{ageLabel}</span> : null}
-                                {mobileSecondary === 'updatedAt' && updatedAtLabel ? <span className="truncate">{headerMetadata.showLabels ? `${t('session.header.updatedAt')}: ` : ''}{updatedAtLabel}</span> : null}
-                                {mobileSecondary === 'createdAt' && createdAtLabel ? <span className="truncate">{headerMetadata.showLabels ? `${t('session.header.createdAt')}: ` : ''}{createdAtLabel}</span> : null}
-                                {mobileSecondary === 'worktree' && worktreeBranch ? <span className="truncate">{headerMetadata.showLabels ? `${t('session.item.worktree')}: ` : ''}{worktreeBranch}</span> : null}
-                                {mobileSecondary === 'fastMode' ? <span className="truncate text-[#34C759]">fast</span> : null}
-                            </div>
-                        ) : null}
+                    <button
+                        type="button"
+                        data-testid="session-header-mobile-details"
+                        className="col-start-2 col-end-4 row-start-1 block min-w-0 truncate rounded text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
+                        aria-haspopup="dialog"
+                        onClick={() => setDetailsOpen(true)}
+                    >
+                        {title}
+                    </button>
+                    {mobileSummary ? (
+                        <button
+                            type="button"
+                            data-testid="session-header-mobile-summary"
+                            className="col-start-2 row-start-2 flex min-w-0 items-center gap-1 overflow-hidden rounded text-left text-xs text-[var(--app-hint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
+                            aria-haspopup="dialog"
+                            onClick={() => setDetailsOpen(true)}
+                        >
+                            {headerMetadata.agent && agentLabel ? <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" /> : null}
+                            <span data-testid={showMobileModel ? 'session-header-mobile-model' : undefined} className="truncate">{mobileSummary}</span>
+                            {showMobileModel && isModelChanging ? <ModelChangingStatus /> : null}
+                        </button>
+                    ) : null}
+                    <div className="hidden min-w-0 flex-1 sm:block">
+                        <div className="truncate font-semibold">{title}</div>
                         <div className="hidden flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--app-hint)] sm:flex">
                             {headerMetadata.agent && agentLabel ? (
                                 <span className="inline-flex items-center gap-1">
@@ -592,93 +588,102 @@ export function SessionHeader(props: {
                         </div>
                     </div>
 
-                    {props.onToggleFiles ? (
-                        <button
-                            type="button"
-                            onClick={props.onToggleFiles}
-                            className={headerToggleClass(props.filesActive ?? false)}
-                            title={props.filesActive ? t('session.view.returnToChat') : t('session.title')}
-                            aria-label={props.filesActive ? t('session.view.returnToChat') : t('session.title')}
-                            aria-pressed={props.filesActive ?? false}
-                        >
-                            <FilesIcon />
-                        </button>
-                    ) : null}
+                    <div data-testid="session-header-mobile-actions" className="col-start-3 row-start-2 flex items-center gap-2 sm:contents">
+                        {props.onToggleFiles ? (
+                            <button
+                                type="button"
+                                onClick={props.onToggleFiles}
+                                className={headerToggleClass(props.filesActive ?? false)}
+                                title={props.filesActive ? t('session.view.returnToChat') : t('session.title')}
+                                aria-label={props.filesActive ? t('session.view.returnToChat') : t('session.title')}
+                                aria-pressed={props.filesActive ?? false}
+                            >
+                                <FilesIcon />
+                            </button>
+                        ) : null}
 
-                    {props.onToggleOutline ? (
-                        <button
-                            type="button"
-                            onClick={props.onToggleOutline}
-                            className={headerToggleClass(props.outlineActive ?? false)}
-                            title={props.outlineActive ? t('session.outline.close') : t('session.outline.open')}
-                            aria-label={props.outlineActive ? t('session.outline.close') : t('session.outline.open')}
-                            aria-pressed={props.outlineActive ?? false}
-                        >
-                            <OutlineIcon />
-                        </button>
-                    ) : null}
+                        {props.onToggleOutline ? (
+                            <button
+                                type="button"
+                                onClick={props.onToggleOutline}
+                                className={headerToggleClass(props.outlineActive ?? false)}
+                                title={props.outlineActive ? t('session.outline.close') : t('session.outline.open')}
+                                aria-label={props.outlineActive ? t('session.outline.close') : t('session.outline.open')}
+                                aria-pressed={props.outlineActive ?? false}
+                            >
+                                <OutlineIcon />
+                            </button>
+                        ) : null}
 
-                    {props.onToggleTerminal ? (
-                        <button
-                            type="button"
-                            onClick={props.onToggleTerminal}
-                            className={headerToggleClass(props.terminalActive ?? false)}
-                            title="Terminal"
-                            aria-label="Terminal"
-                            aria-pressed={props.terminalActive ?? false}
-                        >
-                            <TerminalIcon />
-                        </button>
-                    ) : null}
+                        {props.onToggleTerminal ? (
+                            <button
+                                type="button"
+                                onClick={props.onToggleTerminal}
+                                className={headerToggleClass(props.terminalActive ?? false)}
+                                title="Terminal"
+                                aria-label="Terminal"
+                                aria-pressed={props.terminalActive ?? false}
+                            >
+                                <TerminalIcon />
+                            </button>
+                        ) : null}
 
-                    <a
-                        href={difitOpenUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={headerToggleClass(false)}
-                        title={t('session.action.openDifit')}
-                        aria-label={t('session.action.openDifit')}
-                        data-testid="session-header-open-difit"
-                    >
-                        <DifitIcon />
-                    </a>
-
-                    {!isTouch && externalReviewUrl ? (
                         <a
-                            href={externalReviewUrl}
+                            href={difitOpenUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className={headerToggleClass(false)}
-                            title={t('session.action.openExternalReview')}
-                            aria-label={t('session.action.openExternalReview')}
-                            data-testid="session-header-open-external-review"
+                            className={`${headerToggleClass(false)} max-sm:hidden`}
+                            title={t('session.action.openDifit')}
+                            aria-label={t('session.action.openDifit')}
+                            data-testid="session-header-open-difit"
                         >
-                            <MergeRequestIcon />
+                            <DifitIcon />
                         </a>
-                    ) : null}
 
-                    <button
-                        type="button"
-                        onClick={handleMenuToggle}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        ref={menuAnchorRef}
-                        aria-haspopup="menu"
-                        aria-expanded={menuOpen}
-                        aria-controls={menuOpen ? menuId : undefined}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
-                        title={t('session.more')}
-                    >
-                        <MoreVerticalIcon />
-                    </button>
+                        {!isTouch && externalReviewUrl ? (
+                            <a
+                                href={externalReviewUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={headerToggleClass(false)}
+                                title={t('session.action.openExternalReview')}
+                                aria-label={t('session.action.openExternalReview')}
+                                data-testid="session-header-open-external-review"
+                            >
+                                <MergeRequestIcon />
+                            </a>
+                        ) : null}
+
+                        <button
+                            type="button"
+                            onClick={handleMenuToggle}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            ref={menuAnchorRef}
+                            aria-haspopup="menu"
+                            aria-expanded={menuOpen}
+                            aria-controls={menuOpen ? menuId : undefined}
+                            className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
+                            title={t('session.more')}
+                        >
+                            <MoreVerticalIcon />
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            <Dialog open={branchOpen && Boolean(gitBranch)} onOpenChange={setBranchOpen}>
+            <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>{t('session.item.branch')}</DialogTitle>
+                        <DialogTitle className="break-words leading-snug">{title}</DialogTitle>
                     </DialogHeader>
-                    <p className="mt-4 break-all select-text text-sm text-[var(--app-fg)]">{gitBranch}</p>
+                    <dl className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+                        {agentLabel ? <><dt className="text-[var(--app-hint)]">{t('session.item.agent')}</dt><dd className="min-w-0 break-all">{agentLabel}</dd></> : null}
+                        {modelLabel ? <><dt className="text-[var(--app-hint)]">{t('session.item.model')}</dt><dd className="min-w-0 break-all">{modelLabel.value}</dd></> : null}
+                        {gitBranch ? <><dt className="text-[var(--app-hint)]">{t('session.item.branch')}</dt><dd className="min-w-0 break-all select-text">{gitBranch}</dd></> : null}
+                        {reasoningEffort ? <><dt className="text-[var(--app-hint)]">{t('settings.display.sessionHeader.reasoning')}</dt><dd className="min-w-0 break-all">{formatReasoningLabel(reasoningEffort, false)}</dd></> : null}
+                        {machineLabel ? <><dt className="text-[var(--app-hint)]">{t('session.item.machine')}</dt><dd className="min-w-0 break-all">{machineLabel}</dd></> : null}
+                        {session.metadata?.path ? <><dt className="text-[var(--app-hint)]">{t('session.item.path')}</dt><dd className="min-w-0 break-all select-text">{session.metadata.path}</dd></> : null}
+                    </dl>
                 </DialogContent>
             </Dialog>
 
