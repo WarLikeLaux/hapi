@@ -41,6 +41,8 @@ export type {
     MachinePathsExistsResponse,
     AuthResponse,
     MachinesResponse,
+    MessageSearchHit,
+    MessageSearchResponse,
     MessagesResponse,
     OpencodeModelsResponse,
     OpencodeModelSummary,

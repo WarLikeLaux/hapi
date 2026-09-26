@@ -75,6 +75,8 @@ import { useToast } from '@/lib/toast-context'
 import { getPathDisplayName, getPathDisplayNames } from '@/utils/path'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
 import { useSessionGitBranch } from '@/hooks/queries/useSessionGitBranch'
+import { MessageSearchResults } from '@/components/MessageSearchResults'
+import { useMessageSearch } from '@/hooks/queries/useMessageSearch'
 
 export { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
 
@@ -1547,6 +1549,14 @@ export function SessionList(props: {
     )
     const hubContextSync = useSessionContextHubSync()
 
+    const messageSearchSessionTitles = useMemo(() => {
+        const titles = new Map<string, string>()
+        for (const session of props.sessions) {
+            titles.set(session.id, getSessionTitle(session))
+        }
+        return titles
+    }, [props.sessions])
+
     const {
         activeContext,
         setActiveContext,
@@ -1585,6 +1595,11 @@ export function SessionList(props: {
         [sidebarSessions]
     )
     const hasTextQuery = normalizedQuery.length > 0
+    const [searchResultTab, setSearchResultTab] = useState<'chats' | 'messages'>('chats')
+    // Lifted here so the messages tab badge shows the match count while the
+    // chats tab is the active one.
+    const messageSearchState = useMessageSearch(api, normalizedQuery)
+    const showSessionSections = !hasTextQuery || searchResultTab === 'chats'
     const timeScopedSessions = useMemo(
         () => timeRange === null
             ? allSessions
@@ -2433,13 +2448,61 @@ export function SessionList(props: {
                     />
                 ) : null}
 
-                {props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null || activeContext !== 'all') && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
+                {hasTextQuery ? (
+                    <div
+                        className="mx-3 mb-1 flex items-center gap-1 rounded-lg bg-[var(--app-secondary-bg)] p-0.5"
+                        role="tablist"
+                        aria-label={t('sessions.messageSearch.title')}
+                        data-testid="search-results-tabs"
+                    >
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={searchResultTab === 'chats'}
+                            onClick={() => setSearchResultTab('chats')}
+                            className={cn(
+                                'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]',
+                                searchResultTab === 'chats'
+                                    ? 'bg-[var(--app-bg)] font-medium text-[var(--app-fg)]'
+                                    : 'text-[var(--app-hint)] hover:text-[var(--app-fg)]'
+                            )}
+                        >
+                            <span className="min-w-0 truncate">{t('sessions.search.tabChats')}</span>
+                            {searchScoreIndex ? (
+                                <span className="shrink-0 text-[11px] tabular-nums opacity-70">
+                                    ({searchScoreIndex.matchedIds.size})
+                                </span>
+                            ) : null}
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={searchResultTab === 'messages'}
+                            onClick={() => setSearchResultTab('messages')}
+                            className={cn(
+                                'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]',
+                                searchResultTab === 'messages'
+                                    ? 'bg-[var(--app-bg)] font-medium text-[var(--app-fg)]'
+                                    : 'text-[var(--app-hint)] hover:text-[var(--app-fg)]'
+                            )}
+                        >
+                            <span className="min-w-0 truncate">{t('sessions.search.tabMessages')}</span>
+                            {messageSearchState.response ? (
+                                <span className="shrink-0 text-[11px] tabular-nums opacity-70">
+                                    ({messageSearchState.response.total})
+                                </span>
+                            ) : null}
+                        </button>
+                    </div>
+                ) : null}
+
+                {showSessionSections && props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null || activeContext !== 'all') && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
                     <div className="px-4 py-8 text-center text-sm text-[var(--app-hint)]">
                         {t('sessions.search.noResults')}
                     </div>
                 ) : null}
 
-                {globalPinnedSessions.length > 0 ? (
+                {showSessionSections && globalPinnedSessions.length > 0 ? (
                     <div key="pinned-section">
                         <div
                             className="group/pinned flex min-w-0 w-full select-none cursor-pointer items-center gap-2 rounded-lg py-1.5 pl-2 pr-2 transition-colors hover:bg-[var(--app-secondary-bg)]"
@@ -2496,23 +2559,33 @@ export function SessionList(props: {
                     </div>
                 ) : null}
 
-                {renderSessionSection({
+                {hasTextQuery && searchResultTab === 'messages' ? (
+                    <MessageSearchResults
+                        api={api}
+                        query={normalizedQuery}
+                        state={messageSearchState}
+                        onSelect={props.onSelect}
+                        sessionTitles={messageSearchSessionTitles}
+                    />
+                ) : null}
+
+                {showSessionSections ? renderSessionSection({
                     sectionKey: 'working-section',
                     titleKey: 'sessions.runningSection',
                     collapsed: false,
                     sessions: workingSessions,
                     activityTimeBasis: 'user',
                     collapsible: false,
-                })}
-                {renderSessionSection({
+                }) : null}
+                {showSessionSections ? renderSessionSection({
                     sectionKey: 'active-section',
                     titleKey: 'sessions.activeSection',
                     collapsed: false,
                     sessions: activeSessions,
                     activityTimeBasis: 'agent',
                     collapsible: false,
-                })}
-                {renderSessionSection({
+                }) : null}
+                {showSessionSections ? renderSessionSection({
                     sectionKey: 'idle-section',
                     titleKey: 'session.item.idle',
                     collapsed: false,
@@ -2520,9 +2593,9 @@ export function SessionList(props: {
                     activityTimeBasis: 'agent',
                     collapsible: false,
                     statusColorClass: 'bg-[var(--app-hint)]',
-                })}
-                {renderRecentSessions()}
-                {groups.map(renderDirectoryGroup)}
+                }) : null}
+                {showSessionSections ? renderRecentSessions() : null}
+                {showSessionSections ? groups.map(renderDirectoryGroup) : null}
             </SessionListScrollAnchor>
             </div>
             </div>

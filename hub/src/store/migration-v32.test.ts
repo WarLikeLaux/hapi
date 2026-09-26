@@ -27,7 +27,7 @@ describe('schema migration v31 to v32', () => {
             const conversations = internalDb.prepare('PRAGMA table_info(external_conversations)').all() as Array<{ name: string }>
             const participants = internalDb.prepare('PRAGMA table_info(external_participants)').all() as Array<{ name: string }>
 
-            expect(version.user_version).toBe(33)
+            expect(version.user_version).toBe(34)
             expect(conversations.some((column) => column.name === 'custom_title')).toBe(true)
             expect(participants.some((column) => column.name === 'custom_name')).toBe(true)
         } finally {

@@ -8,6 +8,12 @@ import { getLiveReasoningStreamId } from '@hapi/protocol/messages'
 
 import type { StoredMessage } from './types'
 import { decodeMessageContent, encodeMessageContent, truncateOversizedMessageContent } from './contentCodec'
+import {
+    buildSearchSnippet,
+    escapeLikePattern,
+    extractMessageSearchDocument,
+    messageSearchText
+} from './messageSearch'
 
 type DbMessageRow = {
     id: string
@@ -61,16 +67,18 @@ export function addImportedMessage(
             'SELECT COALESCE(MAX(seq), 0) + 1 AS nextSeq FROM messages WHERE session_id = ?'
         ).get(sessionId) as { nextSeq: number }
         const id = randomUUID()
+        const canonicalContent = truncateOversizedMessageContent(content)
         prepareCached(db, `
             INSERT INTO messages (
-                id, session_id, content, created_at, seq, local_id, invoked_at, scheduled_at
+                id, session_id, content, search_text, created_at, seq, local_id, invoked_at, scheduled_at
             ) VALUES (
-                @id, @session_id, @content, @created_at, @seq, @local_id, @invoked_at, NULL
+                @id, @session_id, @content, @search_text, @created_at, @seq, @local_id, @invoked_at, NULL
             )
         `).run({
             id,
             session_id: sessionId,
-            content: encodeMessageContent(truncateOversizedMessageContent(content)),
+            content: encodeMessageContent(canonicalContent),
+            search_text: messageSearchText(canonicalContent),
             created_at: stampedAt,
             seq: msgSeqRow.nextSeq,
             local_id: localId,
@@ -142,7 +150,9 @@ export function addMessageWithStatus(
     const msgSeq = msgSeqRow.nextSeq
 
     const id = randomUUID()
-    const encoded = encodeMessageContent(truncateOversizedMessageContent(content))
+    const canonicalContent = truncateOversizedMessageContent(content)
+    const encoded = encodeMessageContent(canonicalContent)
+    const searchText = messageSearchText(canonicalContent)
 
     // Messages without a localId have no ack path (markMessagesInvoked matches by localId).
     // Treat them as already-invoked at insert time so they land in the thread normally instead
@@ -156,14 +166,15 @@ export function addMessageWithStatus(
         const previousHead = getNewestMessagePosition(db, sessionId)
         prepareCached(db, `
             INSERT INTO messages (
-                id, session_id, content, created_at, seq, local_id, invoked_at, scheduled_at
+                id, session_id, content, search_text, created_at, seq, local_id, invoked_at, scheduled_at
             ) VALUES (
-                @id, @session_id, @content, @created_at, @seq, @local_id, @invoked_at, @scheduled_at
+                @id, @session_id, @content, @search_text, @created_at, @seq, @local_id, @invoked_at, @scheduled_at
             )
         `).run({
             id,
             session_id: sessionId,
             content: encoded,
+            search_text: searchText,
             created_at: stampedAt,
             seq: msgSeq,
             local_id: localId ?? null,
@@ -200,8 +211,8 @@ export function syncNativeQueuedMessage(db: Database, sessionId: string, localId
         const prior = z.object({ role: z.literal('user'), content: z.object({ type: z.literal('text') }).passthrough() }).passthrough().safeParse(message.content)
         const content = prior.success ? { ...prior.data, content: { ...prior.data.content, text } } : initial
         const encoded = encodeMessageContent(truncateOversizedMessageContent(content))
-        prepareCached(db, 'UPDATE messages SET content = ? WHERE session_id = ? AND local_id = ? AND invoked_at IS NULL')
-            .run(encoded, sessionId, localId)
+        prepareCached(db, 'UPDATE messages SET content = ?, search_text = ? WHERE session_id = ? AND local_id = ? AND invoked_at IS NULL')
+            .run(encoded, messageSearchText(content), sessionId, localId)
         return { ...message, content }
     })()
 }
@@ -234,9 +245,9 @@ export function copyMessageToSession(
     const id = randomUUID()
     prepareCached(db, `
         INSERT INTO messages (
-            id, session_id, content, created_at, seq, local_id, invoked_at, scheduled_at, delivery_state
+            id, session_id, content, search_text, created_at, seq, local_id, invoked_at, scheduled_at, delivery_state
         ) VALUES (
-            @id, @session_id, @content, @created_at, @seq, @local_id, @invoked_at, @scheduled_at, @delivery_state
+            @id, @session_id, @content, @search_text, @created_at, @seq, @local_id, @invoked_at, @scheduled_at, @delivery_state
         )
     `).run({
         id,
@@ -244,6 +255,7 @@ export function copyMessageToSession(
         // Lossless re-encode only — copies move existing history between
         // sessions, so no truncation here even for pre-codec oversized rows.
         content: encodeMessageContent(message.content),
+        search_text: messageSearchText(message.content),
         created_at: createdAt,
         seq: nextSeq,
         local_id: localId ?? null,
@@ -279,9 +291,9 @@ export function copyMessagesToSession(
         let nextSeq = getMaxSeq(db, sessionId) + 1
         const insert = prepareCached(db, `
             INSERT INTO messages (
-                id, session_id, content, created_at, seq, local_id, invoked_at, scheduled_at, delivery_state
+                id, session_id, content, search_text, created_at, seq, local_id, invoked_at, scheduled_at, delivery_state
             ) VALUES (
-                @id, @session_id, @content, @created_at, @seq, @local_id, @invoked_at, @scheduled_at, @delivery_state
+                @id, @session_id, @content, @search_text, @created_at, @seq, @local_id, @invoked_at, @scheduled_at, @delivery_state
             )
         `)
         const collisionCheck = prepareCached(db,
@@ -305,6 +317,7 @@ export function copyMessagesToSession(
                 id: randomUUID(),
                 session_id: sessionId,
                 content: encodeMessageContent(message.content),
+                search_text: messageSearchText(message.content),
                 created_at: createdAt,
                 seq: nextSeq,
                 local_id: localId ?? null,
@@ -1176,12 +1189,13 @@ export function truncateMessagesFromLocalId(
             const invokedAt = message.invokedAt === undefined ? createdAt : message.invokedAt
             const rowLocalId = message.localId ?? null
             prepareCached(db, `
-                INSERT INTO messages (id, session_id, content, created_at, seq, local_id, invoked_at, scheduled_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                INSERT INTO messages (id, session_id, content, search_text, created_at, seq, local_id, invoked_at, scheduled_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
             `).run(
                 id,
                 sessionId,
                 encodeMessageContent(message.content),
+                messageSearchText(message.content),
                 createdAt,
                 msgSeqRow.nextSeq,
                 rowLocalId,
@@ -1193,4 +1207,121 @@ export function truncateMessagesFromLocalId(
         const epoch = bumpMessageEpoch(db, sessionId)
         return { deleted: deleted.changes, inserted, epoch }
     })()
+}
+
+export type MessageSearchHitRow = {
+    messageId: string
+    sessionId: string
+    seq: number
+    role: 'user' | 'agent'
+    createdAt: number
+    snippet: string
+    matchStart: number
+    matchLength: number
+}
+
+export type MessageSearchOptions = {
+    /** Page size for `hits`; defaults to MESSAGE_SEARCH_HIT_LIMIT. */
+    hitLimit?: number
+    /** Restrict hits to one session and skip the sessions aggregate. */
+    sessionId?: string
+    /** Keyset cursor: return only hits strictly older than this (createdAt, seq) pair. */
+    beforeCreatedAt?: number
+    beforeSeq?: number
+}
+
+export type MessageSearchResult = {
+    total: number
+    hits: MessageSearchHitRow[]
+    sessions: Array<{ sessionId: string; count: number }>
+    hasMore: boolean
+}
+
+const MESSAGE_SEARCH_HIT_LIMIT = 40
+const EMPTY_SEARCH_RESULT: MessageSearchResult = { total: 0, hits: [], sessions: [], hasMore: false }
+
+/**
+ * Substring search over the `search_text` extract column (lowercased at
+ * write time, so case-insensitivity works beyond ASCII too). Returns flat
+ * newest-first hits plus per-session counts across every match; the LIKE scan
+ * touches only the extract column, never message content blobs. Session-scoped
+ * mode (`sessionId`) paginates a single chat with the keyset cursor so clients
+ * can reach matches older than the first page.
+ */
+export function searchMessages(db: Database, query: string, options: MessageSearchOptions = {}): MessageSearchResult {
+    const normalized = query.trim().toLowerCase()
+    if (!normalized) return EMPTY_SEARCH_RESULT
+    const hitLimit = options.hitLimit ?? MESSAGE_SEARCH_HIT_LIMIT
+
+    const pattern = `%${escapeLikePattern(normalized)}%`
+    const conditions = [`search_text LIKE ? ESCAPE '\\'`]
+    const baseParams: Array<string | number> = [pattern]
+    if (options.sessionId !== undefined) {
+        conditions.push('session_id = ?')
+        baseParams.push(options.sessionId)
+    }
+    const where = conditions.join(' AND ')
+
+    // total and per-session counts always describe the full match set; the
+    // cursor only narrows the hits window.
+    let total = 0
+    let sessions: MessageSearchResult['sessions'] = []
+    if (options.sessionId === undefined) {
+        const aggregates = prepareCached(db,
+            `SELECT session_id, COUNT(*) AS count FROM messages WHERE ${where} GROUP BY session_id ORDER BY count DESC, session_id ASC`
+        ).all(...baseParams) as Array<{ session_id: string; count: number }>
+        sessions = aggregates.map((row) => ({ sessionId: row.session_id, count: row.count }))
+        total = sessions.reduce((sum, session) => sum + session.count, 0)
+        if (total === 0) return EMPTY_SEARCH_RESULT
+    } else {
+        const row = prepareCached(db,
+            `SELECT COUNT(*) AS count FROM messages WHERE ${where}`
+        ).get(...baseParams) as { count: number }
+        total = row.count
+        if (total === 0) return EMPTY_SEARCH_RESULT
+    }
+
+    const cursorParams: Array<string | number> = [...baseParams]
+    if (options.beforeCreatedAt !== undefined && options.beforeSeq !== undefined) {
+        conditions.push('(created_at < ? OR (created_at = ? AND seq < ?))')
+        cursorParams.push(options.beforeCreatedAt, options.beforeCreatedAt, options.beforeSeq)
+    }
+    const hitsWhere = conditions.join(' AND ')
+
+    // Fetch one extra row so hasMore reflects rows that survive decoding.
+    const rows = prepareCached(db, `
+        SELECT id, session_id, seq, created_at, content
+        FROM messages
+        WHERE ${hitsWhere}
+        ORDER BY created_at DESC, seq DESC
+        LIMIT ?
+    `).all(...cursorParams, hitLimit + 1) as Array<{
+        id: string
+        session_id: string
+        seq: number
+        created_at: number
+        content: string | Uint8Array
+    }>
+    const hasMore = rows.length > hitLimit
+    if (hasMore) rows.pop()
+
+    const hits: MessageSearchHitRow[] = []
+    for (const row of rows) {
+        const document = extractMessageSearchDocument(decodeMessageContent(row.content))
+        if (!document) continue
+        const snippet = buildSearchSnippet(document.text, normalized)
+        if (!snippet) continue
+        hits.push({
+            messageId: row.id,
+            sessionId: row.session_id,
+            seq: row.seq,
+            role: document.role,
+            createdAt: row.created_at,
+            snippet: snippet.snippet,
+            matchStart: snippet.matchStart,
+            matchLength: snippet.matchLength
+        })
+    }
+
+    return { total, hits, sessions, hasMore }
 }

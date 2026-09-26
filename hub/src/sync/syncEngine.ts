@@ -12,7 +12,7 @@ import {
     cliBinaryUpdatedOnDisk,
     isMachineCapabilitySkewed,
 } from '@hapi/protocol/runnerCapabilities'
-import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, GitComparisonResponse, GitComparisonScope, MessageDeliveryMode, MessagesResponse, QueuedStateResponse, RewindConversationErrorCode, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, GitComparisonResponse, GitComparisonScope, MessageDeliveryMode, MessageSearchResponse, MessagesResponse, QueuedStateResponse, RewindConversationErrorCode, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
 import type { SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { ImplementCodexPlanResult } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
@@ -20,7 +20,7 @@ import type { MachineQuotaSnapshot, QuotaUnavailable, QuotaWindow } from '@hapi/
 import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
 import { randomUUID } from 'node:crypto'
-import type { Store, CancelQueuedMessageResult } from '../store'
+import type { Store, CancelQueuedMessageResult, MessageSearchOptions } from '../store'
 import type { HapiSessionExportResult } from '@hapi/protocol/sessionExport'
 import type { RpcRegistry } from '../socket/rpcRegistry'
 import { clearAgentTerminalBuffer } from '../socket/agentTerminalBuffer'
@@ -475,6 +475,10 @@ export class SyncEngine {
         }
     ): MessagesResponse {
         return this.messageService.getMessagesPage(sessionId, options)
+    }
+
+    searchMessages(query: string, options?: MessageSearchOptions): MessageSearchResponse {
+        return this.store.messages.searchMessages(query, options)
     }
 
     getQueuedState(sessionId: string, localIds: string[]): QueuedStateResponse {

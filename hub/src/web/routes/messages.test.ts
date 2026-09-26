@@ -25,6 +25,7 @@ function createApp(opts: {
     flavor?: string
     sendMessage?: (sessionId: string, payload: unknown) => Promise<void>
     getMessagesPage?: GetMessagesPage
+    searchMessages?: (query: string, options?: Record<string, unknown>) => unknown
     getQueuedState?: (sessionId: string, localIds: string[]) => {
         queuedLocalIds: string[]
         indeterminateLocalIds: string[]
@@ -83,6 +84,7 @@ function createApp(opts: {
         cancelQueuedMessage: async () => ({ status: 'cancelled' }),
         steerQueuedMessage: opts.steerQueuedMessage ?? (async () => ({ status: 'failed', error: 'Steer failed', localId: null })),
         getMessagesPage,
+        searchMessages: opts.searchMessages ?? (() => ({ total: 0, hits: [], sessions: [], hasMore: false })),
     } as unknown as SyncEngine
 
     const app = new Hono<WebAppEnv>()
@@ -557,5 +559,80 @@ describe('POST /api/sessions/:id/messages/:messageId/steer', () => {
         const body = await response.json() as { error: string; code: string }
         expect(body.error).toBe('Session is inactive')
         expect(body.code).toBe('session_inactive')
+    })
+})
+
+describe('GET /api/messages/search', () => {
+    it('forwards the query to the engine and returns hits', async () => {
+        const calls: Array<{ query: string; options?: Record<string, unknown> }> = []
+        const { app } = createApp({
+            searchMessages: (query: string, options?: Record<string, unknown>) => {
+                calls.push({ query, options })
+                return {
+                    total: 2,
+                    hits: [{
+                        sessionId: 'session-1',
+                        messageId: 'msg-1',
+                        seq: 7,
+                        role: 'user',
+                        createdAt: 1_000,
+                        snippet: 'починить регистрацию сегодня',
+                        matchStart: 9,
+                        matchLength: 11
+                    }],
+                    sessions: [{ sessionId: 'session-1', count: 2 }],
+                    hasMore: false
+                }
+            }
+        })
+
+        const response = await app.request('/api/messages/search?q=%D1%80%D0%B5%D0%B3%D0%B8%D1%81%D1%82%D1%80%D0%B0%D1%86%D0%B8%D1%8F&limit=10')
+
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([{ query: 'регистрация', options: { hitLimit: 10, sessionId: undefined, beforeCreatedAt: undefined, beforeSeq: undefined } }])
+        const body = await response.json() as { total: number; hits: Array<{ messageId: string; role: string }>; sessions: Array<{ count: number }>; hasMore: boolean }
+        expect(body.total).toBe(2)
+        expect(body.hits[0]?.messageId).toBe('msg-1')
+        expect(body.hits[0]?.role).toBe('user')
+        expect(body.sessions[0]?.count).toBe(2)
+        expect(body.hasMore).toBe(false)
+    })
+
+    it('forwards session scope and cursor params', async () => {
+        const calls: Array<{ query: string; options?: Record<string, unknown> }> = []
+        const { app } = createApp({
+            searchMessages: (query: string, options?: Record<string, unknown>) => {
+                calls.push({ query, options })
+                return { total: 0, hits: [], sessions: [], hasMore: false }
+            }
+        })
+
+        const response = await app.request('/api/messages/search?q=%D1%82%D0%B5%D1%81%D1%82&sessionId=session-9&beforeCreatedAt=1234&beforeSeq=56&limit=5')
+
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([{
+            query: 'тест',
+            options: { hitLimit: 5, sessionId: 'session-9', beforeCreatedAt: 1234, beforeSeq: 56 }
+        }])
+    })
+
+    it('rejects a half-specified cursor with 400', async () => {
+        const { app } = createApp({})
+
+        const response = await app.request('/api/messages/search?q=%D1%82%D0%B5%D1%81%D1%82&beforeCreatedAt=1234')
+
+        expect(response.status).toBe(400)
+        const body = await response.json() as { error: string }
+        expect(body.error).toBe('Invalid query')
+    })
+
+    it('rejects a blank query with 400', async () => {
+        const { app } = createApp({})
+
+        const response = await app.request('/api/messages/search?q=%20%20')
+
+        expect(response.status).toBe(400)
+        const body = await response.json() as { error: string }
+        expect(body.error).toBe('Invalid query')
     })
 })
