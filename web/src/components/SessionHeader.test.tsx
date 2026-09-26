@@ -510,8 +510,9 @@ describe('SessionHeader', () => {
         expect(screen.queryByTestId('session-header-machine')).not.toBeInTheDocument()
     })
 
-    it('shows the model before the branch on mobile and opens the full branch name', async () => {
+    it('opens full session details from the compact mobile header', async () => {
         const branch = 'feature/long-mobile-branch-name'
+        const title = 'A long session title that does not fit in the mobile header'
         const api = {
             getGitStatus: vi.fn().mockResolvedValue({
                 success: true,
@@ -521,15 +522,26 @@ describe('SessionHeader', () => {
             getScratchlist: vi.fn().mockResolvedValue({ entries: [] })
         } as unknown as ApiClient
 
-        renderHeaderWithApi(baseSession({ model: 'gpt-6-astra' }), api)
+        renderHeaderWithApi(baseSession({
+            model: 'gpt-6-astra',
+            metadata: { flavor: 'codex', path: '/repo', host: 'machine', name: title }
+        }), api)
 
+        const detailsButton = screen.getByTestId('session-header-mobile-details')
         const model = screen.getByTestId('session-header-mobile-model')
-        const branchButton = await screen.findByTestId('session-header-mobile-branch')
+        const summaryButton = screen.getByTestId('session-header-mobile-summary')
+        expect(detailsButton).toHaveTextContent(title)
+        expect(detailsButton).toHaveClass('col-end-4', 'row-start-1')
         expect(model).toHaveTextContent('gpt-6-astra')
         expect(model.parentElement?.textContent).not.toContain('codex')
-        expect(branchButton).toHaveAttribute('aria-label', `branch: ${branch}`)
-        fireEvent.click(branchButton)
-        expect(screen.getByRole('dialog')).toHaveTextContent(branch)
+        expect(summaryButton).toHaveClass('row-start-2')
+        expect(screen.getByTestId('session-header-mobile-actions')).toHaveClass('row-start-2')
+        expect(screen.getByTestId('session-header-open-difit')).toHaveClass('max-sm:hidden')
+        fireEvent.click(detailsButton)
+        const dialog = screen.getByRole('dialog')
+        expect(dialog).toHaveTextContent(title)
+        expect(dialog).toHaveTextContent('gpt-6-astra')
+        await waitFor(() => expect(dialog).toHaveTextContent(branch))
     })
 
     it('advances relative age on the minute tick without a session prop change', () => {
