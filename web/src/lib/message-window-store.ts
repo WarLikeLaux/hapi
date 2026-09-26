@@ -869,6 +869,7 @@ async function runTailSync(api: ApiClient, sessionId: string): Promise<void> {
                 })
             })
             await extendToInitialCoverage(api, sessionId, generation)
+            await restoreLatestAfterCoverage(api, sessionId, generation)
             finishTailSync(sessionId, generation, null)
             return
         }
@@ -942,6 +943,7 @@ async function runTailSync(api: ApiClient, sessionId: string): Promise<void> {
         }
 
         await extendToInitialCoverage(api, sessionId, generation)
+        await restoreLatestAfterCoverage(api, sessionId, generation)
         finishTailSync(sessionId, generation, null)
     } catch (error) {
         if (!isCurrentTailSync(sessionId, generation)) return
@@ -987,6 +989,28 @@ async function extendToInitialCoverage(api: ApiClient, sessionId: string, genera
             })
         }, true)
     }
+}
+
+/**
+ * The coverage extension prepends older pages with the history budget, so a
+ * tail without reachable coverage (e.g. pages of user rows with no agent
+ * finals) can evict the newest rows and flag `requiresLatestReset`. Close the
+ * sync with a fresh latest fetch so the window never rests on stale
+ * mid-history content.
+ */
+async function restoreLatestAfterCoverage(api: ApiClient, sessionId: string, generation: number): Promise<void> {
+    const state = getState(sessionId)
+    if (!isCurrentTailSync(sessionId, generation) || !state.requiresLatestReset) return
+    const requestBaseline = new Map(state.messages.map((message) => [message.id, message]))
+    const response = await api.getMessages(sessionId, { limit: PAGE_SIZE })
+    if (!isCurrentTailSync(sessionId, generation)) return
+    updateState(sessionId, (previous) => {
+        if (previous.syncGeneration !== generation) return previous
+        return applyLatestResponse(previous, response, {
+            replaceServerRows: true,
+            requestBaseline
+        })
+    })
 }
 
 function startTailSync(sessionId: string, controller: TailSyncController): Promise<void> {

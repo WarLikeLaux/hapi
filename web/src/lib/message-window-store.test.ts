@@ -338,6 +338,64 @@ describe('message tail synchronization', () => {
         expect(messages.some((message) => message.id === 'tail-200')).toBe(true)
     })
 
+    it('restores the newest page when the coverage extension evicts the tail', async () => {
+        const id = sessionId('coverage-evicts-tail')
+        // Every page is a wall of user rows: the coverage target (two agent
+        // finals) is unreachable, so the extension walks its full page budget
+        // and each prepend with the history budget evicts the newest rows.
+        const userPage = (startSeq: number) => Array.from({ length: 200 }, (_, index) =>
+            makeUserMessage({
+                id: `u-${startSeq + index}`,
+                seq: startSeq + index,
+                createdAt: (startSeq + index) * 1_000
+            }))
+        const getMessages = vi.fn()
+            .mockResolvedValueOnce(latestResponse(userPage(1001), {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 1_001_000,
+                nextBeforeSeq: 1001
+            }))
+            .mockResolvedValueOnce(beforeResponse(userPage(801), {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 801_000,
+                nextBeforeSeq: 801
+            }))
+            .mockResolvedValueOnce(beforeResponse(userPage(601), {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 601_000,
+                nextBeforeSeq: 601
+            }))
+            .mockResolvedValueOnce(beforeResponse(userPage(401), {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 401_000,
+                nextBeforeSeq: 401
+            }))
+            .mockResolvedValueOnce(beforeResponse(userPage(201), {
+                epoch: 1,
+                hasMore: false,
+                nextBeforeAt: 201_000,
+                nextBeforeSeq: 201
+            }))
+            .mockResolvedValueOnce(latestResponse(userPage(1001), {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 1_001_000,
+                nextBeforeSeq: 1001
+            }))
+        const api = createApi(getMessages)
+
+        await syncTailMessages(api, id)
+
+        // The restore refetch closes the sync with a fresh latest page.
+        expect(getMessages).toHaveBeenCalledTimes(6)
+        expect(getMessages.mock.calls[5]?.[1]).toEqual({ limit: 200 })
+        expect(getMessageWindowState(id).messages.at(-1)?.id).toBe('u-1200')
+    })
+
     it('removes the rewound suffix immediately and applies duplicate invalidations once', async () => {
         const id = sessionId('rewind-suffix')
         const prefix = makeAgentMessage({ id: 'prefix', seq: 1, at: 1_000 })

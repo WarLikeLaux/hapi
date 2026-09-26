@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('cold sessions request a small latest page and keep older loads at 200', async ({ page }) => {
+test('cold sessions request a full latest page, auto-extend coverage, and keep older loads at 200', async ({ page }) => {
     await page.goto('/e2e-fixtures/history-load-fixture.html?coldInitial=1')
     const viewport = page.locator('.app-scroll-y')
     await expect(viewport).toBeVisible()
@@ -12,11 +12,17 @@ test('cold sessions request a small latest page and keep older loads at 200', as
         childCount: document.querySelector('.happy-thread-messages')?.childElementCount ?? 0
     }))).toEqual({
         direction: 'latest',
-        limit: 20,
+        limit: 200,
         childCount: expect.any(Number)
     })
 
-    await expect.poll(async () => await page.evaluate(() => window.__probe.windowState().messageCount)).toBe(20)
+    // The cold tail sync automatically extends coverage backward (the only
+    // automatic older-page loading), so before-pages fire without any user
+    // scroll; a prepend that would evict the newest rows is followed by a
+    // fresh latest fetch, so the tail content stays present either way.
+    await expect.poll(async () => await page.evaluate(
+        () => window.__probe.requests.some((request) => request.direction === 'before')
+    )).toBe(true)
     await expect(page.getByText('Fixture message 1200', { exact: true })).toBeVisible()
 
     // Call the same loadMore callback that the top sentinel invokes. The
