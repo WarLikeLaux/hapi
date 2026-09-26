@@ -109,8 +109,10 @@ export default defineConfig({
         spaFallback(),
         copyKaTeXFonts(),
         VitePWA({
-            // The app activates waiting updates itself after update discovery. Keep prompt mode so
-            // activation remains coordinated by usePwaUpdate instead of two competing reload paths.
+            // Stay in prompt mode: waiting updates are surfaced as an in-app
+            // banner via usePwaUpdate, and the user clicks Reload to apply.
+            // autoUpdate would reload the tab on its own and fight the banner
+            // path; autoUpdate also fires mid-session with no chance to defer.
             registerType: 'prompt',
             includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png', 'mask-icon.svg'],
             strategies: 'injectManifest',

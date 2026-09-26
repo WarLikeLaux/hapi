@@ -57,12 +57,21 @@ export async function requestPwaUpdateReload(
     }, PWA_UPDATE_RELOAD_FALLBACK_MS)
 }
 
+// Surface a waiting service worker as an in-app banner. Detection is skipped
+// when no previous controller exists (fresh PWA install) so the banner does
+// not appear before the app ever loads. Detection also requires a real
+// previous controller — not a leftover from a prior uninstall — to avoid
+// false positives on a no-store reload that re-registers an active worker.
+function shouldSurfaceUpdate(): boolean {
+    return navigator.serviceWorker.controller !== null
+}
+
 export function setupRegistrationUpdateChecks(
     registration: ServiceWorkerRegistration,
     onUpdateWaiting: () => void = () => {},
 ): () => void {
     const detectWaitingUpdate = () => {
-        if (registration.waiting) {
+        if (registration.waiting && shouldSurfaceUpdate()) {
             onUpdateWaiting()
         }
     }
@@ -72,7 +81,7 @@ export function setupRegistrationUpdateChecks(
     const handleInstallingStateChange = () => {
         if (
             observedInstallingWorker?.state === 'installed' &&
-            navigator.serviceWorker.controller
+            shouldSurfaceUpdate()
         ) {
             onUpdateWaiting()
         }
@@ -123,33 +132,18 @@ export function usePwaUpdate() {
     const [needRefresh, setNeedRefresh] = useState(false)
     const updateSWRef = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null)
     const cleanupRef = useRef<(() => void) | null>(null)
-    const updateReloadRequestedRef = useRef(false)
 
     useEffect(() => {
-        const applyWaitingUpdate = () => {
-            if (updateReloadRequestedRef.current) {
+        const surfaceUpdateWaiting = () => {
+            if (!shouldSurfaceUpdate()) {
                 return
             }
-
-            updateReloadRequestedRef.current = true
-
-            // registerSW may invoke onRegistered synchronously before returning
-            // its update function. Defer activation until the ref is populated.
-            queueMicrotask(() => {
-                const updateSW = updateSWRef.current
-                if (!updateSW) {
-                    updateReloadRequestedRef.current = false
-                    setNeedRefresh(true)
-                    return
-                }
-
-                void requestPwaUpdateReload(updateSW)
-            })
+            setNeedRefresh(true)
         }
 
         const updateSW = registerSW({
             onNeedRefresh() {
-                applyWaitingUpdate()
+                surfaceUpdateWaiting()
             },
             onOfflineReady() {
                 console.log('App ready for offline use')
@@ -164,7 +158,7 @@ export function usePwaUpdate() {
 
                 cleanupRef.current = setupRegistrationUpdateChecks(
                     registration,
-                    applyWaitingUpdate,
+                    surfaceUpdateWaiting,
                 )
             },
             onRegisterError(error) {
@@ -178,11 +172,11 @@ export function usePwaUpdate() {
             cleanupRef.current?.()
             cleanupRef.current = null
             updateSWRef.current = null
-            updateReloadRequestedRef.current = false
         }
     }, [])
 
     const reload = useCallback(() => {
+        setNeedRefresh(false)
         void requestPwaUpdateReload(updateSWRef.current)
     }, [])
 
