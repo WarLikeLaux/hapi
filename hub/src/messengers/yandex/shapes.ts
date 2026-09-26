@@ -1,0 +1,311 @@
+/**
+ * Normalization of history-response shapes into HAPI's external messenger types.
+ *
+ * Wire facts are reverse-engineered from the chats-web client (see the reference
+ * project conarti/yandex-messenger-mcp): a chat element carries
+ * `ChatId, ChatInfo?, PartnerInfo?, PrivateChatInfo?, LastSeqNo, LastTsMcs,
+ * LastSeenByMeSeqNo, ...`, and each message element carries
+ * `{ServerMessage: {ClientMessage, ServerMessageInfo}, Reactions?, RecentUserReactions?}`.
+ * Unread is `LastSeqNo - LastSeenByMeSeqNo`; a separate counters call is not needed.
+ */
+import type {
+    ExternalConversation,
+    ExternalMediaKind,
+    ExternalMessage,
+    ExternalReaction
+} from '@hapi/protocol'
+import { microsToEpochMs, parseMicros } from './registry'
+import { REACTION_EMOJI_BY_TYPE } from './reactionMap'
+
+export type AttachmentKind = 'image' | 'file' | 'voice' | 'sticker' | 'gallery_image'
+
+export interface AttachmentRef {
+    kind: AttachmentKind
+    /** `FileInfo.Id2` — `<bucket>/<uuid>` document id for the download URL. */
+    fileId: string
+    name?: string
+    size?: number
+}
+
+/** Internal message with everything the connector needs beyond the wire type. */
+export interface YandexMessage {
+    message: ExternalMessage
+    attachments: AttachmentRef[]
+    /** Reaction types this account has personally put on the message. */
+    chosenReactionTypes: number[]
+    micros: bigint
+}
+
+export interface ChatShape {
+    conversation: ExternalConversation
+    lastMessage?: YandexMessage
+    peerLastSeenSeqNo?: number
+}
+
+export function conversationId(remoteId: string): string {
+    return `yandex:${remoteId}`
+}
+
+function asObject(value: unknown): Record<string, unknown> | undefined {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : undefined
+}
+
+function stringOr(value: unknown): string | undefined {
+    return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function numberOr(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+/** Unread = how many chat sequences I have not seen; clamped below at zero. */
+function countUnread(raw: Record<string, unknown>): number {
+    const last = numberOr(raw['LastSeqNo']) ?? 0
+    const seen = numberOr(raw['LastSeenByMeSeqNo']) ?? 0
+    return Math.max(0, last - seen)
+}
+
+function attachmentRef(kind: AttachmentKind, fileInfo: unknown): AttachmentRef | undefined {
+    const info = asObject(fileInfo)
+    const fileId = stringOr(info?.['Id2'])
+    if (!fileId) return undefined
+    return {
+        kind,
+        fileId,
+        ...(stringOr(info?.['Name']) !== undefined ? { name: stringOr(info?.['Name']) } : {}),
+        ...(numberOr(info?.['Size']) !== undefined ? { size: numberOr(info?.['Size']) } : {})
+    }
+}
+
+function extractAttachments(body: Record<string, unknown>): AttachmentRef[] {
+    const refs: AttachmentRef[] = []
+    const single = (key: string, kind: AttachmentKind): void => {
+        const ref = attachmentRef(kind, asObject(body[key])?.['FileInfo'])
+        if (ref) refs.push(ref)
+    }
+    single('Image', 'image')
+    single('MiscFile', 'file')
+    single('Voice', 'voice')
+    single('Sticker', 'sticker')
+    const gallery = asObject(body['Gallery'])
+    const items = Array.isArray(gallery?.['Items']) ? gallery?.['Items'] as unknown[] : []
+    for (const item of items) {
+        const ref = attachmentRef('gallery_image', asObject(asObject(item)?.['Image'])?.['FileInfo'])
+        if (ref) refs.push(ref)
+    }
+    return refs
+}
+
+function mediaKindFor(kind: AttachmentKind): ExternalMediaKind {
+    switch (kind) {
+        case 'image':
+        case 'gallery_image':
+            return 'image'
+        case 'voice':
+            return 'voice'
+        case 'sticker':
+            return 'sticker'
+        default:
+            return 'file'
+    }
+}
+
+function buildReactions(item: Record<string, unknown>, myGuid: string): { reactions: ExternalReaction[]; chosen: number[] } {
+    const reactions: ExternalReaction[] = []
+    const chosen: number[] = []
+    const counts = new Map<number, number>()
+    const aggregates = Array.isArray(item['Reactions']) ? item['Reactions'] as unknown[] : []
+    for (const raw of aggregates) {
+        const obj = asObject(raw)
+        const type = numberOr(obj?.['Type'])
+        if (type === undefined || counts.has(type)) continue
+        counts.set(type, numberOr(obj?.['Count']) ?? 0)
+    }
+    const recent = Array.isArray(item['RecentUserReactions']) ? item['RecentUserReactions'] as unknown[] : []
+    const mineByType = new Set<number>()
+    for (const raw of recent) {
+        const obj = asObject(raw)
+        const type = numberOr(obj?.['Type'])
+        if (type === undefined) continue
+        const actor = asObject(obj?.['UserInfo'])
+        if (stringOr(actor?.['Guid']) === myGuid) mineByType.add(type)
+    }
+    for (const [type, count] of counts) {
+        const emoji = REACTION_EMOJI_BY_TYPE[type] ?? null
+        // The reaction string mirrors what the picker sends back (emoji, like Telegram),
+        // with the raw type as fallback for types our map has never seen.
+        const reaction = emoji ?? String(type)
+        reactions.push({ reaction, emoji, count: Math.max(1, count), chosen: mineByType.has(type) })
+    }
+    for (const type of mineByType) chosen.push(type)
+    return { reactions, chosen }
+}
+
+/**
+ * Normalizes one history message element `{ServerMessage, ...}` into a YandexMessage.
+ * Returns undefined for elements that cannot be rendered: system events, deleted
+ * messages, and bodies without any text or attachments.
+ */
+export function normalizeMessageItem(
+    raw: unknown,
+    myGuid: string,
+    remoteChatId: string,
+    peerLastSeenSeqNo?: number
+): YandexMessage | undefined {
+    const item = asObject(raw)
+    if (!item) return undefined
+    const source = asObject(item['ServerMessage'])
+    const info = asObject(source?.['ServerMessageInfo'])
+    const clientMessage = asObject(source?.['ClientMessage'])
+    if (!info || !clientMessage) return undefined
+    if (info['Deleted'] === true) return undefined
+
+    let micros: bigint
+    try {
+        micros = parseMicros(info['Timestamp'])
+    } catch {
+        return undefined
+    }
+
+    const plain = asObject(clientMessage['Plain']) ?? asObject(clientMessage['Ephemeral'])
+    const system = plain === undefined ? asObject(clientMessage['SystemMessage']) : undefined
+    if (system !== undefined || plain === undefined) return undefined
+
+    const attachments = extractAttachments(plain)
+    const text = stringOr(asObject(plain['Text'])?.['MessageText'])
+        ?? stringOr(asObject(plain['Voice'])?.['Text'])
+        ?? stringOr(asObject(plain['Gallery'])?.['Text'])
+        ?? ''
+    if (!text && attachments.length === 0 && plain['Poll'] === undefined && plain['Card'] === undefined) {
+        return undefined
+    }
+
+    const from = asObject(info['From'])
+    const senderGuid = stringOr(from?.['Guid']) ?? ''
+    const outgoing = senderGuid === myGuid
+    const seqNo = numberOr(info['SeqNo'])
+    const lastEdit = numberOr(info['LastEditTimestamp'])
+
+    const media = attachments.map((ref) => ({
+        kind: mediaKindFor(ref.kind),
+        mimeType: null,
+        fileName: ref.name ?? null,
+        size: ref.size ?? null,
+        thumbnailDataUrl: null
+    }))
+    if (plain['Poll'] !== undefined || plain['Card'] !== undefined) {
+        media.push({ kind: plain['Poll'] !== undefined ? 'poll' : 'other', mimeType: null, fileName: null, size: null, thumbnailDataUrl: null })
+    }
+
+    const { reactions, chosen } = buildReactions(item, myGuid)
+    const conversationId = `yandex:${remoteChatId}`
+    const providerMessageId = micros.toString()
+    const message: ExternalMessage = {
+        id: `${conversationId}:${providerMessageId}`,
+        conversationId,
+        providerMessageId,
+        senderId: senderGuid || null,
+        senderName: stringOr(from?.['DisplayName']) ?? null,
+        direction: outgoing ? 'outgoing' : 'incoming',
+        text,
+        createdAt: microsToEpochMs(micros),
+        editedAt: lastEdit !== undefined && lastEdit > 0 ? Math.trunc(lastEdit / 1000) : null,
+        ...(outgoing
+            ? {
+                deliveryStatus: seqNo !== undefined && peerLastSeenSeqNo !== undefined && seqNo <= peerLastSeenSeqNo
+                    ? 'read' as const
+                    : 'sent' as const
+            }
+            : {}),
+        ...(media.length > 0 ? { media } : {}),
+        ...(reactions.length > 0 ? { reactions } : {})
+    }
+    return { message, attachments, chosenReactionTypes: chosen, micros }
+}
+
+/**
+ * Normalizes a history chat element. `withMessages` is the result of the same history
+ * call: with Limit>=1 each element carries Messages whose last item is the newest.
+ */
+export function normalizeChatElement(raw: unknown, myGuid: string): ChatShape | undefined {
+    const element = asObject(raw)
+    const remoteChatId = stringOr(element?.['ChatId'])
+    if (!element || !remoteChatId) return undefined
+
+    const privateChat = element['PrivateChatInfo'] !== undefined
+    const partner = asObject(element['PartnerInfo'])
+    const partnerName = stringOr(partner?.['DisplayName']) ?? stringOr(partner?.['PublicName'])
+    const groupName = stringOr(asObject(element['ChatInfo'])?.['Name'])
+
+    // The saved-messages chat is the self gate `<myGuid>_<myGuid>`.
+    const isSaved = remoteChatId === `${myGuid}_${myGuid}`
+    const title = isSaved ? 'Избранное' : partnerName ?? groupName ?? 'Чат'
+
+    const kind = isSaved ? 'saved' : privateChat ? 'direct' : 'group'
+    const peerLastSeenSeqNo = numberOr(element['LastSeenSeqNo'])
+    let lastMessageAt: number | null = null
+    try {
+        if (element['LastTsMcs'] !== undefined) lastMessageAt = microsToEpochMs(parseMicros(element['LastTsMcs']))
+    } catch {
+        lastMessageAt = null
+    }
+
+    const rawMessages = Array.isArray(element['Messages']) ? element['Messages'] as unknown[] : []
+    const messages = rawMessages
+        .map((entry) => normalizeMessageItem(entry, myGuid, remoteChatId, peerLastSeenSeqNo))
+        .filter((entry): entry is YandexMessage => entry !== undefined)
+    const last = messages[messages.length - 1]
+
+    const conversation: ExternalConversation = {
+        id: conversationId(remoteChatId),
+        provider: 'yandex',
+        remoteId: remoteChatId,
+        title,
+        kind,
+        selected: false,
+        lastMessageAt,
+        lastMessagePreview: last
+            ? (last.message.text || (last.message.media?.length ? attachmentPreview(last.attachments[0]?.kind) : ''))
+            : null,
+        lastMessageDirection: last?.message.direction,
+        lastMessageDeliveryStatus: last?.message.deliveryStatus,
+        unreadCount: countUnread(element),
+        avatarDataUrl: null
+    }
+    return { conversation, lastMessage: last, peerLastSeenSeqNo }
+}
+
+function attachmentPreview(kind: AttachmentKind | undefined): string {
+    switch (kind) {
+        case 'image':
+        case 'gallery_image':
+            return '🖼'
+        case 'voice':
+            return '🎤'
+        case 'sticker':
+            return '🙂'
+        default:
+            return '📎'
+    }
+}
+
+/** Sorts messages oldest-first regardless of the server window order. */
+export function sortMessagesAscending(messages: YandexMessage[]): YandexMessage[] {
+    return [...messages].sort((a, b) => (a.micros < b.micros ? -1 : a.micros > b.micros ? 1 : 0))
+}
+
+/** Builds params for the single read method of the protocol: WS `history`. */
+export function buildHistoryParams(input: {
+    chatId?: string
+    limit: number
+    maxTimestamp?: bigint
+    withChatData?: boolean
+}): Record<string, unknown> {
+    const params: Record<string, unknown> = { Limit: input.limit }
+    if (input.chatId !== undefined) params['ChatId'] = input.chatId
+    if (input.maxTimestamp !== undefined) params['MaxTimestamp'] = Number(input.maxTimestamp)
+    if (input.withChatData === true) params['ChatDataFilter'] = {}
+    return params
+}

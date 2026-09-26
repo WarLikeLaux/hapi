@@ -1,5 +1,6 @@
 import {
     ConfigureTelegramRequestSchema,
+    ConfigureYandexRequestSchema,
     SelectMessengerConversationsRequestSchema,
     SendExternalMessageRequestSchema,
     SetExternalReactionsRequestSchema,
@@ -39,6 +40,17 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
         if (!parsed.success) return c.json({ error: 'Invalid Telegram configuration' }, 400)
         try {
             const connection = await manager.configureTelegram(c.get('namespace'), parsed.data)
+            return c.json({ connection })
+        } catch (error) {
+            return c.json({ error: errorMessage(error) }, 502)
+        }
+    })
+
+    app.post('/messengers/yandex/configure', async (c) => {
+        const parsed = ConfigureYandexRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid Yandex configuration' }, 400)
+        try {
+            const connection = await manager.configureYandex(c.get('namespace'), parsed.data)
             return c.json({ connection })
         } catch (error) {
             return c.json({ error: errorMessage(error) }, 502)
