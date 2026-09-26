@@ -18,6 +18,7 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 - If a feature or fix does not work on its first delivered attempt and needs another corrective iteration, deploy subsequent fixes for validation but do not commit or push them until the user explicitly confirms the result works. This acceptance gate overrides the non-visual automatic-push rule.
 - For changes that affect visible UI or UX, deploy the uncommitted change for user review, but do not commit or push it until the user explicitly accepts the visual result. After acceptance, commit and push the reviewed files.
 - A user's explicit request to avoid deployment, commits, or pushes overrides these defaults. Never include unrelated worktree changes in an automatic commit.
+- Product code check commands: `bun typecheck` and `bun run test`.
 
 ## Find context when needed
 
