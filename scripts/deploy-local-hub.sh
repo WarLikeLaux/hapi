@@ -3,6 +3,25 @@
 set -Eeuo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The hub runs the merged main branch. Refuse slots and task branches: a Pitbox
+# slot never deploys, the integrator deploys once after collect.
+current_branch="$(git -C "${repo_root}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+if [[ "${current_branch}" != "custom" ]]; then
+    echo "deploy:local-hub refuses to run on branch ${current_branch:-unknown}. Deploy only from the main checkout on custom: in a Pitbox slot the integrator deploys once after collect." >&2
+    exit 1
+fi
+git_dir="$(git -C "${repo_root}" rev-parse --path-format=absolute --git-dir)"
+git_common_dir="$(git -C "${repo_root}" rev-parse --path-format=absolute --git-common-dir)"
+if [[ "${git_dir}" != "${git_common_dir}" ]]; then
+    echo "deploy:local-hub refuses to run from a linked worktree (${git_dir}). Deploy only from the main checkout." >&2
+    exit 1
+fi
+caller_top="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -n "${caller_top}" && "${caller_top}" != "$(git -C "${repo_root}" rev-parse --show-toplevel)" ]]; then
+    echo "deploy:local-hub refuses to run from another worktree (${caller_top}). Run it from the main checkout." >&2
+    exit 1
+fi
 bun_bin="${BUN_BIN:-bun}"
 service_name="${HAPI_SERVICE_NAME:-hapi-hub.service}"
 runner_service_name="${HAPI_RUNNER_SERVICE_NAME:-hapi-runner.service}"
