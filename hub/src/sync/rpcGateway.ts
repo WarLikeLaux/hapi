@@ -27,6 +27,7 @@ import type {
     CopilotModelsResponse,
     GrokModelsResponse,
     KimiModelsResponse,
+    MinimaxModelsResponse,
     GrokReasoningEffortResponse,
     ListDirectoryResponse,
     ListCodexSessionsRpcResponse,
@@ -123,6 +124,7 @@ export type RpcListOpencodeModelVariantsResponse = OpencodeModelVariantsResponse
 export type RpcListGrokModelsResponse = GrokModelsResponse
 export type RpcListCopilotModelsResponse = CopilotModelsResponse
 export type RpcListKimiModelsResponse = KimiModelsResponse
+export type RpcListMinimaxModelsResponse = MinimaxModelsResponse
 export type RpcListGrokReasoningEffortOptionsResponse = GrokReasoningEffortResponse
 export type RpcListOpencodeReasoningEffortOptionsResponse = OpencodeReasoningEffortResponse
 export type RpcListAgyModelsResponse = AgyModelsResponse
@@ -559,6 +561,19 @@ export class RpcGateway {
             {},
             MODEL_LIST_RPC_TIMEOUT_MS
         ) as RpcListKimiModelsResponse
+    }
+
+    /**
+     * Active-session MiniMax model catalog. Served from the live ACP session
+     * state in the CLI that owns the session — no fresh probe.
+     */
+    async listMinimaxModelsForSession(sessionId: string): Promise<RpcListMinimaxModelsResponse> {
+        return await this.sessionRpc(
+            sessionId,
+            RPC_METHODS.ListMinimaxModels,
+            {},
+            MODEL_LIST_RPC_TIMEOUT_MS
+        ) as RpcListMinimaxModelsResponse
     }
 
     /** Generic Pi RPC call — routes all Pi-specific session RPCs through

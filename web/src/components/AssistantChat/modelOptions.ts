@@ -150,6 +150,11 @@ export function getModelOptionsForFlavor(
     if (flavor === 'kimi') {
         return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
     }
+    // MiniMax's catalog comes from the live ACP session (minimaxModels prop);
+    // until it arrives show just the default option rather than Claude presets.
+    if (flavor === 'minimax') {
+        return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
+    }
     if (flavor === 'copilot') {
         if (customOptions && customOptions.length > 0) {
             return withCurrentModelOption(customOptions, currentModel)
@@ -214,6 +219,9 @@ export function getNextModelForFlavor(
         return normalizeCurrentModel(currentModel)
     }
     if (flavor === 'kimi') {
+        return normalizeCurrentModel(currentModel)
+    }
+    if (flavor === 'minimax') {
         return normalizeCurrentModel(currentModel)
     }
     if (flavor === 'copilot') {

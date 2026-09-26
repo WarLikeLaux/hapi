@@ -116,6 +116,7 @@ import { useOpencodeModels } from '@/hooks/queries/useOpencodeModels'
 import { useGrokModels } from '@/hooks/queries/useGrokModels'
 import { useCopilotModels } from '@/hooks/queries/useCopilotModels'
 import { useKimiModelsForSession } from '@/hooks/queries/useKimiModelsForSession'
+import { useMinimaxModelsForSession } from '@/hooks/queries/useMinimaxModelsForSession'
 import { buildKimiSessionModelOptions } from '@/components/NewSession/grokModels'
 import { useGrokReasoningEffortOptions } from '@/hooks/queries/useGrokReasoningEffortOptions'
 import { usePiModels } from '@/hooks/queries/usePiModels'
@@ -1121,6 +1122,18 @@ function SessionChatInner(props: SessionChatProps) {
             ? buildKimiSessionModelOptions(kimiModelsState.availableModels)
             : undefined
     ), [agentFlavor, kimiModelsState.availableModels])
+    // MiniMax publishes its live ACP model catalog through the session RPC;
+    // the option builder shape (Default + discovered ids) matches Kimi's.
+    const minimaxModelsState = useMinimaxModelsForSession({
+        api: props.api,
+        sessionId: props.session.id,
+        enabled: agentFlavor === 'minimax' && props.session.active
+    })
+    const minimaxModelOptions = useMemo(() => (
+        agentFlavor === 'minimax' && minimaxModelsState.availableModels.length > 0
+            ? buildKimiSessionModelOptions(minimaxModelsState.availableModels)
+            : undefined
+    ), [agentFlavor, minimaxModelsState.availableModels])
     const machineCursorModelsState = useCursorModelsForMachine({
         api: props.api,
         machineId: sessionMachineId,
@@ -2122,6 +2135,8 @@ function SessionChatInner(props: SessionChatProps) {
                                             ? copilotModelOptions
                                             : agentFlavor === 'kimi'
                                                 ? kimiModelOptions
+                                            : agentFlavor === 'minimax'
+                                                ? minimaxModelOptions
                                             : agentFlavor === 'agy'
                                                 ? agyModelOptions
                                         // Pi gets its provider-qualified model list from the piModels prop;

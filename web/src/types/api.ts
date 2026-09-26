@@ -31,6 +31,8 @@ export type {
     GrokModelSummary,
     KimiModelsResponse,
     KimiModelSummary,
+    MinimaxModelsResponse,
+    MinimaxModelSummary,
     CopilotModelsResponse,
     CopilotModelSummary,
     GrokReasoningEffortResponse,

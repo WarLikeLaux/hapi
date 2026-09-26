@@ -1010,6 +1010,21 @@ export type KimiModelsResponse = {
 
 export type ListKimiModelsResponse = KimiModelsResponse
 
+export type MinimaxModelSummary = {
+    /** MiniMax model id as used by `session/set_config_option` (`m:minimax:…`). */
+    modelId: string
+    name?: string
+}
+
+export type MinimaxModelsResponse = {
+    success: boolean
+    availableModels?: MinimaxModelSummary[]
+    currentModelId?: string | null
+    error?: string
+}
+
+export type ListMinimaxModelsResponse = MinimaxModelsResponse
+
 export type GrokReasoningEffortResponse = {
     success: boolean
     options?: GrokReasoningEffortOption[]

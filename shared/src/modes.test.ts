@@ -138,6 +138,18 @@ describe('claude auto permission mode', () => {
     })
 })
 
+describe('minimax permission modes', () => {
+    it('supports default, auto, plan and yolo', () => {
+        expect(getPermissionModesForFlavor('minimax')).toEqual(['default', 'auto', 'plan', 'yolo'])
+        expect(isPermissionModeAllowedForFlavor('default', 'minimax')).toBe(true)
+        expect(isPermissionModeAllowedForFlavor('auto', 'minimax')).toBe(true)
+        expect(isPermissionModeAllowedForFlavor('plan', 'minimax')).toBe(true)
+        expect(isPermissionModeAllowedForFlavor('yolo', 'minimax')).toBe(true)
+        expect(isPermissionModeAllowedForFlavor('bypassPermissions', 'minimax')).toBe(false)
+        expect(isPermissionModeAllowedForFlavor('acceptEdits', 'minimax')).toBe(false)
+    })
+})
+
 describe('isSteeringSupportedForFlavor', () => {
     it('supports codex, cursor and pi', () => {
         expect(isSteeringSupportedForFlavor('codex')).toBe(true)

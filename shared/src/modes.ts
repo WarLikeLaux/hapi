@@ -7,7 +7,7 @@ import { z } from 'zod'
  */
 export const AGENT_MESSAGE_PAYLOAD_TYPE = 'codex' as const
 
-export const AGENT_FLAVORS = ['agy', 'claude', 'codex', 'dsh', 'copilot', 'cursor', 'gemini', 'grok', 'kimi', 'opencode', 'pi'] as const
+export const AGENT_FLAVORS = ['agy', 'claude', 'codex', 'dsh', 'copilot', 'cursor', 'gemini', 'grok', 'kimi', 'minimax', 'opencode', 'pi'] as const
 export type AgentFlavor = typeof AGENT_FLAVORS[number]
 export const AgentFlavorSchema = z.enum(AGENT_FLAVORS)
 
@@ -36,6 +36,9 @@ export type GeminiPermissionMode = typeof GEMINI_PERMISSION_MODES[number]
 
 export const KIMI_PERMISSION_MODES = ['default', 'read-only', 'safe-yolo', 'yolo'] as const
 export type KimiPermissionMode = typeof KIMI_PERMISSION_MODES[number]
+
+export const MINIMAX_PERMISSION_MODES = ['default', 'auto', 'plan', 'yolo'] as const
+export type MinimaxPermissionMode = typeof MINIMAX_PERMISSION_MODES[number]
 
 export const COPILOT_PERMISSION_MODES = ['default', 'read-only', 'safe-yolo', 'yolo'] as const
 export type CopilotPermissionMode = typeof COPILOT_PERMISSION_MODES[number]
@@ -138,6 +141,9 @@ export function getPermissionModesForFlavor(flavor?: string | null): readonly Pe
     }
     if (flavor === 'kimi') {
         return KIMI_PERMISSION_MODES
+    }
+    if (flavor === 'minimax') {
+        return MINIMAX_PERMISSION_MODES
     }
     if (flavor === 'dsh') {
         return []

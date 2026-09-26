@@ -9,6 +9,7 @@ import GeminiColor from '@lobehub/icons/es/Gemini/components/Color'
 import GlmvMono from '@lobehub/icons/es/GLMV/components/Mono'
 import GrokMono from '@lobehub/icons/es/Grok/components/Mono'
 import KimiMono from '@lobehub/icons/es/Kimi/components/Mono'
+import MinimaxMono from '@lobehub/icons/es/Minimax/components/Mono'
 import OpenAIMono from '@lobehub/icons/es/OpenAI/components/Mono'
 import OpenCodeMono from '@lobehub/icons/es/OpenCode/components/Mono'
 import type { IconType } from '@lobehub/icons/es/types'
@@ -29,6 +30,7 @@ const FLAVOR_LOGOS: Record<string, IconType> = {
     gemini: GeminiColor,
     grok: GrokMono,
     kimi: KimiMono,
+    minimax: MinimaxMono,
     opencode: OpenCodeMono,
 }
 

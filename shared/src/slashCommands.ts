@@ -75,6 +75,10 @@ export const BUILTIN_SLASH_COMMANDS = {
         { name: 'usage', description: 'Show session usage metrics', source: 'builtin' },
     ],
     kimi: [],
+    // MiniMax Code surfaces its slash commands over ACP
+    // (available_commands_update); HAPI forwards plain-text prompts and
+    // keeps no builtin catalog of its own for this flavor.
+    minimax: [],
     // Pi runs `pi --mode rpc` over stdio; only commands HAPI can translate
     // to Pi RPC calls are listed. Terminal-only Pi builtins (e.g. /tree,
     // /export, /reload) are intercepted with an explicit "not supported"

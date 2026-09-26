@@ -15,6 +15,7 @@ const DEFAULT_COMMANDS: Record<AgentFlavor, string> = {
     gemini: 'gemini',
     grok: 'grok',
     kimi: 'kimi',
+    minimax: 'mcode',
     opencode: 'opencode',
     pi: 'pi',
 }

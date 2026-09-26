@@ -59,6 +59,11 @@ describe('hasCapability', () => {
         expect(hasCapability('kimi', Capabilities.Effort)).toBe(false)
     })
 
+    test('minimax supports model-change but not effort', () => {
+        expect(hasCapability('minimax', Capabilities.ModelChange)).toBe(true)
+        expect(hasCapability('minimax', Capabilities.Effort)).toBe(false)
+    })
+
     test('copilot supports model-change but not effort', () => {
         expect(hasCapability('copilot', Capabilities.ModelChange)).toBe(true)
         expect(hasCapability('copilot', Capabilities.Effort)).toBe(false)
@@ -90,6 +95,7 @@ describe('getFlavorLabel', () => {
         expect(getFlavorLabel('opencode')).toBe('OpenCode')
         expect(getFlavorLabel('pi')).toBe('Pi')
         expect(getFlavorLabel('kimi')).toBe('Kimi')
+        expect(getFlavorLabel('minimax')).toBe('MiniMax Code')
         expect(getFlavorLabel('copilot')).toBe('Copilot')
         expect(getFlavorLabel('grok')).toBe('Grok Build')
     })

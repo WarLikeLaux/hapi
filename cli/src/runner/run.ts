@@ -2039,6 +2039,8 @@ export function buildCliArgs(
         ? 'grok'
         : agent === 'kimi'
           ? 'kimi'
+          : agent === 'minimax'
+            ? 'minimax'
           : agent === 'copilot'
             ? 'copilot'
             : agent === 'opencode'

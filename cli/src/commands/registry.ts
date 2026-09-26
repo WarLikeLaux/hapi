@@ -10,6 +10,7 @@ import { runnerCommand } from './runner'
 import { resumeCommand } from './resume'
 import { doctorCommand } from './doctor'
 import { kimiCommand } from './kimi'
+import { minimaxCommand } from './minimax'
 import { copilotCommand } from './copilot'
 import { grokCommand } from './grok'
 import { opencodeCommand } from './opencode'
@@ -50,6 +51,7 @@ const COMMANDS: CommandDefinition[] = [
     removedGeminiCommand,
     grokCommand,
     kimiCommand,
+    minimaxCommand,
     copilotCommand,
     opencodeCommand,
     piCommand,
