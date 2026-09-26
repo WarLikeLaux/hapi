@@ -1593,6 +1593,13 @@ export function SessionList(props: {
         () => getUnreadSessionCount(readableSessions),
         [lastSeenVersion, readableSessions]
     )
+    // Working sessions churn out activity while they run, matching the tabs and
+    // agents nav: they alone must not summon the bulk action. The action itself
+    // still clears them — it keeps marking every readable session below.
+    const actionableUnreadSessionCount = useMemo(
+        () => getUnreadSessionCount(readableSessions.filter((session) => !isWorkingSession(session))),
+        [lastSeenVersion, readableSessions]
+    )
     const sessionActivityDates = useMemo(
         () => new Set(sidebarSessions.map(session => formatDateValue(new Date(session.updatedAt)))),
         [sidebarSessions]
@@ -2386,7 +2393,7 @@ export function SessionList(props: {
                                     onChange={setMachineFilter}
                                 />
                             ) : null}
-                            {unreadSessionCount > 0 ? (
+                            {actionableUnreadSessionCount > 0 ? (
                                 <button
                                     type="button"
                                     onClick={() => setMarkAllReadOpen(true)}
