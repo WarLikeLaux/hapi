@@ -125,6 +125,32 @@ describe('SessionList mark all as read', () => {
         expect(screen.queryByRole('dialog')).toBeNull()
     })
 
+    it('stays hidden while only working sessions are unread', () => {
+        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({
+            thinking: 1000,
+            background: 1000,
+        }))
+        renderSessionList([
+            makeSession({ id: 'thinking', active: true, thinking: true, updatedAt: 2000, metadata: { path: '/work/thinking', name: 'Thinking' } }),
+            makeSession({ id: 'background', active: true, backgroundTaskCount: 2, updatedAt: 2000, metadata: { path: '/work/background', name: 'Background' } }),
+        ])
+
+        expect(screen.queryByRole('button', { name: 'Mark all as read (2)' })).toBeNull()
+    })
+
+    it('appears once an idle session is unread and counts working ones in the total', () => {
+        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({
+            working: 1000,
+            idle: 1000,
+        }))
+        renderSessionList([
+            makeSession({ id: 'working', active: true, thinking: true, updatedAt: 2000, metadata: { path: '/work/working', name: 'Working' } }),
+            makeSession({ id: 'idle', updatedAt: 2000, metadata: { path: '/work/idle', name: 'Idle' } }),
+        ])
+
+        expect(screen.getByRole('button', { name: 'Mark all as read (2)' })).toBeTruthy()
+    })
+
     it('marks active and working sessions read too', async () => {
         localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({
             active: 1000,
