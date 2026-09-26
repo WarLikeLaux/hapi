@@ -235,7 +235,10 @@ describe.skipIf(process.env.HAPI_RUN_SHARED_CODEX_TESTS !== '1' || process.platf
             await eventually(() => api(`/sessions/${sessionId}/messages`), value => JSON.stringify(value).includes('CodexBash'), 'tool call persisted for Web reload');
             const secondOutput = output.length;
             const second = openTerminal(['resume', sessionId]);
-            await eventually(async () => output.slice(secondOutput), text => text.includes('HELLO_SHARED'), 'secondary attach to terminal-owned engine');
+            // The resumed TUI renders the last page of the shared transcript, so
+            // early messages (HELLO_SHARED) scroll above the 42-row PTY. Match
+            // the newest phase marker that stays within the visible screen.
+            await eventually(async () => output.slice(secondOutput), text => text.includes('CHECK_ROOT_ENV'), 'secondary attach to terminal-owned engine');
             second.stdin.write('/exit'); await new Promise(resolve => setTimeout(resolve, 150)); second.stdin.write('\r');
             await eventually(async () => second.exitCode, value => value !== null, 'secondary detach');
             expect(record((await detail()).session).active).toBe(true); expect(isProcessAlive(Number(runtime.serverPid))).toBe(true);
