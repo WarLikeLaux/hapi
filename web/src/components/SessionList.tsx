@@ -2353,7 +2353,7 @@ export function SessionList(props: {
         <div className="flex min-h-0 w-full flex-1 flex-col">
             <div className="session-list-scrollbar-offset mx-auto w-full max-w-content shrink-0">
             {showHeaderRow ? (
-                <div className="flex items-center gap-1 px-2 py-1">
+                <div className="flex items-center gap-1 pl-4 pr-2 py-1">
                     {showSearch ? (
                         <SessionListSearch
                             value={searchQuery}
