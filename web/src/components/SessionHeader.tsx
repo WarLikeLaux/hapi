@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import { useIsMutating, useQueryClient } from '@tanstack/react-query'
 import type { Session } from '@/types/api'
 import type { ApiClient } from '@/api/client'
@@ -34,6 +34,16 @@ import { markSessionUnread } from '@/lib/sessionLastSeen'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useNavigate } from '@tanstack/react-router'
 import { useSessionGitBranch, useSessionGitLabCreateMergeRequestUrl } from '@/hooks/queries/useSessionGitBranch'
+
+export function buildDifitOpenUrl(session: Session, branch: string | null): string {
+    const url = new URL('/open', import.meta.env.VITE_DIFIT_HUB_URL || 'https://difit.local')
+    if (session.metadata?.path) url.searchParams.set('repo', session.metadata.path)
+    if (branch && branch !== 'detached HEAD' && !branch.startsWith('detached@')) {
+        url.searchParams.set('branch', branch)
+    }
+    url.searchParams.set('hapiSessionId', session.id)
+    return url.toString()
+}
 
 /** Same preference order as session-list chips: display label → host → short id. */
 export function resolveSessionHeaderMachineLabel(
@@ -215,7 +225,7 @@ export function SessionHeader(props: {
     const worktreeBranch = session.metadata?.worktree?.branch?.trim() || null
     const { preferences: headerMetadata } = useSessionHeaderMetadata()
     const gitBranchScope = `${session.metadata?.machineId ?? session.id}:${session.metadata?.path ?? session.id}`
-    const liveGitBranch = useSessionGitBranch(api, session.id, session.active, headerMetadata.branch, gitBranchScope)
+    const liveGitBranch = useSessionGitBranch(api, session.id, session.active, Boolean(api), gitBranchScope)
     const createMergeRequestUrl = useSessionGitLabCreateMergeRequestUrl(
         api,
         session.id,
@@ -223,8 +233,11 @@ export function SessionHeader(props: {
         Boolean(api),
         gitBranchScope
     )
-    const gitBranch = liveGitBranch ?? worktreeBranch
-    const difitReviewUrl = session.metadata?.difitReview?.url ?? null
+    const attachedBranch = session.metadata?.difitReview?.branch ?? null
+    const gitBranch = session.active
+        ? liveGitBranch ?? worktreeBranch ?? attachedBranch
+        : worktreeBranch ?? attachedBranch ?? liveGitBranch
+    const difitOpenUrl = buildDifitOpenUrl(session, gitBranch)
     const externalReviewUrl = session.metadata?.difitReview?.reviewUrl ?? null
     const modelLabel = getSessionModelLabel(session)
     const isModelChanging = useIsMutating({
@@ -290,7 +303,6 @@ export function SessionHeader(props: {
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [isSyncingCodex, setIsSyncingCodex] = useState(false)
     const [isSyncingPi, setIsSyncingPi] = useState(false)
-    const [isManagingDifit, setIsManagingDifit] = useState(false)
     const [isRegeneratingTitle, setIsRegeneratingTitle] = useState(false)
     const hubContextSync = useSessionContextHubSync()
     const { setSessionContextOverride, contextOptions } = useSessionContextFilter(hubContextSync)
@@ -455,33 +467,6 @@ export function SessionHeader(props: {
         }
     }
 
-    const handleManageDifit = async () => {
-        if (!api || !session.active || isManagingDifit) return
-
-        setIsManagingDifit(true)
-        try {
-            const restarting = Boolean(difitReviewUrl)
-            const result = await api.manageDifit(session.id, restarting ? 'restart' : 'start')
-            if (!result.success) throw new Error(result.error || t('session.action.difitFailed'))
-            await queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
-            addToast({
-                title: t(restarting ? 'session.action.restartDifitDone' : 'session.action.startDifitDone'),
-                body: t('session.action.difitDoneBody'),
-                sessionId: session.id,
-                url: `/sessions/${session.id}`
-            })
-        } catch (error) {
-            addToast({
-                title: t('session.action.difitFailed'),
-                body: error instanceof Error ? error.message : t('dialog.error.default'),
-                sessionId: session.id,
-                url: `/sessions/${session.id}`
-            })
-        } finally {
-            setIsManagingDifit(false)
-        }
-    }
-
     const handleMenuToggle = () => {
         if (!menuOpen && menuAnchorRef.current) {
             const rect = menuAnchorRef.current.getBoundingClientRect()
@@ -629,19 +614,17 @@ export function SessionHeader(props: {
                         </button>
                     ) : null}
 
-                    {!isTouch && difitReviewUrl ? (
-                        <a
-                            href={difitReviewUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={headerToggleClass(false)}
-                            title={t('session.action.openDifit')}
-                            aria-label={t('session.action.openDifit')}
-                            data-testid="session-header-open-difit"
-                        >
-                            <DifitIcon />
-                        </a>
-                    ) : null}
+                    <a
+                        href={difitOpenUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={headerToggleClass(false)}
+                        title={t('session.action.openDifit')}
+                        aria-label={t('session.action.openDifit')}
+                        data-testid="session-header-open-difit"
+                    >
+                        <DifitIcon />
+                    </a>
 
                     {!isTouch && externalReviewUrl ? (
                         <a
@@ -693,10 +676,7 @@ export function SessionHeader(props: {
                 onSyncCodex={api && codexSessionId && !session.active ? handleSyncCodex : undefined}
                 onSyncPi={api && piSessionId && !session.active ? handleSyncPi : undefined}
                 externalReviewUrl={externalReviewUrl}
-                difitAttached={Boolean(difitReviewUrl)}
-                onManageDifit={api && session.active && !isManagingDifit
-                    ? () => void handleManageDifit()
-                    : undefined}
+                difitOpenUrl={difitOpenUrl}
                 createExternalReviewUrl={!externalReviewUrl ? createMergeRequestUrl : null}
                 onContinueInFolder={() => navigate({
                     to: '/browse',

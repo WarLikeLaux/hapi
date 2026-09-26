@@ -6,7 +6,7 @@ import type { ApiClient } from '@/api/client'
 import { I18nProvider } from '@/lib/i18n-context'
 import { AppContextTestProvider } from '@/test/app-context'
 import { ToastProvider, useToast } from '@/lib/toast-context'
-import { resolveSessionHeaderMachineLabel, SessionHeader } from './SessionHeader'
+import { buildDifitOpenUrl, resolveSessionHeaderMachineLabel, SessionHeader } from './SessionHeader'
 
 afterEach(() => {
     cleanup()
@@ -100,7 +100,7 @@ describe('resolveSessionHeaderMachineLabel', () => {
 })
 
 describe('SessionHeader', () => {
-    it('shows a direct desktop link for an attached DIFIT review', () => {
+    it('shows a direct desktop link to DIFIT for an attached review', () => {
         renderHeader(baseSession({
             metadata: {
                 flavor: 'codex',
@@ -117,7 +117,7 @@ describe('SessionHeader', () => {
         }))
 
         const link = screen.getByRole('link', { name: 'Open in DIFIT' })
-        expect(link).toHaveAttribute('href', 'https://difit.local/reviews/review-1/')
+        expect(link).toHaveAttribute('href', 'https://difit.local/open?repo=%2Frepo&branch=feature%2Freview&hapiSessionId=session-1')
         expect(link).toHaveAttribute('target', '_blank')
         expect(link).toHaveAttribute('rel', 'noopener noreferrer')
 
@@ -130,61 +130,37 @@ describe('SessionHeader', () => {
         expect(reviewLink).toHaveAttribute('rel', 'noopener noreferrer')
     })
 
-    it('does not reserve header space when no DIFIT review is attached', () => {
+    it('keeps the DIFIT button visible when no review is attached', () => {
         renderHeader(baseSession())
-        expect(screen.queryByRole('link', { name: 'Open in DIFIT' })).not.toBeInTheDocument()
+        expect(screen.getByRole('link', { name: 'Open in DIFIT' })).toHaveAttribute(
+            'href', 'https://difit.local/open?repo=%2Frepo&hapiSessionId=session-1'
+        )
         expect(screen.queryByRole('link', { name: 'Open PR' })).not.toBeInTheDocument()
     })
 
-    it('starts a new DIFIT review directly without messaging the agent', async () => {
-        const sendMessage = vi.fn()
-        const manageDifit = vi.fn().mockResolvedValue({
-            success: true,
-            reviewId: 'review-1',
-            url: 'https://difit.example.test/reviews/review-1/'
-        })
-        const api = {
-            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
-            getScratchlist: vi.fn().mockResolvedValue({ entries: [] }),
-            manageDifit,
-            sendMessage,
-        } as unknown as ApiClient
-
-        render(
-            <AppContextTestProvider>
-            <QueryClientProvider client={new QueryClient()}>
-                <ToastProvider>
-                    <I18nProvider>
-                        <SessionHeader session={baseSession()} onBack={vi.fn()} api={api} />
-                        <ToastMessages />
-                    </I18nProvider>
-                </ToastProvider>
-            </QueryClientProvider>
-            </AppContextTestProvider>
-        )
-
+    it('shows the same DIFIT action in the menu for a new session', () => {
+        renderHeader(baseSession())
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Start DIFIT' }))
-
-        await waitFor(() => expect(manageDifit).toHaveBeenCalledWith('session-1', 'start'))
-        expect(sendMessage).not.toHaveBeenCalled()
-        expect(await screen.findByText(/DIFIT started/)).toBeInTheDocument()
+        expect(screen.getByRole('menuitem', { name: /DIFIT/ })).toHaveAttribute(
+            'href', 'https://difit.local/open?repo=%2Frepo&hapiSessionId=session-1'
+        )
     })
 
-    it('restarts the attached DIFIT review directly without messaging the agent', async () => {
-        const sendMessage = vi.fn()
-        const manageDifit = vi.fn().mockResolvedValue({
-            success: true,
-            reviewId: 'review-1',
-            url: 'https://difit.example.test/reviews/review-1/'
+    it('sends repository, branch and HAPI session id without a review id', () => {
+        const url = new URL(buildDifitOpenUrl(baseSession({
+            metadata: { flavor: 'codex', path: '/repo with spaces', host: 'machine' },
+        }), 'feature/review'))
+        expect(url.pathname).toBe('/open')
+        expect(Object.fromEntries(url.searchParams)).toEqual({
+            repo: '/repo with spaces',
+            branch: 'feature/review',
+            hapiSessionId: 'session-1',
         })
-        const api = {
-            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
-            getScratchlist: vi.fn().mockResolvedValue({ entries: [] }),
-            manageDifit,
-            sendMessage,
-        } as unknown as ApiClient
+    })
+
+    it('routes an inactive session through DIFIT even with an attached review', () => {
         const session = baseSession({
+            active: false,
             metadata: {
                 flavor: 'codex',
                 path: '/repo',
@@ -197,23 +173,12 @@ describe('SessionHeader', () => {
             },
         })
 
-        render(
-            <AppContextTestProvider>
-            <QueryClientProvider client={new QueryClient()}>
-                <ToastProvider>
-                    <I18nProvider>
-                        <SessionHeader session={session} onBack={vi.fn()} api={api} />
-                    </I18nProvider>
-                </ToastProvider>
-            </QueryClientProvider>
-            </AppContextTestProvider>
-        )
-
+        renderHeader(session)
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Restart DIFIT' }))
-
-        await waitFor(() => expect(manageDifit).toHaveBeenCalledWith('session-1', 'restart'))
-        expect(sendMessage).not.toHaveBeenCalled()
+        const link = screen.getByRole('menuitem', { name: 'Open in DIFIT' })
+        expect(link).toHaveAttribute('href', 'https://difit.local/open?repo=%2Frepo&hapiSessionId=session-1')
+        expect(link).toHaveAttribute('target', '_blank')
+        expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     })
 
     it('links directly to GitLab merge request creation without messaging the agent', async () => {
