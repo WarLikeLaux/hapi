@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useIsMutating, useQueryClient } from '@tanstack/react-query'
 import type { Session } from '@/types/api'
 import type { ApiClient } from '@/api/client'
@@ -223,6 +223,55 @@ export function SessionHeader(props: {
     const { addToast } = useToast()
     const { session, api, onSessionDeleted, onSessionReopened } = props
     const title = useMemo(() => getSessionTitle(session), [session])
+    // When the action buttons do not fit next to the title they wrap to
+    // the line below; on that wrapped line the model/agent summary must
+    // sit next to the buttons instead of under the title. Line wrapping
+    // is not observable in CSS, so compare natural widths: title text +
+    // back button + action buttons vs the row width. Measuring natural
+    // sizes instead of rendered positions keeps the result independent
+    // of the current summary placement, otherwise the state would feed
+    // back into its own measurement and oscillate.
+    const mobileRowRef = useRef<HTMLDivElement | null>(null)
+    const mobileTitleRef = useRef<HTMLButtonElement | null>(null)
+    const mobileBackRef = useRef<HTMLButtonElement | null>(null)
+    const mobileButtonsRef = useRef<HTMLDivElement | null>(null)
+    const [actionsWrapped, setActionsWrapped] = useState(false)
+    useEffect(() => {
+        const rowEl = mobileRowRef.current
+        const titleEl = mobileTitleRef.current
+        const backEl = mobileBackRef.current
+        const buttonsEl = mobileButtonsRef.current
+        if (!rowEl || !titleEl || !backEl || !buttonsEl) return
+        if (window.matchMedia('(min-width: 640px)').matches) {
+            setActionsWrapped(false)
+            return
+        }
+        const update = () => {
+            // Without layout information (tests) fall back to the short
+            // title layout instead of assuming a wrap. The title text
+            // width comes from a Range over its contents: the button
+            // itself is flex-1, so its box tracks the layout the state
+            // controls and would feed the measurement back into itself.
+            const rowWidth = rowEl.clientWidth
+            if (rowWidth <= 0) {
+                setActionsWrapped(false)
+                return
+            }
+            const range = document.createRange()
+            range.selectNodeContents(titleEl)
+            const titleWidth = range.getBoundingClientRect().width
+            setActionsWrapped(
+                backEl.offsetWidth + 8 + titleWidth + 8 + buttonsEl.scrollWidth > rowWidth + 1
+            )
+        }
+        update()
+        if (typeof ResizeObserver === 'undefined') return
+        const observer = new ResizeObserver(update)
+        observer.observe(rowEl)
+        observer.observe(titleEl)
+        observer.observe(buttonsEl)
+        return () => observer.disconnect()
+    }, [title])
     const worktreeBranch = session.metadata?.worktree?.branch?.trim() || null
     const { preferences: headerMetadata } = useSessionHeaderMetadata()
     const gitBranchScope = `${session.metadata?.machineId ?? session.id}:${session.metadata?.path ?? session.id}`
@@ -488,6 +537,23 @@ export function SessionHeader(props: {
         setMenuOpen((open) => !open)
     }
 
+    // "under-title": full-width line inside the title group, indented to the
+    // title text (short title case). "inline": leading grow item of the
+    // wrapped action row so model and buttons share one level (long title).
+    const renderMobileSummary = (layout: 'under-title' | 'inline') => (mobileSummary ? (
+        <button
+            type="button"
+            data-testid="session-header-mobile-summary"
+            className={`ml-10 flex min-w-0 items-center gap-1 overflow-hidden rounded text-left text-xs text-[var(--app-hint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden ${layout === 'under-title' ? 'w-full' : 'flex-1'}`}
+            aria-haspopup="dialog"
+            onClick={() => setDetailsOpen(true)}
+        >
+            {headerMetadata.agent && agentLabel ? <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" /> : null}
+            <span data-testid={showMobileModel ? 'session-header-mobile-model' : undefined} className="truncate">{mobileSummary}</span>
+            {showMobileModel && isModelChanging ? <ModelChangingStatus /> : null}
+        </button>
+    ) : null)
+
     // In Telegram, don't render header (Telegram provides its own)
     if (isTelegramApp()) {
         return null
@@ -496,12 +562,20 @@ export function SessionHeader(props: {
     return (
         <>
             <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
-                <div className="mx-auto grid w-full max-w-content grid-cols-[2rem_minmax(0,1fr)_auto] grid-rows-[auto_auto] items-center gap-x-2 p-3 sm:flex sm:gap-2">
+                <div className="mx-auto w-full max-w-content p-3">
+                {/* Title group wraps internally: while the right-aligned
+                    action buttons fit on the top line the model/agent
+                    summary sits under the title text; once the buttons
+                    wrap below, the summary joins them there, model left,
+                    buttons right. */}
+                <div ref={mobileRowRef} className="flex flex-wrap items-center gap-x-2 gap-y-0 sm:gap-2">
+                    <div className="flex min-w-0 flex-[1_1_max-content] flex-wrap items-center gap-x-2 gap-y-0 sm:flex-1">
                     {/* Back button */}
                     <button
                         type="button"
+                        ref={mobileBackRef}
                         onClick={props.onBack}
-                        className="col-start-1 row-start-1 flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -520,26 +594,14 @@ export function SessionHeader(props: {
 
                     <button
                         type="button"
+                        ref={mobileTitleRef}
                         data-testid="session-header-mobile-details"
-                        className="col-start-2 col-end-4 row-start-1 block min-w-0 truncate rounded text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
+                        className="block min-w-0 flex-1 truncate rounded text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
                         aria-haspopup="dialog"
                         onClick={() => setDetailsOpen(true)}
                     >
                         {title}
                     </button>
-                    {mobileSummary ? (
-                        <button
-                            type="button"
-                            data-testid="session-header-mobile-summary"
-                            className="col-start-2 row-start-2 flex min-w-0 items-center gap-1 overflow-hidden rounded text-left text-xs text-[var(--app-hint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
-                            aria-haspopup="dialog"
-                            onClick={() => setDetailsOpen(true)}
-                        >
-                            {headerMetadata.agent && agentLabel ? <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" /> : null}
-                            <span data-testid={showMobileModel ? 'session-header-mobile-model' : undefined} className="truncate">{mobileSummary}</span>
-                            {showMobileModel && isModelChanging ? <ModelChangingStatus /> : null}
-                        </button>
-                    ) : null}
                     <div className="hidden min-w-0 flex-1 sm:block">
                         <div className="truncate font-semibold">{title}</div>
                         <div className="hidden flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--app-hint)] sm:flex">
@@ -588,7 +650,19 @@ export function SessionHeader(props: {
                         </div>
                     </div>
 
-                    <div data-testid="session-header-mobile-actions" className="col-start-3 row-start-2 flex items-center gap-2 sm:contents">
+                    {/* The model/agent summary lives inside the title group on
+                        its own full-width line, indented to the title text,
+                        until the action buttons wrap and it joins their row
+                        instead (see the wrap check above). */}
+                    {!actionsWrapped ? renderMobileSummary('under-title') : null}
+                    </div>
+
+                    <div data-testid="session-header-mobile-actions" className={`flex items-center gap-2 sm:contents ${actionsWrapped ? 'min-w-0 flex-[1_1_100%] justify-end' : 'ml-auto shrink-0'}`}>
+                        {actionsWrapped ? renderMobileSummary('inline') : null}
+                        {/* Wrapper exists so the natural button width can be
+                            measured for the wrap check above; sm:contents
+                            keeps the desktop row layout flat. */}
+                        <div ref={mobileButtonsRef} className="flex items-center gap-2 sm:contents">
                         {props.onToggleFiles ? (
                             <button
                                 type="button"
@@ -667,7 +741,9 @@ export function SessionHeader(props: {
                         >
                             <MoreVerticalIcon />
                         </button>
+                        </div>
                     </div>
+                </div>
                 </div>
             </div>
 

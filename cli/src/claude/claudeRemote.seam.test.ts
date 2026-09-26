@@ -112,4 +112,61 @@ describe('claudeRemote/query real seam', () => {
         await expect(runPromise).rejects.toThrow('next message failed')
         expect(received.map((message) => message.type)).toEqual(['assistant', 'result'])
     }, 15_000)
+
+    it('reports the model resolved by the SDK init message', async () => {
+        const child = createFakeChild()
+        spawnMock.mockReturnValueOnce(child)
+        process.env.HAPI_CLAUDE_PATH = 'claude'
+        const { claudeRemote } = await import('./claudeRemote')
+
+        const models: string[] = []
+        let nextCallCount = 0
+
+        const runPromise = claudeRemote({
+            sessionId: 'session-1',
+            path: process.cwd(),
+            mcpServers: {},
+            claudeEnvVars: {},
+            claudeArgs: [],
+            allowedTools: [],
+            hookSettingsPath: '/tmp/hook.json',
+            canCallTool: async () => ({ behavior: 'allow', updatedInput: {} }),
+            nextMessage: async () => {
+                nextCallCount += 1
+                if (nextCallCount === 1) {
+                    return { message: 'A', mode: { permissionMode: 'default' } }
+                }
+                throw new Error('next message failed')
+            },
+            onReady: () => {},
+            isAborted: () => false,
+            onSessionFound: () => {},
+            onModelFound: (model) => {
+                models.push(model)
+            },
+            onMessage: () => {},
+            onCompletionEvent: () => {},
+            onSessionReset: () => {}
+        })
+
+        child.stdout.write(JSON.stringify({
+            type: 'system',
+            subtype: 'init',
+            session_id: 's-1',
+            model: 'claude-opus-4-6'
+        }) + '\n')
+        child.stdout.write(JSON.stringify({
+            type: 'result',
+            subtype: 'success',
+            num_turns: 1,
+            total_cost_usd: 0,
+            duration_ms: 1,
+            duration_api_ms: 1,
+            is_error: false,
+            session_id: 's-1'
+        }) + '\n')
+
+        await expect(runPromise).rejects.toThrow('next message failed')
+        expect(models).toEqual(['claude-opus-4-6'])
+    }, 15_000)
 })

@@ -35,6 +35,7 @@ export async function claudeRemote(opts: {
 
     // Callbacks
     onSessionFound: (id: string, extras?: { forkedFrom?: string }) => void,
+    onModelFound?: (model: string) => void,
     onThinkingChange?: (thinking: boolean) => void,
     onMessage: (message: SDKMessage) => void,
     onFirstResult?: (initialMessage: string) => void,
@@ -317,6 +318,13 @@ export async function claudeRemote(opts: {
                 updateThinking(true);
 
                 const systemInit = message as SDKSystemMessage;
+
+                // The init message carries the model Claude actually resolved
+                // for this turn, including the account default when no model
+                // was ever picked, so the hub can show the real model name.
+                if (systemInit.model) {
+                    opts.onModelFound?.(systemInit.model);
+                }
 
                 // Session id is still in memory, wait until session file is written to disk
                 // Start a watcher for to detect the session id
