@@ -1543,11 +1543,18 @@ export function SessionList(props: {
         const path = getSessionProjectDirectory(session)
         return projectDisplayNames.get(path) ?? getPathDisplayName(path)
     }
-    const bulkReadSessions = useMemo(
-        () => props.sessions.filter(session =>
-            !session.active && shouldShowSessionInSidebar(session, selectedSessionId)
-        ),
+    const readableSessions = useMemo(
+        () => props.sessions.filter(session => shouldShowSessionInSidebar(session, selectedSessionId)),
         [props.sessions, selectedSessionId]
+    )
+    // Bulk "mark all as read" skips active (working) sessions on purpose: the
+    // user asked for their unread dots to survive the bulk action. That filter
+    // applies to the ACTION only — the button itself must stay visible
+    // whenever anything is unread, otherwise it disappears exactly when only
+    // working sessions are unread.
+    const bulkReadSessions = useMemo(
+        () => readableSessions.filter(session => !session.active),
+        [readableSessions]
     )
     const hubContextSync = useSessionContextHubSync()
 
@@ -1589,6 +1596,12 @@ export function SessionList(props: {
         [contextFilteredSessions, selectedSessionId, showActiveSessionsOnly]
     )
     const unreadSessionCount = useMemo(
+        () => getUnreadSessionCount(readableSessions),
+        [lastSeenVersion, readableSessions]
+    )
+    // What the bulk action will actually mark — the dialog says this number,
+    // while the button shows the total unread count.
+    const markableUnreadCount = useMemo(
         () => getUnreadSessionCount(bulkReadSessions),
         [lastSeenVersion, bulkReadSessions]
     )
@@ -2631,7 +2644,7 @@ export function SessionList(props: {
                 isOpen={markAllReadOpen}
                 onClose={() => setMarkAllReadOpen(false)}
                 title={t('sessions.markAllRead.title')}
-                description={t('sessions.markAllRead.description', { count: unreadSessionCount })}
+                description={t('sessions.markAllRead.description', { count: markableUnreadCount })}
                 confirmLabel={t('sessions.markAllRead.confirm')}
                 confirmingLabel={t('sessions.markAllRead.confirming')}
                 onConfirm={async () => {

@@ -169,7 +169,7 @@ describe('NotificationHub', () => {
         hub.stop()
     })
 
-    it('suppresses ready notifications while background tasks are running', async () => {
+    it('sends ready notifications even while background tasks are running', async () => {
         const engine = new FakeSyncEngine()
         const channel = new StubChannel()
         const hub = new NotificationHub(engine as unknown as SyncEngine, [channel], {
@@ -199,15 +199,14 @@ describe('NotificationHub', () => {
             }
         }
 
-        // Main turn ended while two background tasks are still outstanding:
-        // no "ready" push, and the cooldown budget is not consumed.
+        // A backgroundTaskCount above zero used to gate ready notifications,
+        // but the counter can stick (shell outlives the turn, completion
+        // never reaches the hub) and would silence the session forever. The
+        // turn-end ready must always announce; only the cooldown throttles.
         engine.emit(readyEvent)
         await sleep(5)
-        expect(channel.readySessions).toHaveLength(0)
+        expect(channel.readySessions).toHaveLength(1)
 
-        // Final task completed (counter zeroed by its task-notification), the
-        // settling turn emitted its ready: announce once.
-        session.backgroundTaskCount = 0
         engine.emit(readyEvent)
         await sleep(5)
         expect(channel.readySessions).toHaveLength(1)
