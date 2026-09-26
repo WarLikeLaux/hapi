@@ -1543,18 +1543,12 @@ export function SessionList(props: {
         const path = getSessionProjectDirectory(session)
         return projectDisplayNames.get(path) ?? getPathDisplayName(path)
     }
+    // Every session visible in the sidebar counts, active (working) ones
+    // included: "mark all as read" must clear every unread dot on the list,
+    // and the button must never disappear while any unread session exists.
     const readableSessions = useMemo(
         () => props.sessions.filter(session => shouldShowSessionInSidebar(session, selectedSessionId)),
         [props.sessions, selectedSessionId]
-    )
-    // Bulk "mark all as read" skips active (working) sessions on purpose: the
-    // user asked for their unread dots to survive the bulk action. That filter
-    // applies to the ACTION only — the button itself must stay visible
-    // whenever anything is unread, otherwise it disappears exactly when only
-    // working sessions are unread.
-    const bulkReadSessions = useMemo(
-        () => readableSessions.filter(session => !session.active),
-        [readableSessions]
     )
     const hubContextSync = useSessionContextHubSync()
 
@@ -1598,12 +1592,6 @@ export function SessionList(props: {
     const unreadSessionCount = useMemo(
         () => getUnreadSessionCount(readableSessions),
         [lastSeenVersion, readableSessions]
-    )
-    // What the bulk action will actually mark — the dialog says this number,
-    // while the button shows the total unread count.
-    const markableUnreadCount = useMemo(
-        () => getUnreadSessionCount(bulkReadSessions),
-        [lastSeenVersion, bulkReadSessions]
     )
     const sessionActivityDates = useMemo(
         () => new Set(sidebarSessions.map(session => formatDateValue(new Date(session.updatedAt)))),
@@ -2644,11 +2632,11 @@ export function SessionList(props: {
                 isOpen={markAllReadOpen}
                 onClose={() => setMarkAllReadOpen(false)}
                 title={t('sessions.markAllRead.title')}
-                description={t('sessions.markAllRead.description', { count: markableUnreadCount })}
+                description={t('sessions.markAllRead.description', { count: unreadSessionCount })}
                 confirmLabel={t('sessions.markAllRead.confirm')}
                 confirmingLabel={t('sessions.markAllRead.confirming')}
                 onConfirm={async () => {
-                    markAllSessionsSeen(bulkReadSessions)
+                    markAllSessionsSeen(readableSessions)
                 }}
                 isPending={false}
                 centerTitle
