@@ -29,6 +29,11 @@ class MockSession {
     sendSessionEvent(body: unknown) { this.messages.push(body); }
     emitMessagesConsumed(ids: string[]) { this.consumed.push(...ids); }
     emitSteerIndeterminate() {} keepAlive() {} emitSessionReady() {}
+    hubArchived = false;
+    private readonly events = new Map<string, Array<() => void>>();
+    on(event: string, listener: () => void) { const listeners = this.events.get(event) ?? []; listeners.push(listener); this.events.set(event, listeners); }
+    /** Mirrors ApiSessionClient.noteHubArchived (#1911). */
+    noteHubArchived() { this.hubArchived = true; for (const listener of this.events.get('hub-archived') ?? []) listener(); }
     async setSteerDeliveryState() { return true; }
     syncNativeQueuedMessage() {}
     sendSessionDeath() { this.dead = true; } async flush() {} close() {} isPending() { return false; }
