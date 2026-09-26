@@ -1,12 +1,39 @@
 {
-    "description": "Older pagination sends the compound (beforeAt, beforeSeq) pair from the current older cursor, prepends the rows, and adopts the response page.nextBefore as the new older cursor and page.hasMore as the exhaustion flag.",
+    "description": "Older pagination sends the compound (beforeAt, beforeSeq) pair from the current older cursor, prepends the rows, and adopts the response page.nextBefore as the new older cursor and page.hasMore as the exhaustion flag. The prepended page adds a conversation unit, so the bounded unit-seeking loop stops after one request.",
     "expectedState": {
         "epoch": 4,
         "hasMore": false,
         "messages": [
             {
+                "createdAt": 6000,
+                "id": "a-6",
+                "invokedAt": 6000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 6
+            },
+            {
+                "createdAt": 7000,
+                "id": "u-7",
+                "invokedAt": 7000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 7
+            },
+            {
+                "createdAt": 8000,
+                "id": "a-7",
+                "invokedAt": 8000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 8
+            },
+            {
                 "createdAt": 9000,
-                "id": "a-9",
+                "id": "u-8",
                 "invokedAt": 9000,
                 "localId": null,
                 "optimistic": false,
@@ -15,7 +42,7 @@
             },
             {
                 "createdAt": 10000,
-                "id": "a-10",
+                "id": "a-8",
                 "invokedAt": 10000,
                 "localId": null,
                 "optimistic": false,
@@ -28,8 +55,8 @@
             "seq": 10
         },
         "olderCursor": {
-            "at": 9000,
-            "seq": 9
+            "at": 6000,
+            "seq": 6
         },
         "viewMode": "tail"
     },
@@ -39,7 +66,7 @@
         {
             "expectedRequests": [
                 {
-                    "limit": 20
+                    "limit": 200
                 }
             ],
             "op": "sync-tail",
@@ -49,8 +76,53 @@
                         {
                             "content": {
                                 "content": {
+                                    "text": "u-7",
+                                    "type": "text"
+                                },
+                                "role": "user"
+                            },
+                            "createdAt": 7000,
+                            "id": "u-7",
+                            "invokedAt": 7000,
+                            "localId": null,
+                            "seq": 7
+                        },
+                        {
+                            "content": {
+                                "content": {
                                     "data": {
-                                        "message": "a-10",
+                                        "message": "a-7",
+                                        "type": "message"
+                                    },
+                                    "type": "codex"
+                                },
+                                "role": "agent"
+                            },
+                            "createdAt": 8000,
+                            "id": "a-7",
+                            "invokedAt": 8000,
+                            "localId": null,
+                            "seq": 8
+                        },
+                        {
+                            "content": {
+                                "content": {
+                                    "text": "u-8",
+                                    "type": "text"
+                                },
+                                "role": "user"
+                            },
+                            "createdAt": 9000,
+                            "id": "u-8",
+                            "invokedAt": 9000,
+                            "localId": null,
+                            "seq": 9
+                        },
+                        {
+                            "content": {
+                                "content": {
+                                    "data": {
+                                        "message": "a-8",
                                         "type": "message"
                                     },
                                     "type": "codex"
@@ -58,7 +130,7 @@
                                 "role": "agent"
                             },
                             "createdAt": 10000,
-                            "id": "a-10",
+                            "id": "a-8",
                             "invokedAt": 10000,
                             "localId": null,
                             "seq": 10
@@ -71,8 +143,8 @@
                         "limit": 200,
                         "nextAfterAt": null,
                         "nextAfterSeq": null,
-                        "nextBeforeAt": 10000,
-                        "nextBeforeSeq": 10,
+                        "nextBeforeAt": 7000,
+                        "nextBeforeSeq": 7,
                         "reset": false,
                         "snapshotHeadAt": 10000,
                         "snapshotHeadSeq": 10
@@ -88,8 +160,8 @@
             },
             "expectedRequests": [
                 {
-                    "beforeAt": 10000,
-                    "beforeSeq": 10,
+                    "beforeAt": 7000,
+                    "beforeSeq": 7,
                     "limit": 200
                 }
             ],
@@ -101,18 +173,18 @@
                             "content": {
                                 "content": {
                                     "data": {
-                                        "message": "a-9",
+                                        "message": "a-6",
                                         "type": "message"
                                     },
                                     "type": "codex"
                                 },
                                 "role": "agent"
                             },
-                            "createdAt": 9000,
-                            "id": "a-9",
-                            "invokedAt": 9000,
+                            "createdAt": 6000,
+                            "id": "a-6",
+                            "invokedAt": 6000,
                             "localId": null,
-                            "seq": 9
+                            "seq": 6
                         }
                     ],
                     "page": {
@@ -122,8 +194,8 @@
                         "limit": 200,
                         "nextAfterAt": null,
                         "nextAfterSeq": null,
-                        "nextBeforeAt": 9000,
-                        "nextBeforeSeq": 9,
+                        "nextBeforeAt": 6000,
+                        "nextBeforeSeq": 6,
                         "reset": false,
                         "snapshotHeadAt": null,
                         "snapshotHeadSeq": null

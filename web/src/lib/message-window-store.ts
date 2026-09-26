@@ -38,13 +38,26 @@ export type MessageWindowState = {
     tailRevision: number
 }
 
-export const VISIBLE_WINDOW_SIZE = 400
-export const HISTORY_WINDOW_SIZE = 600
-export const INITIAL_PAGE_SIZE = 20
+/**
+ * Window budgets are counted in conversation units — the messages a user
+ * actually sees (a user prompt, or the final assistant message of one agent
+ * run) — not in raw stream records. A single agent turn can span hundreds of
+ * records while collapsing into one visible message, so record-count windows
+ * either thrashed (a "page" smaller than one screen) or evicted loaded
+ * history the moment the user scrolled back to the tail.
+ */
+export const TAIL_UNIT_BUDGET = 120
+export const HISTORY_UNIT_BUDGET = 240
+/**
+ * First paint of a cold window: the last two user prompts and the two agent
+ * responses around them. Older history loads only on explicit upward swipes.
+ */
+const INITIAL_USER_UNITS = 2
+const INITIAL_AGENT_UNITS = 2
+const INITIAL_COVERAGE_MAX_PAGES = 4
+const OLDER_LOAD_MAX_PAGES = 4
 const AGENT_RUN_WINDOW_SIZE = 800
-const OLDER_LOAD_WINDOW_SIZE = 800
 const PAGE_SIZE = 200
-const CACHED_REENTRY_PAGE_SIZE = 20
 
 type MessagePosition = {
     at: number
@@ -57,7 +70,6 @@ type InternalState = MessageWindowState & {
     newestPositionAt: number | null
     newestPositionSeq: number | null
     requiresLatestReset: boolean
-    preferLatestOnActivation: boolean
     syncGeneration: number
     olderGeneration: number
 }
@@ -76,7 +88,6 @@ type TailSyncController = {
     api: ApiClient
     running: Promise<void> | null
     trailingRequested: boolean
-    runningPrefersLatest: boolean
 }
 
 const states = new Map<string, InternalState>()
@@ -246,7 +257,6 @@ function createState(sessionId: string): InternalState {
         newestPositionAt: null,
         newestPositionSeq: null,
         requiresLatestReset: false,
-        preferLatestOnActivation: false,
         syncGeneration: 0,
         olderGeneration: 0
     }
@@ -403,7 +413,6 @@ function buildState(
         | 'newestPositionAt'
         | 'newestPositionSeq'
         | 'requiresLatestReset'
-        | 'preferLatestOnActivation'
         | 'syncGeneration'
         | 'olderGeneration'
         | 'historyVersion'
@@ -440,31 +449,6 @@ function sliceForTrim<T>(
         : { kept: items.slice(items.length - limit), dropped: items.slice(0, items.length - limit) }
 }
 
-/**
- * Keep the semantic edges of a conversation window when there are more
- * response anchors than the raw-message budget allows. History pagination
- * needs the oldest anchors for the viewport being explored, but the newest
- * anchors contain the authoritative final response shown at the tail.
- */
-function sliceAnchorsForTrim<T>(
-    items: T[],
-    limit: number,
-    mode: 'append' | 'prepend'
-): { kept: T[]; dropped: T[] } {
-    if (items.length <= limit || mode === 'append') {
-        return sliceForTrim(items, limit, mode)
-    }
-    if (limit <= 0) {
-        return { kept: [], dropped: items }
-    }
-
-    const tailReserve = Math.min(128, Math.max(1, Math.floor(limit / 4)))
-    const headCount = limit - tailReserve
-    return {
-        kept: [...items.slice(0, headCount), ...items.slice(items.length - tailReserve)],
-        dropped: items.slice(headCount, items.length - tailReserve)
-    }
-}
 
 /**
  * Raw history is paged and trimmed before it is projected into chat responses.
@@ -508,6 +492,123 @@ function findConversationAnchorIds(messages: DecryptedMessage[]): Set<string> {
     }
     flushAgentRun()
     return anchors
+}
+
+/**
+ * Count conversation units in a window, scanning from the end. A user prompt
+ * is one unit; a consecutive run of agent messages is one unit regardless of
+ * how many rounds (stream records) it spans.
+ */
+function countUnitsFromEnd(messages: DecryptedMessage[]): { userUnits: number; agentUnits: number } {
+    let userUnits = 0
+    let agentUnits = 0
+    let insideAgentRun = false
+    for (let index = messages.length - 1; index >= 0; index--) {
+        const normalized = normalizeWindowMessage(messages[index])
+        if (!normalized) continue
+        if (normalized.role === 'user') {
+            userUnits += 1
+            insideAgentRun = false
+            continue
+        }
+        if (normalized.role === 'event') {
+            insideAgentRun = false
+            continue
+        }
+        if (!insideAgentRun) {
+            agentUnits += 1
+            insideAgentRun = true
+        }
+    }
+    return { userUnits, agentUnits }
+}
+
+function hasInitialConversationCoverage(messages: DecryptedMessage[]): boolean {
+    const { userUnits, agentUnits } = countUnitsFromEnd(messages)
+    return userUnits >= INITIAL_USER_UNITS && agentUnits >= INITIAL_AGENT_UNITS
+}
+
+function countConversationUnits(messages: DecryptedMessage[]): number {
+    return findConversationAnchorIds(messages).size
+}
+
+/**
+ * Trim by conversation units instead of raw record counts. The newest (append
+ * mode) or oldest (prepend mode) `maxUnits` units survive; queued messages are
+ * always kept and codex agent-run cards keep their own record budget.
+ */
+function trimToUnitBudget(
+    incoming: DecryptedMessage[],
+    maxUnits: number,
+    mode: 'append' | 'prepend'
+): { kept: DecryptedMessage[]; dropped: DecryptedMessage[] } {
+    const messages = dropSupersededReasoningSnapshots(incoming)
+    const queued = messages.filter(isQueuedForInvocation)
+    const queuedIds = new Set(queued.map((message) => message.id))
+    const nonQueued = messages.filter((message) => !queuedIds.has(message.id))
+    const agentRuns = nonQueued.filter(isCodexAgentRunMessage)
+    const regular = nonQueued.filter((message) => !isCodexAgentRunMessage(message))
+    const cutoffIndex = findUnitBudgetCutoff(regular, maxUnits, mode)
+    const regularTrim = mode === 'append'
+        ? { kept: regular.slice(cutoffIndex), dropped: regular.slice(0, cutoffIndex) }
+        : { kept: regular.slice(0, cutoffIndex), dropped: regular.slice(cutoffIndex) }
+    const agentRunTrim = sliceForTrim(agentRuns, AGENT_RUN_WINDOW_SIZE, mode)
+    return {
+        kept: mergeMessages([...regularTrim.kept, ...agentRunTrim.kept], queued),
+        dropped: [...regularTrim.dropped, ...agentRunTrim.dropped]
+    }
+}
+
+/**
+ * Index into `regular` at which the unit budget is exceeded: everything before
+ * (append mode) or after (prepend mode) the index is dropped. The cutoff
+ * always lands on a unit boundary, so an agent run's records are never split
+ * from their unit — append mode cuts off the whole run, prepend mode starts
+ * the kept side at the run's first record.
+ */
+function findUnitBudgetCutoff(
+    regular: DecryptedMessage[],
+    maxUnits: number,
+    mode: 'append' | 'prepend'
+): number {
+    let units = 0
+    let insideAgentRun = false
+    if (mode === 'append') {
+        for (let index = regular.length - 1; index >= 0; index--) {
+            const normalized = normalizeWindowMessage(regular[index])
+            if (!normalized) continue
+            if (normalized.role === 'user') {
+                units += 1
+                insideAgentRun = false
+            } else if (normalized.role === 'event') {
+                insideAgentRun = false
+            } else if (!insideAgentRun) {
+                units += 1
+                insideAgentRun = true
+            }
+            if (units > maxUnits) {
+                return index + 1
+            }
+        }
+        return 0
+    }
+    for (let index = 0; index < regular.length; index++) {
+        const normalized = normalizeWindowMessage(regular[index])
+        if (!normalized) continue
+        if (normalized.role === 'user') {
+            units += 1
+            insideAgentRun = false
+        } else if (normalized.role === 'event') {
+            insideAgentRun = false
+        } else if (!insideAgentRun) {
+            units += 1
+            insideAgentRun = true
+        }
+        if (units > maxUnits) {
+            return index
+        }
+    }
+    return regular.length
 }
 
 function isCodexAgentRunMessage(message: DecryptedMessage): boolean {
@@ -561,34 +662,6 @@ function dropSupersededReasoningSnapshots(messages: DecryptedMessage[]): Decrypt
         getReasoningStreamId(message.content) === null || survivors.has(message.id))
 }
 
-function trimPreservingQueued(
-    incoming: DecryptedMessage[],
-    regularLimit: number,
-    mode: 'append' | 'prepend'
-): { kept: DecryptedMessage[]; dropped: DecryptedMessage[] } {
-    const messages = dropSupersededReasoningSnapshots(incoming)
-    const queued = messages.filter(isQueuedForInvocation)
-    const queuedIds = new Set(queued.map((message) => message.id))
-    const nonQueued = messages.filter((message) => !queuedIds.has(message.id))
-    const agentRuns = nonQueued.filter(isCodexAgentRunMessage)
-    const regular = nonQueued.filter((message) => !isCodexAgentRunMessage(message))
-    const regularBudget = Math.max(0, regularLimit - queued.length)
-    const anchorIds = findConversationAnchorIds(regular)
-    const anchors = regular.filter((message) => anchorIds.has(message.id))
-    const ordinary = regular.filter((message) => !anchorIds.has(message.id))
-    const anchorTrim = sliceAnchorsForTrim(anchors, regularBudget, mode)
-    const ordinaryTrim = sliceForTrim(
-        ordinary,
-        Math.max(0, regularBudget - anchorTrim.kept.length),
-        mode
-    )
-    const agentRunTrim = sliceForTrim(agentRuns, AGENT_RUN_WINDOW_SIZE, mode)
-    return {
-        kept: mergeMessages([...anchorTrim.kept, ...ordinaryTrim.kept, ...agentRunTrim.kept], queued),
-        dropped: [...anchorTrim.dropped, ...ordinaryTrim.dropped, ...agentRunTrim.dropped]
-    }
-}
-
 function optimisticMessage(message: DecryptedMessage): boolean {
     return Boolean(message.localId && message.id === message.localId)
 }
@@ -631,7 +704,7 @@ function mergeIntoWindow(
     incoming: DecryptedMessage[],
     options: {
         mode?: 'append' | 'prepend'
-        regularLimit?: number
+        budgetUnits?: number
         advanceTailRevision?: boolean
     } = {}
 ): InternalState {
@@ -640,10 +713,10 @@ function mergeIntoWindow(
         return previous
     }
     const mode = options.mode ?? (previous.viewMode === 'history' ? 'prepend' : 'append')
-    const regularLimit = options.regularLimit
-        ?? (previous.viewMode === 'history' ? HISTORY_WINDOW_SIZE : VISIBLE_WINDOW_SIZE)
+    const budgetUnits = options.budgetUnits
+        ?? (previous.viewMode === 'history' ? HISTORY_UNIT_BUDGET : TAIL_UNIT_BUDGET)
     const merged = mergeMessages(previous.messages, retainedIncoming)
-    const { kept, dropped } = trimPreservingQueued(merged, regularLimit, mode)
+    const { kept, dropped } = trimToUnitBudget(merged, budgetUnits, mode)
     let next = buildState(previous, {
         messages: kept,
         ...(options.advanceTailRevision
@@ -708,7 +781,7 @@ function applyLatestResponse(
         : previous.messages
     const authoritative = mergeMessages(preserved, retainedResponseMessages)
     const incoming = mergeMessages(authoritative, concurrentServerRows)
-    const { kept, dropped } = trimPreservingQueued(incoming, VISIBLE_WINDOW_SIZE, 'append')
+    const { kept, dropped } = trimToUnitBudget(incoming, TAIL_UNIT_BUDGET, 'append')
     const snapshotHead = pagePosition(response.page.snapshotHeadAt, response.page.snapshotHeadSeq)
         ?? derivePosition(response.messages, 'newest')
     const newestKept = derivePosition(kept, 'newest')
@@ -776,37 +849,26 @@ async function runTailSync(api: ApiClient, sessionId: string): Promise<void> {
     try {
         const initial = getState(sessionId)
         const initialCursor = getNewestCursor(initial)
-        const preferLatestOnActivation = initial.preferLatestOnActivation
         const canIncrement = initialCursor !== null
             && initial.epoch !== null
             && !initial.requiresLatestReset
-            && !preferLatestOnActivation
 
         if (!canIncrement) {
             const requestBaseline = new Map(getState(sessionId).messages.map((message) => [message.id, message]))
-            // Cold windows and cached re-entry prioritize the newest usable
-            // messages for first paint. Structural resets and cursor-backed
-            // non-activation synchronization use the full page so their
-            // authoritative replacement remains unchanged.
-            const latestPageSize = initial.requiresLatestReset
-                ? PAGE_SIZE
-                : preferLatestOnActivation
-                    ? CACHED_REENTRY_PAGE_SIZE
-                    : initialCursor === null
-                        ? INITIAL_PAGE_SIZE
-                        : PAGE_SIZE
-            const response = await api.getMessages(sessionId, { limit: latestPageSize })
+            // Cold windows and structural resets replace the window with the
+            // newest usable page, then extend backwards until it shows the
+            // initial conversation coverage (see `extendToInitialCoverage`).
+            const response = await api.getMessages(sessionId, { limit: PAGE_SIZE })
             if (!isCurrentTailSync(sessionId, generation)) return
             updateState(sessionId, (previous) => {
                 if (previous.syncGeneration !== generation) return previous
-                const next = applyLatestResponse(previous, response, {
+                return applyLatestResponse(previous, response, {
                     replaceServerRows: initial.requiresLatestReset
-                        || preferLatestOnActivation
                         || response.page.reset,
                     requestBaseline
                 })
-                return buildState(next, { preferLatestOnActivation: false })
             })
+            await extendToInitialCoverage(api, sessionId, generation)
             finishTailSync(sessionId, generation, null)
             return
         }
@@ -868,7 +930,6 @@ async function runTailSync(api: ApiClient, sessionId: string): Promise<void> {
             const current = getState(sessionId)
             if (
                 current.requiresLatestReset
-                || current.preferLatestOnActivation
                 || !response.page.hasMore
                 || !nextAfter
             ) {
@@ -880,6 +941,7 @@ async function runTailSync(api: ApiClient, sessionId: string): Promise<void> {
             after = nextAfter
         }
 
+        await extendToInitialCoverage(api, sessionId, generation)
         finishTailSync(sessionId, generation, null)
     } catch (error) {
         if (!isCurrentTailSync(sessionId, generation)) return
@@ -891,17 +953,50 @@ async function runTailSync(api: ApiClient, sessionId: string): Promise<void> {
     }
 }
 
+/**
+ * Prepend older pages until the window ends with the initial conversation
+ * coverage (the last user/agent exchanges). This is the cold-window first
+ * paint path: without it a record-dense session would open showing only the
+ * tail of the newest agent turn. Explicit swipes remain the only way to load
+ * history beyond this target.
+ */
+async function extendToInitialCoverage(api: ApiClient, sessionId: string, generation: number): Promise<void> {
+    for (let page = 0; page < INITIAL_COVERAGE_MAX_PAGES; page++) {
+        const state = getState(sessionId)
+        if (!isCurrentTailSync(sessionId, generation)) return
+        if (hasInitialConversationCoverage(state.messages)) return
+        const before = readPosition(state.oldestPositionAt, state.oldestPositionSeq)
+        if (!before || !state.hasMore) return
+        const response = await api.getMessages(sessionId, {
+            beforeAt: before.at,
+            beforeSeq: before.seq,
+            limit: PAGE_SIZE
+        })
+        if (!isCurrentTailSync(sessionId, generation)) return
+        updateState(sessionId, (previous) => {
+            if (previous.syncGeneration !== generation) return previous
+            const merged = mergeIntoWindow(previous, response.messages, {
+                mode: 'prepend',
+                budgetUnits: HISTORY_UNIT_BUDGET
+            })
+            return buildState(merged, {
+                hasMore: response.page.hasMore,
+                epoch: response.page.epoch,
+                oldestPositionAt: response.page.nextBeforeAt,
+                oldestPositionSeq: response.page.nextBeforeSeq
+            })
+        }, true)
+    }
+}
+
 function startTailSync(sessionId: string, controller: TailSyncController): Promise<void> {
-    const runningPrefersLatest = getState(sessionId).preferLatestOnActivation
     const running = runTailSync(controller.api, sessionId)
     controller.running = running
-    controller.runningPrefersLatest = runningPrefersLatest
     const finish = () => {
         if (tailSyncControllers.get(sessionId) !== controller || controller.running !== running) {
             return
         }
         controller.running = null
-        controller.runningPrefersLatest = false
         if (!controller.trailingRequested) {
             return
         }
@@ -928,7 +1023,7 @@ async function waitForTailSyncDrain(
 }
 
 function enterTailMode(previous: InternalState): InternalState {
-    const { kept, dropped } = trimPreservingQueued(previous.messages, VISIBLE_WINDOW_SIZE, 'append')
+    const { kept, dropped } = trimToUnitBudget(previous.messages, TAIL_UNIT_BUDGET, 'append')
     const forceLatest = previous.requiresLatestReset
     const oldest = dropped.length > 0
         ? derivePosition(kept, 'oldest')
@@ -946,51 +1041,21 @@ function enterTailMode(previous: InternalState): InternalState {
 }
 
 export function activateMessageWindow(sessionId: string): void {
-    let requestedLatest = false
     updateState(sessionId, (previous) => {
-        const { kept } = trimPreservingQueued(previous.messages, VISIBLE_WINDOW_SIZE, 'append')
+        const { kept } = trimToUnitBudget(previous.messages, TAIL_UNIT_BUDGET, 'append')
         const forceLatest = previous.requiresLatestReset
-        const hasUsableCursor = getNewestCursor(previous) !== null
-            && previous.epoch !== null
-            && !forceLatest
-        const preferLatestOnActivation = hasUsableCursor && kept.length > 0
-        requestedLatest = preferLatestOnActivation && !previous.preferLatestOnActivation
-        const invalidateRunningSync = requestedLatest && previous.isSyncingTail
-        const activationUpdates = preferLatestOnActivation
-            ? {
-                preferLatestOnActivation: true,
-                ...(invalidateRunningSync
-                    ? {
-                        syncGeneration: previous.syncGeneration + 1,
-                        olderGeneration: previous.olderGeneration + 1
-                    }
-                    : {})
-            }
-            : {}
         // A persisted cursor may be many pages behind after another client
-        // has added messages. Fetch the current tail first on re-entry;
-        // `runTailSync` will reconcile the response through the same
-        // optimistic/concurrent-row preservation path as a reset response.
+        // has added messages. The incremental tail sync started by the
+        // consumer catches the window up; no authoritative replace is needed.
         if (
             previous.viewMode === 'tail'
             && kept.length === previous.messages.length
             && !forceLatest
         ) {
-            return preferLatestOnActivation
-                ? buildState(previous, activationUpdates)
-                : previous
+            return previous
         }
-        const next = enterTailMode(previous)
-        return preferLatestOnActivation
-            ? buildState(next, activationUpdates)
-            : next
+        return enterTailMode(previous)
     }, true)
-    if (requestedLatest) {
-        const controller = tailSyncControllers.get(sessionId)
-        if (controller?.running) {
-            controller.trailingRequested = true
-        }
-    }
 }
 
 export function syncTailMessages(
@@ -1003,20 +1068,12 @@ export function syncTailMessages(
         controller = {
             api,
             running: null,
-            trailingRequested: false,
-            runningPrefersLatest: false
+            trailingRequested: false
         }
         tailSyncControllers.set(sessionId, controller)
     }
     controller.api = api
     if (!controller.running) {
-        return startTailSync(sessionId, controller)
-    }
-    if (getState(sessionId).preferLatestOnActivation) {
-        if (controller.runningPrefersLatest) {
-            return controller.running
-        }
-        controller.trailingRequested = false
         return startTailSync(sessionId, controller)
     }
     const observed = controller.running
@@ -1053,70 +1110,96 @@ export async function fetchOlderMessages(
     }))
 
     try {
-        const response = await api.getMessages(sessionId, {
-            beforeAt: before.at,
-            beforeSeq: before.seq,
-            limit: PAGE_SIZE
-        })
-        if (getState(sessionId).olderGeneration !== generation) {
-            return { kind: 'stopped', reason: 'invalidated' }
-        }
-
-        if (initial.epoch !== null && response.page.epoch !== initial.epoch) {
-            updateState(sessionId, (previous) => {
-                if (previous.olderGeneration !== generation) return previous
-                return buildState(previous, {
-                    isLoadingMore: false,
-                    epoch: null,
-                    newestPositionAt: null,
-                    newestPositionSeq: null,
-                    requiresLatestReset: true
-                })
-            })
-            await syncTailMessages(api, sessionId, { ensureAfterCurrent: true })
-            return { kind: 'stopped', reason: 'epoch-reset' }
-        }
-
+        let cursor: MessagePosition | null = before
         let historyVersion = 0
         let addedRenderableCount = 0
-        let applyRejected = false
-        // Prepend trimming and its prepared scroll restore must reach the UI
-        // in one publication; the normal 150ms notification throttle would
-        // expose rows that this state has already evicted.
-        updateState(sessionId, (previous) => {
-            if (previous.olderGeneration !== generation) return previous
-            addedRenderableCount = countNewRenderableMessages(previous, response.messages)
-            const nextHistoryVersion = previous.historyVersion + 1
-            if (options.onBeforeApply && !options.onBeforeApply(nextHistoryVersion)) {
-                applyRejected = true
-                return buildState(previous, {
-                    olderGeneration: previous.olderGeneration + 1,
-                    isLoadingMore: false,
+        let lastPageHasMore: boolean = initial.hasMore
+        // One swipe must surface at least one conversation unit. In a
+        // record-dense session a single page can sit entirely inside the
+        // newest agent turn and fold into nothing visible, so keep paging
+        // (bounded) until a unit actually appears.
+        for (let page = 0; page < OLDER_LOAD_MAX_PAGES; page++) {
+            const response = await api.getMessages(sessionId, {
+                beforeAt: cursor.at,
+                beforeSeq: cursor.seq,
+                limit: PAGE_SIZE
+            })
+            if (getState(sessionId).olderGeneration !== generation) {
+                return { kind: 'stopped', reason: 'invalidated' }
+            }
+
+            if (initial.epoch !== null && response.page.epoch !== initial.epoch) {
+                if (page === 0) {
+                    updateState(sessionId, (previous) => {
+                        if (previous.olderGeneration !== generation) return previous
+                        return buildState(previous, {
+                            isLoadingMore: false,
+                            epoch: null,
+                            newestPositionAt: null,
+                            newestPositionSeq: null,
+                            requiresLatestReset: true
+                        })
+                    })
+                    await syncTailMessages(api, sessionId, { ensureAfterCurrent: true })
+                    return { kind: 'stopped', reason: 'epoch-reset' }
+                }
+                break
+            }
+
+            const unitsBefore = countConversationUnits(getState(sessionId).messages)
+            let applyRejected = false
+            // The first applied page and its prepared scroll restore must
+            // reach the UI in one publication; the normal 150ms notification
+            // throttle would expose rows that this state has already evicted.
+            // Follow-up pages ride the throttle; the final apply publishes
+            // immediately below.
+            updateState(sessionId, (previous) => {
+                if (previous.olderGeneration !== generation) return previous
+                addedRenderableCount += countNewRenderableMessages(previous, response.messages)
+                if (page === 0) {
+                    const nextHistoryVersion = previous.historyVersion + 1
+                    if (options.onBeforeApply && !options.onBeforeApply(nextHistoryVersion)) {
+                        applyRejected = true
+                        return buildState(previous, {
+                            olderGeneration: previous.olderGeneration + 1,
+                            isLoadingMore: false,
+                            warning: null
+                        })
+                    }
+                    historyVersion = nextHistoryVersion
+                }
+                const merged = mergeIntoWindow(previous, response.messages, {
+                    mode: 'prepend',
+                    budgetUnits: HISTORY_UNIT_BUDGET
+                })
+                return buildState(merged, {
+                    hasMore: response.page.hasMore,
+                    epoch: response.page.epoch,
+                    oldestPositionAt: response.page.nextBeforeAt,
+                    oldestPositionSeq: response.page.nextBeforeSeq,
+                    isLoadingMore: page === OLDER_LOAD_MAX_PAGES - 1,
                     warning: null
                 })
+            }, page === 0)
+            if (applyRejected || historyVersion === 0) {
+                return { kind: 'stopped', reason: 'invalidated' }
             }
-            const merged = mergeIntoWindow(previous, response.messages, {
-                mode: 'prepend',
-                regularLimit: OLDER_LOAD_WINDOW_SIZE
-            })
-            historyVersion = nextHistoryVersion
-            return buildState(merged, {
-                hasMore: response.page.hasMore,
-                epoch: response.page.epoch,
-                oldestPositionAt: response.page.nextBeforeAt,
-                oldestPositionSeq: response.page.nextBeforeSeq,
-                isLoadingMore: false,
-                historyVersion,
-                warning: null
-            })
-        }, true)
-        if (applyRejected || historyVersion === 0) {
-            return { kind: 'stopped', reason: 'invalidated' }
+            lastPageHasMore = response.page.hasMore
+            cursor = pagePosition(response.page.nextBeforeAt, response.page.nextBeforeSeq)
+            const addedUnits = countConversationUnits(getState(sessionId).messages) - unitsBefore
+            if (addedUnits > 0 || !response.page.hasMore || !cursor) {
+                break
+            }
         }
+
+        updateState(sessionId, (previous) => {
+            if (previous.olderGeneration !== generation) return previous
+            return buildState(previous, { isLoadingMore: false })
+        }, true)
         return {
             kind: 'applied',
             historyVersion,
-            hasMore: response.page.hasMore,
+            hasMore: lastPageHasMore,
             addedRenderableCount
         }
     } catch (error) {
@@ -1228,7 +1311,6 @@ function markMessageWindowForLatestReset(sessionId: string, messages: DecryptedM
         newestPositionAt: null,
         newestPositionSeq: null,
         requiresLatestReset: true,
-        preferLatestOnActivation: false,
         isSyncingTail: true,
         isLoadingMore: false,
         warning: null,
