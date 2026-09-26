@@ -22,6 +22,11 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 ## Pitbox
 
 - `.pitbox/config` pins the main branch to `custom`. The pitbox tools and `integrate` skill describe the slot workflow.
+
+<!-- pitbox:slot-workflow -->
+- For tasks in pitbox slots, use this delivery order instead of the deploy-before-commit and visual acceptance gates above: finish the task, run relevant checks, commit only the task files, and mark the slot ready. For visible UI or UX work, show a screenshot in the result without waiting for user acceptance. Feedback after review is a follow-up fix. A ready marker does not start collection or deployment. Slot agents do not deploy or collect. Only after the user explicitly asks, the integrator collects ready slots, runs the full checks, deploys once, pushes the main branch, and releases the slots. That request is sufficient authorization. Do not ask for a second confirmation.
+<!-- /pitbox:slot-workflow -->
+
 - After collecting slots, run `bun typecheck && bun run test`. Follow the delivery policy above for deployment and push. The local deploy command is `bun run deploy:local-hub`; run it only when no session is mid-turn.
 
 ## Find context when needed
