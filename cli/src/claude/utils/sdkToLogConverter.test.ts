@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { SDKToLogConverter, convertSDKToLog } from './sdkToLogConverter'
+import { isClaudeChatVisibleMessage } from './chatVisibility'
 import type { SDKMessage, SDKUserMessage, SDKAssistantMessage, SDKSystemMessage, SDKResultMessage } from '@/claude/sdk'
 import type { ClaudePermissionMode } from '@hapi/protocol/types'
 
@@ -201,6 +202,59 @@ describe('SDKToLogConverter', () => {
 
             const logMessage = converter.convert(userMessage)
             expect(logMessage?.sessionId).toBe('updated-session-789')
+        })
+
+        it('re-emits task_notification as the system-injected user entry the hub counts', () => {
+            const sdkMessage: SDKSystemMessage = {
+                type: 'system',
+                subtype: 'task_notification',
+                task_id: 'bfiece6i8',
+                tool_use_id: 'call_d58231df9007431ab73580e1',
+                output_file: '/tmp/tasks/bfiece6i8.output',
+                status: 'completed',
+                summary: 'Background command "Watch the CI run" completed (exit code 0)',
+                uuid: 'e03b64fc-39ae-4fbd-98bd-307c310e4c97',
+                session_id: 'c88a33a9-ec79-4774-b6b5-dae5a54d650f'
+            } as SDKSystemMessage
+
+            const logMessage = converter.convert(sdkMessage)
+
+            expect(logMessage?.type).toBe('user')
+            expect(logMessage).toMatchObject({
+                type: 'user',
+                sessionId: context.sessionId,
+                isSidechain: false,
+                message: {
+                    role: 'user',
+                    content: '<task-notification>\n'
+                        + '<task-id>bfiece6i8</task-id>\n'
+                        + '<tool-use-id>call_d58231df9007431ab73580e1</tool-use-id>\n'
+                        + '<output-file>/tmp/tasks/bfiece6i8.output</output-file>\n'
+                        + '<status>completed</status>\n'
+                        + '<summary>Background command "Watch the CI run" completed (exit code 0)</summary>\n'
+                        + '</task-notification>'
+                }
+            })
+            expect(logMessage?.uuid).toBeTruthy()
+            // The outgoing queue drops isMeta records and non-visible system
+            // subtypes; the synthetic must clear both gates to reach the hub.
+            expect((logMessage as { isMeta?: boolean }).isMeta).toBeUndefined()
+            expect(isClaudeChatVisibleMessage(logMessage!)).toBe(true)
+        })
+
+        it('omits absent task_notification fields from the re-emitted entry', () => {
+            const sdkMessage: SDKSystemMessage = {
+                type: 'system',
+                subtype: 'task_notification',
+                task_id: 'task42',
+                status: 'failed'
+            } as SDKSystemMessage
+
+            const logMessage = converter.convert(sdkMessage)
+
+            expect(logMessage?.type).toBe('user')
+            expect((logMessage as { message: { content: string } }).message.content)
+                .toBe('<task-notification>\n<task-id>task42</task-id>\n<status>failed</status>\n</task-notification>')
         })
     })
 
