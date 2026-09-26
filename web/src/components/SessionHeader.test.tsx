@@ -531,13 +531,13 @@ describe('SessionHeader', () => {
         const model = screen.getByTestId('session-header-mobile-model')
         const summaryButton = screen.getByTestId('session-header-mobile-summary')
         expect(detailsButton).toHaveTextContent(title)
-        // Wrapping flex row: the title shares the top line with the action
-        // buttons when short and takes the whole line when long.
-        expect(detailsButton).toHaveClass('flex-1', 'truncate')
+        // Wrapping flex row: the action buttons sit right next to the title
+        // and wrap to their own line when the title is long.
+        expect(detailsButton).toHaveClass('min-w-0', 'truncate')
         expect(model).toHaveTextContent('gpt-6-astra')
         expect(model.parentElement?.textContent).not.toContain('codex')
         expect(summaryButton).toHaveClass('sm:hidden')
-        expect(screen.getByTestId('session-header-mobile-actions')).toHaveClass('ml-auto')
+        expect(screen.getByTestId('session-header-mobile-actions')).toHaveClass('shrink-0')
         expect(screen.getByTestId('session-header-open-difit')).toHaveClass('max-sm:hidden')
         fireEvent.click(detailsButton)
         const dialog = screen.getByRole('dialog')
