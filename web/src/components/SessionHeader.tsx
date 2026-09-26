@@ -496,12 +496,17 @@ export function SessionHeader(props: {
     return (
         <>
             <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
-                <div className="mx-auto grid w-full max-w-content grid-cols-[2rem_minmax(0,1fr)_auto] grid-rows-[auto_auto] items-center gap-x-2 p-3 sm:flex sm:gap-2">
+                <div className="mx-auto w-full max-w-content p-3">
+                {/* Title row wraps: a short title keeps the action buttons on the
+                    top line (right-aligned); a long title takes the whole line and
+                    the buttons wrap to their own right-aligned line below it. */}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-2">
+                    <div className="flex min-w-0 flex-[1_1_max-content] items-center gap-2 sm:flex-1">
                     {/* Back button */}
                     <button
                         type="button"
                         onClick={props.onBack}
-                        className="col-start-1 row-start-1 flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -521,25 +526,12 @@ export function SessionHeader(props: {
                     <button
                         type="button"
                         data-testid="session-header-mobile-details"
-                        className="col-start-2 col-end-4 row-start-1 block min-w-0 truncate rounded text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
+                        className="block min-w-0 flex-1 truncate rounded text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
                         aria-haspopup="dialog"
                         onClick={() => setDetailsOpen(true)}
                     >
                         {title}
                     </button>
-                    {mobileSummary ? (
-                        <button
-                            type="button"
-                            data-testid="session-header-mobile-summary"
-                            className="col-start-2 row-start-2 flex min-w-0 items-center gap-1 overflow-hidden rounded text-left text-xs text-[var(--app-hint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
-                            aria-haspopup="dialog"
-                            onClick={() => setDetailsOpen(true)}
-                        >
-                            {headerMetadata.agent && agentLabel ? <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" /> : null}
-                            <span data-testid={showMobileModel ? 'session-header-mobile-model' : undefined} className="truncate">{mobileSummary}</span>
-                            {showMobileModel && isModelChanging ? <ModelChangingStatus /> : null}
-                        </button>
-                    ) : null}
                     <div className="hidden min-w-0 flex-1 sm:block">
                         <div className="truncate font-semibold">{title}</div>
                         <div className="hidden flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--app-hint)] sm:flex">
@@ -587,8 +579,9 @@ export function SessionHeader(props: {
                             ) : null}
                         </div>
                     </div>
+                    </div>
 
-                    <div data-testid="session-header-mobile-actions" className="col-start-3 row-start-2 flex items-center gap-2 sm:contents">
+                    <div data-testid="session-header-mobile-actions" className="ml-auto flex shrink-0 items-center gap-2 sm:contents">
                         {props.onToggleFiles ? (
                             <button
                                 type="button"
@@ -668,6 +661,20 @@ export function SessionHeader(props: {
                             <MoreVerticalIcon />
                         </button>
                     </div>
+                </div>
+                {mobileSummary ? (
+                    <button
+                        type="button"
+                        data-testid="session-header-mobile-summary"
+                        className="flex min-w-0 items-center gap-1 overflow-hidden rounded text-left text-xs text-[var(--app-hint)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
+                        aria-haspopup="dialog"
+                        onClick={() => setDetailsOpen(true)}
+                    >
+                        {headerMetadata.agent && agentLabel ? <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" /> : null}
+                        <span data-testid={showMobileModel ? 'session-header-mobile-model' : undefined} className="truncate">{mobileSummary}</span>
+                        {showMobileModel && isModelChanging ? <ModelChangingStatus /> : null}
+                    </button>
+                ) : null}
                 </div>
             </div>
 
