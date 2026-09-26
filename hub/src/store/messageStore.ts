@@ -17,6 +17,9 @@ import {
     getMessages,
     getFirstMessages,
     getDeliverableMessagesAfter,
+    searchMessages,
+    type MessageSearchOptions,
+    type MessageSearchResult,
     getMessagesByPosition,
     getMessagesAfterPosition,
     getNewestMessagePosition,
@@ -111,6 +114,10 @@ export class MessageStore {
 
     getMessages(sessionId: string, limit: number = 200): StoredMessage[] {
         return getMessages(this.db, sessionId, limit)
+    }
+
+    searchMessages(query: string, options?: MessageSearchOptions): MessageSearchResult {
+        return searchMessages(this.db, query, options)
     }
 
     getFirstMessages(sessionId: string, limit: number = 50): StoredMessage[] {

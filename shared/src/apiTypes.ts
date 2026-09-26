@@ -615,6 +615,41 @@ export const MessagesQuerySchema = z.object({
 
 export type MessagesQuery = z.infer<typeof MessagesQuerySchema>
 
+export const MessageSearchQuerySchema = z.object({
+    /** Raw user query; hub lowercases + LIKE-escapes it against the extract column. */
+    q: z.string().trim().min(1).max(256),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    /** Restrict hits to one session; the sessions aggregate is skipped in that mode. */
+    sessionId: z.string().min(1).max(200).optional(),
+    /** Keyset cursor: only hits strictly older than (beforeCreatedAt, beforeSeq). Both halves are required. */
+    beforeCreatedAt: z.coerce.number().int().positive().optional(),
+    beforeSeq: z.coerce.number().int().min(0).optional()
+}).refine((data) => (data.beforeCreatedAt === undefined) === (data.beforeSeq === undefined), {
+    message: 'cursor requires both beforeCreatedAt and beforeSeq',
+    path: ['beforeCreatedAt']
+})
+
+export type MessageSearchQuery = z.infer<typeof MessageSearchQuerySchema>
+
+export type MessageSearchHit = {
+    sessionId: string
+    messageId: string
+    seq: number
+    role: 'user' | 'agent'
+    createdAt: number
+    snippet: string
+    matchStart: number
+    matchLength: number
+}
+
+export type MessageSearchResponse = {
+    total: number
+    hits: MessageSearchHit[]
+    sessions: Array<{ sessionId: string; count: number }>
+    /** True when more hits exist beyond `hits` (continue with the cursor params). */
+    hasMore: boolean
+}
+
 export const MessageDeliveryModeSchema = z.enum(['queue', 'steer'])
 export type MessageDeliveryMode = z.infer<typeof MessageDeliveryModeSchema>
 

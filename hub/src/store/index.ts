@@ -6,6 +6,8 @@ import { MachineStore } from './machineStore'
 import { MessengerStore } from './messengerStore'
 import { MessageStore } from './messageStore'
 import { addMessage } from './messages'
+import { messageSearchText } from './messageSearch'
+import { decodeMessageContent } from './contentCodec'
 import type { StoredMessage } from './types'
 import { PushStore } from './pushStore'
 import { FcmStore } from './fcmStore'
@@ -28,7 +30,7 @@ export type {
     StoredUser,
     VersionedUpdateResult
 } from './types'
-export type { CancelQueuedMessageResult, LookupQueuedMessageResult } from './messages'
+export type { CancelQueuedMessageResult, LookupQueuedMessageResult, MessageSearchOptions } from './messages'
 export { MachineStore } from './machineStore'
 export { MessengerStore } from './messengerStore'
 export { MessageStore } from './messageStore'
@@ -45,7 +47,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 33
+const SCHEMA_VERSION: number = 34
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -385,6 +387,7 @@ export class Store {
             30: () => this.migrateFromV30ToV31(),
             31: () => this.migrateFromV31ToV32(),
             32: () => this.migrateFromV32ToV33(),
+            33: () => this.migrateFromV33ToV34(),
         })
 
         if (currentVersion === 0) {
@@ -480,6 +483,7 @@ export class Store {
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
                 content TEXT NOT NULL,
+                search_text TEXT,
                 created_at INTEGER NOT NULL,
                 seq INTEGER NOT NULL,
                 local_id TEXT,
@@ -750,6 +754,44 @@ export class Store {
         if (!messageColumns.some((column) => column.name === 'reactions_json')) {
             this.db.exec("ALTER TABLE external_messages ADD COLUMN reactions_json TEXT NOT NULL DEFAULT '[]'")
         }
+    }
+
+    /**
+     * Backfills the message-search extract column. One decompressing pass over
+     * history (seconds on large DBs, once per lifetime); rows with no
+     * indexable text stay NULL forever — insert paths after v34 keep the
+     * column fresh, nothing ever needs a second backfill.
+     */
+    private migrateFromV33ToV34(): void {
+        const messageColumns = this.db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
+        if (!messageColumns.some((column) => column.name === 'search_text')) {
+            this.db.exec('ALTER TABLE messages ADD COLUMN search_text TEXT')
+        }
+
+        const backfill = this.db.transaction(() => {
+            const select = this.db.prepare(
+                'SELECT rowid AS rid, id, content FROM messages WHERE search_text IS NULL AND rowid > ? ORDER BY rowid LIMIT 1000'
+            )
+            const update = this.db.prepare('UPDATE messages SET search_text = ? WHERE id = ?')
+            // rowid-keyed pages: updates between pages cannot reshuffle the
+            // cursor, so every row is visited exactly once.
+            let cursor = 0
+            for (;;) {
+                const rows = select.all(cursor) as Array<{ rid: number; id: string; content: string | Uint8Array }>
+                if (rows.length === 0) break
+                for (const row of rows) {
+                    let content: unknown = null
+                    try {
+                        content = decodeMessageContent(row.content)
+                    } catch {
+                        // Undecodable legacy row — leave it out of the corpus.
+                    }
+                    update.run(messageSearchText(content), row.id)
+                    cursor = row.rid
+                }
+            }
+        })
+        backfill()
     }
 
     private migrateLegacySchemaIfNeeded(): void {

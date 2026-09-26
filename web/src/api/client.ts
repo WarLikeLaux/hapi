@@ -13,6 +13,7 @@ import type {
     CopilotAgentMode,
     FileSearchResponse,
     MachinesResponse,
+    MessageSearchResponse,
     MessagesResponse,
     PermissionMode,
     PiImportSessionsResponse,
@@ -555,6 +556,34 @@ export class ApiClient {
         const qs = params.toString()
         const url = `/api/sessions/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ''}`
         return await this.request<MessagesResponse>(url)
+    }
+
+    async searchMessages(
+        query: string,
+        options: {
+            limit?: number
+            sessionId?: string
+            beforeCreatedAt?: number
+            beforeSeq?: number
+            signal?: AbortSignal
+        } = {}
+    ): Promise<MessageSearchResponse> {
+        const params = new URLSearchParams({ q: query })
+        if (options.limit !== undefined) {
+            params.set('limit', `${options.limit}`)
+        }
+        if (options.sessionId !== undefined) {
+            params.set('sessionId', options.sessionId)
+        }
+        if (options.beforeCreatedAt !== undefined) {
+            params.set('beforeCreatedAt', `${options.beforeCreatedAt}`)
+        }
+        if (options.beforeSeq !== undefined) {
+            params.set('beforeSeq', `${options.beforeSeq}`)
+        }
+        return await this.request<MessageSearchResponse>(`/api/messages/search?${params.toString()}`, {
+            signal: options.signal
+        })
     }
 
     async getGitStatus(sessionId: string): Promise<GitStatusResponse> {
