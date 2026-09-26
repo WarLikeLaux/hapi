@@ -182,6 +182,22 @@ export class NotificationHub {
             return
         }
 
+        // Background-task completions arrive once per task, so a turn that
+        // fanned out N subagents would ring every channel N times with
+        // "Task completed". The truthful end-of-work signal is the ready
+        // notification, which sendReadyNotification already holds back until
+        // backgroundTaskCount drains. Success summaries are noise; only
+        // failures are worth interrupting the operator for (the same policy
+        // ServerChanChannel already applies).
+        const normalizedStatus = notification.status?.trim().toLowerCase()
+        const isFailure = normalizedStatus === 'failed'
+            || normalizedStatus === 'error'
+            || normalizedStatus === 'killed'
+            || normalizedStatus === 'aborted'
+        if (!isFailure) {
+            return
+        }
+
         await this.notifyTask(session, notification)
     }
 
