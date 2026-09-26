@@ -13,6 +13,7 @@ import { EnhancedMode } from "./loop";
 import { OutgoingMessageQueue } from "./utils/OutgoingMessageQueue";
 import type { ClaudePermissionMode } from "@hapi/protocol/types";
 import { applySessionTitleFallback } from './utils/sessionTitleFallback';
+import { normalizeClaudeSessionModel } from './model';
 import {
     RemoteLauncherBase,
     type RemoteLauncherDisplayContext,
@@ -484,6 +485,17 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                             // ever processed), the flag stays in session.claudeArgs so the next
                             // launch attempt can still resume the original session.
                             session.consumeOneTimeFlags();
+                        },
+                        onModelFound: (model) => {
+                            // Seed the keep-alive runtime with the model Claude
+                            // actually resolved so the hub shows the real model
+                            // instead of the agent name. An explicit selection
+                            // on the session stays authoritative.
+                            const normalized = normalizeClaudeSessionModel(model);
+                            if (normalized && session.getModel() == null) {
+                                session.setModel(normalized);
+                                session.pushKeepAlive();
+                            }
                         },
                         onThinkingChange: session.onThinkingChange,
                         claudeEnvVars: session.claudeEnvVars,
