@@ -118,6 +118,38 @@ async function completePlan(f: Awaited<ReturnType<typeof fixture>>, status = 'co
     return codexPlanProposalId('thread', turn.id, 'plan-item');
 }
 
+describe('shared settings confirmation', () => {
+    it('skips the native round trip when the requested state already holds (Codex 0.157 no-op suppression)', async () => {
+        const f = await fixture();
+        // Cold-resume snapshot: thread/resume reports the active collaboration
+        // mode with its built-in instructions expanded inline, and 0.157 emits
+        // no thread/settings/updated when the same state is re-applied.
+        f.native.notify('thread/settings/updated', { threadId: 'thread', threadSettings: {
+            model: 'mock', effort: null,
+            collaborationMode: { mode: 'plan', settings: { model: 'mock', reasoning_effort: null, developer_instructions: '# Expanded plan instructions' } }
+        } });
+        const request = vi.spyOn(f.root.client, 'request');
+        const { applied } = await f.root.applySettings({ collaborationMode: 'plan' });
+        expect(applied.collaborationMode).toBe('plan');
+        expect(request.mock.calls.some(([method]) => method === 'thread/settings/update')).toBe(false);
+    });
+    it('confirms a lost notification when the native state already matches the request', async () => {
+        const f = await fixture();
+        const request = vi.spyOn(f.root.client, 'request').mockResolvedValue({});
+        vi.useFakeTimers();
+        try {
+            // No notification will arrive for this update; the native snapshot
+            // catching up must still resolve the wait instead of erroring.
+            const pending = f.root.applySettings({ model: 'mock2' });
+            await vi.advanceTimersByTimeAsync(0);
+            const root = f.root as unknown as { settingsNative: Record<string, unknown> };
+            root.settingsNative = { ...root.settingsNative, model: 'mock2' };
+            await vi.advanceTimersByTimeAsync(15_000);
+            await expect(pending).resolves.toHaveProperty('applied');
+        } finally { vi.useRealTimers(); request.mockRestore(); }
+    });
+});
+
 describe('shared plan actions', () => {
     it('injects the hidden title reminder before enqueueing each HAPI user message', async () => {
         const f = await fixture();

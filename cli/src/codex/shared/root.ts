@@ -437,12 +437,23 @@ export class SharedCodexRoot {
                 developer_instructions: null
             } } } : {})
         };
+        // Codex 0.157 no longer emits thread/settings/updated for a no-op
+        // update. When the native state already holds the requested settings
+        // (e.g. re-applying the resumed mode after a cold resume), skip the
+        // round trip entirely instead of stalling on a notification that will
+        // never fire.
+        if (settingsMatch(this.settingsNative, params)) return { applied: this.settings };
         let changed!: () => void;
         let timer: ReturnType<typeof setTimeout> | undefined;
         const accepted = new Promise<void>((resolve, reject) => {
             changed = () => { if (this.settingsRevision > revision && settingsMatch(this.settingsNative, params)) resolve(); };
             this.settingsListeners.add(changed);
-            timer = setTimeout(() => reject(new Error('Native settings update is not confirmed; reconnect before retrying')), 15_000);
+            timer = setTimeout(() => {
+                // Lost confirmation: a state that already matches the request
+                // (suppressed no-op echo) still satisfies it without a bump.
+                if (settingsMatch(this.settingsNative, params)) resolve();
+                else reject(new Error('Native settings update is not confirmed; reconnect before retrying'));
+            }, 15_000);
         });
         void accepted.catch(() => {});
         try {
