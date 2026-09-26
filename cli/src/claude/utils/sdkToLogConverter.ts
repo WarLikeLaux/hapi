@@ -342,6 +342,20 @@ export class SDKToLogConverter {
             case 'system': {
                 const systemMsg = sdkMessage as SDKSystemMessage
 
+                // Background task completions arrive as system/task_notification.
+                // This is the only completion signal on the SDK path — the
+                // transcript's own <task-notification> delivery never crosses
+                // stream-json — and both downstream counters parse the older
+                // system-injected user-entry shape (hub extractBackgroundTaskDelta,
+                // web sidechain normalizer). Re-emit that shape here, mirroring
+                // the local launcher's queue-operation re-emit in
+                // sessionScanner.ts: the outgoing queue drops unknown system
+                // subtypes, and a plain forward would never be counted.
+                if (systemMsg.subtype === 'task_notification') {
+                    logMessage = this.taskNotificationUserEntry(systemMsg, baseFields)
+                    break
+                }
+
                 // System messages with subtype 'init' might update session ID
                 if (systemMsg.subtype === 'init' && systemMsg.session_id) {
                     this.updateSessionId(systemMsg.session_id)
@@ -472,6 +486,42 @@ export class SDKToLogConverter {
         }
 
         return logMessage
+    }
+
+    /**
+     * Shape a system/task_notification as the system-injected user entry that
+     * claude's own transcript writes for background task completions. Field
+     * order mirrors that delivery so both paths produce byte-identical
+     * content; the synthetic entry keeps the base chain fields (uuid,
+     * parentUuid) so the transcript parent chain stays intact. Built on
+     * baseFields rather than flagged isMeta — the outgoing queue drops isMeta
+     * and unknown system subtypes alike, and this entry must reach the hub to
+     * decrement backgroundTaskCount.
+     */
+    private taskNotificationUserEntry(
+        systemMsg: SDKSystemMessage,
+        baseFields: Record<string, unknown>
+    ): RawJSONLines {
+        const notification = systemMsg as SDKSystemMessage & Record<string, unknown>
+        const entries: Array<[string, unknown]> = [
+            ['task-id', notification.task_id],
+            ['tool-use-id', notification.tool_use_id],
+            ['output-file', notification.output_file],
+            ['status', notification.status],
+            ['summary', notification.summary]
+        ]
+        const body = entries
+            .filter(([, value]) => typeof value === 'string' && (value as string) !== '')
+            .map(([tag, value]) => `<${tag}>${value as string}</${tag}>`)
+            .join('\n')
+        const content = body !== ''
+            ? `<task-notification>\n${body}\n</task-notification>`
+            : '<task-notification>\n</task-notification>'
+        return {
+            ...(baseFields as Extract<RawJSONLines, { type: 'user' }>),
+            type: 'user',
+            message: { role: 'user', content }
+        }
     }
 
     /**
