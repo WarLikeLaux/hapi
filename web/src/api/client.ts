@@ -73,6 +73,7 @@ import type { CancelMessageResponse, SteerQueuedMessageResponse } from '@hapi/pr
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
 import type {
     ConfigureTelegramRequest,
+    ConfigureYandexRequest,
     ExternalConversation,
     ExternalConversationsResponse,
     ExternalMessagesResponse,
@@ -284,6 +285,13 @@ export class ApiClient {
 
     async configureTelegram(payload: ConfigureTelegramRequest): Promise<{ connection: MessengerConnection }> {
         return await this.request('/api/messengers/telegram/configure', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    async configureYandex(payload: ConfigureYandexRequest): Promise<{ connection: MessengerConnection }> {
+        return await this.request('/api/messengers/yandex/configure', {
             method: 'POST',
             body: JSON.stringify(payload)
         })

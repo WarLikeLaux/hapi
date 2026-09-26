@@ -112,6 +112,13 @@ export const ConfigureTelegramRequestSchema = z.object({
 })
 export type ConfigureTelegramRequest = z.infer<typeof ConfigureTelegramRequestSchema>
 
+// Personal Yandex Messenger has no public API: the connector talks the reverse-engineered
+// chats-web protocol (registry HTTP + xiva WebSocket) authorized by session cookies.
+export const ConfigureYandexRequestSchema = z.object({
+    cookies: z.string().trim().min(1).max(16384),
+})
+export type ConfigureYandexRequest = z.infer<typeof ConfigureYandexRequestSchema>
+
 export const SubmitMessengerAuthRequestSchema = z.object({
     kind: z.enum(['phone', 'code', 'password']),
     value: z.string().min(1)

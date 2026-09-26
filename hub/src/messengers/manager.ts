@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import type {
     ConfigureTelegramRequest,
+    ConfigureYandexRequest,
     ExternalConversation,
     ExternalMessage,
     ExternalParticipant,
@@ -12,9 +13,8 @@ import type {
 import type { Store } from '../store'
 import type { SSEManager } from '../sse/sseManager'
 import { TelegramConnector } from './telegramConnector'
+import { YandexConnector } from './yandex/yandexConnector'
 import type { DownloadedExternalMedia, MessengerConnector, MessengerConnectorEvent, MessengerConnectorFactory } from './types'
-
-type StoredTelegramConfig = ConfigureTelegramRequest
 
 type MediaPrefetchTask = {
     key: string
@@ -59,6 +59,7 @@ export class MessengerManager {
         sseManager: SSEManager
     }) {
         this.factories.set('telegram', (connectorOptions) => new TelegramConnector(connectorOptions))
+        this.factories.set('yandex', (connectorOptions) => new YandexConnector(connectorOptions))
     }
 
     registerConnectorFactory(provider: string, factory: MessengerConnectorFactory): void {
@@ -78,8 +79,15 @@ export class MessengerManager {
     }
 
     async configureTelegram(namespace: string, config: ConfigureTelegramRequest): Promise<MessengerConnection> {
-        await this.saveTelegramConfig(namespace, config)
+        await this.saveProviderConfig(namespace, 'telegram', config)
         const connector = await this.getOrCreate(namespace, 'telegram')
+        await connector.configure(config)
+        return connector.getConnection()
+    }
+
+    async configureYandex(namespace: string, config: ConfigureYandexRequest): Promise<MessengerConnection> {
+        await this.saveProviderConfig(namespace, 'yandex', config)
+        const connector = await this.getOrCreate(namespace, 'yandex')
         await connector.configure(config)
         return connector.getConnection()
     }
@@ -487,30 +495,39 @@ export class MessengerManager {
 
     private async startFromSavedConfig(namespace: string, connector: MessengerConnector): Promise<void> {
         if (connector.getConnection().state !== 'unconfigured') return
-        if (connector.provider !== 'telegram') return
-        const config = await this.readTelegramConfig(namespace)
+        if (connector.provider !== 'telegram' && connector.provider !== 'yandex') return
+        const config = await this.readProviderConfig(namespace, connector.provider)
         if (!config) return
         try {
             await connector.configure(config)
         } catch (error) {
-            console.error('[Messengers] Failed to start Telegram connector:', error)
+            console.error(`[Messengers] Failed to start ${connector.provider} connector:`, error)
         }
     }
 
-    private async saveTelegramConfig(namespace: string, config: StoredTelegramConfig): Promise<void> {
-        const dir = this.namespaceDir(namespace, 'telegram')
+    private async saveProviderConfig(namespace: string, provider: string, config: object): Promise<void> {
+        const dir = this.namespaceDir(namespace, provider)
         await mkdir(dir, { recursive: true, mode: 0o700 })
         const path = join(dir, 'config.json')
         await writeFile(path, `${JSON.stringify(config)}\n`, { mode: 0o600 })
         await chmod(path, 0o600).catch(() => {})
     }
 
-    private async readTelegramConfig(namespace: string): Promise<StoredTelegramConfig | null> {
+    /** Re-reads and re-validates a saved provider config after a hub restart. */
+    private async readProviderConfig(namespace: string, provider: string): Promise<object | null> {
         try {
-            const raw = await readFile(join(this.namespaceDir(namespace, 'telegram'), 'config.json'), 'utf8')
-            const value = JSON.parse(raw) as Partial<StoredTelegramConfig>
-            if (!Number.isInteger(value.apiId) || !value.apiHash) return null
-            return { apiId: value.apiId as number, apiHash: value.apiHash }
+            const raw = await readFile(join(this.namespaceDir(namespace, provider), 'config.json'), 'utf8')
+            const value = JSON.parse(raw) as Record<string, unknown>
+            if (!value || typeof value !== 'object') return null
+            if (provider === 'telegram') {
+                if (!Number.isInteger(value.apiId) || typeof value.apiHash !== 'string') return null
+                return { apiId: value.apiId as number, apiHash: value.apiHash }
+            }
+            if (provider === 'yandex') {
+                if (typeof value.cookies !== 'string' || value.cookies.trim().length === 0) return null
+                return { cookies: value.cookies }
+            }
+            return null
         } catch {
             return null
         }
