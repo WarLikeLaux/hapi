@@ -1595,11 +1595,10 @@ export function SessionList(props: {
         [sidebarSessions]
     )
     const hasTextQuery = normalizedQuery.length > 0
-    const [searchResultTab, setSearchResultTab] = useState<'chats' | 'messages'>('chats')
+    const [searchResultSelection, setSearchResultSelection] = useState<'chats' | 'messages' | null>(null)
     // Lifted here so the messages tab badge shows the match count while the
     // chats tab is the active one.
     const messageSearchState = useMessageSearch(api, normalizedQuery)
-    const showSessionSections = !hasTextQuery || searchResultTab === 'chats'
     const timeScopedSessions = useMemo(
         () => timeRange === null
             ? allSessions
@@ -1618,6 +1617,12 @@ export function SessionList(props: {
             : null,
         [hasTextQuery, projectTimeScopedSessions, normalizedQuery, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
     )
+    const chatsHaveNoMatches = normalizedQuery.length >= 2 && searchScoreIndex?.matchedIds.size === 0
+    const searchResultTabOrder: ('chats' | 'messages')[] = chatsHaveNoMatches
+        ? ['messages', 'chats']
+        : ['chats', 'messages']
+    const searchResultTab = searchResultSelection ?? (chatsHaveNoMatches ? 'messages' : 'chats')
+    const showSessionSections = !hasTextQuery || searchResultTab === 'chats'
     const visibleSessions = useMemo(
         () => {
             if (!isFiltering) return allSessions
@@ -2352,7 +2357,10 @@ export function SessionList(props: {
                     {showSearch ? (
                         <SessionListSearch
                             value={searchQuery}
-                            onChange={setSearchQuery}
+                            onChange={(value) => {
+                                setSearchQuery(value)
+                                setSearchResultSelection(null)
+                            }}
                             customStart={customStart}
                             customEnd={customEnd}
                             sessionActivityDates={sessionActivityDates}
@@ -2455,44 +2463,34 @@ export function SessionList(props: {
                         aria-label={t('sessions.messageSearch.title')}
                         data-testid="search-results-tabs"
                     >
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={searchResultTab === 'chats'}
-                            onClick={() => setSearchResultTab('chats')}
-                            className={cn(
-                                'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]',
-                                searchResultTab === 'chats'
-                                    ? 'bg-[var(--app-bg)] font-medium text-[var(--app-fg)]'
-                                    : 'text-[var(--app-hint)] hover:text-[var(--app-fg)]'
-                            )}
-                        >
-                            <span className="min-w-0 truncate">{t('sessions.search.tabChats')}</span>
-                            {searchScoreIndex ? (
-                                <span className="shrink-0 text-[11px] tabular-nums opacity-70">
-                                    ({searchScoreIndex.matchedIds.size})
+                        {searchResultTabOrder.map((tab) => (
+                            <button
+                                key={tab}
+                                type="button"
+                                role="tab"
+                                aria-selected={searchResultTab === tab}
+                                onClick={() => setSearchResultSelection(tab)}
+                                className={cn(
+                                    'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]',
+                                    searchResultTab === tab
+                                        ? 'bg-[var(--app-bg)] font-medium text-[var(--app-fg)]'
+                                        : 'text-[var(--app-hint)] hover:text-[var(--app-fg)]'
+                                )}
+                            >
+                                <span className="min-w-0 truncate">
+                                    {t(tab === 'chats' ? 'sessions.search.tabChats' : 'sessions.search.tabMessages')}
                                 </span>
-                            ) : null}
-                        </button>
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={searchResultTab === 'messages'}
-                            onClick={() => setSearchResultTab('messages')}
-                            className={cn(
-                                'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]',
-                                searchResultTab === 'messages'
-                                    ? 'bg-[var(--app-bg)] font-medium text-[var(--app-fg)]'
-                                    : 'text-[var(--app-hint)] hover:text-[var(--app-fg)]'
-                            )}
-                        >
-                            <span className="min-w-0 truncate">{t('sessions.search.tabMessages')}</span>
-                            {messageSearchState.response ? (
-                                <span className="shrink-0 text-[11px] tabular-nums opacity-70">
-                                    ({messageSearchState.response.total})
-                                </span>
-                            ) : null}
-                        </button>
+                                {tab === 'chats' && searchScoreIndex ? (
+                                    <span className="shrink-0 text-[11px] tabular-nums opacity-70">
+                                        ({searchScoreIndex.matchedIds.size})
+                                    </span>
+                                ) : tab === 'messages' && messageSearchState.response ? (
+                                    <span className="shrink-0 text-[11px] tabular-nums opacity-70">
+                                        ({messageSearchState.response.total})
+                                    </span>
+                                ) : null}
+                            </button>
+                        ))}
                     </div>
                 ) : null}
 

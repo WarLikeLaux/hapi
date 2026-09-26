@@ -126,12 +126,8 @@ describe('SessionList message search section', () => {
         typeQuery('регистрация')
 
         await waitFor(() => expect(api.searchMessages).toHaveBeenCalledWith('регистрация', expect.objectContaining({ limit: 30 })))
-        // The chats tab is the default, so the message results stay hidden even
-        // after the response has landed and fed the tab badge.
-        expect(screen.getByRole('tab', { name: 'Chats (0)', selected: true })).toBeTruthy()
-        expect(screen.queryByTestId('message-search-results')).toBeNull()
-
-        await openMessagesTab(6)
+        await waitFor(() => expect(screen.getByRole('tab', { name: 'Messages (6)', selected: true })).toBeTruthy())
+        expect(within(screen.getByTestId('search-results-tabs')).getAllByRole('tab')[0].textContent).toBe('Messages(6)')
         const group = await waitFor(() => screen.getByTestId('message-search-session-session-1'))
         // The chat group carries the session title and the full match count.
         expect(screen.getByText('Alpha task')).toBeTruthy()
@@ -165,6 +161,31 @@ describe('SessionList message search section', () => {
         // Switching back to the chats tab restores the session sections.
         fireEvent.click(screen.getByRole('tab', { name: 'Chats (0)' }))
         await waitFor(() => expect(screen.queryByTestId('message-search-results')).toBeNull())
+        expect(screen.getByRole('tab', { name: 'Chats (0)', selected: true })).toBeTruthy()
+    })
+
+    it('keeps chats first when they match and resets the selected tab for a new query', async () => {
+        const api = {
+            searchMessages: vi.fn().mockResolvedValue({ total: 0, hits: [], sessions: [], hasMore: false })
+        } as unknown as ApiClient
+
+        renderSessionList(api)
+        typeQuery('Alpha')
+
+        expect(screen.getByRole('tab', { name: 'Chats (1)', selected: true })).toBeTruthy()
+        expect(within(screen.getByTestId('search-results-tabs')).getAllByRole('tab')[0].textContent).toBe('Chats(1)')
+        fireEvent.click(screen.getByRole('tab', { name: 'Messages' }))
+        expect(screen.getByRole('tab', { name: 'Messages', selected: true })).toBeTruthy()
+
+        fireEvent.change(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), { target: { value: 'регистрация' } })
+        expect(screen.getByRole('tab', { name: 'Messages', selected: true })).toBeTruthy()
+        expect(within(screen.getByTestId('search-results-tabs')).getAllByRole('tab')[0].textContent).toBe('Messages')
+        fireEvent.change(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), { target: { value: 'Alpha task' } })
+        expect(screen.getByRole('tab', { name: 'Chats (1)', selected: true })).toBeTruthy()
+        fireEvent.click(screen.getByRole('tab', { name: 'Messages' }))
+        fireEvent.change(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), { target: { value: 'регистрация' } })
+        fireEvent.change(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), { target: { value: 'Alpha task' } })
+        expect(screen.getByRole('tab', { name: 'Chats (1)', selected: true })).toBeTruthy()
     })
 
     it('shows an empty hint when messages match nothing', async () => {
