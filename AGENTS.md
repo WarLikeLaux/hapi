@@ -13,21 +13,11 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 
 ## Delivery policy
 
-- Every completed product code change must be deployed locally after its relevant checks pass. Use the repository's local deployment workflow and verify the affected services afterward.
+- Every completed product code change must be deployed locally after its relevant checks pass. The local deploy command is `bun run deploy:local-hub`; run it only when no session is mid-turn, and verify the affected services afterward.
 - For non-visual features and fixes, successful verification authorizes committing the task's exact files and pushing the current branch without waiting for a separate request. Deploy before commit and push so a failed deployment is not published.
 - If a feature or fix does not work on its first delivered attempt and needs another corrective iteration, deploy subsequent fixes for validation but do not commit or push them until the user explicitly confirms the result works. This acceptance gate overrides the non-visual automatic-push rule.
 - For changes that affect visible UI or UX, deploy the uncommitted change for user review, but do not commit or push it until the user explicitly accepts the visual result. After acceptance, commit and push the reviewed files.
 - A user's explicit request to avoid deployment, commits, or pushes overrides these defaults. Never include unrelated worktree changes in an automatic commit.
-
-## Pitbox
-
-- `.pitbox/config` pins the main branch to `custom`. The pitbox tools and `integrate` skill describe the slot workflow.
-
-<!-- pitbox:slot-workflow -->
-- For tasks in pitbox slots, use this delivery order instead of the deploy-before-commit and visual acceptance gates above: finish the task, run relevant checks, commit only the task files, and mark the slot ready. For visible UI or UX work, show a screenshot in the result without waiting for user acceptance. Feedback after review is a follow-up fix. A ready marker does not start collection or deployment. Slot agents do not deploy or collect. Only after the user explicitly asks, the integrator collects ready slots, runs the full checks, deploys once, pushes the main branch, and releases the slots. That request is sufficient authorization. Do not ask for a second confirmation.
-<!-- /pitbox:slot-workflow -->
-
-- After collecting slots, run `bun typecheck && bun run test`. Follow the delivery policy above for deployment and push. The local deploy command is `bun run deploy:local-hub`; run it only when no session is mid-turn.
 
 ## Find context when needed
 
