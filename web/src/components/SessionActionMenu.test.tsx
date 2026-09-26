@@ -346,32 +346,31 @@ describe('SessionActionMenu - Pi sync action', () => {
 })
 
 describe('SessionActionMenu - DIFIT actions', () => {
-    it('starts a new review and switches to restart after a review is attached', () => {
-        const onManageDifit = vi.fn()
+    it('offers a direct Open in DIFIT link for a new active session', () => {
         const onClose = vi.fn()
-        const { rerender } = renderMenu({ onManageDifit, onClose })
+        renderMenu({ sessionActive: true, difitOpenUrl: 'https://difit.local/open?repo=%2Frepo', onClose })
 
-        const startAction = screen.getByRole('menuitem', { name: 'Start DIFIT' })
+        const action = screen.getByRole('menuitem', { name: 'Open in DIFIT' })
+        expect(action.tagName).toBe('A')
+        expect(action).toHaveAttribute('href', 'https://difit.local/open?repo=%2Frepo')
+        fireEvent.click(action)
+        expect(onClose).toHaveBeenCalledOnce()
+    })
+
+    it('keeps the link available for an inactive session', () => {
+        const onClose = vi.fn()
+        renderMenu({ sessionActive: false, difitOpenUrl: 'https://difit.local/open?repo=%2Frepo', onClose })
+
+        const reviewLink = screen.getByRole('menuitem', { name: 'Open in DIFIT' })
         const items = screen.getAllByRole('menuitem')
-        expect(items.indexOf(startAction)).toBeLessThan(
+        expect(items.indexOf(reviewLink)).toBeLessThan(
             items.indexOf(screen.getByRole('menuitem', { name: 'Rename' }))
         )
-
-        fireEvent.click(startAction)
-        expect(onManageDifit).toHaveBeenCalledOnce()
+        expect(reviewLink).toHaveAttribute('href', 'https://difit.local/open?repo=%2Frepo')
+        expect(reviewLink).toHaveAttribute('target', '_blank')
+        expect(reviewLink).toHaveAttribute('rel', 'noopener noreferrer')
+        fireEvent.click(reviewLink)
         expect(onClose).toHaveBeenCalledOnce()
-
-        rerender(
-            <I18nProvider>
-                <SessionActionMenu
-                    {...renderMenuDefaults()}
-                    isOpen={true}
-                    onManageDifit={onManageDifit}
-                    difitAttached={true}
-                />
-            </I18nProvider>
-        )
-        expect(screen.getByRole('menuitem', { name: 'Restart DIFIT' })).toBeInTheDocument()
     })
 
     it('exposes the merge-request link without duplicating the header DIFIT link', () => {
@@ -482,4 +481,3 @@ describe('SessionActionMenu - Context action', () => {
         expect(onSetContext).toHaveBeenCalledWith(null)
     })
 })
-

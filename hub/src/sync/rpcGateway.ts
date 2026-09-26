@@ -23,7 +23,6 @@ import type {
     GitComparisonResponse,
     GitComparisonScope,
     GitStatusResponse,
-    ManageDifitResponse,
     ImplementCodexPlanResult,
     CopilotModelsResponse,
     GrokModelsResponse,
@@ -400,13 +399,6 @@ export class RpcGateway {
 
     async getMachineGitStatus(machineId: string, cwd: string): Promise<RpcGitStatusResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.GitStatus, { cwd }) as RpcGitStatusResponse
-    }
-
-    async manageDifit(
-        machineId: string,
-        request: { action: 'start' | 'restart'; cwd: string; sessionId: string; reviewId?: string }
-    ): Promise<ManageDifitResponse> {
-        return await this.machineRpc(machineId, RPC_METHODS.ManageDifit, request, 45_000) as ManageDifitResponse
     }
 
     async getGitComparison(sessionId: string, options: { cwd?: string; scope: GitComparisonScope }): Promise<GitComparisonResponse> {

@@ -34,9 +34,8 @@ type SessionActionMenuProps = {
     onSyncCodex?: () => void
     onSyncPi?: () => void
     externalReviewUrl?: string | null
-    onManageDifit?: () => void
+    difitOpenUrl?: string | null
     createExternalReviewUrl?: string | null
-    difitAttached?: boolean
     onContinueInFolder?: () => void
     onRestart?: () => void
     onArchive: () => void
@@ -302,9 +301,8 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onSyncCodex,
         onSyncPi,
         externalReviewUrl,
-        onManageDifit,
+        difitOpenUrl,
         createExternalReviewUrl,
-        difitAttached = false,
         onContinueInFolder,
         onRestart,
         onArchive,
@@ -466,11 +464,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onSyncPi?.()
     }
 
-    const handleManageDifit = () => {
-        onClose()
-        onManageDifit?.()
-    }
-
     const handleContinueInFolder = () => {
         onClose()
         onContinueInFolder?.()
@@ -623,16 +616,18 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                 aria-labelledby={headingId}
                 className="flex flex-col gap-1"
             >
-                {onManageDifit ? (
-                    <button
-                        type="button"
+                {difitOpenUrl ? (
+                    <a
+                        href={difitOpenUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         role="menuitem"
                         className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                        onClick={handleManageDifit}
+                        onClick={onClose}
                     >
                         <DifitIcon className="text-[var(--app-hint)]" />
-                        {t(difitAttached ? 'session.action.restartDifit' : 'session.action.startDifit')}
-                    </button>
+                        {t('session.action.openDifit')}
+                    </a>
                 ) : null}
 
                 {externalReviewUrl ? (

@@ -75,7 +75,6 @@ function createApp(session: Session, opts?: {
     updateSessionSummary?: SyncEngine['updateSessionSummary']
     attachDifitReview?: SyncEngine['attachDifitReview']
     detachDifitReview?: SyncEngine['detachDifitReview']
-    manageDifit?: SyncEngine['manageDifit']
     setSessionPinned?: (sessionId: string, pinned: boolean) => void
     setSessionPinMode?: (sessionId: string, mode: 'none' | 'project' | 'global') => void
 }) {
@@ -189,8 +188,7 @@ function createApp(session: Session, opts?: {
         suggestSessionTitle: opts?.suggestSessionTitle ?? (async () => 'Generated title'),
         updateSessionSummary: opts?.updateSessionSummary ?? (async () => {}),
         attachDifitReview: opts?.attachDifitReview ?? (async () => {}),
-        detachDifitReview: opts?.detachDifitReview ?? (async () => false),
-        manageDifit: opts?.manageDifit ?? (async () => ({ success: false, error: 'not configured' }))
+        detachDifitReview: opts?.detachDifitReview ?? (async () => false)
     } as Partial<SyncEngine>
 
     const app = new Hono<WebAppEnv>()
@@ -362,45 +360,6 @@ describe('sessions routes', () => {
         expect(detach.status).toBe(200)
         expect(await detach.json()).toEqual({ ok: true, detached: true })
         expect(detached).toEqual([['session-1', 'review-1']])
-    })
-
-    it('starts DIFIT through the machine runner and attaches the returned review', async () => {
-        const managed: unknown[][] = []
-        const attached: unknown[][] = []
-        const session = createSession({
-            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'codex', machineId: 'machine-1' }
-        })
-        const { app } = createApp(session, {
-            manageDifit: async (...args) => {
-                managed.push(args)
-                return {
-                    success: true,
-                    reviewId: '0123456789abcdef01234567',
-                    url: 'https://difit.example.test/reviews/0123456789abcdef01234567/',
-                    branch: 'feature/review'
-                }
-            },
-            attachDifitReview: async (...args) => { attached.push(args) }
-        })
-
-        const response = await app.request('/api/sessions/session-1/difit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'start' })
-        })
-
-        expect(response.status).toBe(200)
-        expect(managed).toEqual([['machine-1', {
-            action: 'start',
-            cwd: '/tmp/project',
-            sessionId: 'session-1'
-        }]])
-        expect(attached[0]?.[0]).toBe('session-1')
-        expect(attached[0]?.[1]).toMatchObject({
-            id: '0123456789abcdef01234567',
-            url: 'https://difit.example.test/reviews/0123456789abcdef01234567/',
-            branch: 'feature/review'
-        })
     })
 
     it('rejects unsafe DIFIT review URLs', async () => {

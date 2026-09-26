@@ -41,10 +41,6 @@ import { requireSessionFromParam, requireSyncEngine } from './guards'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
-const ManageDifitRequestSchema = z.object({
-    action: z.enum(['start', 'restart'])
-})
-
 function commandsFromMetadataSlashCommands(names: readonly string[] | undefined): SlashCommand[] {
     if (!names?.length) {
         return []
@@ -960,64 +956,6 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to attach DIFIT review'
             return c.json({ error: message }, message.includes('concurrently') ? 409 : 500)
-        }
-    })
-
-    app.post('/sessions/:id/difit', async (c) => {
-        const engine = requireSyncEngine(c, getSyncEngine)
-        if (engine instanceof Response) return engine
-
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
-        if (sessionResult instanceof Response) return sessionResult
-
-        const parsed = ManageDifitRequestSchema.safeParse(await c.req.json().catch(() => null))
-        if (!parsed.success) return c.json({ success: false, error: 'Invalid DIFIT action' }, 400)
-
-        const metadata = sessionResult.session.metadata
-        if (!metadata?.path || !metadata.machineId) {
-            return c.json({ success: false, error: 'Session machine or path is unavailable' }, 409)
-        }
-        if (parsed.data.action === 'restart' && !metadata.difitReview?.id) {
-            return c.json({ success: false, error: 'No DIFIT review is attached' }, 409)
-        }
-
-        try {
-            const result = await engine.manageDifit(metadata.machineId, {
-                action: parsed.data.action,
-                cwd: metadata.path,
-                sessionId: sessionResult.sessionId,
-                ...(metadata.difitReview?.id ? { reviewId: metadata.difitReview.id } : {})
-            })
-            if (!result.success || !result.reviewId || !result.url) return c.json(result, 500)
-
-            const difitUrl = new URL(result.url)
-            const externalReviewUrl = result.reviewUrl ? new URL(result.reviewUrl) : null
-            if (
-                !['http:', 'https:'].includes(difitUrl.protocol)
-                || difitUrl.username
-                || difitUrl.password
-                || (externalReviewUrl && (
-                    !['http:', 'https:'].includes(externalReviewUrl.protocol)
-                    || externalReviewUrl.username
-                    || externalReviewUrl.password
-                ))
-            ) {
-                return c.json({ success: false, error: 'DIFIT returned an unsafe review URL' }, 500)
-            }
-
-            await engine.attachDifitReview(sessionResult.sessionId, {
-                id: result.reviewId,
-                url: difitUrl.toString(),
-                ...(externalReviewUrl ? { reviewUrl: externalReviewUrl.toString() } : {}),
-                ...(result.branch ? { branch: result.branch } : {}),
-                attachedAt: Date.now()
-            })
-            return c.json(result)
-        } catch (error) {
-            return c.json({
-                success: false,
-                error: error instanceof Error ? error.message : 'Failed to manage DIFIT'
-            }, 500)
         }
     })
 
