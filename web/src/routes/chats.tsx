@@ -65,17 +65,6 @@ function ProviderMark({ provider, className }: { provider: ChatsProvider; classN
         : <TelegramMark className={className} />
 }
 
-const chatsProviderStorageKey = 'hapi.chats.provider.v1'
-
-function loadChatsProvider(): ChatsProvider {
-    if (typeof window === 'undefined') return 'telegram'
-    try {
-        return window.localStorage.getItem(chatsProviderStorageKey) === 'yandex' ? 'yandex' : 'telegram'
-    } catch {
-        return 'telegram'
-    }
-}
-
 function SettingsIcon() {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
@@ -466,7 +455,7 @@ function ConversationAliases(props: { conversations: ExternalConversation[] }) {
     )
 }
 
-function ConnectionDialog(props: { provider: ChatsProvider; connection: MessengerConnection; onClose: () => void }) {
+function ProviderSection(props: { provider: ChatsProvider; connection: MessengerConnection }) {
     const { api } = useAppContext()
     const { t } = useTranslation()
     const queryClient = useQueryClient()
@@ -534,7 +523,6 @@ function ConnectionDialog(props: { provider: ChatsProvider; connection: Messenge
         mutationFn: async () => api!.selectMessengerConversations(provider, { remoteIds: [...selected] }),
         onSuccess: async () => {
             await queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
-            props.onClose()
         },
         onError: (cause) => setError(cause instanceof Error ? cause.message : t('dialog.error.default'))
     })
@@ -556,128 +544,151 @@ function ConnectionDialog(props: { provider: ChatsProvider; connection: Messenge
     const connectLabel = provider === 'telegram' ? t('chats.connectTelegram') : t('chats.connectYandex')
 
     return (
+        <section>
+            <div className="mb-3 flex items-center gap-3">
+                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${provider === 'yandex' ? 'bg-[#FC3F1D]' : 'bg-[#2AABEE]'}`}>
+                    <ProviderMark provider={provider} className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold">{PROVIDER_LABELS[provider]}</div>
+                    <div className="truncate text-xs text-[var(--app-hint)]">{props.connection.accountLabel ?? t(`chats.connection.${props.connection.state}`)}</div>
+                </div>
+            </div>
+            {ready ? (
+                <>
+                    <p className="mb-3 text-sm text-[var(--app-hint)]">{t('chats.select.hint')}</p>
+                    {candidates.isLoading ? <div className="py-8 text-center text-sm text-[var(--app-hint)]">{t('loading')}</div> : null}
+                    {candidates.error ? <div className="mb-3 text-sm text-red-600">{candidates.error.message}</div> : null}
+                    {candidates.data ? (
+                        <div className="mb-3 flex gap-2">
+                            <input
+                                value={candidateSearch}
+                                onChange={(event) => setCandidateSearch(event.target.value)}
+                                placeholder="Search cached chats"
+                                className="min-w-0 flex-1 rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--app-link)]"
+                            />
+                            <button
+                                type="button"
+                                disabled={refreshCandidates.isPending}
+                                onClick={() => refreshCandidates.mutate()}
+                                className="shrink-0 rounded-xl border border-[var(--app-border)] px-3 text-xs font-medium text-[var(--app-link)] disabled:opacity-50"
+                            >
+                                {refreshCandidates.isPending ? t('chats.refreshing') : t('chats.refresh')}
+                            </button>
+                        </div>
+                    ) : null}
+                    <div className="space-y-1">
+                        {visibleCandidates.map((conversation) => (
+                            <label key={conversation.id} className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 hover:bg-[var(--app-subtle-bg)]">
+                                <input
+                                    type="checkbox"
+                                    checked={selected.has(conversation.remoteId)}
+                                    onChange={(event) => setSelected((current) => {
+                                        const next = new Set(current)
+                                        if (event.target.checked) next.add(conversation.remoteId)
+                                        else next.delete(conversation.remoteId)
+                                        return next
+                                    })}
+                                    className="h-4 w-4 accent-[var(--app-link)]"
+                                />
+                                <ConversationAvatar conversation={conversation} />
+                                <span className="min-w-0 flex-1 truncate text-sm">{conversation.title}</span>
+                            </label>
+                        ))}
+                    </div>
+                    <button
+                        type="button"
+                        disabled={saveSelection.isPending}
+                        onClick={() => saveSelection.mutate()}
+                        className="mt-4 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50"
+                    >
+                        {saveSelection.isPending ? t('chats.saving') : t('chats.saveSelection')}
+                    </button>
+                    <ConversationAliases conversations={selectedCandidates} />
+                </>
+            ) : props.connection.state.startsWith('awaiting_') ? (
+                <form onSubmit={(event) => {
+                    event.preventDefault()
+                    submitAuth.mutate({ kind: authKind, value: authValue })
+                }}>
+                    <label className="mb-1 block text-sm font-medium">{authLabel}</label>
+                    <input
+                        type={authKind === 'password' ? 'password' : 'text'}
+                        value={authValue}
+                        onChange={(event) => setAuthValue(event.target.value)}
+                        placeholder={authKind === 'phone' ? '+79991234567' : undefined}
+                        className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]"
+                    />
+                    <button type="submit" disabled={!authValue || submitAuth.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50">
+                        {submitAuth.isPending ? t('chats.connecting') : t('chats.continue')}
+                    </button>
+                </form>
+            ) : props.connection.state === 'starting' ? (
+                <div className="py-10 text-center text-sm text-[var(--app-hint)]">{t('chats.connecting')}</div>
+            ) : provider === 'telegram' ? (
+                <form onSubmit={(event) => {
+                    event.preventDefault()
+                    configure.mutate()
+                }}>
+                    <p className="mb-4 text-sm text-[var(--app-hint)]">{t('chats.telegram.credentialsHint')}</p>
+                    <label className="mb-1 block text-sm font-medium">API ID</label>
+                    <input value={apiId} onChange={(event) => setApiId(event.target.value.replace(/\D/g, ''))} inputMode="numeric" className="mb-3 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]" />
+                    <label className="mb-1 block text-sm font-medium">API Hash</label>
+                    <input value={apiHash} onChange={(event) => setApiHash(event.target.value)} className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]" />
+                    <button type="submit" disabled={connectDisabled || configure.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50">
+                        {configure.isPending ? t('chats.connecting') : connectLabel}
+                    </button>
+                </form>
+            ) : (
+                <form onSubmit={(event) => {
+                    event.preventDefault()
+                    configure.mutate()
+                }}>
+                    <p className="mb-4 text-sm text-[var(--app-hint)]">{t('chats.yandex.cookiesHint')}</p>
+                    <label className="mb-1 block text-sm font-medium">{t('chats.yandex.cookiesLabel')}</label>
+                    <textarea
+                        value={cookies}
+                        onChange={(event) => setCookies(event.target.value)}
+                        rows={5}
+                        placeholder={t('chats.yandex.cookiesPlaceholder')}
+                        className="w-full resize-y rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 font-mono text-xs outline-none focus:border-[var(--app-link)]"
+                    />
+                    <button type="submit" disabled={connectDisabled || configure.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50">
+                        {configure.isPending ? t('chats.connecting') : connectLabel}
+                    </button>
+                </form>
+            )}
+            {props.connection.detail ? <div className="mt-3 rounded-xl bg-[var(--app-subtle-bg)] p-3 text-xs text-[var(--app-hint)]">{props.connection.detail}</div> : null}
+            {error ? <div className="mt-3 text-sm text-red-600">{error}</div> : null}
+        </section>
+    )
+}
+
+/** One dialog managing every messenger at once: the chat list itself stays shared. */
+function ManageChatsDialog(props: {
+    connections: MessengerConnection[] | undefined
+    onClose: () => void
+}) {
+    const { t } = useTranslation()
+    const byProvider = new Map((props.connections ?? []).map((connection) => [connection.provider, connection]))
+    return (
         <Dialog open onOpenChange={(open) => { if (!open) props.onClose() }}>
             <DialogContent className="max-h-[88dvh] overflow-hidden border border-[var(--app-border)] bg-[var(--app-bg)] p-0">
                 <DialogDescription className="sr-only">{t('chats.select.hint')}</DialogDescription>
-                <div className="flex items-center gap-3 border-b border-[var(--app-border)] px-4 py-3 pr-14">
-                    <div className={`flex h-9 w-9 items-center justify-center rounded-full text-white ${provider === 'yandex' ? 'bg-[#FC3F1D]' : 'bg-[#2AABEE]'}`}>
-                        <ProviderMark provider={provider} className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <DialogTitle className="font-semibold">{PROVIDER_LABELS[provider]}</DialogTitle>
-                        <div className="truncate text-xs text-[var(--app-hint)]">{props.connection.accountLabel ?? t(`chats.connection.${props.connection.state}`)}</div>
-                    </div>
+                <div className="border-b border-[var(--app-border)] px-4 py-3 pr-14">
+                    <DialogTitle className="font-semibold">{t('chats.title')}</DialogTitle>
+                    <div className="truncate text-xs text-[var(--app-hint)]">{t('chats.manage')}</div>
                 </div>
-
-                <div className="max-h-[calc(88dvh-4rem)] overflow-y-auto p-4">
-                    {ready ? (
-                        <>
-                            <p className="mb-3 text-sm text-[var(--app-hint)]">{t('chats.select.hint')}</p>
-                            {candidates.isLoading ? <div className="py-8 text-center text-sm text-[var(--app-hint)]">{t('loading')}</div> : null}
-                            {candidates.error ? <div className="mb-3 text-sm text-red-600">{candidates.error.message}</div> : null}
-                            {candidates.data ? (
-                                <div className="mb-3 flex gap-2">
-                                    <input
-                                        value={candidateSearch}
-                                        onChange={(event) => setCandidateSearch(event.target.value)}
-                                        placeholder="Search cached chats"
-                                        className="min-w-0 flex-1 rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--app-link)]"
-                                    />
-                                    <button
-                                        type="button"
-                                        disabled={refreshCandidates.isPending}
-                                        onClick={() => refreshCandidates.mutate()}
-                                        className="shrink-0 rounded-xl border border-[var(--app-border)] px-3 text-xs font-medium text-[var(--app-link)] disabled:opacity-50"
-                                    >
-                                        {refreshCandidates.isPending ? t('chats.refreshing') : t('chats.refresh')}
-                                    </button>
-                                </div>
-                            ) : null}
-                            <div className="space-y-1">
-                                {visibleCandidates.map((conversation) => (
-                                    <label key={conversation.id} className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 hover:bg-[var(--app-subtle-bg)]">
-                                        <input
-                                            type="checkbox"
-                                            checked={selected.has(conversation.remoteId)}
-                                            onChange={(event) => setSelected((current) => {
-                                                const next = new Set(current)
-                                                if (event.target.checked) next.add(conversation.remoteId)
-                                                else next.delete(conversation.remoteId)
-                                                return next
-                                            })}
-                                            className="h-4 w-4 accent-[var(--app-link)]"
-                                        />
-                                        <ConversationAvatar conversation={conversation} />
-                                        <span className="min-w-0 flex-1 truncate text-sm">{conversation.title}</span>
-                                    </label>
-                                ))}
-                            </div>
-                            <button
-                                type="button"
-                                disabled={saveSelection.isPending}
-                                onClick={() => saveSelection.mutate()}
-                                className="mt-4 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50"
-                            >
-                                {saveSelection.isPending ? t('chats.saving') : t('chats.saveSelection')}
-                            </button>
-                            <ConversationAliases conversations={selectedCandidates} />
-                        </>
-                    ) : props.connection.state.startsWith('awaiting_') ? (
-                        <form onSubmit={(event) => {
-                            event.preventDefault()
-                            submitAuth.mutate({ kind: authKind, value: authValue })
-                        }}>
-                            <label className="mb-1 block text-sm font-medium">{authLabel}</label>
-                            <input
-                                autoFocus
-                                type={authKind === 'password' ? 'password' : 'text'}
-                                value={authValue}
-                                onChange={(event) => setAuthValue(event.target.value)}
-                                placeholder={authKind === 'phone' ? '+79991234567' : undefined}
-                                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]"
-                            />
-                            <button type="submit" disabled={!authValue || submitAuth.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50">
-                                {submitAuth.isPending ? t('chats.connecting') : t('chats.continue')}
-                            </button>
-                        </form>
-                    ) : props.connection.state === 'starting' ? (
-                        <div className="py-10 text-center text-sm text-[var(--app-hint)]">{t('chats.connecting')}</div>
-                    ) : provider === 'telegram' ? (
-                        <form onSubmit={(event) => {
-                            event.preventDefault()
-                            configure.mutate()
-                        }}>
-                            <p className="mb-4 text-sm text-[var(--app-hint)]">{t('chats.telegram.credentialsHint')}</p>
-                            <label className="mb-1 block text-sm font-medium">API ID</label>
-                            <input value={apiId} onChange={(event) => setApiId(event.target.value.replace(/\D/g, ''))} inputMode="numeric" className="mb-3 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]" />
-                            <label className="mb-1 block text-sm font-medium">API Hash</label>
-                            <input value={apiHash} onChange={(event) => setApiHash(event.target.value)} className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]" />
-                            <button type="submit" disabled={connectDisabled || configure.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50">
-                                {configure.isPending ? t('chats.connecting') : connectLabel}
-                            </button>
-                        </form>
-                    ) : (
-                        <form onSubmit={(event) => {
-                            event.preventDefault()
-                            configure.mutate()
-                        }}>
-                            <p className="mb-4 text-sm text-[var(--app-hint)]">{t('chats.yandex.cookiesHint')}</p>
-                            <label className="mb-1 block text-sm font-medium">{t('chats.yandex.cookiesLabel')}</label>
-                            <textarea
-                                autoFocus
-                                value={cookies}
-                                onChange={(event) => setCookies(event.target.value)}
-                                rows={5}
-                                placeholder={t('chats.yandex.cookiesPlaceholder')}
-                                className="w-full resize-y rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 font-mono text-xs outline-none focus:border-[var(--app-link)]"
-                            />
-                            <button type="submit" disabled={connectDisabled || configure.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50">
-                                {configure.isPending ? t('chats.connecting') : connectLabel}
-                            </button>
-                        </form>
-                    )}
-                    {props.connection.detail ? <div className="mt-3 rounded-xl bg-[var(--app-subtle-bg)] p-3 text-xs text-[var(--app-hint)]">{props.connection.detail}</div> : null}
-                    {error ? <div className="mt-3 text-sm text-red-600">{error}</div> : null}
+                <div className="max-h-[calc(88dvh-4rem)] space-y-6 overflow-y-auto p-4">
+                    {chatsProviders.map((provider) => (
+                        <ProviderSection
+                            key={provider}
+                            provider={provider}
+                            connection={byProvider.get(provider) ?? {
+                                provider, state: 'unconfigured', accountLabel: null, detail: null
+                            } satisfies MessengerConnection}
+                        />
+                    ))}
                 </div>
             </DialogContent>
         </Dialog>
@@ -687,8 +698,6 @@ function ConnectionDialog(props: { provider: ChatsProvider; connection: Messenge
 function ChatList(props: {
     conversations: ExternalConversation[]
     selectedId: string | null
-    activeProvider: ChatsProvider
-    onProviderChange: (provider: ChatsProvider) => void
     onManage: () => void
 }) {
     const { t } = useTranslation()
@@ -697,35 +706,16 @@ function ChatList(props: {
         <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--app-border)] px-4">
                 <div className="flex-1 text-lg font-semibold">{t('chats.title')}</div>
-                <div className="flex items-center gap-1" role="tablist" aria-label="Messenger">
-                    {chatsProviders.map((item) => (
-                        <button
-                            key={item}
-                            type="button"
-                            role="tab"
-                            aria-selected={props.activeProvider === item}
-                            onClick={() => props.onProviderChange(item)}
-                            className={cn(
-                                'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
-                                props.activeProvider === item
-                                    ? 'bg-[var(--app-secondary-bg)] text-[var(--app-fg)]'
-                                    : 'text-[var(--app-hint)] hover:text-[var(--app-fg)]'
-                            )}
-                        >
-                            {PROVIDER_LABELS[item]}
-                        </button>
-                    ))}
-                </div>
                 <button type="button" onClick={props.onManage} title={t('chats.manage')} className="rounded-full p-2 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"><SettingsIcon /></button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
                 {props.conversations.length === 0 ? (
                     <button type="button" onClick={props.onManage} className="mx-auto mt-16 block max-w-xs rounded-2xl border border-dashed border-[var(--app-border)] px-6 py-8 text-center">
-                        <ProviderMark
-                            provider={props.activeProvider}
-                            className={props.activeProvider === 'yandex' ? 'mx-auto mb-3 h-8 w-8 text-[#FC3F1D]' : 'mx-auto mb-3 h-8 w-8 text-[#229ED9]'}
-                        />
-                        <span className="block text-sm font-medium">{t(props.activeProvider === 'yandex' ? 'chats.empty.titleYandex' : 'chats.empty.title')}</span>
+                        <span className="mx-auto mb-3 flex items-center justify-center gap-2">
+                            <TelegramMark className="h-8 w-8 text-[#229ED9]" />
+                            <YandexMark className="h-8 w-8 text-[#FC3F1D]" />
+                        </span>
+                        <span className="block text-sm font-medium">{t('chats.empty.title')}</span>
                         <span className="mt-1 block text-xs text-[var(--app-hint)]">{t('chats.empty.hint')}</span>
                     </button>
                 ) : props.conversations.map((conversation) => (
@@ -762,7 +752,6 @@ export function ChatsPage() {
     const pathname = useLocation({ select: (location) => location.pathname })
     const sidebar = useSidebarResize()
     const [manageOpen, setManageOpen] = useState(false)
-    const [provider, setProvider] = useState<ChatsProvider>(loadChatsProvider)
     const selectedId = pathname.startsWith('/chats/') ? decodeURIComponent(pathname.slice('/chats/'.length).split('/')[0]) : null
     const isIndex = pathname === '/chats' || pathname === '/chats/'
     const connections = useQuery({
@@ -770,8 +759,9 @@ export function ChatsPage() {
         queryFn: async () => (await api!.getMessengerConnections()).connections,
         enabled: Boolean(api),
         refetchInterval: (query) => {
-            const state = query.state.data?.find((item) => item.provider === provider)?.state
-            return state === 'starting' || state?.startsWith('awaiting_') ? 1500 : false
+            const busy = query.state.data?.some((item) =>
+                item.state === 'starting' || item.state.startsWith('awaiting_'))
+            return busy ? 1500 : false
         }
     })
     const conversations = useQuery({
@@ -780,20 +770,10 @@ export function ChatsPage() {
         enabled: Boolean(api)
     })
     useExternalMessagePrefetch(api, conversations.data)
-    const changeProvider = useCallback((next: ChatsProvider) => {
-        setProvider(next)
-        try {
-            window.localStorage.setItem(chatsProviderStorageKey, next)
-        } catch {
-        }
-    }, [])
-    const activeConnection = connections.data?.find((item) => item.provider === provider) ?? {
-        provider, state: 'unconfigured', accountLabel: null, detail: null
-    } satisfies MessengerConnection
 
     useEffect(() => {
-        if (activeConnection.state.startsWith('awaiting_')) setManageOpen(true)
-    }, [activeConnection.state])
+        if (connections.data?.some((item) => item.state.startsWith('awaiting_'))) setManageOpen(true)
+    }, [connections.data])
 
     return (
         <div className="flex h-full min-h-0">
@@ -801,15 +781,13 @@ export function ChatsPage() {
                 <ChatList
                     conversations={conversations.data ?? []}
                     selectedId={selectedId}
-                    activeProvider={provider}
-                    onProviderChange={changeProvider}
                     onManage={() => setManageOpen(true)}
                 />
                 <PrimarySectionNav />
             </aside>
             <div className="sidebar-resize-handle hidden shrink-0 split:block" data-dragging={sidebar.isDragging || undefined} onPointerDown={sidebar.onPointerDown} />
             <main className={`${isIndex ? 'hidden split:flex' : 'flex'} min-w-0 flex-1 flex-col bg-[var(--app-bg)]`}><Outlet /></main>
-            {manageOpen ? <ConnectionDialog provider={provider} connection={activeConnection} onClose={() => setManageOpen(false)} /> : null}
+            {manageOpen ? <ManageChatsDialog connections={connections.data} onClose={() => setManageOpen(false)} /> : null}
         </div>
     )
 }
