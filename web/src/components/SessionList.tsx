@@ -1543,8 +1543,10 @@ export function SessionList(props: {
         const path = getSessionProjectDirectory(session)
         return projectDisplayNames.get(path) ?? getPathDisplayName(path)
     }
-    const readableSessions = useMemo(
-        () => props.sessions.filter(session => shouldShowSessionInSidebar(session, selectedSessionId)),
+    const bulkReadSessions = useMemo(
+        () => props.sessions.filter(session =>
+            !session.active && shouldShowSessionInSidebar(session, selectedSessionId)
+        ),
         [props.sessions, selectedSessionId]
     )
     const hubContextSync = useSessionContextHubSync()
@@ -1587,8 +1589,8 @@ export function SessionList(props: {
         [contextFilteredSessions, selectedSessionId, showActiveSessionsOnly]
     )
     const unreadSessionCount = useMemo(
-        () => getUnreadSessionCount(readableSessions),
-        [lastSeenVersion, readableSessions]
+        () => getUnreadSessionCount(bulkReadSessions),
+        [lastSeenVersion, bulkReadSessions]
     )
     const sessionActivityDates = useMemo(
         () => new Set(sidebarSessions.map(session => formatDateValue(new Date(session.updatedAt)))),
@@ -2633,7 +2635,7 @@ export function SessionList(props: {
                 confirmLabel={t('sessions.markAllRead.confirm')}
                 confirmingLabel={t('sessions.markAllRead.confirming')}
                 onConfirm={async () => {
-                    markAllSessionsSeen(readableSessions)
+                    markAllSessionsSeen(bulkReadSessions)
                 }}
                 isPending={false}
                 centerTitle
