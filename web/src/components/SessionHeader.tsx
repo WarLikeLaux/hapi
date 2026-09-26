@@ -497,11 +497,11 @@ export function SessionHeader(props: {
         <>
             <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
                 <div className="mx-auto w-full max-w-content p-3">
-                {/* Title row wraps: the action buttons sit right next to the
-                    title; a long title takes the whole line and the buttons
-                    wrap to their own line below it. */}
+                {/* Title row wraps: a short title keeps the action buttons on
+                    the top line right-aligned; a long title takes the whole
+                    line and the buttons wrap to their own line right below. */}
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-2">
-                    <div className="flex min-w-0 flex-[0_1_max-content] items-center gap-2 sm:flex-1">
+                    <div className="flex min-w-0 flex-[1_1_max-content] items-center gap-2 sm:flex-1">
                     {/* Back button */}
                     <button
                         type="button"
@@ -526,7 +526,7 @@ export function SessionHeader(props: {
                     <button
                         type="button"
                         data-testid="session-header-mobile-details"
-                        className="block min-w-0 truncate rounded text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
+                        className="block min-w-0 flex-1 truncate rounded text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] sm:hidden"
                         aria-haspopup="dialog"
                         onClick={() => setDetailsOpen(true)}
                     >
@@ -581,7 +581,7 @@ export function SessionHeader(props: {
                     </div>
                     </div>
 
-                    <div data-testid="session-header-mobile-actions" className="flex shrink-0 items-center gap-2 sm:contents">
+                    <div data-testid="session-header-mobile-actions" className="ml-auto flex shrink-0 items-center gap-2 sm:contents">
                         {props.onToggleFiles ? (
                             <button
                                 type="button"
