@@ -62,13 +62,15 @@ registerRoute(
     })
 )
 
-// skipWaiting + clients.claim so that, when the user clicks the in-app
-// "Reload" banner, the SKIP_WAITING message arrives at a worker that is
-// already eager to activate. The reload itself is still driven by the user
-// clicking Reload — auto-reload is intentionally avoided because it can
-// interrupt an in-progress agent or fire repeatedly in dev.
-void self.skipWaiting()
-
+// A top-level self.skipWaiting() is intentionally absent: it would activate
+// the new worker the moment its module is parsed, which then races against the
+// in-app "Reload" banner. The waiting state is what `usePwaUpdate` listens
+// for, and the banner is the only sanctioned path to apply an update while a
+// session is in progress — activating early silently swaps `controllerchange`
+// ahead of the user click and fires the controllerchange-reload fallback after
+// ~2 s on the next manual reload, which presents as "the page reloads
+// itself". Wait for the explicit SKIP_WAITING message below so activation is
+// always coordinated with the user's click.
 self.addEventListener('message', (event) => {
     if (event.data?.type === 'SKIP_WAITING') {
         self.skipWaiting()
