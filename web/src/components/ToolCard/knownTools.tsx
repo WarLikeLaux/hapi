@@ -15,7 +15,7 @@ import {
     getCodexAgentType,
     summarizeCodexAgentResult
 } from '@/components/ToolCard/codexAgents'
-import { extractAskUserQuestionsInfo as extractAskUserStepsInfo } from '@/components/ToolCard/askUser'
+import { extractAskUserQuestionsInfo as extractAskUserStepsInfo, extractAskUserSuppression } from '@/components/ToolCard/askUser'
 
 const DEFAULT_ICON_CLASS = 'h-3.5 w-3.5'
 // Tool presentation registry for `hapi/web` (aligned with `hapi-app`).
@@ -659,10 +659,11 @@ export const knownTools: Record<string, {
                 ? opts.input.title.trim()
                 : ''
 
-            if (count > 1) {
-                return `${count} Questions`
-            }
-            return header || fallback || 'Question'
+            const suppressed = extractAskUserSuppression(opts.result)
+            const baseTitle = count > 1
+                ? `${count} Questions`
+                : (header || fallback || 'Question')
+            return suppressed ? `${baseTitle} (skipped)` : baseTitle
         },
         subtitle: (opts) => {
             const steps = extractAskUserStepsInfo(opts.input) ?? []

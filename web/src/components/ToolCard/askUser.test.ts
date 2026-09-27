@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
     extractAskUserQuestionsInfo,
+    extractAskUserSuppression,
     isAskUserToolName,
     parseAskUserInput
 } from '@/components/ToolCard/askUser'
@@ -157,5 +158,60 @@ describe('askUser parser', () => {
             { id: 'a', header: 'A', question: 'Q1' },
             { id: '1', header: null, question: 'Q2' }
         ])
+    })
+})
+
+describe('askUser suppression detection', () => {
+    it('returns null when result is missing or not an object', () => {
+        expect(extractAskUserSuppression(undefined)).toBeNull()
+        expect(extractAskUserSuppression(null)).toBeNull()
+        expect(extractAskUserSuppression('nope')).toBeNull()
+        expect(extractAskUserSuppression(42)).toBeNull()
+    })
+
+    it('returns null when details are present but suppressed is false', () => {
+        expect(extractAskUserSuppression({
+            tool_name: 'ask_user',
+            details: { suppressed: false, reason: 'still-active', waiting_for_user: true }
+        })).toBeNull()
+    })
+
+    it('returns null when details are missing and text is unrelated', () => {
+        expect(extractAskUserSuppression({
+            tool_name: 'ask_user',
+            text: 'Questionnaire abc is waiting for the local user.'
+        })).toBeNull()
+    })
+
+    it('detects details.suppressed and exposes the reason + waiting_for_user flag', () => {
+        expect(extractAskUserSuppression({
+            tool_name: 'ask_user',
+            details: { suppressed: true, reason: 'user-sent-new-instruction', waiting_for_user: false }
+        })).toEqual({
+            reason: 'user-sent-new-instruction',
+            waitingForUser: false
+        })
+    })
+
+    it('falls back to a generic reason when details.suppressed is true but reason is missing or non-string', () => {
+        expect(extractAskUserSuppression({
+            tool_name: 'ask_user',
+            details: { suppressed: true, waiting_for_user: false }
+        })).toEqual({ reason: null, waitingForUser: false })
+
+        expect(extractAskUserSuppression({
+            tool_name: 'ask_user',
+            details: { suppressed: true, reason: 42, waiting_for_user: false }
+        })).toEqual({ reason: null, waitingForUser: false })
+    })
+
+    it('matches on the known MiniMax "Question not asked" text when details were dropped', () => {
+        expect(extractAskUserSuppression({
+            tool_name: 'ask_user',
+            text: 'Question not asked: the user already sent a new instruction while this question was being raised. Follow the incoming user message instead.'
+        })).toEqual({
+            reason: 'user-sent-new-instruction',
+            waitingForUser: false
+        })
     })
 })

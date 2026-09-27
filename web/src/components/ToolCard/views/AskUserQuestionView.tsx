@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { ToolViewProps } from '@/components/ToolCard/views/_all'
 import { parseAskUserQuestionInput } from '@/components/ToolCard/askUserQuestion'
 import { isCursorAskQuestionToolName, parseCursorAskQuestionInput } from '@/components/ToolCard/cursorAskQuestion'
-import { isAskUserToolName, parseAskUserInput } from '@/components/ToolCard/askUser'
+import { isAskUserToolName, parseAskUserInput, extractAskUserSuppression } from '@/components/ToolCard/askUser'
 import {
     AskUserQuestionOptionBody,
     askUserQuestionQuoteClassName,
@@ -126,6 +126,7 @@ export function AskUserQuestionView(props: ToolViewProps) {
     const rawAnswers = props.block.tool.permission?.answers ?? undefined
     const answers = normalizeAnswers(rawAnswers)
     const hasAnswers = answers && Object.keys(answers).length > 0
+    const suppression = extractAskUserSuppression(props.block.tool.result)
 
     // When questions array is empty but answers exist (fallback path),
     // render the answers directly
@@ -138,6 +139,18 @@ export function AskUserQuestionView(props: ToolViewProps) {
 
     return (
         <div className="flex flex-col gap-4">
+            {suppression ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                    <div className="font-medium">
+                        {suppression.reason === 'user-sent-new-instruction'
+                            ? 'Question was superseded: you sent a new message before this one landed.'
+                            : 'Question was superseded before reaching you.'}
+                    </div>
+                    <div className="mt-0.5 text-[var(--app-hint)]">
+                        The agent has already moved on. These were the questions it wanted to ask — answer anyway if you want to follow up.
+                    </div>
+                </div>
+            ) : null}
             {questions.map((q, idx) => {
                 const isMulti = q.multiSelect
 
