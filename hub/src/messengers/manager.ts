@@ -36,6 +36,26 @@ const CANDIDATE_REFRESH_INTERVAL_MS = 60_000
 // by a refresh kicked off by the chat list.
 const AVATAR_LAZY_REFRESH_INTERVAL_MS = 5 * 60_000
 
+/**
+ * Rewrite yapic avatar URLs that point at dead (`/SMALL48`) or too-small
+ * (`/islands-small`) sizes when they reach the API surface. `/islands-200`
+ * (200x200 JPEG, ~11 KB) is small enough for chat chips and crisp on retina.
+ * We do not touch the DB row: the same component writes correct URLs on the
+ * next refresh, but until then the read path stays consistent so the UI does
+ * not flash old URLs.
+ */
+function repairAvatarUrl(conversation: ExternalConversation): ExternalConversation {
+    const url = conversation.avatarDataUrl
+    if (typeof url !== 'string') return conversation
+    if (!url.includes('avatars.mds.yandex.net')) return conversation
+    if (url.includes('/islands-200')) return conversation
+    let next = url
+    if (next.includes('/SMALL48')) next = next.replace(/\/SMALL48(?=$|\?)/, '/islands-200')
+    if (next.includes('/islands-small')) next = next.replace(/\/islands-small(?=$|\?)/, '/islands-200')
+    if (next === url) return conversation
+    return { ...conversation, avatarDataUrl: next }
+}
+
 function getFloodWaitMs(error: unknown): number | null {
     const message = error instanceof Error ? error.message : String(error)
     const match = message.match(/FLOOD_WAIT\s*\((\d+)\)/i)
@@ -124,7 +144,7 @@ export class MessengerManager {
     listConversations(namespace: string): ExternalConversation[] {
         const conversations = this.options.store.messengers.listConversations(namespace, true)
         this.maybeLazyRefreshAvatars(namespace, conversations)
-        return conversations
+        return conversations.map(repairAvatarUrl)
     }
 
     /**
