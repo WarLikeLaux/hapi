@@ -46,6 +46,24 @@ function dumpYandexElementOnce(element: Record<string, unknown>): void {
     }
 }
 
+/**
+ * One-shot debug dump of the first decoded ServerMessageInfo.From block to
+ * `/tmp/yandex-from-sample.json`. Used to confirm where the sender avatar lives
+ * on the wire (it stopped riding on `PartnerInfo.AvatarId` in current Yandex,
+ * and we need to know if it rides on `From.UserInfo.AvatarId`, `From.AvatarId`,
+ * or somewhere else entirely).
+ */
+let yandexFromDumpWritten = false
+function dumpYandexFromOnce(from: Record<string, unknown>): void {
+    if (yandexFromDumpWritten) return
+    yandexFromDumpWritten = true
+    try {
+        writeFileSync('/tmp/yandex-from-sample.json', JSON.stringify(from, null, 2))
+    } catch {
+        // best-effort
+    }
+}
+
 /** Hosts the Yandex avatar file URLs (§12.2 of the conarti reference). */
 const YAPIC_AVATAR_HOST = 'avatars.mds.yandex.net'
 const MESSENGER_PUBLIC_HOST = 'files.messenger.yandex.net'
@@ -278,6 +296,7 @@ export function normalizeMessageItem(
     }
 
     const from = asObject(info['From'])
+    dumpYandexFromOnce(from ?? {})
     const senderGuid = stringOr(from?.['Guid']) ?? ''
     const outgoing = senderGuid === myGuid
     const seqNo = numberOr(info['SeqNo'])
@@ -321,10 +340,16 @@ export function normalizeMessageItem(
     // The wire shape puts the avatar under `From.UserInfo.AvatarId` for
     // direct chats. We resolve it here so the connector can backfill the
     // partner's avatar onto the conversation record in `loadMessages`.
+    // Fall back to `From.AvatarId` (older shapes) and to a direct `AvatarUrl`
+    // field if present.
     const senderUserInfo = asObject(from?.['UserInfo'])
     const senderAvatarId = stringOr(senderUserInfo?.['AvatarId'])
+        ?? stringOr(asObject(from as Record<string, unknown>)?.['AvatarId'] as string)
+    const senderAvatarUrlDirect = stringOr(asObject(from as Record<string, unknown>)?.['AvatarUrl'] as string)
     let senderAvatarUrl: string | undefined
-    if (senderAvatarId !== undefined && senderAvatarId.length > 0) {
+    if (senderAvatarUrlDirect !== undefined && senderAvatarUrlDirect.length > 0) {
+        senderAvatarUrl = senderAvatarUrlDirect
+    } else if (senderAvatarId !== undefined && senderAvatarId.length > 0) {
         try {
             senderAvatarUrl = buildAvatarUrlFromId(senderAvatarId)
         } catch {
