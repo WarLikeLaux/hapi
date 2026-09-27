@@ -674,12 +674,21 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
             }
         }
         setReady(true)
+        return undefined
+    }, [props.isOpen, props.sourceSnapshots, restoreTick])
 
+    // Reset transient UI state when the share dialog opens so a freshly opened
+    // turn never inherits a leftover previewImage from a previous open.
+    // This deliberately does NOT depend on `props.sourceSnapshots`: a parent
+    // re-render can replace the array reference without changing the rendered
+    // content, and we must keep the lightbox state stable across that flicker
+    // so an open image preview does not snap closed mid-view.
+    useEffect(() => {
+        if (!props.isOpen) return
         setError(null)
         setCopied(false)
         setPreviewImage(null)
-        return undefined
-    }, [props.isOpen, props.sourceSnapshots, restoreTick])
+    }, [props.isOpen])
 
     useEffect(() => {
         const capture = captureRef.current
