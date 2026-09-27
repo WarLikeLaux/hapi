@@ -2085,7 +2085,7 @@ function SessionChatInner(props: SessionChatProps) {
                                     updatePendingSchedule(restored)
                                 }}
                                 canSteer={isSteeringSupportedForSession(props.session.metadata)
-                                    && (agentFlavor === 'pi'
+                                    && (agentFlavor === 'pi' || agentFlavor === 'minimax'
                                         ? props.session.thinking
                                         : props.session.agentState?.steeringActive === true)
                                     && !controlledByUser}

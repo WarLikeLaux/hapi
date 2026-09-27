@@ -167,12 +167,22 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
                 text: batch.message
             }];
 
+            // Block here until any in-flight backend prompt from a previous
+            // iteration has settled. AcpSdkBackend.processingMessage stays
+            // true while a previous `session/prompt` is awaiting its
+            // stopReason; trying to dispatch against it makes MiniMax Code
+            // ACP reject with "Session already has an active Turn".
+            await backend.waitForResponseComplete();
+
             session.onThinkingChange(true);
 
             try {
-                await backend.prompt(acpSessionId, promptContent, (message: AgentMessage) => {
-                    this.handleAgentMessage(message);
-                });
+                await this.dispatchWithActiveTurnRetry(
+                    backend,
+                    acpSessionId,
+                    promptContent,
+                    batch.items.map((item) => item.localId).filter((id): id is string => Boolean(id))
+                );
                 void backend.refreshSessionInfo(acpSessionId, session.path);
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
@@ -221,6 +231,80 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
             models: toMinimaxModelSummaries(option?.options),
             currentModelId: option?.currentValue ?? null
         });
+    }
+
+    /**
+     * Detects the MiniMax Code "Session already has an active Turn" rejection
+     * in an arbitrary thrown value. MiniMax Code's ACP server rejects a new
+     * `session/prompt` while a previous turn is still considered active, even
+     * when the previous prompt returned successfully a moment earlier — see
+     * `cli/src/minimax/minimaxRemoteLauncher.ts` runMainLoop() for the live
+     * reasoning. The exact wording comes from the MiniMax runtime and we
+     * match on the substring rather than a structured code so the heuristic
+     * survives upstream wording tweaks.
+     */
+    private isActiveTurnError(error: unknown): boolean {
+        const message = error instanceof Error ? error.message : String(error);
+        return typeof message === 'string' && message.includes('Session already has an active Turn');
+    }
+
+    /**
+     * Calls `backend.prompt(...)` and, if MiniMax Code rejects it because a
+     * previous turn is still considered active, sleeps and retries with a
+     * bounded exponential backoff. The error is not transient in the usual
+     * sense — the agent's prior `session/prompt` may have returned minutes
+     * earlier — but the MiniMax runtime does settle, so a handful of retries
+     * with growing delay is enough in practice. Bounded to avoid swallowing
+     * real errors forever; surfaces the final attempt's exception to the
+     * caller so the existing chat-event reporting still fires.
+     */
+    private async dispatchWithActiveTurnRetry(
+        backend: ReturnType<typeof createMinimaxBackend>,
+        acpSessionId: string,
+        promptContent: PromptContent[],
+        localIds: readonly string[]
+    ): Promise<void> {
+        const maxAttempts = 5;
+        let attempt = 0;
+        let delayMs = 200;
+
+        while (true) {
+            try {
+                await backend.prompt(acpSessionId, promptContent, (message: AgentMessage) => {
+                    this.handleAgentMessage(message);
+                });
+                return;
+            } catch (error) {
+                if (!this.isActiveTurnError(error) || attempt + 1 >= maxAttempts) {
+                    throw error;
+                }
+                attempt += 1;
+                logger.warn('[minimax-remote] active Turn retry', {
+                    attempt,
+                    delayMs,
+                    localIds,
+                    message: error instanceof Error ? error.message : String(error)
+                });
+                await new Promise<void>((resolve) => {
+                    const timer = setTimeout(resolve, delayMs);
+                    this.abortController.signal.addEventListener(
+                        'abort',
+                        () => {
+                            clearTimeout(timer);
+                            resolve();
+                        },
+                        { once: true }
+                    );
+                });
+                if (this.shouldExit || this.abortController.signal.aborted) {
+                    throw error;
+                }
+                // Re-check that the previous turn actually finished; without
+                // this, a fast retry can land on the same still-active turn.
+                await backend.waitForResponseComplete();
+                delayMs = Math.min(delayMs * 2, 2000);
+            }
+        }
     }
 
     /**

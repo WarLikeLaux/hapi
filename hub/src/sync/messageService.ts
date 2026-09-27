@@ -124,7 +124,19 @@ function getNormalizedDeliveryMode(
         return 'queue'
     }
 
-    return isObject(metadata) && metadata.flavor === 'pi' ? 'steer' : 'queue'
+    if (!isObject(metadata)) {
+        return 'queue'
+    }
+    // Pi: native steer into the active turn. Codex and Cursor: native/soft steer
+    // (true concurrent prompt). MiniMax Code: ACP rejects concurrent
+    // session/prompt while a turn is active, so MiniMax "steer" degrades to
+    // "promote this row to the head of the FIFO and dispatch it as soon as the
+    // current turn settles". From this layer's perspective both are still
+    // 'steer' delivery; the CLI does the actual wait-and-unshift.
+    const flavor = metadata.flavor
+    return flavor === 'codex' || flavor === 'cursor' || flavor === 'minimax' || flavor === 'pi'
+        ? 'steer'
+        : 'queue'
 }
 
 /**

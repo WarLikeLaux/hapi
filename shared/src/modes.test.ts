@@ -151,9 +151,10 @@ describe('minimax permission modes', () => {
 })
 
 describe('isSteeringSupportedForFlavor', () => {
-    it('supports codex, cursor and pi', () => {
+    it('supports codex, cursor, minimax and pi', () => {
         expect(isSteeringSupportedForFlavor('codex')).toBe(true)
         expect(isSteeringSupportedForFlavor('cursor')).toBe(true)
+        expect(isSteeringSupportedForFlavor('minimax')).toBe(true)
         expect(isSteeringSupportedForFlavor('pi')).toBe(true)
         expect(isSteeringSupportedForFlavor('claude')).toBe(false)
         expect(isSteeringSupportedForFlavor('opencode')).toBe(false)
@@ -163,8 +164,9 @@ describe('isSteeringSupportedForFlavor', () => {
 })
 
 describe('isSteeringSupportedForSession', () => {
-    it('supports codex and pi sessions', () => {
+    it('supports codex, minimax and pi sessions', () => {
         expect(isSteeringSupportedForSession({ flavor: 'codex' })).toBe(true)
+        expect(isSteeringSupportedForSession({ flavor: 'minimax' })).toBe(true)
         expect(isSteeringSupportedForSession({ flavor: 'pi' })).toBe(true)
     })
 
