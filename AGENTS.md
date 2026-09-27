@@ -14,11 +14,11 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 ## Pitbox task routing
 
 - Starting in the main checkout does not make a session the integrator. For an ordinary coding task, run `pitbox status`, then `pitbox claim` without a slot number. Continue in the returned worktree. If no slot is free, report that instead of working in the main checkout.
-- A session that claimed a slot remains its worker. Run relevant checks in that slot, commit only the task files, then run `pitbox ready`. Do not deploy from any checkout, collect, release, or push the main branch. The deploy-before-commit, review-before-commit, and automatic-push rules below apply only to direct main-checkout work.
-- Integrate ready slots only on the user's explicit request, from a separate session that has done no slot work. Run `pitbox status`, collect the requested slots, and run the applicable HAPI checks. Push the merged `custom` branch, then watch the GitHub Actions runs for that exact commit until they pass. If CI fails, is missing, or cannot be checked, stop and report it. After passing CI, perform HAPI's required local deployment and release the collected slots. Integration creates merge commits before deployment.
-- Work explicitly assigned to the main checkout follows the delivery policy below.
+- A session that claimed a slot remains its worker. Run relevant checks in that slot, commit only the task files, then run `pitbox ready`. Do not deploy from any checkout, collect, release, or push the main branch. The direct main-checkout delivery rules below do not apply to slot workers.
+- Integrate ready slots only on the user's explicit request, from a separate session that has done no slot work. Run `pitbox status`, collect the requested slots, and run the applicable HAPI checks. Push the merged `custom` branch, then wait for the `Test` GitHub Actions workflow on that exact commit to pass, along with `fixtures` if the changed paths triggered it. If required CI fails, is missing, or cannot be checked, stop and report it. Only after passing CI, perform HAPI's required local deployment, verify the affected services, and release the collected slots. Integration creates merge commits before deployment. This integration order overrides the deploy-before-push rule below.
+- Work explicitly assigned to the main checkout follows the delivery policy below, not the integration order above.
 
-## Delivery policy
+## Delivery policy for direct main-checkout work
 
 - Every completed product code change must be deployed locally after its relevant checks pass. The local deploy command is `bun run deploy:local-hub`. The script itself refuses to run outside the main checkout on `custom`, so Pitbox slots cannot deploy. Run it only when no session is mid-turn, and verify the affected services afterward.
 - For non-visual features and fixes, successful verification authorizes committing the task's exact files and pushing the current branch without waiting for a separate request. Deploy before commit and push so a failed deployment is not published.
