@@ -69,6 +69,7 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end'] }) 
         hubArchived: opts?.hubArchived ?? false,
         updateMetadata: (fn: (value: Metadata) => Metadata) => { metadata = fn(metadata); },
         updateAgentState: updateState, keepAlive() {},
+        setHapiTitleToolAvailable: vi.fn(),
         onUserMessage: (fn: typeof userMessage) => { userMessage = fn; }, onCancelQueuedMessage() {}, onRetryQueuedMessage() {},
         onReconnect: (fn: (() => void) | null) => { reconnect = fn; },
         on(event: string, listener: () => void) {
@@ -151,7 +152,11 @@ describe('shared settings confirmation', () => {
 });
 
 describe('shared plan actions', () => {
-    it('injects the hidden title reminder before enqueueing each HAPI user message', async () => {
+    it('passes the user prompt through to native Codex with no extra reminder injection', async () => {
+        // The hidden HAPI title-check block is now prepended centrally in
+        // ApiSession.enqueueUserMessage so every flavor sees it. Codex must
+        // therefore not inject its own duplicate `thread/inject_items` call —
+        // the runner just forwards whatever text arrived on the user prompt.
         const f = await fixture();
         await f.root.activate();
         f.root.session.updateMetadata(metadata => ({ ...metadata, name: 'Current title' }));
@@ -159,12 +164,7 @@ describe('shared plan actions', () => {
         f.postUser({ role: 'user', content: { type: 'text', text: 'A new objective' } }, 'local');
         await vi.waitFor(() => expect(f.native.queue).toHaveLength(1));
         const injectIndex = request.mock.calls.findIndex(([method]) => method === 'thread/inject_items');
-        const queueIndex = request.mock.calls.findIndex(([method]) => method === 'thread/queue/add');
-        expect(injectIndex).toBeGreaterThanOrEqual(0);
-        expect(injectIndex).toBeLessThan(queueIndex);
-        expect(request.mock.calls[injectIndex][1]).toMatchObject({ threadId: 'thread', items: [{
-            role: 'developer', content: [{ type: 'input_text', text: expect.stringContaining('"Current title"') }]
-        }] });
+        expect(injectIndex).toBe(-1);
     });
 
     it('applies remote change_title as metadata.name then lets native terminal rename win', async () => {

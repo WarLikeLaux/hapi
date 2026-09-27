@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Session } from './types'
+import type { Metadata } from './types'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -940,6 +941,133 @@ describe('ApiSessionClient incoming user messages', () => {
             client.close()
         }
     )
+})
+
+describe('ApiSessionClient HAPI title reminder injection', () => {
+    function captureDeliveredText(sentFrom: string, text: string, options: {
+        titleToolAvailable?: boolean
+        isMeta?: boolean
+        existingSummary?: string
+    } = {}) {
+        socketHarness.sockets.length = 0
+        const metadata: Metadata = {
+            path: '/tmp',
+            host: 'test'
+        }
+        if (options.existingSummary) {
+            metadata.summary = { text: options.existingSummary, updatedAt: 1 }
+        }
+        const client = new ApiSessionClient('token', createSession({ namespace: 'default', metadata }))
+        const socket = socketHarness.sockets[0]
+        if (!socket) throw new Error('expected socket')
+        client.setHapiTitleToolAvailable(options.titleToolAvailable ?? true)
+        const delivered: string[] = []
+        client.onUserMessage((message) => { delivered.push(message.content.text) })
+        triggerIncomingUserMessage(socket, {
+            seq: 1,
+            text,
+            sentFrom: sentFrom as 'cli' | 'webapp' | 'telegram-bot',
+            ...(options.isMeta ? { isMeta: true } : {})
+        })
+        client.close()
+        return delivered
+    }
+
+    it('prepends a hidden title-check block to webapp prompts when change_title is available', () => {
+        const [delivered] = captureDeliveredText('webapp', 'Взять слот')
+        expect(delivered).toBeDefined()
+        expect(delivered!.startsWith('<<<HAPI_TITLE_CHECK>>>')).toBe(true)
+        expect(delivered!.endsWith('Взять слот')).toBe(true)
+        expect(delivered!).toContain('change_title')
+        expect(delivered!).toContain('<<<END_HAPI_TITLE_CHECK>>>')
+        // The marker block must be wrapped — raw reminder must not be
+        // concatenated with the user text without the closing marker.
+        expect(delivered!).not.toContain('<<<HAPI_TITLE_CHECK>>>Взять слот')
+    })
+
+    it('prepends the reminder to telegram-originated prompts too', () => {
+        const [delivered] = captureDeliveredText('telegram', 'продолжай')
+        expect(delivered!.startsWith('<<<HAPI_TITLE_CHECK>>>')).toBe(true)
+        expect(delivered!.endsWith('продолжай')).toBe(true)
+    })
+
+    it('skips injection when the flavor does not expose change_title', () => {
+        const [delivered] = captureDeliveredText('webapp', 'Взять слот', { titleToolAvailable: false })
+        expect(delivered).toBe('Взять слот')
+    })
+
+    it('skips injection for synthetic meta prompts (e.g. title regeneration)', () => {
+        const [delivered] = captureDeliveredText('webapp', 'Regenerate the chat title now.', { isMeta: true })
+        expect(delivered).toBe('Regenerate the chat title now.')
+    })
+
+    it('uses force mode for regenerate-title internal control prompts', () => {
+        socketHarness.sockets.length = 0
+        const client = new ApiSessionClient('token', createSession({
+            namespace: 'default',
+            metadata: { path: '/tmp', host: 'test' }
+        }))
+        const socket = socketHarness.sockets[0]
+        if (!socket) throw new Error('expected socket')
+        client.setHapiTitleToolAvailable(true)
+        const delivered: string[] = []
+        client.onUserMessage((message) => { delivered.push(message.content.text) })
+        socket.trigger('update', {
+            body: {
+                t: 'new-message',
+                message: {
+                    id: 'regenerate',
+                    seq: 1,
+                    localId: null,
+                    content: {
+                        role: 'user',
+                        content: { type: 'text', text: 'Regenerate the chat title now.' },
+                        meta: { sentFrom: 'webapp', internalControl: 'regenerate-title' }
+                    }
+                }
+            }
+        })
+        client.close()
+        expect(delivered[0]).toContain('explicitly requests regeneration')
+        expect(delivered[0]).toContain('do not send any user-facing text')
+    })
+
+    it('does not inject for cli-originated native-queued prompts (concurrent replay)', () => {
+        // Native-queued cli messages bypass the cli-echo filter and reach
+        // enqueueUserMessage; ensure the title-check block is not prepended
+        // for them.
+        socketHarness.sockets.length = 0
+        const client = new ApiSessionClient('token', createSession({
+            namespace: 'default',
+            metadata: {
+                path: '/tmp',
+                host: 'test',
+                capabilities: { concurrentClients: true }
+            }
+        }))
+        const socket = socketHarness.sockets[0]
+        if (!socket) throw new Error('expected socket')
+        client.setHapiTitleToolAvailable(true)
+        const delivered: string[] = []
+        client.onUserMessage((message) => { delivered.push(message.content.text) })
+        socket.trigger('update', {
+            body: {
+                t: 'new-message',
+                message: {
+                    id: 'native-cli-message',
+                    seq: 1,
+                    localId: 'native-cli-local',
+                    content: {
+                        role: 'user',
+                        content: { type: 'text', text: 'native cli prompt' },
+                        meta: { sentFrom: 'cli', isNativeQueuedMessage: true }
+                    }
+                }
+            }
+        })
+        client.close()
+        expect(delivered[0]).toBe('native cli prompt')
+    })
 })
 
 describe('isExternalUserMessage', () => {

@@ -1,10 +1,17 @@
+import { stripHapiTitleReminder } from '@/modules/common/sessionTitlePrompt';
+
 export type CodexSpecialCommand =
     | { type: 'clear' | 'compact' }
     | { type: 'invalid'; command: 'clear' | 'compact'; message: string }
     | { type: null };
 
+/**
+ * Parse Codex slash-commands. Strips a leading HAPI title-check block first
+ * so `/clear` and `/compact` typed by the user still match after the central
+ * reminder injection in `ApiSession.enqueueUserMessage`.
+ */
 export function parseCodexSpecialCommand(message: string): CodexSpecialCommand {
-    const trimmed = message.trim();
+    const trimmed = stripHapiTitleReminder(message).trim();
     if (trimmed === '/clear') {
         return { type: 'clear' };
     }

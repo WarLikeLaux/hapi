@@ -22,6 +22,7 @@ import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import { getGrokTitleInstruction } from './utils/systemPrompt'
 import { GrokConversationHistory } from './conversationHistory'
 import { isObject } from '@hapi/protocol'
+import { stripHapiTitleReminder } from '@/modules/common/sessionTitlePrompt'
 
 const PLAN_MODE_INSTRUCTION =
     'Work in plan-only mode. Analyze and propose a plan, but do not execute commands or modify files.'
@@ -301,7 +302,11 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
 
             this.applyDisplayMode(batch.mode.permissionMode)
             this.messageBuffer.addMessage(batch.message, 'user')
-            const isSlashCommand = batch.message.trimStart().startsWith('/')
+            // ApiSession.enqueueUserMessage prepends a hidden HAPI title-check
+            // block to fresh remote prompts; strip it before detecting slash
+            // commands so `/foo` typed by the user still wins over the reminder.
+            const stripped = stripHapiTitleReminder(batch.message)
+            const isSlashCommand = stripped.trimStart().startsWith('/')
             let text = batch.mode.permissionMode === 'plan' && !isSlashCommand
                 ? `${PLAN_MODE_INSTRUCTION}\n\n${batch.message}`
                 : batch.message

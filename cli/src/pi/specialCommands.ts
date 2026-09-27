@@ -5,6 +5,8 @@
  * LLM as an ordinary prompt — silently doing nothing. Intercepting them with
  * an explicit message makes the failure visible instead.
  */
+import { stripHapiTitleReminder } from '@/modules/common/sessionTitlePrompt';
+
 export const PI_TERMINAL_ONLY_COMMANDS = [
     'login',
     'logout',
@@ -43,9 +45,12 @@ const PI_TERMINAL_ONLY_SET: ReadonlySet<string> = new Set<string>(PI_TERMINAL_ON
  * Extract the leading slash token of a message, or null when the message does
  * not start with a well-formed `/name` token (a command boundary — whitespace
  * or end of line — is required, so `/compact.md` is not treated as `/compact`).
+ *
+ * Strips a leading HAPI title-check block injected by ApiSession before
+ * matching so user-typed slash commands always win over the reminder.
  */
 export function parseLeadingSlashName(message: string): string | null {
-    const trimmed = message.trim();
+    const trimmed = stripHapiTitleReminder(message).trim();
     if (!trimmed.startsWith('/')) return null;
     const match = /^\/[a-z0-9:_-]+(?=\s|$)/i.exec(trimmed);
     return match ? match[0].slice(1) : null;
@@ -57,9 +62,12 @@ export function parseLeadingSlashName(message: string): string | null {
  * Returns null for anything that is not a recognized Pi built-in (including
  * extension commands, /skill:name, prompt templates, and plain prose starting
  * with `/`), so those keep flowing through the normal prompt path.
+ *
+ * Strips a leading HAPI title-check block before matching so a `/compact`
+ * typed by the user is recognized even when the central reminder is present.
  */
 export function parsePiSpecialCommand(message: string): PiSpecialCommand | null {
-    const trimmed = message.trim();
+    const trimmed = stripHapiTitleReminder(message).trim();
     if (!trimmed.startsWith('/')) return null;
     // Pi commands are case-insensitive in the TUI; match on the lowercased
     // line but slice args from the original text to preserve their case.
