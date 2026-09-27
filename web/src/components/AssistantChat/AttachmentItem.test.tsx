@@ -139,4 +139,51 @@ describe('AttachmentItem', () => {
         expect(screen.getByText('Upload failed')).toBeInTheDocument()
         expect(screen.getByText('broken.png')).toHaveClass('line-through')
     })
+
+    it('keeps an open lightbox when previewUrl briefly flickers to undefined', () => {
+        // Simulates the runtime briefly dropping previewUrl (scratchlist
+        // handoff, draft restore, etc.) while the user is viewing the image
+        // fullscreen. The lightbox must stay open; only the chip in the
+        // composer is allowed to change.
+        mocks.attachment = {
+            name: 'flicker.png',
+            status: { type: 'requires-action', reason: 'composer-send' },
+            previewUrl: 'data:image/png;base64,ZmxpY2tlcg=='
+        }
+
+        const { rerender } = renderAttachment()
+
+        fireEvent.click(screen.getByTitle('Click to zoom'))
+        expect(screen.getByRole('dialog', { name: 'flicker.png' })).toBeInTheDocument()
+
+        // previewUrl briefly disappears
+        mocks.attachment = {
+            name: 'flicker.png',
+            status: { type: 'requires-action', reason: 'composer-send' },
+            previewUrl: undefined
+        }
+        rerender(
+            <I18nProvider>
+                <AttachmentItem />
+            </I18nProvider>
+        )
+        expect(
+            screen.getByRole('dialog', { name: 'flicker.png' }),
+            'lightbox must remain open while previewUrl flickers',
+        ).toBeInTheDocument()
+
+        // previewUrl returns
+        mocks.attachment = {
+            name: 'flicker.png',
+            status: { type: 'requires-action', reason: 'composer-send' },
+            previewUrl: 'data:image/png;base64,ZmxpY2tlcg=='
+        }
+        rerender(
+            <I18nProvider>
+                <AttachmentItem />
+            </I18nProvider>
+        )
+        expect(screen.getByRole('dialog', { name: 'flicker.png' })).toBeInTheDocument()
+        expect(screen.getByTitle('Click to zoom')).toBeInTheDocument()
+    })
 })

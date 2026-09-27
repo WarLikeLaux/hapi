@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { AttachmentPrimitive, useAuiState } from '@assistant-ui/react'
 import type { PendingAttachment } from '@assistant-ui/react'
 import type { KeyboardEventHandler, MouseEventHandler, PointerEventHandler, PointerEvent as ReactPointerEvent } from 'react'
@@ -99,6 +100,18 @@ export function AttachmentItem(props: { dragHandleProps?: AttachmentDragHandlePr
     const isParking = useComposerParking()
     const isUploading = status.type === 'running'
     const isError = status.type === 'incomplete'
+    const hasPreview = Boolean(previewUrl) && !isError
+    // Once the attachment ever exposes a preview, keep ImagePreview mounted.
+    // previewUrl can briefly flicker to undefined during runtime updates
+    // (scratchlist handoff, draft restore, etc.); unmounting would reset
+    // ImagePreview's internal viewerOpen and snap a freshly opened lightbox
+    // closed. We hide the trigger button in that window and let the dialog
+    // finish, then reshow the trigger when the preview is back.
+    const hadPreviewRef = useRef(hasPreview)
+    if (hasPreview) {
+        hadPreviewRef.current = true
+    }
+    const renderImagePreview = hadPreviewRef.current
     const surfacePointerDown = props.dragHandleProps?.onSurfacePointerDown
         ? (event: ReactPointerEvent<HTMLElement>) => {
             const target = event.target
@@ -109,7 +122,7 @@ export function AttachmentItem(props: { dragHandleProps?: AttachmentDragHandlePr
         }
         : undefined
 
-    if (previewUrl && !isError) {
+    if (renderImagePreview) {
         return (
             <AttachmentPrimitive.Root
                 className="group relative h-16 w-24 overflow-hidden rounded-lg bg-[var(--app-subtle-bg)]"
@@ -117,11 +130,11 @@ export function AttachmentItem(props: { dragHandleProps?: AttachmentDragHandlePr
                 onContextMenu={props.dragHandleProps?.onSurfaceContextMenu}
             >
                 <ImagePreview
-                    src={previewUrl}
+                    src={previewUrl ?? ''}
                     fileName={name}
                     label={name}
                     galleryId="composer-attachments"
-                    buttonClassName={`group h-full w-full cursor-zoom-in overflow-hidden rounded-lg text-left ${props.dragHandleProps ? 'touch-none' : ''}`}
+                    buttonClassName={`group h-full w-full cursor-zoom-in overflow-hidden rounded-lg text-left ${props.dragHandleProps ? 'touch-none' : ''} ${hasPreview ? '' : 'hidden'}`}
                     imageClassName="h-full w-full object-cover"
                     onTriggerPointerDown={props.dragHandleProps?.onSurfacePointerDown}
                     onTriggerContextMenu={props.dragHandleProps?.onSurfaceContextMenu}
@@ -132,6 +145,11 @@ export function AttachmentItem(props: { dragHandleProps?: AttachmentDragHandlePr
                         </div>
                     )}
                 />
+                {!hasPreview ? (
+                    <div className="flex h-full w-full items-center justify-center rounded-lg bg-[var(--app-subtle-bg)] px-2 text-[10px] text-[var(--app-hint)]" data-testid="attachment-preview-placeholder">
+                        <span className="truncate">{name}</span>
+                    </div>
+                ) : null}
                 {props.dragHandleProps ? (
                     <DragHandle {...props.dragHandleProps} />
                 ) : null}
