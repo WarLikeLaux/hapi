@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Machine } from '@/types/api'
-import { putCodexFirst, resolveDefaultMachineDirectory } from './defaults'
+import { orderCreateSessionAgents, resolveDefaultMachineDirectory } from './defaults'
 
 function machine(metadata: Machine['metadata']): Machine {
     return {
@@ -19,13 +19,14 @@ function machine(metadata: Machine['metadata']): Machine {
 }
 
 describe('new session defaults', () => {
-    it('puts Codex first without changing the order of other agents', () => {
-        expect(putCodexFirst(['agy', 'claude', 'codex', 'cursor'])).toEqual([
-            'codex',
-            'agy',
-            'claude',
-            'cursor'
-        ])
+    it('orders Create Session agents as codex, minimax, GLM (claude), antigravity, cursor, opencode', () => {
+        expect(orderCreateSessionAgents(['agy', 'claude', 'codex', 'cursor', 'minimax', 'opencode']))
+            .toEqual(['codex', 'minimax', 'claude', 'agy', 'cursor', 'opencode'])
+    })
+
+    it('keeps unlisted agents after the curated order, preserving their incoming order', () => {
+        expect(orderCreateSessionAgents(['grok', 'agy', 'claude', 'codex', 'pi', 'cursor', 'minimax', 'opencode']))
+            .toEqual(['codex', 'minimax', 'claude', 'agy', 'cursor', 'opencode', 'grok', 'pi'])
     })
 
     it('prefers the runner workspace root over recent paths and home', () => {

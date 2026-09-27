@@ -75,7 +75,7 @@ import {
     savePreferredYoloMode,
 } from './preferences'
 import { PermissionField } from './PermissionField'
-import { putCodexFirst, resolveDefaultMachineDirectory } from './defaults'
+import { orderCreateSessionAgents, resolveDefaultMachineDirectory } from './defaults'
 import { usesNativePermissionSelect, usesSharedPermissionModeState } from '@/lib/codexFamilyPermissionAgents'
 import { CodexSessionSyncDialog } from '@/components/CodexSessionSyncDialog'
 import { PiSessionImportDialog } from '@/components/PiSessionImportDialog'
@@ -369,7 +369,7 @@ export function NewSession(props: {
         machineId,
     })
     const availableAgents = useMemo(
-        () => putCodexFirst(agentAvailability.agents
+        () => orderCreateSessionAgents(agentAvailability.agents
             .filter((entry) => entry.available && entry.agent !== 'gemini')
             .map((entry) => entry.agent as AgentType)),
         [agentAvailability.agents]
