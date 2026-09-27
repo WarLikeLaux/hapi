@@ -135,16 +135,18 @@ export class MessengerManager {
      * from the chat id shape (`<uuid>_<uuid>`) - the same gate format used by
      * the connector. Group chats use `0/<int>/<uuid>` ids and are skipped.
      */
+    private hasBrokenYandexAvatar(url: unknown): boolean {
+        return typeof url !== 'string' || url.length === 0 || url.includes('/SMALL48')
+    }
+
     private maybeLazyRefreshAvatars(namespace: string, conversations: ExternalConversation[]): void {
         const gateFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
         // `purgeDeadAvatarUrls` rewrites `/SMALL48` rows to null, but the
         // purge only runs inside `refreshCandidates`. Treat the dead alias as
         // "missing" so the chat-list path actually triggers that refresh.
-        const hasBrokenYandexAvatar = (url: unknown): boolean =>
-            typeof url !== 'string' || url.length === 0 || url.includes('/SMALL48')
         const hasMissingYandexAvatar = conversations.some((conversation) =>
             conversation.provider === 'yandex'
-            && hasBrokenYandexAvatar(conversation.avatarDataUrl)
+            && this.hasBrokenYandexAvatar(conversation.avatarDataUrl)
             && gateFormat.test(conversation.remoteId)
         )
         if (!hasMissingYandexAvatar) return
@@ -342,6 +344,22 @@ export class MessengerManager {
             void this.refreshMessages(namespace, conversation, 100, true).catch((error) => {
                 console.error(`[Messengers] Failed to refresh ${conversation.id}:`, error)
             })
+        }
+        // Chat view (`/chats/:id`) doesn't go through `listConversations`, so the
+        // chat-list path's `maybeLazyRefreshAvatars` never fires when the user
+        // opens a single conversation. Mirror the same trigger off the messages
+        // endpoint: clear any dead `SMALL48` URL and kick a throttled
+        // `refreshCandidates` so `backfillAvatarOnChatList` re-derives it.
+        if (conversation.provider === 'yandex' && this.hasBrokenYandexAvatar(conversation.avatarDataUrl)) {
+            this.purgeDeadAvatarUrls(namespace)
+            const key = this.key(namespace, 'yandex')
+            const last = this.avatarLazyRefreshAt.get(key) ?? 0
+            if (Date.now() - last >= AVATAR_LAZY_REFRESH_INTERVAL_MS) {
+                this.avatarLazyRefreshAt.set(key, Date.now())
+                void this.refreshCandidates(namespace, 'yandex').catch((error) => {
+                    console.error('[Messengers] Failed to lazy-refresh Yandex avatars:', error)
+                })
+            }
         }
         return cached
     }
