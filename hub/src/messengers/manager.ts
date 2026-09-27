@@ -137,9 +137,14 @@ export class MessengerManager {
      */
     private maybeLazyRefreshAvatars(namespace: string, conversations: ExternalConversation[]): void {
         const gateFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        // `purgeDeadAvatarUrls` rewrites `/SMALL48` rows to null, but the
+        // purge only runs inside `refreshCandidates`. Treat the dead alias as
+        // "missing" so the chat-list path actually triggers that refresh.
+        const hasBrokenYandexAvatar = (url: unknown): boolean =>
+            typeof url !== 'string' || url.length === 0 || url.includes('/SMALL48')
         const hasMissingYandexAvatar = conversations.some((conversation) =>
             conversation.provider === 'yandex'
-            && !conversation.avatarDataUrl
+            && hasBrokenYandexAvatar(conversation.avatarDataUrl)
             && gateFormat.test(conversation.remoteId)
         )
         if (!hasMissingYandexAvatar) return
