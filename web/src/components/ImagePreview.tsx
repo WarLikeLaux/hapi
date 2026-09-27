@@ -268,35 +268,41 @@ export function ImagePreview(props: {
         label: props.label
     }
     const hasMultiplePreviews = previewImages.length > 1
+    // Keep the trigger hidden when there is no source to preview; the
+    // viewer dialog stays mounted independently so an open lightbox
+    // survives a transient src loss from the parent.
+    const hasSource = Boolean(props.src)
 
     return (
         <>
-            <button
-                type="button"
-                onPointerDown={handleTriggerPointerDown}
-                onMouseDown={stopEvent}
-                onTouchStart={stopEvent}
-                onContextMenu={props.onTriggerContextMenu}
-                onClick={handleTriggerClick}
-                data-image-preview-trigger=""
-                data-image-preview-file-name={props.fileName}
-                data-image-preview-label={props.label}
-                data-image-preview-gallery={props.galleryId ?? ''}
-                className={props.buttonClassName ?? 'group flex min-h-[18rem] w-full items-center justify-center overflow-auto rounded-md border border-[var(--app-border)] bg-[var(--app-code-bg)] p-3 text-left'}
-                title="Click to zoom"
-            >
-                <img
-                    src={props.src}
-                    alt={props.label}
-                    className={props.imageClassName ?? 'max-h-[calc(100vh-14rem)] max-w-full object-contain transition-transform group-hover:scale-[1.01]'}
-                    style={props.imageStyle}
-                    draggable={false}
-                />
-                {props.caption}
-                <span className="sr-only">{props.fileName}</span>
-            </button>
+            {hasSource ? (
+                <button
+                    type="button"
+                    onPointerDown={handleTriggerPointerDown}
+                    onMouseDown={stopEvent}
+                    onTouchStart={stopEvent}
+                    onContextMenu={props.onTriggerContextMenu}
+                    onClick={handleTriggerClick}
+                    data-image-preview-trigger=""
+                    data-image-preview-file-name={props.fileName}
+                    data-image-preview-label={props.label}
+                    data-image-preview-gallery={props.galleryId ?? ''}
+                    className={props.buttonClassName ?? 'group flex min-h-[18rem] w-full items-center justify-center overflow-auto rounded-md border border-[var(--app-border)] bg-[var(--app-code-bg)] p-3 text-left'}
+                    title="Click to zoom"
+                >
+                    <img
+                        src={props.src}
+                        alt={props.label}
+                        className={props.imageClassName ?? 'max-h-[calc(100vh-14rem)] max-w-full object-contain transition-transform group-hover:scale-[1.01]'}
+                        style={props.imageStyle}
+                        draggable={false}
+                    />
+                    {props.caption}
+                    <span className="sr-only">{props.fileName}</span>
+                </button>
+            ) : null}
 
-            {viewerOpen ? (
+            {viewerOpen && activePreview.src ? (
                 <div
                     className="fixed inset-0 z-50 flex flex-col bg-black/90 text-white"
                     role="dialog"
