@@ -9,6 +9,7 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 - Fix causes within the task's scope. Report unrelated problems rather than turning them into refactors or additional features.
 - Make reasonable, reversible choices and continue. Ask when missing information materially affects correctness, an action needs additional authorization, or progress requires overwriting someone else's changes. Continue unaffected work.
 - Preserve existing user/agent changes. Follow the delivery policy below for task changes; editing or generating unrelated files never implies permission to commit, push, or release them.
+- Before every ordinary commit, load and follow the user-level `commit` skill, including in Pitbox slots and under the delivery policy below. Let Git create merge commits with its default message.
 - Keep communication concise and clear; report results, checks performed, and remaining limitations.
 
 ## Pitbox task routing
