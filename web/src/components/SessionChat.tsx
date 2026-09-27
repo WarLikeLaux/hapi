@@ -2149,6 +2149,8 @@ function SessionChatInner(props: SessionChatProps) {
                         }
                         piModels={piModels}
                         piSelectedModel={agentFlavor === 'pi' ? piSelectedModel : undefined}
+                        minimaxModels={agentFlavor === 'minimax' ? minimaxModelsState.availableModels : undefined}
+                        minimaxCurrentModelId={agentFlavor === 'minimax' ? minimaxModelsState.currentModelId : undefined}
                         availableModelReasoningEffortOptions={
                             agentFlavor === 'codex'
                                 ? codexReasoningEffortOptions

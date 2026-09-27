@@ -31,7 +31,7 @@ import {
 } from '@/components/AssistantChat/RichComposerInput'
 import { useFue } from '@/lib/use-fue'
 import { FueCallout, FueDot } from '@/components/Fue'
-import type { AgentState, CodexCollaborationMode, PermissionMode, PiModelSummary } from '@/types/api'
+import type { AgentState, CodexCollaborationMode, PermissionMode, MinimaxModelSummary, PiModelSummary } from '@/types/api'
 import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import type { ConversationStatus } from '@/realtime/types'
 import { useActiveWord } from '@/hooks/useActiveWord'
@@ -314,6 +314,14 @@ export function HappyComposer(props: {
     /** Pi: provider-qualified selected model from metadata (survives reload;
      *  disambiguates when two providers share a modelId). */
     piSelectedModel?: { provider: string; modelId: string } | null
+    /** MiniMax: dynamic ACP catalog fetched from the live session — needed to
+     *  resolve `currentModelId` against a friendly display name when the user
+     *  hasn't pinned an explicit `session.model`. */
+    minimaxModels?: MinimaxModelSummary[]
+    /** MiniMax: the model the ACP session is actually running when no explicit
+     *  pick was sent. Used to keep the bottom pill truthful instead of sitting
+     *  on a bare "Default" while a real model is in use. */
+    minimaxCurrentModelId?: string | null
     availableModelReasoningEffortOptions?: Array<{ value: string; name?: string }>
     /** Codex: the effort codex's own config uses when nothing is set — names the no-pick option. */
     defaultModelReasoningEffort?: string | null
@@ -422,6 +430,8 @@ export function HappyComposer(props: {
         availableModelOptions,
         piModels,
         piSelectedModel,
+        minimaxModels,
+        minimaxCurrentModelId,
         availableModelReasoningEffortOptions,
         defaultModelReasoningEffort,
         availableEffortOptions,
@@ -1100,6 +1110,22 @@ export function HappyComposer(props: {
             : piModels?.find((m) => m.modelId === model),
         [piModels, piSelectedModel, model]
     )
+    // MiniMax: resolve the model the bottom pill should display. Without this,
+    // the pill permanently shows "Default" even though the ACP session is
+    // running a known model — the session can be started without an explicit
+    // `set_model` call and rely entirely on the catalog default. When the user
+    // has pinned an explicit `model`, prefer that; otherwise fall back to the
+    // live `currentModelId` reported by the ACP session.
+    const selectedMinimaxModel = useMemo(() => {
+        if (agentFlavor !== 'minimax') return null
+        if (!minimaxModels || minimaxModels.length === 0) return null
+        const explicitId = typeof model === 'string' ? model.trim() : ''
+        const lookupId = (explicitId && explicitId !== 'default' && explicitId !== 'auto')
+            ? explicitId
+            : (minimaxCurrentModelId?.trim() ?? '')
+        if (!lookupId) return null
+        return minimaxModels.find((m) => m.modelId === lookupId) ?? null
+    }, [agentFlavor, minimaxModels, minimaxCurrentModelId, model])
 
     // Pi: reset effort to highest supported level when model changes and current level is unsupported
     useEffect(() => {
@@ -1699,6 +1725,12 @@ export function HappyComposer(props: {
             if (!selectedPiModel) return undefined
             return selectedPiModel.name ?? selectedPiModel.modelId
         }
+        // MiniMax: surface the model the ACP session is actually running. If the
+        // catalog is still loading, fall through to the generic option lookup so
+        // we at least show the picked (or "Default") option label.
+        if (agentFlavor === 'minimax' && selectedMinimaxModel) {
+            return selectedMinimaxModel.name ?? selectedMinimaxModel.modelId
+        }
         if (modelOptions.length === 0) return undefined
         const rawKey = selectedModelBase !== undefined ? selectedModelBase : model
         const normalizedKey = agentFlavor === 'cursor'
@@ -1706,7 +1738,7 @@ export function HappyComposer(props: {
             : (!rawKey || rawKey === 'auto' || rawKey === 'default' ? null : rawKey)
         const option = modelOptions.find((candidate) => candidate.value === normalizedKey)
         return option?.label ?? rawKey ?? undefined
-    }, [isNarrowViewport, onModelChange, agentFlavor, selectedPiModel, model, modelOptions, selectedModelBase])
+    }, [isNarrowViewport, onModelChange, agentFlavor, selectedPiModel, selectedMinimaxModel, model, modelOptions, selectedModelBase])
     const effortValueLabel = useMemo(() => {
         if (isNarrowViewport) return undefined
         if (!onEffortChange || !supportsEffort(agentFlavor)) return undefined

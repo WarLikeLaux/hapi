@@ -16,7 +16,7 @@ import { useScratchlistCount } from '@/lib/use-scratchlist-count'
 import { formatReopenError } from '@/lib/reopenError'
 import { formatReasoningLabel, getReasoningEffortForFlavor } from '@/lib/codexStatusLabels'
 import { retargetSharePendingTransfer } from '@/lib/sharePendingState'
-import { getSessionModelLabel } from '@/lib/sessionModelLabel'
+import { useSessionModelLabel } from '@/hooks/useSessionModelLabel'
 import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { isFastServiceTier } from '@/components/AssistantChat/codexFastMode'
@@ -289,7 +289,7 @@ export function SessionHeader(props: {
         : worktreeBranch ?? attachedBranch ?? liveGitBranch
     const difitOpenUrl = buildDifitOpenUrl(session, gitBranch)
     const externalReviewUrl = session.metadata?.difitReview?.reviewUrl ?? null
-    const modelLabel = getSessionModelLabel(session)
+    const modelLabel = useSessionModelLabel({ session, api })
     const isModelChanging = useIsMutating({
         mutationKey: sessionModelMutationKey(session.id),
         exact: true,
