@@ -21,7 +21,7 @@ import { useTerminalToolDisplayMode } from '@/hooks/useTerminalToolDisplayMode'
 import { useTranslation } from '@/lib/use-translation'
 import { CloseIcon } from '@/components/icons'
 import { ShareTurnDialog } from '@/components/AssistantChat/ShareTurnDialog'
-import { getSessionModelLabel } from '@/lib/sessionModelLabel'
+import { useSessionModelLabel } from '@/hooks/useSessionModelLabel'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { isFastServiceTier } from '@/components/AssistantChat/codexFastMode'
 import type { OlderLoadOutcome } from '@/lib/message-window-store'
@@ -563,11 +563,12 @@ export function HappyThread(props: {
     const shareDialogOpen = shareTurn !== null
     const shareTitle = shareTurn ? getSessionTitle(props.session) : ''
     const shareRelativeTimeTick = useMinuteTick(headerMetadata.lastActive && shareDialogOpen)
+    const shareModelLabel = useSessionModelLabel({ session: props.session, api: props.api })
     const shareMetadataItems = useMemo(() => {
         const agentFlavor = props.session.metadata?.flavor ?? null
         const agentLabel = agentFlavor?.trim() || null
         const machineLabel = resolveSessionHeaderMachineLabel(props.session, machineLabelsById)
-        const modelLabel = getSessionModelLabel(props.session)
+        const modelLabel = shareModelLabel
         const reasoningLabel = getShareTurnReasoningLabel(
             agentFlavor,
             props.session.modelReasoningEffort,
@@ -603,7 +604,7 @@ export function HappyThread(props: {
                 text: `${headerMetadata.showLabels ? `${t('session.item.worktree')}: ` : ''}${worktreeBranch}`,
             } : undefined,
         })
-    }, [headerMetadata, locale, machineLabelsById, props.serviceTier, props.session, shareDialogOpen, shareRelativeTimeTick, t])
+    }, [headerMetadata, locale, machineLabelsById, props.serviceTier, props.session, shareDialogOpen, shareRelativeTimeTick, shareModelLabel, t])
     const { terminalToolDisplayMode } = useTerminalToolDisplayMode()
     const hubSettingsQuery = useQuery({
         queryKey: queryKeys.hubSettings,
