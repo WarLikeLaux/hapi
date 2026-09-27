@@ -123,6 +123,12 @@ export interface YandexMessage {
     /** Reaction types this account has personally put on the message. */
     chosenReactionTypes: number[]
     micros: bigint
+    /**
+     * Resolved avatar URL of the sender (if `From.UserInfo.AvatarId` was on the
+     * wire). The connector uses this to backfill `conversation.avatarDataUrl`
+     * for direct chats where `PartnerInfo.AvatarId` is missing.
+     */
+    senderAvatarUrl?: string
 }
 
 export interface ChatShape {
@@ -311,7 +317,47 @@ export function normalizeMessageItem(
         ...(media.length > 0 ? { media } : {}),
         ...(reactions.length > 0 ? { reactions } : {})
     }
-    return { message, attachments, chosenReactionTypes: chosen, micros }
+
+    // The wire shape puts the avatar under `From.UserInfo.AvatarId` for
+    // direct chats. We resolve it here so the connector can backfill the
+    // partner's avatar onto the conversation record in `loadMessages`.
+    const senderUserInfo = asObject(from?.['UserInfo'])
+    const senderAvatarId = stringOr(senderUserInfo?.['AvatarId'])
+    let senderAvatarUrl: string | undefined
+    if (senderAvatarId !== undefined && senderAvatarId.length > 0) {
+        try {
+            senderAvatarUrl = buildAvatarUrlFromId(senderAvatarId)
+        } catch {
+            senderAvatarUrl = undefined
+        }
+    }
+
+    return {
+        message,
+        attachments,
+        chosenReactionTypes: chosen,
+        micros,
+        ...(senderAvatarUrl !== undefined ? { senderAvatarUrl } : {})
+    }
+}
+
+/**
+ * Detects whether a Yandex chat id is a direct/saved chat (gate format
+ * `<a>_<b>` with at least one side equal to `myGuid`) versus a group/channel
+ * (slash-separated ids like `0/22/<uuid>`). Used to recover `kind` because the
+ * binary `history` payload no longer carries `PrivateChatInfo` on the wire -
+ * see /tmp/yandex-element-sample.json from 2026-09-27 and the live
+ * `/api/messengers/yandex/candidates?refresh=true` dump (every direct chat
+ * arrived as `kind=group` under the old logic, blocking the avatar fallback).
+ */
+export function isDirectChatId(remoteId: string, myGuid: string): boolean {
+    if (!remoteId || !myGuid) return false
+    const parts = remoteId.split('_', 2)
+    if (parts.length !== 2) return false
+    const [a, b] = parts
+    if (!a || !b) return false
+    if (a === myGuid && b === myGuid) return false
+    return a === myGuid || b === myGuid
 }
 
 /**
@@ -324,7 +370,6 @@ export function normalizeChatElement(raw: unknown, myGuid: string): ChatShape | 
     if (!element || !remoteChatId) return undefined
     dumpYandexElementOnce(element)
 
-    const privateChat = element['PrivateChatInfo'] !== undefined
     const partner = asObject(element['PartnerInfo'])
     const partnerName = stringOr(partner?.['DisplayName']) ?? stringOr(partner?.['PublicName'])
     const groupName = stringOr(asObject(element['ChatInfo'])?.['Name'])
@@ -333,7 +378,15 @@ export function normalizeChatElement(raw: unknown, myGuid: string): ChatShape | 
     const isSaved = remoteChatId === `${myGuid}_${myGuid}`
     const title = isSaved ? 'Избранное' : partnerName ?? groupName ?? 'Чат'
 
-    const kind = isSaved ? 'saved' : privateChat ? 'direct' : 'group'
+    // `PrivateChatInfo` is no longer present on the binary `history` payload,
+    // so we recover the kind from the chat-id shape instead. Saved gate above;
+    // anything else in `<guid>_<guid>` form with us on one side is a direct
+    // chat; slash-separated ids (`0/22/...`) are group channels.
+    const kind = isSaved
+        ? 'saved'
+        : isDirectChatId(remoteChatId, myGuid)
+            ? 'direct'
+            : 'group'
     const peerLastSeenSeqNo = numberOr(element['LastSeenSeqNo'])
     let lastMessageAt: number | null = null
     try {

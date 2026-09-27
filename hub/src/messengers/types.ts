@@ -49,4 +49,12 @@ export type MessengerConnectorFactory = (options: {
     namespace: string
     dataDir: string
     onEvent: (event: MessengerConnectorEvent) => void
+    /**
+     * Optional hook called by the connector when it observes an avatar on the
+     * wire that the chat-list payload did not carry (typical for direct chats
+     * where `PartnerInfo.AvatarId` is missing in the binary WS payload). The
+     * manager uses it to backfill `conversation.avatarDataUrl` without
+     * overwriting an existing URL.
+     */
+    backfillConversationAvatar?: (remoteId: string, avatarDataUrl: string) => void
 }) => MessengerConnector

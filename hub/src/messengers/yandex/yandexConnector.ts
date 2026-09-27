@@ -114,6 +114,7 @@ export class YandexConnector implements MessengerConnector {
         namespace: string
         dataDir: string
         onEvent: (event: MessengerConnectorEvent) => void
+        backfillConversationAvatar?: (remoteId: string, avatarDataUrl: string) => void
     }) {}
 
     getConnection(): MessengerConnection {
@@ -190,8 +191,10 @@ export class YandexConnector implements MessengerConnector {
         if (!myGuid) return
         const partnerGuids = new Set<string>()
         for (const conversation of conversations) {
-            if (conversation.kind !== 'direct' && conversation.kind !== 'saved') continue
             if (conversation.avatarDataUrl) continue
+            // `kind` may be stale in the DB (the binary WS payload no longer
+            // exposes `PrivateChatInfo`), so we infer "this chat has a partner
+            // we can look up" from the chat id shape rather than from `kind`.
             const partner = partnerGuidFromChatId(conversation.remoteId, myGuid)
             if (partner) partnerGuids.add(partner)
         }
@@ -248,7 +251,31 @@ export class YandexConnector implements MessengerConnector {
             unread: this.chatSnapshots.get(remoteId)?.unread ?? 0,
             peerLastSeenSeqNo: typeof peerLastSeenSeqNo === 'number' ? peerLastSeenSeqNo : undefined
         })
+        this.maybeBackfillPartnerAvatar(remoteId, ordered)
         return ordered.map((message) => message.message)
+    }
+
+    /**
+     * Backfill `conversation.avatarDataUrl` for direct chats whose
+     * `PartnerInfo.AvatarId` was missing from the chat-list payload. The avatar
+     * rides on each message's `From.UserInfo.AvatarId` instead, so any message
+     * from the partner is a valid source. We pick the earliest message with a
+     * usable `senderAvatarUrl` so subsequent loads (which only fetch recent
+     * messages) keep the avatar stable. The manager owns the actual store
+     * update and SSE broadcast; this method only signals intent.
+     */
+    private maybeBackfillPartnerAvatar(remoteId: string, ordered: YandexMessage[]): void {
+        const callback = this.options.backfillConversationAvatar
+        if (!callback) return
+        const partnerGuid = partnerGuidFromChatId(remoteId, this.requireGuid())
+        if (!partnerGuid) return
+        for (const message of ordered) {
+            const avatarUrl = message.senderAvatarUrl
+            if (!avatarUrl) continue
+            if (message.message.senderId !== partnerGuid) continue
+            callback(remoteId, avatarUrl)
+            return
+        }
     }
 
     async markRead(remoteId: string, maxProviderMessageId: number): Promise<void> {
