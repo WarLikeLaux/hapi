@@ -475,10 +475,17 @@ function ProviderSection(props: { provider: ChatsProvider; connection: Messenger
             (current) => upsertMessengerConnection(current, connection)
         )
     }
+    // Candidates are not auto-fetched on mount: opening this dialog should not
+    // slam the messenger backend. The first time `fetchNow` flips true we
+    // either reuse whatever is already in cache (refreshing in the background
+    // once 60 s have passed since the previous explicit refresh) or pull a
+    // fresh list with `?refresh=true`.
+    const [candidatesLoaded, setCandidatesLoaded] = useState(false)
+    const fetchCandidatesNow = () => setCandidatesLoaded(true)
     const candidates = useQuery({
         queryKey: queryKeys.messengerCandidates(provider),
-        queryFn: async () => (await api!.getMessengerCandidates(provider)).conversations,
-        enabled: Boolean(api && ready)
+        queryFn: async () => (await api!.getMessengerCandidates(provider, { refresh: true })).conversations,
+        enabled: Boolean(api && ready && candidatesLoaded)
     })
     const visibleCandidates = useMemo(() => {
         const query = candidateSearch.trim().toLocaleLowerCase()
@@ -557,8 +564,24 @@ function ProviderSection(props: { provider: ChatsProvider; connection: Messenger
             {ready ? (
                 <>
                     <p className="mb-3 text-sm text-[var(--app-hint)]">{t('chats.select.hint')}</p>
-                    {candidates.isLoading ? <div className="py-8 text-center text-sm text-[var(--app-hint)]">{t('loading')}</div> : null}
                     {candidates.error ? <div className="mb-3 text-sm text-red-600">{candidates.error.message}</div> : null}
+                    {!candidates.data && !candidates.isLoading ? (
+                        <div className="mb-3 flex flex-col items-start gap-2 rounded-xl border border-dashed border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-3 py-4">
+                            <div className="text-sm text-[var(--app-hint)]">{t('chats.loadChats.hint')}</div>
+                            <button
+                                type="button"
+                                disabled={refreshCandidates.isPending}
+                                onClick={() => {
+                                    fetchCandidatesNow()
+                                    refreshCandidates.mutate()
+                                }}
+                                className="rounded-xl bg-[var(--app-button)] px-4 py-2 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50"
+                            >
+                                {refreshCandidates.isPending ? t('chats.refreshing') : t('chats.loadChats.cta')}
+                            </button>
+                        </div>
+                    ) : null}
+                    {candidates.isLoading ? <div className="py-8 text-center text-sm text-[var(--app-hint)]">{t('loading')}</div> : null}
                     {candidates.data ? (
                         <div className="mb-3 flex gap-2">
                             <input
@@ -802,6 +825,11 @@ export function ChatConversationPage() {
     const { api } = useAppContext()
     const { t } = useTranslation()
     const navigate = useNavigate()
+    const connections = useQuery({
+        queryKey: queryKeys.messengerConnections,
+        queryFn: async () => (await api!.getMessengerConnections()).connections,
+        enabled: Boolean(api)
+    })
     const queryClient = useQueryClient()
     const [text, setText] = useState('')
     const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
@@ -819,6 +847,9 @@ export function ChatConversationPage() {
         enabled: Boolean(api)
     })
     const conversation = conversations.data?.find((item) => item.id === conversationId)
+    const ownAccountAvatarUrl = conversation
+        ? connections.data?.find((item) => item.provider === conversation.provider)?.accountAvatarUrl ?? null
+        : null
     const messages = useExternalMessages(api, conversationId)
     const participantAvatars = useMemo(() => new Map(
         (messages.data?.participants ?? []).map((participant) => [participant.id, participant.avatarDataUrl])
@@ -998,6 +1029,7 @@ export function ChatConversationPage() {
                         const avatarSrc = item.senderAvatarDataUrl
                             ?? (item.senderId ? participantAvatars.get(item.senderId) : null)
                             ?? (incoming && conversation.kind === 'direct' ? conversation.avatarDataUrl : null)
+                            ?? (!incoming ? ownAccountAvatarUrl : null)
                         const groupedCornerClassName = incoming
                             ? cn(continuesPrevious && 'rounded-tl-[5px]', continuesNext && 'rounded-bl-[5px]')
                             : cn(continuesPrevious && 'rounded-tr-[5px]', continuesNext && 'rounded-br-[5px]')

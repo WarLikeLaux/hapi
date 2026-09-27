@@ -81,6 +81,8 @@ export default {
   'chats.messagePlaceholder': 'Message',
   'chats.send': 'Send',
   'chats.select.hint': 'Chats are shown from the local cache immediately and refreshed from Telegram in the background.',
+  'chats.loadChats.hint': 'Click the button to load the chat list from the messenger backend.',
+  'chats.loadChats.cta': 'Load chats',
   'chats.refresh': 'Refresh',
   'chats.refreshing': 'Refreshing…',
   'chats.names.title': 'Local names',
