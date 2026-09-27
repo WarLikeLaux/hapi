@@ -32,11 +32,13 @@ const MESSENGER_PUBLIC_HOST = 'files.messenger.yandex.net'
 const MESSENGER_PRIVATE_HOST = 'files.messenger.yandex.ru'
 
 /**
- * Size used for the chat list chip. `islands-small` (50x50) is the canonical
+ * Size used for the chat list chip. `islands-200` (200x200) is the canonical
  * yapic preset exposed by avatars.mds.yandex.net - empirically validated against
- * the live API (2026-09-27). The earlier `SMALL48` constant returned 404.
+ * the live API (2026-09-27). We pick `islands-200` (not `islands-small`) because
+ * retina / hi-dpi screens downscale a 200px image cleanly while a 50px one
+ * looks blurry. File weight is ~9 KB which is still cheap.
  */
-const AVATAR_CHAT_LIST_SIZE = 'islands-small'
+const AVATAR_CHAT_LIST_SIZE = 'islands-200'
 
 /** AvatarId prefixes recognized by the client-side `E(...)` URL builder. */
 const YAPIC_AVATAR_PREFIX = /^user_avatar\/yapic\/(.+)$/
@@ -72,13 +74,17 @@ export function buildAvatarUrlFromId(avatarId: string): string {
  * Normalizes an avatar URL that came pre-resolved from Yandex (typically on
  * `ChatInfo.AvatarUrl`). The wire format sometimes carries the dead `/SMALL48`
  * size alias even after we updated `AVATAR_CHAT_LIST_SIZE` to
- * `islands-small`. Rewrite the trailing path segment to the supported alias
- * so the rendered image actually resolves. Returns the input unchanged when
- * it does not look like a yapic URL we recognise.
+ * `islands-200`. Rewrite the trailing path segment to the supported alias
+ * so the rendered image actually resolves, and also promote any leftover
+ * `islands-small` URLs (written by an earlier iteration of this code) to
+ * `islands-200` so retina displays get a clean image. Returns the input
+ * unchanged when it does not look like a yapic URL we recognise.
  */
 export function normalizeAvatarUrl(url: string): string {
-    if (!url.includes('avatars.mds.yandex.net') || !url.includes('/SMALL48')) return url
-    return url.replace(/\/SMALL48(?=$|\?)/, '/islands-small')
+    if (!url.includes('avatars.mds.yandex.net')) return url
+    if (url.includes('/SMALL48')) return url.replace(/\/SMALL48(?=$|\?)/, '/islands-200')
+    if (url.includes('/islands-small')) return url.replace(/\/islands-small(?=$|\?)/, '/islands-200')
+    return url
 }
 
 /**
