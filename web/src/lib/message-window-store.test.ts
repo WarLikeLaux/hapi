@@ -396,6 +396,83 @@ describe('message tail synchronization', () => {
         expect(getMessageWindowState(id).messages.at(-1)?.id).toBe('u-1200')
     })
 
+    it('extends past 800 records when the coverage target is deeper in history', async () => {
+        // The user wants the cold window to actually reach initial coverage even
+        // for sessions larger than INITIAL_COVERAGE_MAX_PAGES × PAGE_SIZE. The
+        // tail is dense agent rows; the only user/agent exchanges live more than
+        // 800 records back.
+        const id = sessionId('cold-extends-past-800')
+        const denseAgent = (startSeq: number, count: number) =>
+            Array.from({ length: count }, (_, index) =>
+                makeAgentMessage({
+                    id: `dense-${startSeq + index}`,
+                    seq: startSeq + index,
+                    at: (startSeq + index) * 1_000
+                }))
+        const covered = [
+            ...makeExchange(1, 1, 'far-agent-1'),
+            ...makeExchange(2, 3, 'far-agent-2'),
+            ...denseAgent(5, 200),    // gap until the dense agent runs
+        ]
+        // Total transcript: 200 (tail) + 200 + 200 + 200 + 4 = 1004 records.
+        const latest200 = denseAgent(1005, 200)
+        const getMessages = vi.fn()
+            .mockResolvedValueOnce(latestResponse(latest200, {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 1_005_000,
+                nextBeforeSeq: 1005
+            }))
+            .mockResolvedValueOnce(beforeResponse(denseAgent(805, 200), {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 805_000,
+                nextBeforeSeq: 805
+            }))
+            .mockResolvedValueOnce(beforeResponse(denseAgent(605, 200), {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 605_000,
+                nextBeforeSeq: 605
+            }))
+            .mockResolvedValueOnce(beforeResponse(denseAgent(405, 200), {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 405_000,
+                nextBeforeSeq: 405
+            }))
+            .mockResolvedValueOnce(beforeResponse(denseAgent(205, 200), {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 205_000,
+                nextBeforeSeq: 205
+            }))
+            .mockResolvedValueOnce(beforeResponse(covered, {
+                epoch: 1,
+                hasMore: false,
+                nextBeforeAt: null,
+                nextBeforeSeq: null
+            }))
+
+        await syncTailMessages(createApi(getMessages), id)
+
+        // 1 latest + 5 prepends (the 5th prepend reaches the exchanges).
+        // No restore call here: dense agent runs collapse into one unit each so
+        // the 240-unit budget easily covers the whole 1004-record transcript.
+        expect(getMessages).toHaveBeenCalledTimes(6)
+        const state = getMessageWindowState(id)
+        expect(state.messages.some((message) => message.id === 'user-1')).toBe(true)
+        expect(state.messages.some((message) => message.id === 'user-2')).toBe(true)
+        expect(state.messages.some((message) => message.id === 'far-agent-1')).toBe(true)
+        expect(state.messages.some((message) => message.id === 'far-agent-2')).toBe(true)
+        // The deep coverage target must survive despite the record-dense middle.
+        const user1Index = state.messages.findIndex((message) => message.id === 'user-1')
+        expect(user1Index).toBeGreaterThanOrEqual(0)
+        // Without raising INITIAL_COVERAGE_MAX_PAGES this assertion would fail
+        // because the loop would stop after the 4th prepend at seq=405.
+        expect(state.messages[user1Index]?.id).toBe('user-1')
+    })
+
     it('removes the rewound suffix immediately and applies duplicate invalidations once', async () => {
         const id = sessionId('rewind-suffix')
         const prefix = makeAgentMessage({ id: 'prefix', seq: 1, at: 1_000 })

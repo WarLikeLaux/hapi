@@ -54,7 +54,14 @@ export const HISTORY_UNIT_BUDGET = 240
  */
 const INITIAL_USER_UNITS = 2
 const INITIAL_AGENT_UNITS = 2
-const INITIAL_COVERAGE_MAX_PAGES = 4
+/**
+ * Upper bound for the cold-window backfill in page iterations. The loop exits
+ * early as soon as `hasInitialConversationCoverage` is met (or history is
+ * exhausted), so this only caps sessions where coverage can never be reached
+ * — e.g. a session with a single user prompt. Set generously so cold-window
+ * covers any plausible transcript; per-page work is bounded by PAGE_SIZE.
+ */
+const INITIAL_COVERAGE_MAX_PAGES = 256
 const OLDER_LOAD_MAX_PAGES = 4
 const AGENT_RUN_WINDOW_SIZE = 800
 const PAGE_SIZE = 200
