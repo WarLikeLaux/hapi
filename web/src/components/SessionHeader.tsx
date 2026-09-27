@@ -568,8 +568,8 @@ export function SessionHeader(props: {
                     summary sits under the title text; once the buttons
                     wrap below, the summary joins them there, model left,
                     buttons right. */}
-                <div ref={mobileRowRef} className="flex flex-wrap items-center gap-x-2 gap-y-0 sm:gap-2">
-                    <div className="flex min-w-0 flex-[1_1_max-content] flex-wrap items-center gap-x-2 gap-y-0 sm:flex-1">
+                <div ref={mobileRowRef} className="flex flex-wrap items-start gap-x-2 gap-y-0 sm:gap-2">
+                    <div className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0 sm:flex-1 ${actionsWrapped ? 'flex-[1_1_max-content]' : 'flex-1'}`}>
                     {/* Back button */}
                     <button
                         type="button"
