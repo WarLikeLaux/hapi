@@ -96,6 +96,7 @@ export const toolViewRegistry: Record<string, ToolViewComponent> = {
     CursorAskQuestion: AskUserQuestionView,
     CursorCreatePlan: CursorCreatePlanView,
     ask_user_question: AskUserQuestionView,
+    ask_user: AskUserQuestionView,
     exit_plan_mode: ExitPlanModeView,
     request_user_input: RequestUserInputView
 }
@@ -122,6 +123,7 @@ export const toolFullViewRegistry: Record<string, ToolViewComponent> = {
     CursorAskQuestion: AskUserQuestionView,
     CursorCreatePlan: CursorCreatePlanView,
     ask_user_question: AskUserQuestionView,
+    ask_user: AskUserQuestionView,
     exit_plan_mode: ExitPlanModeView,
     request_user_input: RequestUserInputView
 }
