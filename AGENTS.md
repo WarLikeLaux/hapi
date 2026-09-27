@@ -23,8 +23,8 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 
 ## Visual review for slot workers
 
-- For visible UI or UX changes, start the web dev server from your slot on a free port, for example `bun run --cwd web dev -- --port 5174 --strictPort`. Port 5173 may serve the main checkout and will not show your changes. A dev server used for screenshots is a local preview, not a deployment.
-- Use Playwright from the slot to capture the changed screen in the relevant state and viewport. Check that the screenshot shows the change rather than a login or loading screen. For authenticated HAPI pages, `web/e2e/helpers/hapi-live.ts` has `installHapiAuth` and `readCliAccessToken`. Never print the token or include it in a screenshot.
+- For visible UI or UX changes, first confirm that the edited source is present in your slot. Start the web dev server from that slot on a free port, for example `bun run --cwd web dev -- --port 5174 --strictPort`. Port 5173 may serve the main checkout and will not show your changes. A dev server used for screenshots is a local preview, not a deployment.
+- Capture the real changed page with Playwright, not a static HTML replica, hand-drawn comparison, or mock menu. Use `bun scripts/tooling/capture-hapi-ui.mjs --url http://127.0.0.1:5174/sessions/<id> --out /tmp/hapi-ui.png --click 'button[title="More actions"]' --expect '[role="menuitem"]:has-text("Delete")'` as a starting point. The script authenticates through the Vite origin and its `/api` proxy. For custom scripts, `web/e2e/helpers/hapi-live.ts` provides `installHapiAuth(page, previewOrigin, readCliAccessToken())`. Do not set `hapi_hub_url` to the backend port, store a JWT as an access token, print the token, or weaken CORS for a preview.
 - Send the PNG to the user with HAPI `display_image` using its absolute path. Wait for explicit visual acceptance before committing or calling `pitbox ready`. If you cannot capture a representative screenshot, explain the blocker and ask the user how to review the change.
 
 ## Delivery policy only for work explicitly assigned to the main checkout

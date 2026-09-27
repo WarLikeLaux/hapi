@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { isPermissionModeAllowedForFlavor } from '@hapi/protocol'
-import type { ApiClient } from '@/api/client'
+import { ApiError, type ApiClient } from '@/api/client'
 import type { CodexCollaborationMode, CopilotAgentMode, PermissionMode, SessionResponse, SessionsResponse } from '@/types/api'
 import type { ReopenSessionResponse } from '@hapi/protocol/apiTypes'
 import { queryKeys } from '@/lib/query-keys'
@@ -31,7 +31,7 @@ export function useSessionActions(
     suggestSessionTitle: () => Promise<string>
     updateSessionSummary: (text: string) => Promise<void>
     setPinMode: (mode: 'none' | 'project' | 'global') => Promise<void>
-    deleteSession: () => Promise<void>
+    deleteSession: (archiveFirst?: boolean) => Promise<void>
     isPending: boolean
 } {
     const queryClient = useQueryClient()
@@ -287,9 +287,19 @@ export function useSessionActions(
     })
 
     const deleteMutation = useMutation({
-        mutationFn: async () => {
+        mutationFn: async (archiveFirst: boolean) => {
             if (!api || !sessionId) {
                 throw new Error('Session unavailable')
+            }
+            if (archiveFirst) {
+                try {
+                    await api.archiveSession(sessionId)
+                } catch (error) {
+                    // The session may have stopped while the confirmation dialog was open.
+                    if (!(error instanceof ApiError && error.status === 409 && error.body?.includes('Session is inactive'))) {
+                        throw error
+                    }
+                }
             }
             await api.deleteSession(sessionId)
         },
@@ -318,7 +328,7 @@ export function useSessionActions(
         suggestSessionTitle: titleSuggestionMutation.mutateAsync,
         updateSessionSummary: summaryMutation.mutateAsync,
         setPinMode: pinMutation.mutateAsync,
-        deleteSession: deleteMutation.mutateAsync,
+        deleteSession: (archiveFirst = false) => deleteMutation.mutateAsync(archiveFirst),
         isPending: abortMutation.isPending
             || archiveMutation.isPending
             || reopenMutation.isPending
