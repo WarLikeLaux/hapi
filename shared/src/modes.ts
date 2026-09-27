@@ -205,10 +205,17 @@ export function getCodexCollaborationModeOptions(): CodexCollaborationModeOption
  * - Cursor ACP: concurrent `session/prompt` soft-send (no cancel). Legacy
  *   stream-json Cursor sessions are NOT steerable — gate with
  *   {@link isSteeringSupportedForSession}.
+ * - MiniMax Code: no concurrent `session/prompt` — MiniMax Code ACP rejects a
+ *   new prompt while a turn is active ("Session already has an active Turn.
+ *   Use queue send to deliver the message after it"). MiniMax steer means
+ *   "promote this queued row to the head of the FIFO and dispatch it as soon
+ *   as the current turn settles"; the CLI registers a handler that waits for
+ *   `backend.processingMessage === false` and then unshifts the row, so the
+ *   row is never delivered against an active turn.
  *
  * Claude / others: not supported (no reachable soft-steer path) — UI hides Steer.
  */
-export const STEERING_SUPPORTED_FLAVORS = ['codex', 'cursor', 'pi'] as const
+export const STEERING_SUPPORTED_FLAVORS = ['codex', 'cursor', 'minimax', 'pi'] as const
 
 export function isSteeringSupportedForFlavor(flavor?: string | null): boolean {
     return (STEERING_SUPPORTED_FLAVORS as readonly string[]).includes(flavor ?? '')
@@ -227,7 +234,7 @@ export function isSteeringSupportedForSession(metadata?: {
     cursorSessionId?: string | null
     cursorSessionProtocol?: 'acp' | 'stream-json' | null
 } | null): boolean {
-    if (metadata?.flavor === 'codex' || metadata?.flavor === 'pi') {
+    if (metadata?.flavor === 'codex' || metadata?.flavor === 'minimax' || metadata?.flavor === 'pi') {
         return true
     }
     if (metadata?.flavor !== 'cursor') {

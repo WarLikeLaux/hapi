@@ -1299,8 +1299,11 @@ export class SyncEngine {
 
     /**
      * Ask the CLI to deliver one waiting-queue message into the active turn
-     * (native steer). Supported for Pi, Codex, and Cursor ACP sessions; the
-     * CLI's `steer-queued-message` handler is registered per flavor. Legacy
+     * (native steer). Supported for Pi (native), Codex (app-server
+     * `turn/steer`), Cursor ACP (concurrent session/prompt soft-send), and
+     * MiniMax Code (head-of-FIFO promotion + dispatch after the active turn
+     * settles; MiniMax Code ACP rejects concurrent session/prompt). The CLI's
+     * `steer-queued-message` handler is registered per flavor. Legacy
      * stream-json Cursor sessions and other flavors are rejected by the
      * capability gate.
      */
@@ -1313,7 +1316,7 @@ export class SyncEngine {
             return { status: 'failed', error: 'Session not found', localId: null }
         }
         if (!isSteeringSupportedForSession(session.metadata)) {
-            return { status: 'failed', error: 'Steering is only supported for Pi, Codex, and Cursor ACP sessions', localId: null }
+            return { status: 'failed', error: 'Steering is only supported for Pi, Codex, Cursor ACP, and MiniMax sessions', localId: null }
         }
         if (session.agentState?.controlledByUser === true && !session.metadata?.capabilities?.concurrentClients) {
             return { status: 'failed', error: 'Steering is only available for remote sessions', localId: null }
