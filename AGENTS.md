@@ -15,7 +15,7 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 
 - Starting in the main checkout does not make a session the integrator. For an ordinary coding task, run `pitbox status`, then `pitbox claim` without a slot number. Continue in the returned worktree. If no slot is free, report that instead of working in the main checkout.
 - A session that claimed a slot remains its worker. Run relevant checks in that slot, commit only the task files, then run `pitbox ready`. Do not deploy from any checkout, collect, release, or push the main branch. The deploy-before-commit, review-before-commit, and automatic-push rules below apply only to direct main-checkout work.
-- Integrate ready slots only on the user's explicit request, from a separate session that has done no slot work. Follow `pitbox guide`, run the applicable checks, and perform HAPI's required deployment after collection. Integration creates merge commits before deployment.
+- Integrate ready slots only on the user's explicit request, from a separate session that has done no slot work. Run `pitbox status`, collect the requested slots, and run the applicable HAPI checks. Push the merged `custom` branch, then watch the GitHub Actions runs for that exact commit until they pass. If CI fails, is missing, or cannot be checked, stop and report it. After passing CI, perform HAPI's required local deployment and release the collected slots. Integration creates merge commits before deployment.
 - Work explicitly assigned to the main checkout follows the delivery policy below.
 
 ## Delivery policy
