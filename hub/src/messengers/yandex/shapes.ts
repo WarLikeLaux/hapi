@@ -23,8 +23,26 @@ import type {
     ExternalMessage,
     ExternalReaction
 } from '@hapi/protocol'
+import { writeFileSync } from 'node:fs'
 import { microsToEpochMs, parseMicros } from './registry'
 import { REACTION_EMOJI_BY_TYPE } from './reactionMap'
+
+/**
+ * One-shot debug dump of the first decoded chat element to
+ * `/tmp/yandex-element-sample.json`. Temporary, used to confirm whether
+ * `ChatInfo.AvatarUrl` arrives pre-baked with the dead `/SMALL48` size
+ * alias on the wire. Safe to remove once the avatar path is stable.
+ */
+let yandexElementDumpWritten = false
+function dumpYandexElementOnce(element: Record<string, unknown>): void {
+    if (yandexElementDumpWritten) return
+    yandexElementDumpWritten = true
+    try {
+        writeFileSync('/tmp/yandex-element-sample.json', JSON.stringify(element, null, 2))
+    } catch {
+        // best-effort
+    }
+}
 
 /** Hosts the Yandex avatar file URLs (§12.2 of the conarti reference). */
 const YAPIC_AVATAR_HOST = 'avatars.mds.yandex.net'
@@ -69,6 +87,19 @@ export function buildAvatarUrlFromId(avatarId: string): string {
 }
 
 /**
+ * Normalizes an avatar URL that came pre-resolved from Yandex (typically on
+ * `ChatInfo.AvatarUrl`). The wire format sometimes carries the dead `/SMALL48`
+ * size alias even after we updated `AVATAR_CHAT_LIST_SIZE` to
+ * `islands-small`. Rewrite the trailing path segment to the supported alias
+ * so the rendered image actually resolves. Returns the input unchanged when
+ * it does not look like a yapic URL we recognise.
+ */
+export function normalizeAvatarUrl(url: string): string {
+    if (!url.includes('avatars.mds.yandex.net') || !url.includes('/SMALL48')) return url
+    return url.replace(/\/SMALL48(?=$|\?)/, '/islands-small')
+}
+
+/**
  * Resolves the avatar URL for a chat element, or null when nothing is on the wire.
  *
  * Group chats have `ChatInfo.AvatarUrl` already as a full URL (returned by the
@@ -80,7 +111,7 @@ export function resolveChatAvatarUrl(raw: Record<string, unknown>): string | nul
     const chatInfo = asObject(raw['ChatInfo'])
     const directAvatarUrl = stringOr(chatInfo?.['AvatarUrl'])
     if (directAvatarUrl !== undefined) {
-        return directAvatarUrl
+        return normalizeAvatarUrl(directAvatarUrl)
     }
     const partner = asObject(raw['PartnerInfo'])
     const partnerAvatarId = stringOr(partner?.['AvatarId'])
@@ -358,6 +389,7 @@ export function normalizeChatElement(raw: unknown, myGuid: string): ChatShape | 
     const element = asObject(raw)
     const remoteChatId = stringOr(element?.['ChatId'])
     if (!element || !remoteChatId) return undefined
+    dumpYandexElementOnce(element)
 
     const partner = asObject(element['PartnerInfo'])
     const partnerName = stringOr(partner?.['DisplayName']) ?? stringOr(partner?.['PublicName'])
