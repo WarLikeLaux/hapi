@@ -104,12 +104,22 @@ export function usePwaUpdate() {
             }
             autoReloadScheduled = true
             setUpdating(true)
+            // Tell the waiting worker to activate and claim clients. We
+            // post SKIP_WAITING after `updating` is set so the banner has
+            // already been committed for the next paint — otherwise the new
+            // SW's `clients.claim()` could swap our shell mid-frame before
+            // the user ever sees "Updating HAPI…". `updateSW` (returned by
+            // `registerSW`) is a workbox-window-backed function that awaits
+            // its register promise before posting, so it is safe to call
+            // from `onNeedRefresh` even when `onRegistered` has not yet
+            // stored the registration in this hook's closure.
+            void updateSW(true)
             window.setTimeout(() => {
                 window.location.reload()
             }, PWA_UPDATING_INDICATOR_MS)
         }
 
-        registerSW({
+        const updateSW = registerSW({
             onNeedRefresh() {
                 scheduleAutoReload()
             },

@@ -184,14 +184,17 @@ describe('usePwaUpdate', () => {
         onNeedRefresh?: () => void
         onRegistered?: (registration: ServiceWorkerRegistration | undefined) => void
     } = {}
+    let capturedUpdateSW: ReturnType<typeof vi.fn> | null = null
     let reloadMock: ReturnType<typeof vi.fn>
 
     beforeEach(() => {
         capturedOptions = {}
+        capturedUpdateSW = null
         registerSWMock.mockReset()
         registerSWMock.mockImplementation((options) => {
             capturedOptions = options
-            return vi.fn()
+            capturedUpdateSW = vi.fn().mockResolvedValue(undefined)
+            return capturedUpdateSW
         })
         ;({ reloadMock } = stubLocationReload())
         __resetAutoReloadGuardForTests()
@@ -215,6 +218,7 @@ describe('usePwaUpdate', () => {
 
         expect(result.current.updating).toBe(false)
         expect(reloadMock).not.toHaveBeenCalled()
+        expect(capturedUpdateSW).not.toHaveBeenCalled()
     })
 
     it('surfaces the indicator and schedules a reload when an update is detected and a controller exists', () => {
@@ -232,6 +236,11 @@ describe('usePwaUpdate', () => {
 
         expect(result.current.updating).toBe(true)
         expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), PWA_UPDATING_INDICATOR_MS)
+        // The "Updating HAPI…" banner must be painted before SKIP_WAITING
+        // activates the new SW and `clients.claim()` swaps our shell, so the
+        // post has to happen on the same tick as `setUpdating(true)`.
+        expect(capturedUpdateSW).toHaveBeenCalledTimes(1)
+        expect(capturedUpdateSW).toHaveBeenCalledWith(true)
 
         act(() => {
             vi.advanceTimersByTime(PWA_UPDATING_INDICATOR_MS)
@@ -257,6 +266,7 @@ describe('usePwaUpdate', () => {
 
         expect(result.current.updating).toBe(true)
         expect(setTimeoutSpy).toHaveBeenCalledTimes(1)
+        expect(capturedUpdateSW).toHaveBeenCalledTimes(1)
 
         act(() => {
             vi.advanceTimersByTime(PWA_UPDATING_INDICATOR_MS)
@@ -287,6 +297,8 @@ describe('usePwaUpdate', () => {
         })
 
         expect(setTimeoutSpy).toHaveBeenCalledTimes(1)
+        expect(capturedUpdateSW).toHaveBeenCalledTimes(1)
+        expect(capturedUpdateSW).toHaveBeenCalledWith(true)
 
         act(() => {
             vi.advanceTimersByTime(PWA_UPDATING_INDICATOR_MS)
@@ -294,6 +306,32 @@ describe('usePwaUpdate', () => {
 
         expect(reloadMock).toHaveBeenCalledTimes(1)
         setTimeoutSpy.mockRestore()
+        vi.useRealTimers()
+    })
+
+    it('posts SKIP_WAITING when a waiting worker is first observed on an already-registered controller', () => {
+        vi.useFakeTimers()
+        setServiceWorkerController({} as ServiceWorker)
+
+        renderHook(() => usePwaUpdate())
+
+        const registration = {
+            waiting: {} as ServiceWorker,
+            update: vi.fn().mockResolvedValue(undefined),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        } as unknown as ServiceWorkerRegistration
+
+        act(() => {
+            capturedOptions.onRegistered?.(registration)
+        })
+
+        // setupRegistrationUpdateChecks immediately calls detectWaitingUpdate;
+        // a registration that already has a waiting SW should auto-apply just
+        // like the onNeedRefresh path does.
+        expect(capturedUpdateSW).toHaveBeenCalledTimes(1)
+        expect(capturedUpdateSW).toHaveBeenCalledWith(true)
+
         vi.useRealTimers()
     })
 
@@ -337,6 +375,7 @@ describe('usePwaUpdate', () => {
         })
 
         expect(reloadMock).not.toHaveBeenCalled()
+        expect(capturedUpdateSW).not.toHaveBeenCalled()
     })
 
     it('does not surface the indicator when registration has no waiting worker', () => {
@@ -355,5 +394,6 @@ describe('usePwaUpdate', () => {
         })
 
         expect(reloadMock).not.toHaveBeenCalled()
+        expect(capturedUpdateSW).not.toHaveBeenCalled()
     })
 })
