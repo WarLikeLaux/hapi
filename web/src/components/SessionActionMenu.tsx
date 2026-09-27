@@ -700,7 +700,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     </button>
                 ) : null}
 
-                {onMarkUnread ? (
+                {!sessionActive && onMarkUnread ? (
                     <button
                         type="button"
                         role="menuitem"
@@ -714,15 +714,17 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
 
                 {onSetPinMode ? (
                     <>
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                            onClick={() => handleSetPinMode(sessionPinned ? 'none' : 'project')}
-                        >
-                            <PinIcon filled={sessionPinned} className="text-[var(--app-hint)]" />
-                            {t(sessionPinned ? 'session.action.unpinProject' : 'session.action.pinProject')}
-                        </button>
+                        {!sessionActive ? (
+                            <button
+                                type="button"
+                                role="menuitem"
+                                className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                                onClick={() => handleSetPinMode(sessionPinned ? 'none' : 'project')}
+                            >
+                                <PinIcon filled={sessionPinned} className="text-[var(--app-hint)]" />
+                                {t(sessionPinned ? 'session.action.unpinProject' : 'session.action.pinProject')}
+                            </button>
+                        ) : null}
                         <button
                             type="button"
                             role="menuitem"
@@ -735,7 +737,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     </>
                 ) : null}
 
-                {onExport ? (
+                {!sessionActive && onExport ? (
                     <button
                         type="button"
                         role="menuitem"
@@ -792,6 +794,15 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         >
                             <StopIcon className="text-red-500" />
                             {t('session.action.archive')}
+                        </button>
+                        <button
+                            type="button"
+                            role="menuitem"
+                            className={`${baseItemClassName} text-red-500 hover:bg-red-500/10`}
+                            onClick={handleDelete}
+                        >
+                            <TrashIcon className="text-red-500" />
+                            {t('session.action.delete')}
                         </button>
                     </>
                 ) : (

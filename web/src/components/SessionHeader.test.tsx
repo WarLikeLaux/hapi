@@ -656,7 +656,7 @@ describe('SessionHeader', () => {
             <QueryClientProvider client={new QueryClient()}>
                 <ToastProvider>
                     <I18nProvider>
-                        <SessionHeader session={baseSession({ pinned: false })} onBack={vi.fn()} api={api} />
+                        <SessionHeader session={baseSession({ active: false, pinned: false })} onBack={vi.fn()} api={api} />
                         <ToastMessages />
                     </I18nProvider>
                 </ToastProvider>

@@ -1392,7 +1392,7 @@ function SessionItem(props: {
                     description={t('dialog.delete.description', { name: sessionName })}
                     confirmLabel={t('dialog.delete.confirm')}
                     confirmingLabel={t('dialog.delete.confirming')}
-                    onConfirm={deleteSession}
+                    onConfirm={() => deleteSession(s.active)}
                     isPending={isPending}
                     destructive
                     centerTitle

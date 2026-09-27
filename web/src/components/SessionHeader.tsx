@@ -418,7 +418,7 @@ export function SessionHeader(props: {
     const scratchlistCount = useScratchlistCount(session.id, api)
 
     const handleDelete = async () => {
-        await deleteSession()
+        await deleteSession(session.active)
         onSessionDeleted?.()
     }
 

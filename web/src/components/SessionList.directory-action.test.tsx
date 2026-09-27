@@ -350,7 +350,7 @@ describe('SessionList action menu parity', () => {
     it.each([
         ['running', true],
         ['closed', false]
-    ] as const)('offers conversation export for a %s session', (_label, active) => {
+    ] as const)('shows conversation export only for a closed session, given a %s session', (_label, active) => {
         const session = makeSession({
             id: `session-${active ? 'running' : 'closed'}`,
             active,
@@ -377,6 +377,10 @@ describe('SessionList action menu parity', () => {
         )
 
         fireEvent.contextMenu(screen.getByRole('button', { name: new RegExp(active ? 'Running session' : 'Closed session') }))
+        if (active) {
+            expect(screen.queryByRole('menuitem', { name: 'Export conversation' })).toBeNull()
+            return
+        }
         fireEvent.click(screen.getByRole('menuitem', { name: 'Export conversation' }))
 
         expect(screen.getByRole('dialog')).toBeInTheDocument()

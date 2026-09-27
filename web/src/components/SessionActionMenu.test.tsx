@@ -97,6 +97,32 @@ describe('SessionActionMenu - Mark unread action', () => {
     })
 })
 
+describe('SessionActionMenu - active session actions', () => {
+    it('keeps the global pin and offers Delete below Stop without inactive-only actions', () => {
+        const onDelete = vi.fn()
+        const onClose = vi.fn()
+        renderMenu({
+            sessionActive: true,
+            onSetPinMode: vi.fn(),
+            onMarkUnread: vi.fn(),
+            onExport: vi.fn(),
+            onDelete,
+            onClose,
+        })
+
+        const labels = screen.getAllByRole('menuitem').map((item) => item.textContent?.trim())
+        expect(labels).toContain('Pin globally')
+        expect(labels).not.toContain('Pin in project')
+        expect(labels).not.toContain('Mark as unread')
+        expect(labels).not.toContain('Export conversation')
+        expect(labels.slice(-2)).toEqual(['Stop session', 'Delete'])
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+        expect(onDelete).toHaveBeenCalledOnce()
+        expect(onClose).toHaveBeenCalledOnce()
+    })
+})
+
 describe('SessionActionMenu - regenerate title action', () => {
     it('fires the regenerate handler and closes the menu', () => {
         const onRegenerateTitle = vi.fn()

@@ -204,6 +204,53 @@ describe('useSessionActions - restartSession', () => {
     })
 })
 
+describe('useSessionActions - deleteSession', () => {
+    it('stops an active session before deleting it', async () => {
+        const calls: string[] = []
+        const api = {
+            archiveSession: vi.fn(async () => { calls.push('archive') }),
+            deleteSession: vi.fn(async () => { calls.push('delete') }),
+        } as unknown as ApiClient
+        const { result } = renderHook(
+            () => useSessionActions(api, 'session-A'),
+            { wrapper: createWrapper() },
+        )
+
+        await act(async () => { await result.current.deleteSession(true) })
+        expect(calls).toEqual(['archive', 'delete'])
+    })
+
+    it('does not delete if stopping the active session fails', async () => {
+        const api = {
+            archiveSession: vi.fn(async () => { throw new Error('stop failed') }),
+            deleteSession: vi.fn(),
+        } as unknown as ApiClient
+        const { result } = renderHook(
+            () => useSessionActions(api, 'session-A'),
+            { wrapper: createWrapper() },
+        )
+
+        await expect(result.current.deleteSession(true)).rejects.toThrow('stop failed')
+        expect(api.deleteSession).not.toHaveBeenCalled()
+    })
+
+    it('deletes when the session became inactive before confirmation', async () => {
+        const api = {
+            archiveSession: vi.fn(async () => {
+                throw new ApiError('Session is inactive', 409, undefined, '{"error":"Session is inactive"}')
+            }),
+            deleteSession: vi.fn(async () => {}),
+        } as unknown as ApiClient
+        const { result } = renderHook(
+            () => useSessionActions(api, 'session-A'),
+            { wrapper: createWrapper() },
+        )
+
+        await act(async () => { await result.current.deleteSession(true) })
+        expect(api.deleteSession).toHaveBeenCalledWith('session-A')
+    })
+})
+
 describe('useSessionActions - setModel', () => {
     it('stays pending until the refreshed session detail is available', async () => {
         let releaseSessionRefresh!: () => void
