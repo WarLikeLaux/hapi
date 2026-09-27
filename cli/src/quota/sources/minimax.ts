@@ -10,6 +10,37 @@ export const MINIMAX_WEEKLY_SOURCE = 'minimax:weekly'
 const MINIMAX_TIMEOUT_MS = 15_000
 const MINIMAX_DEFAULT_REGION = 'en'
 
+/**
+ * Three consecutive 401s in a row are tolerated before the collector reports
+ * the source as unavailable. mcode silently refreshes its access token on
+ * disk via the stored refresh_token (`refreshCredential` in mcode's auth
+ * store) — a single poll that catches the token between expiry and refresh
+ * does not flip the UI to "Authentication expired". The first good response
+ * resets the counter; the threshold is only hit when 401s really persist
+ * (server outage or a revoked refresh_token).
+ */
+export const MAX_MINIMAX_AUTH_FAILURES = 3
+
+interface MinimaxAuthCache {
+    lastValidWindows: QuotaWindow[] | null
+    consecutiveAuthFailures: number
+}
+
+const authCache: MinimaxAuthCache = {
+    lastValidWindows: null,
+    consecutiveAuthFailures: 0
+}
+
+/**
+ * Test-only hook: clears the in-memory cache so isolated cases start fresh.
+ * Production code never needs to call this — the cache lives for the lifetime
+ * of the runner process and resets on every successful poll.
+ */
+export function resetMinimaxAuthCache(): void {
+    authCache.lastValidWindows = null
+    authCache.consecutiveAuthFailures = 0
+}
+
 /** Quota bases mirror mcode's own region table (prod only). */
 const MINIMAX_BASE_URLS: Record<string, string> = {
     en: 'https://platform.minimax.io',
@@ -133,6 +164,13 @@ export function parseMinimaxQuotaResponse(payload: unknown, nowSec: number): Quo
     return windows.length > 0 ? windows : null
 }
 
+/**
+ * Collects MiniMax coding-plan windows. 401s are absorbed up to
+ * {@link MAX_MINIMAX_AUTH_FAILURES} consecutive strikes by replaying the
+ * last known good windows so the UI does not flash "Authentication expired"
+ * while mcode silently refreshes its OAuth token; after the threshold the
+ * collector surfaces `auth_expired` as before.
+ */
 export async function collectMinimaxQuotas(
     nowSec: number,
     paths: MinimaxAuthPaths = defaultAuthPaths(),
@@ -149,11 +187,32 @@ export async function collectMinimaxQuotas(
             },
             signal: AbortSignal.timeout(MINIMAX_TIMEOUT_MS)
         })
-        if (!response.ok) {
+        if (response.status === 401) {
+            authCache.consecutiveAuthFailures += 1
+            if (
+                authCache.consecutiveAuthFailures < MAX_MINIMAX_AUTH_FAILURES
+                && authCache.lastValidWindows
+            ) {
+                // Replay the last good snapshot so the UI does not flash the
+                // error while mcode's silent refresh lands. The original
+                // measuredAt stays — the UI's staleness indicator tells the
+                // user how old the numbers are.
+                return { kind: 'ok', windows: authCache.lastValidWindows }
+            }
             return {
                 kind: 'unavailable',
                 source: MINIMAX_5H_SOURCE,
-                reason: response.status === 401 ? 'auth_expired' : 'unavailable',
+                reason: 'auth_expired',
+                detail: `HTTP 401 (${authCache.consecutiveAuthFailures} consecutive)`
+            }
+        }
+        if (!response.ok) {
+            // Non-401 transport errors do not count against the auth-failure
+            // threshold; they keep whatever counter state was reached.
+            return {
+                kind: 'unavailable',
+                source: MINIMAX_5H_SOURCE,
+                reason: 'unavailable',
                 detail: `HTTP ${response.status}`
             }
         }
@@ -168,6 +227,10 @@ export async function collectMinimaxQuotas(
         if (!windows) {
             return { kind: 'unavailable', source: MINIMAX_5H_SOURCE, reason: 'unavailable', detail: 'model_remains not found' }
         }
+        // A successful poll clears the auth-failure streak and stamps the
+        // cached windows so the next 401 has something to replay.
+        authCache.consecutiveAuthFailures = 0
+        authCache.lastValidWindows = windows
         return { kind: 'ok', windows }
     } catch (error) {
         return { kind: 'unavailable', source: MINIMAX_5H_SOURCE, reason: 'unavailable', detail: errorMessage(error) }

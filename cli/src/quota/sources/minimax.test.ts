@@ -1,13 +1,16 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+    MAX_MINIMAX_AUTH_FAILURES,
     MINIMAX_5H_SOURCE,
     MINIMAX_WEEKLY_SOURCE,
+    collectMinimaxQuotas,
     minimaxBaseUrl,
     parseMinimaxQuotaResponse,
     readMinimaxCredentials,
+    resetMinimaxAuthCache,
     type MinimaxAuthPaths
 } from './minimax'
 
@@ -168,5 +171,139 @@ describe('readMinimaxCredentials', () => {
 
         const broken = tempPaths({ auth: 'not-an-object' })
         expect(readMinimaxCredentials(broken)).toBeNull()
+    })
+})
+
+/**
+ * Retry-collector tests. The collector caches the last successful snapshot
+ * and replays it on transient 401s so the UI does not flash "Authentication
+ * expired" while mcode silently refreshes its OAuth token. Three consecutive
+ * 401s are tolerated; the fourth surfaces `auth_expired` as before.
+ */
+describe('collectMinimaxQuotas retry-on-401', () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    let paths: MinimaxAuthPaths
+
+    beforeEach(() => {
+        resetMinimaxAuthCache()
+        fetchMock.mockReset()
+        const dir = mkdtempSync(join(tmpdir(), 'minimax-collect-'))
+        paths = {
+            regionFile: join(dir, 'mcode-region.json'),
+            authFile: () => join(dir, 'auth.json')
+        }
+        writeFileSync(paths.authFile('en'), JSON.stringify({
+            records: { r: { accessToken: 'tok', expiresAtMs: 9_999_999_999 } }
+        }))
+    })
+
+    afterEach(() => {
+        rmSync(join(paths.authFile('en'), '..'), { recursive: true, force: true })
+    })
+
+    function okResponse(): Response {
+        return new Response(JSON.stringify(SAMPLE_PAYLOAD), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+        })
+    }
+
+    function authExpiredResponse(): Response {
+        return new Response('expired', { status: 401 })
+    }
+
+    it('caches windows on a successful poll so they survive the next 401', async () => {
+        fetchMock.mockResolvedValueOnce(okResponse())
+        fetchMock.mockResolvedValueOnce(authExpiredResponse())
+
+        const first = await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
+        expect(first.kind).toBe('ok')
+
+        const second = await collectMinimaxQuotas(NOW_SEC + 30, paths, fetchMock as unknown as typeof fetch)
+        expect(second.kind).toBe('ok')
+        if (second.kind !== 'ok') return
+        expect(second.windows).toEqual(first.kind === 'ok' ? first.windows : [])
+    })
+
+    it('tolerates up to 3 consecutive 401s by replaying the cached snapshot', async () => {
+        fetchMock.mockResolvedValueOnce(okResponse())
+        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES - 1; i++) {
+            fetchMock.mockResolvedValueOnce(authExpiredResponse())
+        }
+
+        const first = await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
+        expect(first.kind).toBe('ok')
+
+        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES - 1; i++) {
+            const result = await collectMinimaxQuotas(NOW_SEC + i + 1, paths, fetchMock as unknown as typeof fetch)
+            expect(result.kind).toBe('ok')
+        }
+    })
+
+    it('surfaces auth_expired once the threshold is exceeded', async () => {
+        fetchMock.mockResolvedValueOnce(okResponse())
+        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES; i++) {
+            fetchMock.mockResolvedValueOnce(authExpiredResponse())
+        }
+
+        await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
+
+        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES - 1; i++) {
+            const replay = await collectMinimaxQuotas(NOW_SEC + i + 1, paths, fetchMock as unknown as typeof fetch)
+            expect(replay.kind).toBe('ok')
+        }
+
+        const trip = await collectMinimaxQuotas(NOW_SEC + MAX_MINIMAX_AUTH_FAILURES, paths, fetchMock as unknown as typeof fetch)
+        expect(trip.kind).toBe('unavailable')
+        if (trip.kind !== 'unavailable') return
+        expect(trip.reason).toBe('auth_expired')
+        expect(trip.source).toBe(MINIMAX_5H_SOURCE)
+        expect(trip.detail).toContain(`${MAX_MINIMAX_AUTH_FAILURES} consecutive`)
+    })
+
+    it('resets the failure counter as soon as a poll succeeds', async () => {
+        fetchMock
+            .mockResolvedValueOnce(okResponse())
+            .mockResolvedValueOnce(authExpiredResponse())
+            .mockResolvedValueOnce(authExpiredResponse())
+            .mockResolvedValueOnce(okResponse())
+            .mockResolvedValueOnce(authExpiredResponse())
+            .mockResolvedValueOnce(authExpiredResponse())
+
+        const calls: Array<Awaited<ReturnType<typeof collectMinimaxQuotas>>> = []
+        for (let i = 0; i < 6; i++) {
+            calls.push(await collectMinimaxQuotas(NOW_SEC + i, paths, fetchMock as unknown as typeof fetch))
+        }
+
+        expect(calls[0]!.kind).toBe('ok')
+        expect(calls[1]!.kind).toBe('ok')
+        expect(calls[2]!.kind).toBe('ok')
+        expect(calls[3]!.kind).toBe('ok')
+        expect(calls[4]!.kind).toBe('ok')
+        expect(calls[5]!.kind).toBe('ok')
+    })
+
+    it('reports auth_expired immediately when no snapshot has been cached yet', async () => {
+        fetchMock.mockResolvedValueOnce(authExpiredResponse())
+        const result = await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
+        expect(result.kind).toBe('unavailable')
+        if (result.kind !== 'unavailable') return
+        expect(result.reason).toBe('auth_expired')
+    })
+
+    it('does not bump the counter on non-401 transport errors', async () => {
+        fetchMock.mockResolvedValueOnce(okResponse())
+        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES + 1; i++) {
+            fetchMock.mockResolvedValueOnce(new Response('boom', { status: 503 }))
+        }
+
+        await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
+        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES + 1; i++) {
+            const result = await collectMinimaxQuotas(NOW_SEC + i + 1, paths, fetchMock as unknown as typeof fetch)
+            expect(result.kind).toBe('unavailable')
+            if (result.kind === 'unavailable') {
+                expect(result.reason).toBe('unavailable')
+            }
+        }
     })
 })
