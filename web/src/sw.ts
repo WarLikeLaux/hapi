@@ -62,15 +62,17 @@ registerRoute(
     })
 )
 
-// Auto-activate the new worker the moment its module is parsed so that
-// `clients.claim()` below can hand every existing client over to the new
-// shell. The corresponding client reload is driven by `usePwaUpdate` after
-// the in-app "Updating HAPI…" indicator has had time to render — both paths
-// share a single module-level guard so multiple SW lifecycle events firing
-// in quick succession cannot trigger more than one page reload per page
-// load.
-void self.skipWaiting()
-
+// Wait for an explicit `SKIP_WAITING` message from the client before
+// activating the new worker. A top-level `self.skipWaiting()` is
+// intentionally absent: with `registerType: 'prompt'`, vite-plugin-pwa only
+// surfaces the `onNeedRefresh` callback from workbox-window's `waiting`
+// event, which `skipWaiting()` bypasses entirely, and the page would
+// silently change controllers mid-session without ever showing the
+// "Updating HAPI…" indicator (clients.claim() still hands the new shell
+// over, so a manual reload is the only way to surface anything until then).
+// The client-side `usePwaUpdate` hook posts `SKIP_WAITING` once the banner
+// is on screen so the in-app indicator always gets at least one paint
+// before the reload.
 self.addEventListener('message', (event) => {
     if (event.data?.type === 'SKIP_WAITING') {
         self.skipWaiting()
