@@ -44,6 +44,10 @@ import { applyVersionedAck } from './versionedUpdate'
 import { buildHubRequestHeaders, buildSocketIoExtraHeaderOptions } from './hubExtraHeaders'
 import { WorkspaceChangesTracker } from '@/modules/common/workspaceChanges'
 import { applySessionTitleFallback } from '@/modules/common/sessionTitleFallback'
+import {
+    buildSessionTitleTurnReminder,
+    wrapWithHapiTitleReminder
+} from '@/modules/common/sessionTitlePrompt'
 
 /**
  * XML tags that Claude Code injects as `type:'user'` messages.
@@ -238,6 +242,18 @@ function hasSameJsonValue(left: unknown, right: unknown): boolean {
 export class ApiSessionClient extends EventEmitter {
     private reconnectHandler: (() => void) | null = null
     onReconnect(handler: (() => void) | null): void { this.reconnectHandler = handler }
+
+    /**
+     * Runners call this after wiring up the HAPI MCP bridge to advertise the
+     * `change_title` tool. Once true, every fresh remote user prompt gets a
+     * hidden title-check block prepended in `enqueueUserMessage` so the agent
+     * reassesses the chat title on each turn. Local flavor runners without a
+     * MCP bridge should leave this false (default) to avoid prompting the
+     * model to call a tool that does not exist.
+     */
+    setHapiTitleToolAvailable(available: boolean): void {
+        this.hapiTitleToolAvailable = available
+    }
     /** When false, socket.io must not keep the CLI immortal after hub archive (#1910). */
     private allowReconnect = true
     /**
@@ -297,6 +313,14 @@ export class ApiSessionClient extends EventEmitter {
     private didWarnPendingQueueFull = false
     private readonly workspaceChangesTracker = new WorkspaceChangesTracker()
     private currentThinking = false
+    /**
+     * Whether the HAPI change_title MCP tool is exposed for this session's
+     * flavor. When true, every fresh remote user prompt gets a hidden title
+     * check prepended by `enqueueUserMessage` so the agent reassesses the
+     * chat title on each turn. Default false; runners flip it on after they
+     * wire up the HAPI MCP bridge.
+     */
+    private hapiTitleToolAvailable = false
 
     constructor(token: string, session: Session, options: ApiSessionClientOptions = {}) {
         super()
@@ -783,10 +807,39 @@ export class ApiSessionClient extends EventEmitter {
         if (!message.meta?.isMeta && !hasTitle) {
             applySessionTitleFallback(this, message.content.text)
         }
+        const decorated = this.maybeInjectTitleReminder(message)
         if (this.pendingMessageCallback) {
-            this.pendingMessageCallback(message, localId)
+            this.pendingMessageCallback(decorated, localId)
         } else {
-            this.pendingMessages.push({ message, localId })
+            this.pendingMessages.push({ message: decorated, localId })
+        }
+    }
+
+    /**
+     * Prepend a hidden HAPI title-check block to fresh remote user prompts
+     * when this session's flavor exposes the `change_title` MCP tool. The
+     * block is skipped for backfilled history (no `sentFrom` meta), local CLI
+     * input, and synthetic meta messages so the agent is never asked to
+     * re-evaluate a title for messages it has already seen. An explicit
+     * regenerate-title control message gets the "force now" variant so the
+     * hub-triggered regenerate endpoint still calls the tool unconditionally.
+     */
+    private maybeInjectTitleReminder(message: UserMessage): UserMessage {
+        if (!this.hapiTitleToolAvailable) return message
+        if (message.meta?.isMeta) return message
+        const sentFrom = message.meta?.sentFrom
+        if (sentFrom !== 'webapp' && sentFrom !== 'telegram') return message
+        const text = message.content.text
+        if (text.length === 0) return message
+        const displayedTitle = this.metadata?.name?.trim() || this.metadata?.summary?.text?.trim() || undefined
+        const force = message.meta?.internalControl === 'regenerate-title'
+        const reminder = buildSessionTitleTurnReminder(displayedTitle, undefined, force)
+        return {
+            ...message,
+            content: {
+                ...message.content,
+                text: wrapWithHapiTitleReminder(reminder, text)
+            }
         }
     }
 

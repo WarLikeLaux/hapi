@@ -16,7 +16,6 @@ import type { SessionEffort, SessionModel } from '@/api/types';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { getHappyCliCommand } from '@/utils/spawnHappyCLI';
 import { ensureAgyHapiMcpConfig, ensureAgyHapiTitlePermission } from './utils/agyHapiMcpConfig';
-import { buildSessionTitleTurnReminder } from '@/modules/common/sessionTitlePrompt';
 import { DEFAULT_AGY_MODEL } from '@hapi/protocol';
 
 export async function runAgy(opts: {
@@ -84,6 +83,7 @@ export async function runAgy(opts: {
         // Each per-turn child and its MCP subprocess inherit this URL instead.
         process.env.HAPI_HTTP_MCP_URL = hapiMcpServer.url;
         hapiTitleToolAvailable = hapiMcpServer.toolNames.includes('change_title');
+        session.setHapiTitleToolAvailable(hapiTitleToolAvailable);
     } catch (error) {
         logger.warn('[agy] HAPI MCP bridge unavailable; continuing without agent-driven titles',
             error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : error);
@@ -129,12 +129,10 @@ export async function runAgy(opts: {
         };
 
         session.onUserMessage((message, localId) => {
-            let formattedText = formatMessageWithAttachments(message.content.text, message.content.attachments);
-            if (hapiTitleToolAvailable) {
-                const metadata = session.getMetadata();
-                const displayedTitle = metadata?.name ?? metadata?.summary?.text;
-                formattedText = `${buildSessionTitleTurnReminder(displayedTitle)}\n\n${formattedText}`;
-            }
+            const formattedText = formatMessageWithAttachments(message.content.text, message.content.attachments);
+            // The hidden HAPI title-check block is prepended centrally in
+            // ApiSession.enqueueUserMessage when the MCP change_title tool is
+            // exposed for this flavor; no per-flavor injection is needed here.
             // Snapshot the spawn config at ENQUEUE time: a prompt queued while the
             // session runs on model A must not run on B if the user switches the
             // live session model before dequeue.

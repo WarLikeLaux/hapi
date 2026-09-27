@@ -50,6 +50,12 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
             skillLookup: { workingDirectory: session.path, flavor: 'minimax' }
         });
         this.happyServer = happyServer;
+        // The MCP bridge above exposes the `change_title` tool by default
+        // (buildHapiMcpBridge enableChangeTitle !== false). Tell ApiSession so
+        // every fresh remote user prompt gets the hidden title-check block
+        // prepended centrally — covers the case the agent otherwise had no
+        // static reminder instruction.
+        session.client.setHapiTitleToolAvailable(happyServer != null);
 
         const backend = createMinimaxBackend();
         this.backend = backend;

@@ -13,6 +13,14 @@ export async function minimaxLocalLauncher(
     // Local mode spawns the native mcode TUI. Only the native session id is
     // discovered (for handoff and later ACP resume); conversation mirroring
     // is not implemented yet.
+    //
+    // The HAPI MCP bridge (and therefore the change_title tool) is intentionally
+    // not exposed in local mode: mcode is spawned as a plain terminal process
+    // with no HAPI-controlled MCP config, so injecting the per-turn title-check
+    // block from ApiSession would only prompt the model to call a tool that
+    // cannot exist. Leave the flag at its default (false) and rely on manual
+    // rename or the agent's own native title sync for renaming.
+    session.client.setHapiTitleToolAvailable(false);
     const locator: MinimaxSessionLocator = createMinimaxSessionLocator({
         startupTimestampMs: Date.now(),
         resumeSessionId: session.sessionId,

@@ -19,7 +19,8 @@ import { parseReasoningEffortValue } from '../utils/reasoningEffort';
 import { SharedCodexPermissions } from './permissions';
 import { SharedCodexQueue } from './queue';
 import { SharedCodexProjection, inputText } from './projection';
-import { buildTitleTurnReminder, getCodexSystemPrompt } from '../utils/systemPrompt';
+import { getCodexSystemPrompt } from '../utils/systemPrompt';
+import { stripHapiTitleReminder } from '@/modules/common/sessionTitlePrompt';
 import { record, string } from './gateway';
 import { initializeSharedClient, type SharedLaunchOptions } from './launch';
 import { inheritedSandbox, settingsMatch } from './settings';
@@ -126,15 +127,12 @@ export class SharedCodexRoot {
                 if (this.closed || this.stopping) return;
                 const id = localId ?? randomUUID();
                 const text = formatMessageWithAttachments(message.content.text, message.content.attachments);
-                const resolved = text.trim().startsWith('/') ? await this.queue.command(id, () => this.command(text)) : text;
+                // ApiSession.enqueueUserMessage prepends a hidden HAPI title-check
+                // block to fresh remote prompts; strip it so slash commands like
+                // /compact still match what the user actually typed.
+                const stripped = stripHapiTitleReminder(text);
+                const resolved = stripped.trim().startsWith('/') ? await this.queue.command(id, () => this.command(stripped)) : stripped;
                 if (resolved === null) { this.session.emitMessagesConsumed([id], { clearQueuedThinkingGrace: true }); return; }
-                const metadata = this.session.getMetadata();
-                const displayedTitle = metadata?.name?.trim() || metadata?.summary?.text?.trim();
-                await this.client.request('thread/inject_items', { threadId: this.threadId, items: [{
-                    type: 'message', role: 'developer', content: [{ type: 'input_text', text: buildTitleTurnReminder(
-                        displayedTitle, message.meta?.internalControl === 'regenerate-title'
-                    ) }]
-                }] });
                 await this.queue.enqueue(id, buildUserInputFromMessage(resolved), this.interrupted);
             }).catch(error => this.notice(`Message not confirmed: ${error instanceof Error ? error.message : error}. Inspect the queue before retrying.`));
         });
@@ -163,6 +161,11 @@ export class SharedCodexRoot {
         // root title calls so a child cannot rename the parent session.
         this.bridge = await buildHapiMcpBridge(this.session, { exportSessionEnv: false, emitTitleSummary: false,
             skillLookup: { workingDirectory: this.bootstrap.workingDirectory, flavor: 'codex' } });
+        // The MCP bridge above exposes the `change_title` tool by default
+        // (buildHapiMcpBridge enableChangeTitle !== false). Tell ApiSession so
+        // every fresh remote user prompt gets the hidden title-check block
+        // prepended centrally.
+        this.session.setHapiTitleToolAvailable(this.bridge.server != null);
         await initializeSharedClient(this.client);
         this.permissions = new SharedCodexPermissions(
             this.session,
