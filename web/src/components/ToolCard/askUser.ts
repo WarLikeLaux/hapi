@@ -76,6 +76,47 @@ export function parseAskUserInput(input: unknown): { title: string | null; quest
     return { title, questions }
 }
 
+/**
+ * `ask_user` may return a tool result with `details.suppressed: true` when the
+ * agent's local runtime superseded the questionnaire because the user already
+ * sent a new instruction while the question was being raised. In that case
+ * `details.waiting_for_user` is `false` and the tool text reads
+ *   "Question not asked: the user already sent a new instruction while this
+ *    question was being raised. Follow the incoming user message instead."
+ *
+ * The runtime still emits the original questions in `tool.input`, so the UI
+ * can recover them and offer an "answer anyway" steer instead of silently
+ * dropping them.
+ */
+export type AskUserSuppressionInfo = {
+    reason: string | null
+    /** Echo of MiniMax's `details.waiting_for_user`; always false when suppressed. */
+    waitingForUser: boolean
+}
+
+export function extractAskUserSuppression(result: unknown): AskUserSuppressionInfo | null {
+    if (!isObject(result)) return null
+
+    const details = isObject(result.details) ? result.details : null
+    if (details && details.suppressed === true) {
+        const reason = typeof details.reason === 'string' && details.reason.trim()
+            ? details.reason.trim()
+            : null
+        const waitingForUser = details.waiting_for_user === true
+        return { reason, waitingForUser }
+    }
+
+    // Fallback: some ACP transports only put the tool text under `text` and drop
+    // `details`. Match on the known MiniMax text so the UI still surfaces the
+    // skip instead of pretending the question was answered.
+    const text = typeof result.text === 'string' ? result.text : ''
+    if (text.startsWith('Question not asked:')) {
+        return { reason: 'user-sent-new-instruction', waitingForUser: false }
+    }
+
+    return null
+}
+
 export type AskUserQuestionInfo = {
     id: string
     header: string | null
