@@ -2,10 +2,10 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
     PWA_UPDATE_CHECK_INTERVAL_MS,
-    PWA_UPDATE_RELOAD_FALLBACK_MS,
-    requestPwaUpdateReload,
+    PWA_UPDATING_INDICATOR_MS,
     setupRegistrationUpdateChecks,
     usePwaUpdate,
+    __resetAutoReloadGuardForTests,
 } from '@/hooks/usePwaUpdate'
 
 const registerSWMock = vi.fn()
@@ -28,6 +28,22 @@ function setServiceWorkerController(value: ServiceWorker | null) {
     Object.defineProperty(navigator.serviceWorker, 'controller', {
         configurable: true,
         value,
+    })
+}
+
+function stubLocationReload(): { reloadMock: ReturnType<typeof vi.fn> } {
+    const reloadMock = vi.fn()
+    Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: { ...window.location, reload: reloadMock },
+    })
+    return { reloadMock }
+}
+
+function restoreLocationReload() {
+    Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: window.location,
     })
 }
 
@@ -163,139 +179,122 @@ describe('setupRegistrationUpdateChecks', () => {
     })
 })
 
-describe('requestPwaUpdateReload', () => {
-    it('reloads immediately when updateSW is unavailable', async () => {
-        const reloadPage = vi.fn()
-
-        await requestPwaUpdateReload(null, { reloadPage })
-
-        expect(reloadPage).toHaveBeenCalledTimes(1)
-    })
-
-    it('calls updateSW and reloads on controllerchange', async () => {
-        const updateSW = vi.fn().mockImplementation(async () => {
-            for (const listener of serviceWorkerListeners.get('controllerchange') ?? []) {
-                listener(new Event('controllerchange'))
-            }
-        })
-        const reloadPage = vi.fn()
-
-        await requestPwaUpdateReload(updateSW, { reloadPage })
-
-        expect(updateSW).toHaveBeenCalledWith(true)
-        expect(reloadPage).toHaveBeenCalledTimes(1)
-    })
-
-    it('falls back to reload when controllerchange never fires', async () => {
-        vi.useFakeTimers()
-
-        const updateSW = vi.fn().mockResolvedValue(undefined)
-        const reloadPage = vi.fn()
-
-        const pending = requestPwaUpdateReload(updateSW, {
-            reloadPage,
-            setTimeoutFn: vi.fn((callback, delay) => {
-                expect(delay).toBe(PWA_UPDATE_RELOAD_FALLBACK_MS)
-                return setTimeout(callback, delay)
-            }) as unknown as typeof setTimeout,
-        })
-
-        await pending
-        vi.runAllTimers()
-
-        expect(updateSW).toHaveBeenCalledWith(true)
-        expect(reloadPage).toHaveBeenCalledTimes(1)
-
-        vi.useRealTimers()
-    })
-})
-
 describe('usePwaUpdate', () => {
     let capturedOptions: {
         onNeedRefresh?: () => void
         onRegistered?: (registration: ServiceWorkerRegistration | undefined) => void
     } = {}
-    const updateSW = vi.fn().mockResolvedValue(undefined)
+    let reloadMock: ReturnType<typeof vi.fn>
 
     beforeEach(() => {
         capturedOptions = {}
-        updateSW.mockReset()
-        updateSW.mockImplementation(() => new Promise(() => {}))
+        registerSWMock.mockReset()
         registerSWMock.mockImplementation((options) => {
             capturedOptions = options
-            return updateSW
+            return vi.fn()
         })
+        ;({ reloadMock } = stubLocationReload())
+        __resetAutoReloadGuardForTests()
     })
 
-    it('surfaces a banner when registerSW reports an update and a controller exists', async () => {
-        setServiceWorkerController({} as ServiceWorker)
-
-        const { result } = renderHook(() => usePwaUpdate())
-
-        expect(registerSWMock).toHaveBeenCalledTimes(1)
-        expect(result.current.needRefresh).toBe(false)
-
-        await act(async () => {
-            capturedOptions.onNeedRefresh?.()
-            await Promise.resolve()
-        })
-
-        expect(result.current.needRefresh).toBe(true)
-        expect(updateSW).not.toHaveBeenCalled()
+    afterEach(() => {
+        restoreLocationReload()
     })
 
-    it('does not surface a banner on a fresh install with no controller', async () => {
+    it('does not surface the indicator on a fresh install with no controller', () => {
         setServiceWorkerController(null)
 
         const { result } = renderHook(() => usePwaUpdate())
 
-        await act(async () => {
+        expect(registerSWMock).toHaveBeenCalledTimes(1)
+        expect(result.current.updating).toBe(false)
+
+        act(() => {
             capturedOptions.onNeedRefresh?.()
-            await Promise.resolve()
         })
 
-        expect(result.current.needRefresh).toBe(false)
-        expect(updateSW).not.toHaveBeenCalled()
+        expect(result.current.updating).toBe(false)
+        expect(reloadMock).not.toHaveBeenCalled()
     })
 
-    it('only surfaces the banner once for duplicate update signals', async () => {
+    it('surfaces the indicator and schedules a reload when an update is detected and a controller exists', () => {
+        vi.useFakeTimers()
+        const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
         setServiceWorkerController({} as ServiceWorker)
 
         const { result } = renderHook(() => usePwaUpdate())
 
-        await act(async () => {
+        expect(result.current.updating).toBe(false)
+
+        act(() => {
             capturedOptions.onNeedRefresh?.()
-            capturedOptions.onNeedRefresh?.()
-            await Promise.resolve()
         })
 
-        expect(result.current.needRefresh).toBe(true)
-        expect(updateSW).not.toHaveBeenCalled()
+        expect(result.current.updating).toBe(true)
+        expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), PWA_UPDATING_INDICATOR_MS)
+
+        act(() => {
+            vi.advanceTimersByTime(PWA_UPDATING_INDICATOR_MS)
+        })
+
+        expect(reloadMock).toHaveBeenCalledTimes(1)
+        setTimeoutSpy.mockRestore()
+        vi.useRealTimers()
     })
 
-    it('clears the banner when reload is invoked manually', async () => {
+    it('only triggers a single auto-reload even when onNeedRefresh fires multiple times', () => {
+        vi.useFakeTimers()
+        const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
         setServiceWorkerController({} as ServiceWorker)
-        const localUpdateSW = vi.fn().mockImplementation(() => new Promise(() => {}))
-        registerSWMock.mockImplementation((options) => {
-            capturedOptions = options
-            return localUpdateSW
-        })
 
         const { result } = renderHook(() => usePwaUpdate())
 
-        await act(async () => {
+        act(() => {
             capturedOptions.onNeedRefresh?.()
-            await Promise.resolve()
+            capturedOptions.onNeedRefresh?.()
+            capturedOptions.onNeedRefresh?.()
         })
 
-        expect(result.current.needRefresh).toBe(true)
+        expect(result.current.updating).toBe(true)
+        expect(setTimeoutSpy).toHaveBeenCalledTimes(1)
 
-        await act(async () => {
-            result.current.reload()
+        act(() => {
+            vi.advanceTimersByTime(PWA_UPDATING_INDICATOR_MS)
         })
 
-        expect(result.current.needRefresh).toBe(false)
-        expect(localUpdateSW).toHaveBeenCalledWith(true)
+        expect(reloadMock).toHaveBeenCalledTimes(1)
+        setTimeoutSpy.mockRestore()
+        vi.useRealTimers()
+    })
+
+    it('coalesces onNeedRefresh and onRegistered-triggered waiting detection into a single reload', () => {
+        vi.useFakeTimers()
+        const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
+        setServiceWorkerController({} as ServiceWorker)
+
+        renderHook(() => usePwaUpdate())
+
+        const registration = {
+            waiting: {} as ServiceWorker,
+            update: vi.fn().mockResolvedValue(undefined),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        } as unknown as ServiceWorkerRegistration
+
+        act(() => {
+            capturedOptions.onNeedRefresh?.()
+            capturedOptions.onRegistered?.(registration)
+        })
+
+        expect(setTimeoutSpy).toHaveBeenCalledTimes(1)
+
+        act(() => {
+            vi.advanceTimersByTime(PWA_UPDATING_INDICATOR_MS)
+        })
+
+        expect(reloadMock).toHaveBeenCalledTimes(1)
+        setTimeoutSpy.mockRestore()
+        vi.useRealTimers()
     })
 
     it('wires registration update checks from onRegistered', () => {
@@ -321,30 +320,11 @@ describe('usePwaUpdate', () => {
         vi.useRealTimers()
     })
 
-    it('surfaces a banner when a worker is already waiting on registration', async () => {
-        setServiceWorkerController({} as ServiceWorker)
-
-        const registration = {
-            waiting: {} as ServiceWorker,
-            update: vi.fn().mockResolvedValue(undefined),
-            addEventListener: vi.fn(),
-            removeEventListener: vi.fn(),
-        } as unknown as ServiceWorkerRegistration
-
-        const { result } = renderHook(() => usePwaUpdate())
-
-        await act(async () => {
-            capturedOptions.onRegistered?.(registration)
-            await Promise.resolve()
-        })
-
-        expect(result.current.needRefresh).toBe(true)
-        expect(updateSW).not.toHaveBeenCalled()
-    })
-
-    it('does not surface a waiting worker on registration when no controller exists', async () => {
+    it('does not surface the indicator when the waiting worker is detected without a controller', () => {
         setServiceWorkerController(null)
 
+        renderHook(() => usePwaUpdate())
+
         const registration = {
             waiting: {} as ServiceWorker,
             update: vi.fn().mockResolvedValue(undefined),
@@ -352,13 +332,28 @@ describe('usePwaUpdate', () => {
             removeEventListener: vi.fn(),
         } as unknown as ServiceWorkerRegistration
 
-        const { result } = renderHook(() => usePwaUpdate())
-
-        await act(async () => {
+        act(() => {
             capturedOptions.onRegistered?.(registration)
-            await Promise.resolve()
         })
 
-        expect(result.current.needRefresh).toBe(false)
+        expect(reloadMock).not.toHaveBeenCalled()
+    })
+
+    it('does not surface the indicator when registration has no waiting worker', () => {
+        setServiceWorkerController({} as ServiceWorker)
+
+        renderHook(() => usePwaUpdate())
+
+        const registration = {
+            update: vi.fn().mockResolvedValue(undefined),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        } as unknown as ServiceWorkerRegistration
+
+        act(() => {
+            capturedOptions.onRegistered?.(registration)
+        })
+
+        expect(reloadMock).not.toHaveBeenCalled()
     })
 })

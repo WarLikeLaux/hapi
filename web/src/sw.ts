@@ -62,11 +62,13 @@ registerRoute(
     })
 )
 
-// skipWaiting + clients.claim so that, when the user clicks the in-app
-// "Reload" banner, the SKIP_WAITING message arrives at a worker that is
-// already eager to activate. The reload itself is still driven by the user
-// clicking Reload — auto-reload is intentionally avoided because it can
-// interrupt an in-progress agent or fire repeatedly in dev.
+// Auto-activate the new worker the moment its module is parsed so that
+// `clients.claim()` below can hand every existing client over to the new
+// shell. The corresponding client reload is driven by `usePwaUpdate` after
+// the in-app "Updating HAPI…" indicator has had time to render — both paths
+// share a single module-level guard so multiple SW lifecycle events firing
+// in quick succession cannot trigger more than one page reload per page
+// load.
 void self.skipWaiting()
 
 self.addEventListener('message', (event) => {
