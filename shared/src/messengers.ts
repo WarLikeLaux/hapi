@@ -19,7 +19,14 @@ export const MessengerConnectionSchema = z.object({
     provider: MessengerProviderSchema,
     state: MessengerConnectionStateSchema,
     accountLabel: z.string().nullable(),
-    detail: z.string().nullable()
+    detail: z.string().nullable(),
+    /**
+     * Resolved avatar URL for the currently logged-in account on this
+     * provider (not the partner avatars). Optional - providers that cannot
+     * resolve the own account's avatar (or that have no avatar configured)
+     * return null. UIs may use this to label outgoing messages / settings.
+     */
+    accountAvatarUrl: z.string().nullable().optional()
 })
 export type MessengerConnection = z.infer<typeof MessengerConnectionSchema>
 

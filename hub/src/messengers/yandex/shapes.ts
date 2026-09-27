@@ -23,26 +23,8 @@ import type {
     ExternalMessage,
     ExternalReaction
 } from '@hapi/protocol'
-import { writeFileSync } from 'node:fs'
 import { microsToEpochMs, parseMicros } from './registry'
 import { REACTION_EMOJI_BY_TYPE } from './reactionMap'
-
-/**
- * One-shot debug dump of the first decoded chat element to
- * `/tmp/yandex-element-sample.json`. Temporary, used to confirm whether
- * `ChatInfo.AvatarUrl` arrives pre-baked with the dead `/SMALL48` size
- * alias on the wire. Safe to remove once the avatar path is stable.
- */
-let yandexElementDumpWritten = false
-function dumpYandexElementOnce(element: Record<string, unknown>): void {
-    if (yandexElementDumpWritten) return
-    yandexElementDumpWritten = true
-    try {
-        writeFileSync('/tmp/yandex-element-sample.json', JSON.stringify(element, null, 2))
-    } catch {
-        // best-effort
-    }
-}
 
 /** Hosts the Yandex avatar file URLs (§12.2 of the conarti reference). */
 const YAPIC_AVATAR_HOST = 'avatars.mds.yandex.net'
@@ -389,7 +371,6 @@ export function normalizeChatElement(raw: unknown, myGuid: string): ChatShape | 
     const element = asObject(raw)
     const remoteChatId = stringOr(element?.['ChatId'])
     if (!element || !remoteChatId) return undefined
-    dumpYandexElementOnce(element)
 
     const partner = asObject(element['PartnerInfo'])
     const partnerName = stringOr(partner?.['DisplayName']) ?? stringOr(partner?.['PublicName'])

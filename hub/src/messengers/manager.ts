@@ -106,13 +106,18 @@ export class MessengerManager {
 
     async listCandidates(namespace: string, provider: string, forceRefresh = false): Promise<ExternalConversation[]> {
         const cached = this.cachedCandidates(namespace, provider)
-        if (forceRefresh || cached.length === 0) {
+        const syncKey = this.key(namespace, provider)
+        const initialized = this.candidateSyncedAt.has(syncKey)
+        if (forceRefresh) {
             await this.refreshCandidates(namespace, provider)
-        } else if (Date.now() - (this.candidateSyncedAt.get(this.key(namespace, provider)) ?? 0) > CANDIDATE_REFRESH_INTERVAL_MS) {
+        } else if (initialized && Date.now() - (this.candidateSyncedAt.get(syncKey) ?? 0) > CANDIDATE_REFRESH_INTERVAL_MS) {
+            // Already populated once - keep it fresh in the background.
             void this.refreshCandidates(namespace, provider).catch((error) => {
                 console.error(`[Messengers] Failed to refresh ${provider} conversations:`, error)
             })
         }
+        // Default: never refreshed yet, or caller opted out. Return whatever
+        // is already in the store without hitting the provider's WS.
         return this.cachedCandidates(namespace, provider)
     }
 
@@ -135,18 +140,18 @@ export class MessengerManager {
      * from the chat id shape (`<uuid>_<uuid>`) - the same gate format used by
      * the connector. Group chats use `0/<int>/<uuid>` ids and are skipped.
      */
-    private hasBrokenYandexAvatar(url: unknown): boolean {
-        return typeof url !== 'string' || url.length === 0 || url.includes('/SMALL48')
+    private hasMissingYandexAvatar(url: unknown): boolean {
+        return typeof url !== 'string' || url.length === 0
     }
 
     private maybeLazyRefreshAvatars(namespace: string, conversations: ExternalConversation[]): void {
         const gateFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-        // `purgeDeadAvatarUrls` rewrites `/SMALL48` rows to null, but the
-        // purge only runs inside `refreshCandidates`. Treat the dead alias as
-        // "missing" so the chat-list path actually triggers that refresh.
+        // Trigger a throttled refresh if a direct Yandex chat is still missing
+        // an avatar. `normalizeAvatarUrl` rewrites `/SMALL48` on write so we
+        // only need to chase truly empty entries here.
         const hasMissingYandexAvatar = conversations.some((conversation) =>
             conversation.provider === 'yandex'
-            && this.hasBrokenYandexAvatar(conversation.avatarDataUrl)
+            && this.hasMissingYandexAvatar(conversation.avatarDataUrl)
             && gateFormat.test(conversation.remoteId)
         )
         if (!hasMissingYandexAvatar) return
@@ -229,10 +234,6 @@ export class MessengerManager {
             for (const conversation of remote) {
                 this.options.store.messengers.upsertConversation(namespace, conversation)
             }
-            // Clear dead-size avatar URLs we wrote before fixing the
-            // `islands-small` alias; the kick-off below re-derives them
-            // from the latest message sender on the wire.
-            if (provider === 'yandex') this.purgeDeadAvatarUrls(namespace)
             this.candidateSyncedAt.set(syncKey, Date.now())
             this.options.sseManager.broadcast({
                 type: 'external-conversation-updated',
@@ -249,32 +250,6 @@ export class MessengerManager {
         })
         this.candidateSyncs.set(syncKey, sync)
         return sync
-    }
-
-    /**
-     * Reset stale avatar URLs that were written before we figured out
-     * `SMALL48` was a dead `avatars.mds.yandex.net` size alias (404). Lets
-     * `backfillAvatarOnChatList` rewrite them on the next refresh.
-     */
-    private purgeDeadAvatarUrls(namespace: string): void {
-        const stale = this.options.store.messengers.listConversations(namespace, true)
-            .filter((conversation) => conversation.provider === 'yandex'
-                && typeof conversation.avatarDataUrl === 'string'
-                && conversation.avatarDataUrl.includes('/SMALL48'))
-        for (const conversation of stale) {
-            this.options.store.messengers.upsertConversation(namespace, {
-                ...conversation,
-                avatarDataUrl: null
-            })
-            this.options.sseManager.broadcast({
-                type: 'external-conversation-updated',
-                namespace,
-                conversationId: conversation.id
-            })
-        }
-        if (stale.length > 0) {
-            console.log(`[Messengers] cleared ${stale.length} stale Yandex avatar URL(s) for backfill`)
-        }
     }
 
     /**
@@ -348,10 +323,9 @@ export class MessengerManager {
         // Chat view (`/chats/:id`) doesn't go through `listConversations`, so the
         // chat-list path's `maybeLazyRefreshAvatars` never fires when the user
         // opens a single conversation. Mirror the same trigger off the messages
-        // endpoint: clear any dead `SMALL48` URL and kick a throttled
+        // endpoint: if the Yandex avatar is missing, kick a throttled
         // `refreshCandidates` so `backfillAvatarOnChatList` re-derives it.
-        if (conversation.provider === 'yandex' && this.hasBrokenYandexAvatar(conversation.avatarDataUrl)) {
-            this.purgeDeadAvatarUrls(namespace)
+        if (conversation.provider === 'yandex' && !conversation.avatarDataUrl) {
             const key = this.key(namespace, 'yandex')
             const last = this.avatarLazyRefreshAt.get(key) ?? 0
             if (Date.now() - last >= AVATAR_LAZY_REFRESH_INTERVAL_MS) {

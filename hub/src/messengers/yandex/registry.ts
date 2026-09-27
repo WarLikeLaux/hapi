@@ -42,6 +42,12 @@ export interface RegistryIdentity {
     guid: string
     uid?: string
     displayName?: string
+    /**
+     * AvatarId for the currently authenticated account - used to render the
+     * user's own avatar in outgoing messages / messenger settings. Only set
+     * for providers that surface it via `request_user`.
+     */
+    avatarId?: string | null
 }
 
 export interface RegistryUser {
@@ -85,7 +91,7 @@ export class RegistryClient {
      */
     async requestUser(): Promise<RegistryIdentity> {
         const payload = await this.enveloped('request_user', { bind_phone_number: false }, true) as {
-            user?: { guid?: unknown; uid?: unknown; display_name?: unknown }
+            user?: { guid?: unknown; uid?: unknown; display_name?: unknown; avatar_id?: unknown }
         }
         const user = payload?.user
         if (!user || typeof user.guid !== 'string') {
@@ -94,7 +100,8 @@ export class RegistryClient {
         return {
             guid: user.guid,
             ...(typeof user.uid === 'string' || typeof user.uid === 'number' ? { uid: String(user.uid) } : {}),
-            ...(typeof user.display_name === 'string' && user.display_name ? { displayName: user.display_name } : {})
+            ...(typeof user.display_name === 'string' && user.display_name ? { displayName: user.display_name } : {}),
+            ...(typeof user.avatar_id === 'string' && user.avatar_id.length > 0 ? { avatarId: user.avatar_id } : {})
         }
     }
 

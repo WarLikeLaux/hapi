@@ -81,6 +81,8 @@ export default {
   'chats.messagePlaceholder': '消息',
   'chats.send': '发送',
   'chats.select.hint': '聊天会立即从本地缓存显示，并在后台从 Telegram 刷新。',
+  'chats.loadChats.hint': '点击按钮从 messenger 后端加载聊天列表。',
+  'chats.loadChats.cta': '加载聊天',
   'chats.refresh': '刷新',
   'chats.refreshing': '刷新中…',
   'chats.names.title': '本地名称',
