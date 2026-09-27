@@ -1231,6 +1231,7 @@ export default {
   'settings.limits.used': '已用 {percent}%',
   'settings.limits.usedApprox': '{approx}% ≈ 已用 {percent}%',
   'settings.limits.resets': '{relative} 重置（{absolute}）',
+  'settings.limits.resetsTime': '{relative} 重置（{time}）',
   'settings.limits.resetsSoon': '即将重置',
   'settings.limits.resetsUnknown': '重置时间未知',
   'settings.limits.inUnderMinute': '不到 1 分钟后',

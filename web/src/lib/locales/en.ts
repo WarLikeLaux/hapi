@@ -1233,6 +1233,7 @@ export default {
   'settings.limits.used': '{percent}% used',
   'settings.limits.usedApprox': '{approx}% ≈ {percent}% used',
   'settings.limits.resets': 'Resets {relative} ({absolute})',
+  'settings.limits.resetsTime': 'Resets {relative} ({time})',
   'settings.limits.resetsSoon': 'Resets soon',
   'settings.limits.resetsUnknown': 'Reset time unknown',
   'settings.limits.inUnderMinute': 'in <1 min',

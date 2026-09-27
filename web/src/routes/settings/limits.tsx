@@ -59,10 +59,16 @@ function sourceLabel(source: string, t: (key: string) => string): string {
     return [providerLabel, windowLabel].filter(Boolean).join(' · ')
 }
 
-function formatReset(resetsAt: number | null, t: (key: string, params?: Record<string, string | number>) => string): string {
+export function formatReset(resetsAt: number | null, t: (key: string, params?: Record<string, string | number>) => string): string {
     if (!resetsAt) return t('settings.limits.resetsUnknown')
     const target = new Date(resetsAt * 1000)
     const diffMs = target.getTime() - Date.now()
+    if (diffMs <= 0) return t('settings.limits.resetsSoon')
+    // Inside a 5-hour window the countdown already pins the wall-clock time
+    // closely enough, and the date is usually "today" anyway — drop the date
+    // from the absolute parenthetical even when the reset lands on tomorrow,
+    // leaving just the 24-hour clock so the user can plan against it.
+    const showAbsolute = diffMs >= 5 * 3_600_000
     // Beyond a day out the weekday matters more than the countdown, so the
     // absolute gains a full English weekday ("Sunday, Oct 4, 21:16"). Pinned to
     // en-US with a 24-hour clock so the label reads consistently regardless of
@@ -75,27 +81,30 @@ function formatReset(resetsAt: number | null, t: (key: string, params?: Record<s
         minute: '2-digit',
         hour12: false,
     })
-    if (diffMs <= 0) return t('settings.limits.resetsSoon')
+    const timeOnly = target.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
     // Precision tiers shrink as the horizon grows: <1min → under a minute,
     // <1h → minutes, <12h → h m, <24h → hours, <48h → d h, else whole days
     // (≥2 there, so the plural key is safe). Zero tails collapse ("5h" not "5h 0m").
     const minutes = Math.floor(diffMs / 60_000)
-    if (minutes < 1) return t('settings.limits.resets', { relative: t('settings.limits.inUnderMinute'), absolute })
-    if (minutes < 60) return t('settings.limits.resets', { relative: t('settings.limits.inMinutes', { minutes }), absolute })
+    const buildResets = (relative: string) => showAbsolute
+        ? t('settings.limits.resets', { relative, absolute })
+        : t('settings.limits.resetsTime', { relative, time: timeOnly })
+    if (minutes < 1) return buildResets(t('settings.limits.inUnderMinute'))
+    if (minutes < 60) return buildResets(t('settings.limits.inMinutes', { minutes }))
     const hours = Math.floor(minutes / 60)
     if (hours < 24) {
         const mins = minutes % 60
         const relative = hours < 12 && mins !== 0
             ? t('settings.limits.inHoursMinutes', { hours, minutes: mins })
             : t('settings.limits.inHours', { hours })
-        return t('settings.limits.resets', { relative, absolute })
+        return buildResets(relative)
     }
     if (hours < 48) {
         const hrs = hours % 24
-        if (hrs === 0) return t('settings.limits.resets', { relative: t('settings.limits.inDay'), absolute })
-        return t('settings.limits.resets', { relative: t('settings.limits.inDaysHours', { days: 1, hours: hrs }), absolute })
+        if (hrs === 0) return buildResets(t('settings.limits.inDay'))
+        return buildResets(t('settings.limits.inDaysHours', { days: 1, hours: hrs }))
     }
-    return t('settings.limits.resets', { relative: t('settings.limits.inDays', { days: Math.floor(hours / 24) }), absolute })
+    return buildResets(t('settings.limits.inDays', { days: Math.floor(hours / 24) }))
 }
 
 function formatAge(ageMs: number, t: (key: string, params?: Record<string, string | number>) => string): string {
