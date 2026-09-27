@@ -15,9 +15,15 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 ## Pitbox task routing
 
 - Starting in the main checkout does not make a session the integrator. For an ordinary coding task, run `pitbox status`, then `pitbox claim` without a slot number. Continue in the returned worktree. If no slot is free, report that instead of working in the main checkout.
-- A session that claimed a slot remains its worker. This applies to visible UI and UX changes too: run the relevant checks in that slot, fix failures, then commit only the task files and run `pitbox ready` without waiting for deployed visual approval. If a required check cannot run, report it and do not mark the slot ready. Do not deploy from any checkout, collect, release, or push the main branch. The direct main-checkout delivery rules below never apply to slot workers.
+- A session that claimed a slot remains its worker. Run the relevant checks in that slot and fix failures. For visible UI or UX changes, complete the visual review below before committing. Then commit only the task files and run `pitbox ready`. If a required check cannot run, report it and do not mark the slot ready. Do not deploy from any checkout, collect, release, or push the main branch. The direct main-checkout delivery rules below never apply to slot workers.
 - Integrate ready slots only on the user's explicit request, from a separate session that has done no slot work. Run `pitbox status` and collect the requested slots. If a merge needed manual conflict resolution or the integrator changed code, run local checks relevant to those changes on the final merged tree before pushing. Otherwise, do not repeat the workers' local checks. Push the merged `custom` branch, then wait for the `Test` GitHub Actions workflow on that exact commit to pass, along with `fixtures` if the changed paths triggered it. If required CI fails, is missing, or cannot be checked, stop and report it. Only after passing CI, perform HAPI's required local deployment, verify the affected services, and release the collected slots. Integration creates merge commits before deployment. This integration order overrides the deploy-before-push rule below.
 - Work explicitly assigned to the main checkout follows the delivery policy below, not the integration order above.
+
+## Visual review for slot workers
+
+- For visible UI or UX changes, start the web dev server from your slot on a free port, for example `bun run --cwd web dev -- --port 5174 --strictPort`. Port 5173 may serve the main checkout and will not show your changes. A dev server used for screenshots is a local preview, not a deployment.
+- Use Playwright from the slot to capture the changed screen in the relevant state and viewport. Check that the screenshot shows the change rather than a login or loading screen. For authenticated HAPI pages, `web/e2e/helpers/hapi-live.ts` has `installHapiAuth` and `readCliAccessToken`. Never print the token or include it in a screenshot.
+- Send the PNG to the user with HAPI `display_image` using its absolute path. Wait for explicit visual acceptance before committing or calling `pitbox ready`. If you cannot capture a representative screenshot, explain the blocker and ask the user how to review the change.
 
 ## Delivery policy only for work explicitly assigned to the main checkout
 
