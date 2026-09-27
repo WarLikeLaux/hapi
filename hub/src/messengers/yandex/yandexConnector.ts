@@ -53,6 +53,23 @@ const CHAT_LIST_LIMIT = 50
 const DEBOUNCE_MS = 800
 const REACTION_ACTION_REMOVE = 1
 
+/**
+ * One-shot debug dump of the first raw `requestHistory` response to
+ * `/tmp/yandex-history-sample.json`. Used to verify whether `Chats` is empty,
+ * contains items with `ChatInfo.AvatarUrl`, or carries an error envelope from
+ * Yandex. Safe to remove once the avatar path is stable.
+ */
+let yandexHistoryDumpWritten = false
+function dumpYandexHistoryOnce(data: unknown): void {
+    if (yandexHistoryDumpWritten) return
+    yandexHistoryDumpWritten = true
+    try {
+        writeFile('/tmp/yandex-history-sample.json', JSON.stringify(data, null, 2))
+    } catch {
+        // best-effort
+    }
+}
+
 /** `Meta.LogData.YandexUid` comes from the `yandexuid` cookie, not from request_user. */
 function yandexUidFromCookies(cookieHeader: string): string | undefined {
     const match = cookieHeader.match(/(?:^|;\s*)yandexuid=(\d+)/)
@@ -158,6 +175,7 @@ export class YandexConnector implements MessengerConnector {
 
     async listConversations(): Promise<ExternalConversation[]> {
         const data = await this.requestHistory(buildHistoryParams({ limit: CHAT_LIST_LIMIT }))
+        dumpYandexHistoryOnce(data)
         const elements = Array.isArray(data['Chats']) ? data['Chats'] as unknown[] : []
         const conversations: ExternalConversation[] = []
         for (const element of elements) {
