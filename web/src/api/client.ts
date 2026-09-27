@@ -71,6 +71,7 @@ import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { QuotasResponse } from '@hapi/protocol/quotas'
 import type { CancelMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
+import type { KlipySearchResponse } from '@hapi/protocol/klipy'
 import type {
     ConfigureTelegramRequest,
     ConfigureYandexRequest,
@@ -310,6 +311,43 @@ export class ApiClient {
     async getMessengerCandidates(provider: string, options: { refresh?: boolean } = {}): Promise<ExternalConversationsResponse> {
         const query = options.refresh ? '?refresh=true' : ''
         return await this.request(`/api/messengers/${encodeURIComponent(provider)}/candidates${query}`)
+    }
+
+    /**
+     * KLIPY GIF search. The hub attaches the partner key — we never see it.
+     * `enabled` defaults to true; pass `false` for a cheap "is the hub
+     * configured?" probe (a 503 means the operator has not set KLIPY_API_KEY yet).
+     */
+    async searchKlipyGifs(params: { q: string; limit?: number; pos?: string }): Promise<KlipySearchResponse> {
+        const search = new URLSearchParams()
+        search.set('q', params.q)
+        if (params.limit) search.set('limit', String(params.limit))
+        if (params.pos) search.set('pos', params.pos)
+        return await this.request<KlipySearchResponse>(`/api/klipy/search?${search.toString()}`)
+    }
+
+    async getKlipyTrending(params: { limit?: number; pos?: string } = {}): Promise<KlipySearchResponse> {
+        const search = new URLSearchParams()
+        if (params.limit) search.set('limit', String(params.limit))
+        if (params.pos) search.set('pos', params.pos)
+        const query = search.toString()
+        return await this.request<KlipySearchResponse>(`/api/klipy/trending${query ? `?${query}` : ''}`)
+    }
+
+    /**
+     * Download a GIF by URL and return it as a `File` ready to feed into
+     * `sendExternalMedia`. Used by the GIF picker so the user-selected media
+     * flows down the exact same path as a clipboard paste or file-picker drop.
+     */
+    async downloadKlipyGifAsFile(url: string, fileName: string): Promise<File> {
+        const token = this.getToken ? this.getToken() : this.token
+        const headers: Record<string, string> = {}
+        if (token) headers.authorization = `Bearer ${token}`
+        const response = await fetch(url, { headers })
+        if (!response.ok) throw new Error(`Failed to download GIF (${response.status})`)
+        const blob = await response.blob()
+        const mimeType = blob.type || 'image/gif'
+        return new File([blob], fileName, { type: mimeType })
     }
 
     async selectMessengerConversations(

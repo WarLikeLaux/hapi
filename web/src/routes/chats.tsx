@@ -5,6 +5,8 @@ import type { ExternalConversation, ExternalMedia, ExternalMessagesResponse, Ext
 import { ExternalMessageText } from '@/components/ExternalMessageText'
 import { ExternalDeliveryStatus } from '@/components/ExternalDeliveryStatus'
 import { ImagePreview } from '@/components/ImagePreview'
+import { KlipyGifPicker } from '@/components/KlipyGifPicker'
+import { useKlipyEnabled } from '@/hooks/queries/useKlipy'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { RoundVideoPlayer } from '@/components/RoundVideoPlayer'
 import { ChatParticipantAvatar } from '@/components/ChatParticipantAvatar'
@@ -84,6 +86,10 @@ function SendIcon() {
 
 function AttachmentIcon() {
     return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.6-9.6a4 4 0 0 1 5.7 5.7l-9.6 9.6a2 2 0 1 1-2.8-2.8l8.9-8.9" /></svg>
+}
+
+function GifIcon() {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" /><text x="12" y="15" fontFamily="ui-sans-serif, system-ui, sans-serif" fontSize="7" fontWeight="700" fill="currentColor" stroke="none" textAnchor="middle">GIF</text></svg>
 }
 
 function ReactionMoreIcon({ expanded }: { expanded: boolean }) {
@@ -832,6 +838,7 @@ export function ChatConversationPage() {
     })
     const queryClient = useQueryClient()
     const [text, setText] = useState('')
+    const [gifPickerOpen, setGifPickerOpen] = useState(false)
     const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
     const [reactionPickerExpanded, setReactionPickerExpanded] = useState(false)
     const [reactionUsage, setReactionUsage] = useState<Record<string, number>>(loadReactionUsage)
@@ -920,6 +927,35 @@ export function ChatConversationPage() {
         onSuccess: async () => {
             setText('')
             if (fileInputRef.current) fileInputRef.current.value = ''
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) }),
+                queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
+            ])
+        }
+    })
+    const sendKlipyGif = useMutation({
+        // The GIF arrives as a KLIPY-shaped object — we download the smallest
+        // sensible preview and feed it through the existing send-media path so
+        // the messenger pipeline (rate limits, FLOOD_WAIT, caption plumbing) is
+        // the same for GIFs as for any other image attachment.
+        mutationFn: async (gif: import('@hapi/protocol/klipy').KlipyGif) => {
+            const downloadUrl = gif.downloadUrl ?? gif.previewUrl ?? gif.url
+            if (!downloadUrl) throw new Error('KLIPY result has no downloadable URL')
+            const extension = /\.gif(\?|$)/i.test(downloadUrl) ? 'gif'
+                : /\.webp(\?|$)/i.test(downloadUrl) ? 'webp'
+                : /\.mp4(\?|$)/i.test(downloadUrl) ? 'mp4'
+                : 'gif'
+            const fileName = `klipy-${gif.id || Date.now()}.${extension}`
+            const file = await api!.downloadKlipyGifAsFile(downloadUrl, fileName)
+            if (file.size > 50 * 1024 * 1024) throw new Error('Selected GIF is too large (50 MB limit)')
+            await api!.sendExternalMedia(conversationId, file, text, crypto.randomUUID())
+        },
+        onMutate: () => {
+            stickToBottomRef.current = true
+            setGifPickerOpen(false)
+        },
+        onSuccess: async () => {
+            setText('')
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) }),
                 queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
@@ -1230,6 +1266,7 @@ export function ChatConversationPage() {
                         }}
                     />
                     <button type="button" disabled={sendMedia.isPending} onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Attach media"><AttachmentIcon /></button>
+                    <button type="button" disabled={sendMedia.isPending || sendKlipyGif.isPending} onClick={() => setGifPickerOpen(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Send GIF"><GifIcon /></button>
                     <textarea
                         ref={composerRef}
                         onFocus={handleComposerFocus}
@@ -1251,13 +1288,21 @@ export function ChatConversationPage() {
                         placeholder={t('chats.messagePlaceholder')}
                         className="max-h-32 min-h-9 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[var(--app-hint)]"
                     />
-                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={!text.trim() || send.isPending || sendMedia.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
+                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={!text.trim() || send.isPending || sendMedia.isPending || sendKlipyGif.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
                 </div>
                 {send.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{send.error.message}</div> : null}
                 {sendMedia.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{sendMedia.error.message}</div> : null}
+                {sendKlipyGif.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{sendKlipyGif.error.message}</div> : null}
                 {setReactions.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{setReactions.error.message}</div> : null}
                 {sendMedia.isPending ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-[var(--app-hint)]">Uploading media…</div> : null}
+                {sendKlipyGif.isPending ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-[var(--app-hint)]">Sending GIF…</div> : null}
             </form>
+            <KlipyGifPicker
+                open={gifPickerOpen}
+                onOpenChange={setGifPickerOpen}
+                onSelect={(gif) => sendKlipyGif.mutate(gif)}
+                isSending={sendKlipyGif.isPending}
+            />
         </div>
     )
 }
