@@ -23,8 +23,28 @@ import type {
     ExternalMessage,
     ExternalReaction
 } from '@hapi/protocol'
+import { writeFileSync } from 'node:fs'
 import { microsToEpochMs, parseMicros } from './registry'
 import { REACTION_EMOJI_BY_TYPE } from './reactionMap'
+
+/**
+ * One-shot debug dump of the first decoded chat element to
+ * `/tmp/yandex-element-sample.json`. Captures the binary-decoded payload so we
+ * can confirm whether `PartnerInfo.AvatarId` actually rides on `history`, what
+ * ChatInfo carries for groups, and which guid-side convention the chat id uses.
+ * Best-effort: any I/O error is swallowed so the dump can never break the chat
+ * list. The file is overwritten on the first chat element of every hub boot.
+ */
+let yandexElementDumpWritten = false
+function dumpYandexElementOnce(element: Record<string, unknown>): void {
+    if (yandexElementDumpWritten) return
+    yandexElementDumpWritten = true
+    try {
+        writeFileSync('/tmp/yandex-element-sample.json', JSON.stringify(element, null, 2))
+    } catch {
+        // best-effort: never let debug I/O break normalization
+    }
+}
 
 /** Hosts the Yandex avatar file URLs (§12.2 of the conarti reference). */
 const YAPIC_AVATAR_HOST = 'avatars.mds.yandex.net'
@@ -48,8 +68,11 @@ const MSSNGR_AVATAR_PREFIX = /^user_avatar\/mssngr\/(.+)$/
  * - the original URL is on `ChatInfo.AvatarUrl` anyway, so this branch is only
  * hit when an exotic `AvatarId` slips through, in which case a graceful miss is
  * better than a forced auth-cookie fetch that would break the chat-list render.
+ *
+ * Exported so the connector can reuse it for registry-driven avatar enrichment
+ * (when the binary WS payload omits `PartnerInfo.AvatarId`).
  */
-function buildAvatarUrlFromId(avatarId: string): string {
+export function buildAvatarUrlFromId(avatarId: string): string {
     const yapic = YAPIC_AVATAR_PREFIX.exec(avatarId)
     if (yapic !== null) {
         return `https://${YAPIC_AVATAR_HOST}/get-yapic/${yapic[1]}/${AVATAR_CHAT_LIST_SIZE}`
@@ -299,6 +322,7 @@ export function normalizeChatElement(raw: unknown, myGuid: string): ChatShape | 
     const element = asObject(raw)
     const remoteChatId = stringOr(element?.['ChatId'])
     if (!element || !remoteChatId) return undefined
+    dumpYandexElementOnce(element)
 
     const privateChat = element['PrivateChatInfo'] !== undefined
     const partner = asObject(element['PartnerInfo'])

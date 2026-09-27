@@ -30,6 +30,11 @@ const MAX_PREFETCH_MEDIA_BYTES = 25 * 1024 * 1024
 const MEDIA_PREFETCH_INTERVAL_MS = 2_000
 const FLOOD_WAIT_GRACE_MS = 1_000
 const CANDIDATE_REFRESH_INTERVAL_MS = 60_000
+// Lazy avatar enrichment on /conversations hits Yandex with a `get_users` batch
+// per missing-avatar chat. Keep this comfortably larger than the candidate
+// interval so a refresh through the candidates UI is not immediately shadowed
+// by a refresh kicked off by the chat list.
+const AVATAR_LAZY_REFRESH_INTERVAL_MS = 5 * 60_000
 
 function getFloodWaitMs(error: unknown): number | null {
     const message = error instanceof Error ? error.message : String(error)
@@ -50,6 +55,7 @@ export class MessengerManager {
     private readonly mediaPrefetchQueued = new Set<string>()
     private readonly mediaPrefetchQueue: MediaPrefetchTask[] = []
     private readonly mediaPrefetchPausedUntil = new Map<string, number>()
+    private readonly avatarLazyRefreshAt = new Map<string, number>()
     private mediaPrefetchRunning = false
     private stopped = false
 
@@ -111,7 +117,33 @@ export class MessengerManager {
     }
 
     listConversations(namespace: string): ExternalConversation[] {
-        return this.options.store.messengers.listConversations(namespace, true)
+        const conversations = this.options.store.messengers.listConversations(namespace, true)
+        this.maybeLazyRefreshAvatars(namespace, conversations)
+        return conversations
+    }
+
+    /**
+     * Background fallback for chat-list avatars that did not arrive via the
+     * binary `history` payload. When a Yandex direct/saved conversation is
+     * still missing an `avatarDataUrl` after a successful chat-list read, kick
+     * off a throttled refresh so the next reload of `/conversations` already
+     * has the URLs persisted. Errors and absent providers are no-ops; the chat
+     * list keeps rendering with the initials fallback in the meantime.
+     */
+    private maybeLazyRefreshAvatars(namespace: string, conversations: ExternalConversation[]): void {
+        const hasMissingYandexAvatar = conversations.some((conversation) =>
+            conversation.provider === 'yandex'
+            && (conversation.kind === 'direct' || conversation.kind === 'saved')
+            && !conversation.avatarDataUrl
+        )
+        if (!hasMissingYandexAvatar) return
+        const key = this.key(namespace, 'yandex')
+        const last = this.avatarLazyRefreshAt.get(key) ?? 0
+        if (Date.now() - last < AVATAR_LAZY_REFRESH_INTERVAL_MS) return
+        this.avatarLazyRefreshAt.set(key, Date.now())
+        void this.refreshCandidates(namespace, 'yandex').catch((error) => {
+            console.error('[Messengers] Failed to lazy-refresh Yandex avatars:', error)
+        })
     }
 
     listParticipants(namespace: string, conversationId: string): ExternalParticipant[] {
