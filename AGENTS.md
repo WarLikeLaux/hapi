@@ -11,6 +11,13 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 - Preserve existing user/agent changes. Follow the delivery policy below for task changes; editing or generating unrelated files never implies permission to commit, push, or release them.
 - Keep communication concise and clear; report results, checks performed, and remaining limitations.
 
+## Pitbox task routing
+
+- Starting in the main checkout does not make a session the integrator. For an ordinary coding task, run `pitbox status`, then `pitbox claim` without a slot number. Continue in the returned worktree. If no slot is free, report that instead of working in the main checkout.
+- A session that claimed a slot remains its worker. Run relevant checks in that slot, commit only the task files, then run `pitbox ready`. Do not deploy from any checkout, collect, release, or push the main branch. The deploy-before-commit, review-before-commit, and automatic-push rules below apply only to direct main-checkout work.
+- Integrate ready slots only on the user's explicit request, from a separate session that has done no slot work. Follow `pitbox guide`, run the applicable checks, and perform HAPI's required deployment after collection. Integration creates merge commits before deployment.
+- Work explicitly assigned to the main checkout follows the delivery policy below.
+
 ## Delivery policy
 
 - Every completed product code change must be deployed locally after its relevant checks pass. The local deploy command is `bun run deploy:local-hub`. The script itself refuses to run outside the main checkout on `custom`, so Pitbox slots cannot deploy. Run it only when no session is mid-turn, and verify the affected services afterward.
