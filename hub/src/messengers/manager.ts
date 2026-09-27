@@ -222,17 +222,90 @@ export class MessengerManager {
             for (const conversation of remote) {
                 this.options.store.messengers.upsertConversation(namespace, conversation)
             }
+            // Clear dead-size avatar URLs we wrote before fixing the
+            // `islands-small` alias; the kick-off below re-derives them
+            // from the latest message sender on the wire.
+            if (provider === 'yandex') this.purgeDeadAvatarUrls(namespace)
             this.candidateSyncedAt.set(syncKey, Date.now())
             this.options.sseManager.broadcast({
                 type: 'external-conversation-updated',
                 namespace,
                 conversationId: '*'
             })
+            // Kick off a per-conversation `loadMessages` for direct chats
+            // whose avatar is still missing. The connector's
+            // `maybeBackfillPartnerAvatar` reads `From.UserInfo.AvatarId`
+            // and backfills the avatar via the registered callback.
+            if (provider === 'yandex') this.backfillAvatarOnChatList(namespace)
         })().finally(() => {
             this.candidateSyncs.delete(syncKey)
         })
         this.candidateSyncs.set(syncKey, sync)
         return sync
+    }
+
+    /**
+     * Reset stale avatar URLs that were written before we figured out
+     * `SMALL48` was a dead `avatars.mds.yandex.net` size alias (404). Lets
+     * `backfillAvatarOnChatList` rewrite them on the next refresh.
+     */
+    private purgeDeadAvatarUrls(namespace: string): void {
+        const stale = this.options.store.messengers.listConversations(namespace, true)
+            .filter((conversation) => conversation.provider === 'yandex'
+                && typeof conversation.avatarDataUrl === 'string'
+                && conversation.avatarDataUrl.includes('/SMALL48'))
+        for (const conversation of stale) {
+            this.options.store.messengers.upsertConversation(namespace, {
+                ...conversation,
+                avatarDataUrl: null
+            })
+            this.options.sseManager.broadcast({
+                type: 'external-conversation-updated',
+                namespace,
+                conversationId: conversation.id
+            })
+        }
+        if (stale.length > 0) {
+            console.log(`[Messengers] cleared ${stale.length} stale Yandex avatar URL(s) for backfill`)
+        }
+    }
+
+    /**
+     * Background fan-out: for every selected Yandex direct chat that still
+     * has no avatar in the store, ask the connector to fetch a fresh page
+     * of messages. The connector's `maybeBackfillPartnerAvatar` reads the
+     * sender's avatar from `From.UserInfo.AvatarId` and writes it via the
+     * `backfillConversationAvatar` callback (the one already wired in
+     * `getOrCreate`). Throttled per remote id so chat-list renders don't
+     * pile up overlapping history requests.
+     */
+    private backfillAvatarOnChatList(namespace: string): void {
+        const candidates = this.options.store.messengers.listConversations(namespace, true)
+            .filter((conversation) => conversation.provider === 'yandex'
+                && conversation.selected
+                && !conversation.avatarDataUrl
+                && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+                    .test(conversation.remoteId))
+        if (candidates.length === 0) return
+        const now = Date.now()
+        for (const conversation of candidates) {
+            const last = this.avatarLazyRefreshAt.get(`yandex-load:${conversation.remoteId}`) ?? 0
+            if (now - last < AVATAR_LAZY_REFRESH_INTERVAL_MS) continue
+            this.avatarLazyRefreshAt.set(`yandex-load:${conversation.remoteId}`, now)
+            this.options.sseManager.broadcast({
+                type: 'external-conversation-updated',
+                namespace,
+                conversationId: conversation.id
+            })
+            void (async () => {
+                try {
+                    const connector = await this.requireConnector(namespace, 'yandex')
+                    await connector.loadMessages(conversation.remoteId, 20)
+                } catch (error) {
+                    console.error(`[Messengers] backfill failed for ${conversation.id}:`, error)
+                }
+            })()
+        }
     }
 
     async listMessages(
