@@ -211,6 +211,59 @@ describe('yandex shapes: chat element', () => {
         expect(shaped!.conversation).toEqual(expect.objectContaining({ kind: 'group', title: 'Команда' }))
     })
 
+    it('picks a PartnerInfo AvatarId onto the yapic host for direct chats', () => {
+        const shaped = normalizeChatElement({
+            ChatId: 'g1_g2',
+            PartnerInfo: { DisplayName: 'Алиса', AvatarId: 'user_avatar/yapic/1/abc-123' },
+            PrivateChatInfo: {},
+            LastSeqNo: 1,
+            LastSeenByMeSeqNo: 1,
+            LastTsMcs: '1750000000000000'
+        }, MY_GUID)
+        expect(shaped!.conversation.avatarDataUrl)
+            .toBe('https://avatars.mds.yandex.net/get-yapic/1/abc-123/SMALL48')
+    })
+
+    it('routes an mssngr-namespaced AvatarId to the mssngr host', () => {
+        const shaped = normalizeChatElement({
+            ChatId: 'g1_g2',
+            PartnerInfo: { DisplayName: 'Алиса', AvatarId: 'user_avatar/mssngr/1/abc-123' },
+            PrivateChatInfo: {},
+            LastSeqNo: 1,
+            LastSeenByMeSeqNo: 1,
+            LastTsMcs: '1750000000000000'
+        }, MY_GUID)
+        expect(shaped!.conversation.avatarDataUrl)
+            .toBe('https://avatars.mds.yandex.net/get-mssngr/1/abc-123/SMALL48')
+    })
+
+    it('uses ChatInfo.AvatarUrl as-is for group chats', () => {
+        const shaped = normalizeChatElement({
+            ChatId: '0/0/c1',
+            ChatInfo: {
+                Name: 'Команда',
+                AvatarUrl: 'https://files.messenger.yandex.net/group/c1/avatar?size=SMALL48'
+            },
+            LastSeqNo: 1,
+            LastSeenByMeSeqNo: 1,
+            LastTsMcs: '1750000000000000'
+        }, MY_GUID)
+        expect(shaped!.conversation.avatarDataUrl)
+            .toBe('https://files.messenger.yandex.net/group/c1/avatar?size=SMALL48')
+    })
+
+    it('leaves avatarDataUrl null when neither PartnerInfo nor ChatInfo carries one', () => {
+        const shaped = normalizeChatElement({
+            ChatId: 'g1_g2',
+            PartnerInfo: { DisplayName: 'Алиса' },
+            PrivateChatInfo: {},
+            LastSeqNo: 1,
+            LastSeenByMeSeqNo: 1,
+            LastTsMcs: '1750000000000000'
+        }, MY_GUID)
+        expect(shaped!.conversation.avatarDataUrl).toBeNull()
+    })
+
     it('rejects an element without a ChatId', () => {
         expect(normalizeChatElement({ LastSeqNo: 1 }, MY_GUID)).toBeUndefined()
     })

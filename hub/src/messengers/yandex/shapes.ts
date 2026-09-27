@@ -7,6 +7,15 @@
  * LastSeenByMeSeqNo, ...`, and each message element carries
  * `{ServerMessage: {ClientMessage, ServerMessageInfo}, Reactions?, RecentUserReactions?}`.
  * Unread is `LastSeqNo - LastSeenByMeSeqNo`; a separate counters call is not needed.
+ *
+ * Avatars live on the wire too, in two places:
+ *   - `PartnerInfo.AvatarId` for direct chats (same shape as `UserInfo.AvatarId`,
+ *     see conarti/yandex-messenger-mcp docs/protocol-research.md §11.2);
+ *   - `ChatInfo.AvatarUrl` for groups (carried the same way `ChatInfoDiff.AvatarUrl`
+ *     notifies about avatar changes, §11.3).
+ * Routing of `AvatarId` to a URL follows the client-side helper `E(avatarId, ...)`
+ * from §12.2 of the same reference: yapic/mssngr public hosts vs messenger private
+ * hosts depending on the avatarId namespace.
  */
 import type {
     ExternalConversation,
@@ -16,6 +25,63 @@ import type {
 } from '@hapi/protocol'
 import { microsToEpochMs, parseMicros } from './registry'
 import { REACTION_EMOJI_BY_TYPE } from './reactionMap'
+
+/** Hosts the Yandex avatar file URLs (§12.2 of the conarti reference). */
+const YAPIC_AVATAR_HOST = 'avatars.mds.yandex.net'
+const MESSENGER_PUBLIC_HOST = 'files.messenger.yandex.net'
+const MESSENGER_PRIVATE_HOST = 'files.messenger.yandex.ru'
+
+/** Size used for the chat list chip; matches the smallest pre-defined enum value. */
+const AVATAR_CHAT_LIST_SIZE = 'SMALL48'
+
+/** AvatarId prefixes recognized by the client-side `E(...)` URL builder. */
+const YAPIC_AVATAR_PREFIX = /^user_avatar\/yapic\/(.+)$/
+const MSSNGR_AVATAR_PREFIX = /^user_avatar\/mssngr\/(.+)$/
+
+/**
+ * Builds a fetchable avatar URL from a Yandex AvatarId.
+ *
+ * The Yandex chats-web client prefixes avatarIds with the storage namespace. We
+ * route them to the matching public-ish host so the browser can load the image
+ * directly (CORS-OK for yapic/messenger public). For group/preview avatars that
+ * never went through these prefixes, we fall back to the public messenger host
+ * - the original URL is on `ChatInfo.AvatarUrl` anyway, so this branch is only
+ * hit when an exotic `AvatarId` slips through, in which case a graceful miss is
+ * better than a forced auth-cookie fetch that would break the chat-list render.
+ */
+function buildAvatarUrlFromId(avatarId: string): string {
+    const yapic = YAPIC_AVATAR_PREFIX.exec(avatarId)
+    if (yapic !== null) {
+        return `https://${YAPIC_AVATAR_HOST}/get-yapic/${yapic[1]}/${AVATAR_CHAT_LIST_SIZE}`
+    }
+    const mssngr = MSSNGR_AVATAR_PREFIX.exec(avatarId)
+    if (mssngr !== null) {
+        return `https://${YAPIC_AVATAR_HOST}/get-mssngr/${mssngr[1]}/${AVATAR_CHAT_LIST_SIZE}`
+    }
+    return `https://${MESSENGER_PUBLIC_HOST}/${avatarId}?size=${AVATAR_CHAT_LIST_SIZE}`
+}
+
+/**
+ * Resolves the avatar URL for a chat element, or null when nothing is on the wire.
+ *
+ * Group chats have `ChatInfo.AvatarUrl` already as a full URL (returned by the
+ * `history` payload), so we return it as-is. Direct/saved chats carry a
+ * `PartnerInfo.AvatarId` namespace token that we map to a URL via the same
+ * client-side rules used by `chats-web`.
+ */
+export function resolveChatAvatarUrl(raw: Record<string, unknown>): string | null {
+    const chatInfo = asObject(raw['ChatInfo'])
+    const directAvatarUrl = stringOr(chatInfo?.['AvatarUrl'])
+    if (directAvatarUrl !== undefined) {
+        return directAvatarUrl
+    }
+    const partner = asObject(raw['PartnerInfo'])
+    const partnerAvatarId = stringOr(partner?.['AvatarId'])
+    if (partnerAvatarId !== undefined && partnerAvatarId.length > 0) {
+        return buildAvatarUrlFromId(partnerAvatarId)
+    }
+    return null
+}
 
 export type AttachmentKind = 'image' | 'file' | 'voice' | 'sticker' | 'gallery_image'
 
@@ -272,7 +338,7 @@ export function normalizeChatElement(raw: unknown, myGuid: string): ChatShape | 
         lastMessageDirection: last?.message.direction,
         lastMessageDeliveryStatus: last?.message.deliveryStatus,
         unreadCount: countUnread(element),
-        avatarDataUrl: null
+        avatarDataUrl: resolveChatAvatarUrl(element)
     }
     return { conversation, lastMessage: last, peerLastSeenSeqNo }
 }
