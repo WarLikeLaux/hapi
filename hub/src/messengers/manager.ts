@@ -129,12 +129,18 @@ export class MessengerManager {
      * off a throttled refresh so the next reload of `/conversations` already
      * has the URLs persisted. Errors and absent providers are no-ops; the chat
      * list keeps rendering with the initials fallback in the meantime.
+     *
+     * `kind` may be stale in the DB (the binary WS payload no longer exposes
+     * `PrivateChatInfo`), so we infer "this chat has a partner we can look up"
+     * from the chat id shape (`<uuid>_<uuid>`) - the same gate format used by
+     * the connector. Group chats use `0/<int>/<uuid>` ids and are skipped.
      */
     private maybeLazyRefreshAvatars(namespace: string, conversations: ExternalConversation[]): void {
+        const gateFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
         const hasMissingYandexAvatar = conversations.some((conversation) =>
             conversation.provider === 'yandex'
-            && (conversation.kind === 'direct' || conversation.kind === 'saved')
             && !conversation.avatarDataUrl
+            && gateFormat.test(conversation.remoteId)
         )
         if (!hasMissingYandexAvatar) return
         const key = this.key(namespace, 'yandex')
@@ -510,7 +516,24 @@ export class MessengerManager {
         const connector = factory({
             namespace,
             dataDir,
-            onEvent: (event) => this.handleEvent(namespace, event)
+            onEvent: (event) => this.handleEvent(namespace, event),
+            backfillConversationAvatar: (remoteId, avatarDataUrl) => {
+                // Connectors surface avatars that the chat-list payload did not
+                // carry (typical for direct chats where `PartnerInfo.AvatarId`
+                // is missing). Persist and broadcast so the chat list updates
+                // without forcing a full refresh.
+                const existing = this.options.store.messengers.getConversation(namespace, `yandex:${remoteId}`)
+                if (!existing || existing.avatarDataUrl) return
+                this.options.store.messengers.upsertConversation(namespace, {
+                    ...existing,
+                    avatarDataUrl
+                })
+                this.options.sseManager.broadcast({
+                    type: 'external-conversation-updated',
+                    namespace,
+                    conversationId: existing.id
+                })
+            }
         })
         this.connectors.set(key, connector)
         return connector

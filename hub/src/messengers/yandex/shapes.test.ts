@@ -167,8 +167,9 @@ describe('yandex shapes: message item', () => {
 
 describe('yandex shapes: chat element', () => {
     it('normalizes a private chat with unread and preview', () => {
+        const partnerGuid = 'bbbbbbbb-1111-2222-3333-444444444444'
         const shaped = normalizeChatElement({
-            ChatId: 'g1_g2',
+            ChatId: `${MY_GUID}_${partnerGuid}`,
             PartnerInfo: { DisplayName: 'Алиса' },
             PrivateChatInfo: {},
             LastSeqNo: 7,
@@ -177,9 +178,9 @@ describe('yandex shapes: chat element', () => {
             Messages: [textMessage({ micros: '1750000000000000', text: 'Привет' })]
         }, MY_GUID)
         expect(shaped!.conversation).toEqual(expect.objectContaining({
-            id: 'yandex:g1_g2',
+            id: `yandex:${MY_GUID}_${partnerGuid}`,
             provider: 'yandex',
-            remoteId: 'g1_g2',
+            remoteId: `${MY_GUID}_${partnerGuid}`,
             title: 'Алиса',
             kind: 'direct',
             unreadCount: 3,
