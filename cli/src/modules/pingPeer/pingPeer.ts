@@ -20,6 +20,8 @@ export type PingPeerErrorCode =
     | 'auth_failed'
     | 'not_found'
     | 'ambiguous'
+    | 'busy'
+    | 'archive_failed'
     | 'resume_failed'
     | 'timeout'
     | 'send_failed'
@@ -534,8 +536,10 @@ export function exitCodeForPingPeerError(error: PingPeerError): number {
         case 'not_found':
         case 'ambiguous':
             return 2
+        case 'busy':
         case 'resume_failed':
             return 3
+        case 'archive_failed':
         case 'timeout':
         case 'send_failed':
             return 4
@@ -720,4 +724,56 @@ export function formatInspectPeerReport(result: InspectPeerResult): string {
         }
     }
     return lines.join('\n')
+}
+
+export type ArchivePeerOptions = {
+    sessionId: string
+    apiUrl?: string
+    accessToken?: string
+    http?: AxiosInstance
+}
+
+/** Stop an idle peer session after its task has been integrated. Never resume it. */
+export async function archivePeer(options: ArchivePeerOptions): Promise<{ sessionId: string; alreadyArchived: boolean }> {
+    const sessionId = normalizeSessionIdPrefix(options.sessionId ?? '')
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+        throw new PingPeerError('bad_args', 'archive-peer requires a full HAPI session UUID')
+    }
+    if (sessionId === process.env.HAPI_SESSION_ID) {
+        throw new PingPeerError('bad_args', 'cannot archive the current HAPI session')
+    }
+
+    const apiUrl = resolveApiUrl(options.apiUrl)
+    const accessToken = resolveAccessToken(options.accessToken)
+    const http = options.http ?? axios
+    const jwt = await exchangeJwt(apiUrl, accessToken, http)
+    const matched = resolveSessionByPrefix(await listSessions(apiUrl, jwt, http), sessionId)
+    const live = await getSession(apiUrl, jwt, matched.id, http)
+
+    if (!live.active && live.metadata?.lifecycleState === 'archived') {
+        return { sessionId, alreadyArchived: true }
+    }
+    if (!live.active) {
+        throw new PingPeerError('archive_failed', `session ${sessionId} is inactive and cannot be archived`)
+    }
+    if (live.thinking !== false) {
+        throw new PingPeerError('busy', `session ${sessionId} is busy or its idle state is unknown`)
+    }
+
+    const response = await http.post(
+        `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/archive`,
+        {},
+        {
+            headers: authHeaders(jwt),
+            timeout: 30_000,
+            validateStatus: () => true
+        }
+    )
+    if (response.status < 200 || response.status >= 300 || response.data?.ok !== true) {
+        const detail = typeof response.data?.error === 'string'
+            ? response.data.error
+            : `HTTP ${response.status}`
+        throw new PingPeerError('archive_failed', `failed to archive session ${sessionId} (${detail})`)
+    }
+    return { sessionId, alreadyArchived: response.data.alreadyArchived === true }
 }

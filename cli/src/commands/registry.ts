@@ -22,6 +22,7 @@ import { notifyCommand } from './notify'
 import { hubCommand } from './hub'
 import { pingPeerCommand } from './pingPeer'
 import { inspectPeerCommand } from './inspectPeer'
+import { archivePeerCommand } from './archivePeer'
 import { difitReviewCommand } from './difitReview'
 import type { CommandContext, CommandDefinition } from './types'
 
@@ -66,6 +67,7 @@ const COMMANDS: CommandDefinition[] = [
     notifyCommand,
     pingPeerCommand,
     inspectPeerCommand,
+    archivePeerCommand,
     difitReviewCommand
 ]
 
