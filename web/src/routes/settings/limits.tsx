@@ -64,11 +64,17 @@ function formatReset(resetsAt: number | null, t: (key: string, params?: Record<s
     const target = new Date(resetsAt * 1000)
     const diffMs = target.getTime() - Date.now()
     // Beyond a day out the weekday matters more than the countdown, so the
-    // absolute gains a full English weekday ("Saturday, Sep 26, 06:20 PM").
-    // Pinned to en-US so the label reads consistently regardless of locale.
-    const absolute = diffMs > 24 * 3_600_000
-        ? target.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-        : target.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    // absolute gains a full English weekday ("Sunday, Oct 4, 21:16"). Pinned to
+    // en-US with a 24-hour clock so the label reads consistently regardless of
+    // locale and stays comparable to other relative times.
+    const absolute = target.toLocaleString('en-US', {
+        weekday: diffMs > 24 * 3_600_000 ? 'long' : undefined,
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    })
     if (diffMs <= 0) return t('settings.limits.resetsSoon')
     // Precision tiers shrink as the horizon grows: <1min → under a minute,
     // <1h → minutes, <12h → h m, <24h → hours, <48h → d h, else whole days
