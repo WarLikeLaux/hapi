@@ -23,54 +23,20 @@ import type {
     ExternalMessage,
     ExternalReaction
 } from '@hapi/protocol'
-import { writeFileSync } from 'node:fs'
 import { microsToEpochMs, parseMicros } from './registry'
 import { REACTION_EMOJI_BY_TYPE } from './reactionMap'
-
-/**
- * One-shot debug dump of the first decoded chat element to
- * `/tmp/yandex-element-sample.json`. Captures the binary-decoded payload so we
- * can confirm whether `PartnerInfo.AvatarId` actually rides on `history`, what
- * ChatInfo carries for groups, and which guid-side convention the chat id uses.
- * Best-effort: any I/O error is swallowed so the dump can never break the chat
- * list. The file is overwritten on the first chat element of every hub boot.
- */
-let yandexElementDumpWritten = false
-function dumpYandexElementOnce(element: Record<string, unknown>): void {
-    if (yandexElementDumpWritten) return
-    yandexElementDumpWritten = true
-    try {
-        writeFileSync('/tmp/yandex-element-sample.json', JSON.stringify(element, null, 2))
-    } catch {
-        // best-effort: never let debug I/O break normalization
-    }
-}
-
-/**
- * One-shot debug dump of the first decoded ServerMessageInfo.From block to
- * `/tmp/yandex-from-sample.json`. Used to confirm where the sender avatar lives
- * on the wire (it stopped riding on `PartnerInfo.AvatarId` in current Yandex,
- * and we need to know if it rides on `From.UserInfo.AvatarId`, `From.AvatarId`,
- * or somewhere else entirely).
- */
-let yandexFromDumpWritten = false
-function dumpYandexFromOnce(from: Record<string, unknown>): void {
-    if (yandexFromDumpWritten) return
-    yandexFromDumpWritten = true
-    try {
-        writeFileSync('/tmp/yandex-from-sample.json', JSON.stringify(from, null, 2))
-    } catch {
-        // best-effort
-    }
-}
 
 /** Hosts the Yandex avatar file URLs (§12.2 of the conarti reference). */
 const YAPIC_AVATAR_HOST = 'avatars.mds.yandex.net'
 const MESSENGER_PUBLIC_HOST = 'files.messenger.yandex.net'
 const MESSENGER_PRIVATE_HOST = 'files.messenger.yandex.ru'
 
-/** Size used for the chat list chip; matches the smallest pre-defined enum value. */
-const AVATAR_CHAT_LIST_SIZE = 'SMALL48'
+/**
+ * Size used for the chat list chip. `islands-small` (50x50) is the canonical
+ * yapic preset exposed by avatars.mds.yandex.net - empirically validated against
+ * the live API (2026-09-27). The earlier `SMALL48` constant returned 404.
+ */
+const AVATAR_CHAT_LIST_SIZE = 'islands-small'
 
 /** AvatarId prefixes recognized by the client-side `E(...)` URL builder. */
 const YAPIC_AVATAR_PREFIX = /^user_avatar\/yapic\/(.+)$/
@@ -296,7 +262,6 @@ export function normalizeMessageItem(
     }
 
     const from = asObject(info['From'])
-    dumpYandexFromOnce(from ?? {})
     const senderGuid = stringOr(from?.['Guid']) ?? ''
     const outgoing = senderGuid === myGuid
     const seqNo = numberOr(info['SeqNo'])
@@ -393,7 +358,6 @@ export function normalizeChatElement(raw: unknown, myGuid: string): ChatShape | 
     const element = asObject(raw)
     const remoteChatId = stringOr(element?.['ChatId'])
     if (!element || !remoteChatId) return undefined
-    dumpYandexElementOnce(element)
 
     const partner = asObject(element['PartnerInfo'])
     const partnerName = stringOr(partner?.['DisplayName']) ?? stringOr(partner?.['PublicName'])

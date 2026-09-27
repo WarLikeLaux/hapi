@@ -222,7 +222,7 @@ describe('yandex shapes: chat element', () => {
             LastTsMcs: '1750000000000000'
         }, MY_GUID)
         expect(shaped!.conversation.avatarDataUrl)
-            .toBe('https://avatars.mds.yandex.net/get-yapic/1/abc-123/SMALL48')
+            .toBe('https://avatars.mds.yandex.net/get-yapic/1/abc-123/islands-small')
     })
 
     it('routes an mssngr-namespaced AvatarId to the mssngr host', () => {
@@ -235,7 +235,7 @@ describe('yandex shapes: chat element', () => {
             LastTsMcs: '1750000000000000'
         }, MY_GUID)
         expect(shaped!.conversation.avatarDataUrl)
-            .toBe('https://avatars.mds.yandex.net/get-mssngr/1/abc-123/SMALL48')
+            .toBe('https://avatars.mds.yandex.net/get-mssngr/1/abc-123/islands-small')
     })
 
     it('uses ChatInfo.AvatarUrl as-is for group chats', () => {

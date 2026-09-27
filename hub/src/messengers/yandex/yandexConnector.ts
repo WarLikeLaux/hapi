@@ -268,32 +268,14 @@ export class YandexConnector implements MessengerConnector {
         const callback = this.options.backfillConversationAvatar
         if (!callback) return
         const partnerGuid = partnerGuidFromChatId(remoteId, this.requireGuid())
-        if (!partnerGuid) {
-            console.log('[Yandex] backfill: no partner guid for', remoteId)
-            return
-        }
-        let firstFromPartner: YandexMessage | undefined
-        let anyWithAvatar: number = 0
-        for (const message of ordered) {
-            if (message.message.senderId !== partnerGuid) continue
-            if (!firstFromPartner) firstFromPartner = message
-            if (message.senderAvatarUrl) anyWithAvatar++
-        }
-        if (!firstFromPartner) {
-            console.log('[Yandex] backfill: no incoming messages from partner', partnerGuid, 'in', remoteId)
-            return
-        }
-        if (anyWithAvatar === 0) {
-            console.log('[Yandex] backfill: incoming messages found for', partnerGuid, 'but none carry senderAvatarUrl (first sender_id=', firstFromPartner.message.senderId, ', sender_name=', firstFromPartner.message.senderName, ')')
-            return
-        }
-        // Use the earliest message that has a usable avatar so subsequent loads
-        // (which only fetch recent messages) keep the avatar stable.
+        if (!partnerGuid) return
+        // Use the earliest message that carries a usable sender avatar so
+        // subsequent loads (which only fetch recent messages) keep the avatar
+        // stable.
         for (const message of ordered) {
             const avatarUrl = message.senderAvatarUrl
             if (!avatarUrl) continue
             if (message.message.senderId !== partnerGuid) continue
-            console.log('[Yandex] backfill: triggering for', remoteId, 'partner', partnerGuid, 'avatar=', avatarUrl)
             callback(remoteId, avatarUrl)
             return
         }
