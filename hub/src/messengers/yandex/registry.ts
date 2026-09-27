@@ -44,6 +44,12 @@ export interface RegistryIdentity {
     displayName?: string
 }
 
+export interface RegistryUser {
+    guid: string
+    avatarId: string | null
+    displayName: string | null
+}
+
 /** Cookie-bound registry client: caches the CSRF token, retries once on `bad_csrf_token`. */
 export class RegistryClient {
     private csrfToken: string | undefined
@@ -90,6 +96,32 @@ export class RegistryClient {
             ...(typeof user.uid === 'string' || typeof user.uid === 'number' ? { uid: String(user.uid) } : {}),
             ...(typeof user.display_name === 'string' && user.display_name ? { displayName: user.display_name } : {})
         }
+    }
+
+    /**
+     * Batch fetch of Yandex user records by guid. Used as a fallback when the
+     * binary WS `history` payload does not carry `PartnerInfo.AvatarId` for direct
+     * chats. Read-only — no CSRF required.
+     *
+     * The method name is not part of the public API surface; if `get_users` is
+     * rejected as `unknown_method`, switch to `request_users` (and vice versa).
+     * The caller already swallows `RegistryError` so a missing method is a soft miss.
+     */
+    async requestUsers(guids: string[]): Promise<RegistryUser[]> {
+        if (guids.length === 0) return []
+        type Payload = { users?: Array<{ guid?: unknown; avatar_id?: unknown; display_name?: unknown }> }
+        const payload = await this.call<Payload>('get_users', { guids })
+        const rows = Array.isArray(payload.users) ? payload.users : []
+        const out: RegistryUser[] = []
+        for (const row of rows) {
+            if (!row || typeof row.guid !== 'string') continue
+            out.push({
+                guid: row.guid,
+                avatarId: typeof row.avatar_id === 'string' && row.avatar_id.length > 0 ? row.avatar_id : null,
+                displayName: typeof row.display_name === 'string' && row.display_name.length > 0 ? row.display_name : null
+            })
+        }
+        return out
     }
 
     /** Calls a registry method and unwraps `data`. Read methods need no CSRF. */

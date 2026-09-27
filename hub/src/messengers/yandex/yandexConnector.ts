@@ -21,6 +21,7 @@ import { createPayloadId, PUSH_METHOD, XivaClient } from './xivaClient'
 import { CookieRejectedError, RegistryClient, toWireTimestamp } from './registry'
 import { reactionTypeForEmoji } from './reactionMap'
 import {
+    buildAvatarUrlFromId,
     buildHistoryParams,
     normalizeChatElement,
     normalizeMessageItem,
@@ -56,6 +57,22 @@ const REACTION_ACTION_REMOVE = 1
 function yandexUidFromCookies(cookieHeader: string): string | undefined {
     const match = cookieHeader.match(/(?:^|;\s*)yandexuid=(\d+)/)
     return match?.[1]
+}
+
+/**
+ * Splits a Yandex chat id `<a>_<b>` and returns the side that is not `myGuid`,
+ * or `null` for saved-messages / malformed ids. Direct chats follow this gate
+ * format on the wire; group chats use `0/0/<id>` and won't match.
+ */
+function partnerGuidFromChatId(remoteId: string, myGuid: string): string | null {
+    const parts = remoteId.split('_', 2)
+    if (parts.length !== 2) return null
+    const [a, b] = parts
+    if (!a || !b) return null
+    if (a === myGuid && b === myGuid) return null
+    if (a === myGuid) return b
+    if (b === myGuid) return a
+    return b
 }
 
 /** Download URLs are client-built from `FileInfo.Id2`; validate the `<bucket>/<uuid>` shape. */
@@ -154,7 +171,53 @@ export class YandexConnector implements MessengerConnector {
             if (shape.lastMessage) this.rememberMessage(shape.conversation.remoteId, shape.lastMessage)
             conversations.push(shape.conversation)
         }
+        await this.enrichMissingAvatars(conversations)
         return conversations
+    }
+
+    /**
+     * Batch-fallback avatar enrichment for direct chats whose `PartnerInfo.AvatarId`
+     * was missing from the binary `history` payload. We collect the partner guid
+     * out of the chat id (`<a>_<b>`), ask registry `get_users` for the whole batch,
+     * and patch the `avatarDataUrl` on each conversation before it lands in the store.
+     * Registry errors (including `unknown_method`) are logged and swallowed so the
+     * chat list keeps rendering with the initials fallback.
+     */
+    private async enrichMissingAvatars(conversations: ExternalConversation[]): Promise<void> {
+        const registry = this.registry
+        if (!registry) return
+        const myGuid = this.myGuid
+        if (!myGuid) return
+        const partnerGuids = new Set<string>()
+        for (const conversation of conversations) {
+            if (conversation.kind !== 'direct' && conversation.kind !== 'saved') continue
+            if (conversation.avatarDataUrl) continue
+            const partner = partnerGuidFromChatId(conversation.remoteId, myGuid)
+            if (partner) partnerGuids.add(partner)
+        }
+        if (partnerGuids.size === 0) return
+        try {
+            const users = await registry.requestUsers([...partnerGuids])
+            const urlByGuid = new Map<string, string>()
+            for (const user of users) {
+                if (!user.avatarId) continue
+                try {
+                    urlByGuid.set(user.guid, buildAvatarUrlFromId(user.avatarId))
+                } catch (error) {
+                    console.error('[Yandex] Failed to build avatar URL for guid', user.guid, error)
+                }
+            }
+            if (urlByGuid.size === 0) return
+            for (const conversation of conversations) {
+                if (conversation.avatarDataUrl) continue
+                const partner = partnerGuidFromChatId(conversation.remoteId, myGuid)
+                if (!partner) continue
+                const url = urlByGuid.get(partner)
+                if (url) conversation.avatarDataUrl = url
+            }
+        } catch (error) {
+            console.error('[Yandex] Avatar enrichment via registry failed:', error)
+        }
     }
 
     async loadMessages(remoteId: string, limit = 100): Promise<ExternalMessage[]> {
