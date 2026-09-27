@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'bun:test'
+import { AGENT_MESSAGE_PAYLOAD_TYPE } from '@hapi/protocol/modes'
 import { extractBackgroundTaskDelta } from './backgroundTasks'
 
 /** Agent output envelope the CLI sends over the `message` socket event. */
 function agentOutput(data: unknown) {
     return { role: 'agent', content: { type: 'output', data } }
+}
+
+/** Codex-family envelope (`codex`/minimax/gemini/opencode/pi/kimi/cursor/grok/copilot/dsh). */
+function codexEnvelope(data: unknown) {
+    return { role: 'agent', content: { type: AGENT_MESSAGE_PAYLOAD_TYPE, data } }
 }
 
 /** Log-format tool_result entry exactly as claude's sdkToLogConverter emits it. */
@@ -122,5 +128,83 @@ describe('extractBackgroundTaskDelta', () => {
             role: 'user',
             content: { type: 'text', text: 'Command running in background with ID:' }
         })).toBeNull()
+    })
+
+    describe('codex-family envelope', () => {
+        it('counts a tool-call in_progress update as a background task start', () => {
+            const delta = extractBackgroundTaskDelta(codexEnvelope({
+                type: 'tool-call',
+                callId: 'call_001',
+                name: 'bash',
+                status: 'in_progress'
+            }))
+            expect(delta).toEqual({ started: 1, completed: 0 })
+        })
+
+        it('counts a tool-call-result as a completion', () => {
+            const delta = extractBackgroundTaskDelta(codexEnvelope({
+                type: 'tool-call-result',
+                callId: 'call_001',
+                output: { content: [{ type: 'text', text: 'ok' }] },
+                is_error: false
+            }))
+            expect(delta).toEqual({ started: 0, completed: 1 })
+        })
+
+        it('ignores pending and completed tool-call status updates', () => {
+            // pending updates arrive multiple times per callId before work starts —
+            // skipping them keeps the counter balanced with the single result event.
+            expect(extractBackgroundTaskDelta(codexEnvelope({
+                type: 'tool-call', callId: 'call_001', name: 'bash', status: 'pending'
+            }))).toBeNull()
+            expect(extractBackgroundTaskDelta(codexEnvelope({
+                type: 'tool-call', callId: 'call_001', name: 'bash', status: 'completed'
+            }))).toBeNull()
+            expect(extractBackgroundTaskDelta(codexEnvelope({
+                type: 'tool-call', callId: 'call_001', name: 'bash', status: 'failed'
+            }))).toBeNull()
+        })
+
+        it('ignores non tool-call messages inside the codex envelope', () => {
+            expect(extractBackgroundTaskDelta(codexEnvelope({
+                type: 'message', message: 'thinking...'
+            }))).toBeNull()
+            expect(extractBackgroundTaskDelta(codexEnvelope({
+                type: 'reasoning', message: 'reasoning text'
+            }))).toBeNull()
+        })
+
+        it('returns null for non-codex payload types (legacy + unknown)', () => {
+            expect(extractBackgroundTaskDelta({
+                role: 'agent', content: { type: 'text', data: { type: 'tool-call' } }
+            })).toBeNull()
+            expect(extractBackgroundTaskDelta({
+                role: 'agent', content: { type: 'something-else', data: {} }
+            })).toBeNull()
+        })
+
+        it('balances a full bash lifecycle to a zero delta', () => {
+            // Simulate the ACP lifecycle: 2 pending updates (skipped), 1 in_progress
+            // (+1 started), 1 completed status (skipped), 1 tool-call-result
+            // (-1 completed). The net per call should be zero, so a parallel batch
+            // of N tool calls keeps the counter bounded.
+            const events = [
+                { type: 'tool-call', status: 'pending' },
+                { type: 'tool-call', status: 'pending' },
+                { type: 'tool-call', status: 'in_progress' },
+                { type: 'tool-call', status: 'completed' },
+                { type: 'tool-call-result' }
+            ] as const
+            let started = 0
+            let completed = 0
+            for (const data of events) {
+                const delta = extractBackgroundTaskDelta(codexEnvelope(data))
+                if (delta) {
+                    started += delta.started
+                    completed += delta.completed
+                }
+            }
+            expect({ started, completed }).toEqual({ started: 1, completed: 1 })
+        })
     })
 })
