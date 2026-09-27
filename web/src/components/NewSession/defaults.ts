@@ -1,11 +1,27 @@
 import type { Machine } from '@/types/api'
 import type { AgentType } from './types'
 
-export function putCodexFirst(agents: readonly AgentType[]): AgentType[] {
+// Display order for the Create Session agent picker: Codex, MiniMax Code,
+// GLM (the claude flavor is branded as GLM in this fork), Antigravity,
+// Cursor, OpenCode. Any agent not listed here keeps its incoming order and
+// renders after the curated ones so a newly-added flavor still appears.
+const CREATE_SESSION_AGENT_ORDER: readonly AgentType[] = [
+    'codex',
+    'minimax',
+    'claude',
+    'agy',
+    'cursor',
+    'opencode',
+]
+
+export function orderCreateSessionAgents(agents: readonly AgentType[]): AgentType[] {
     return [...agents].sort((left, right) => {
-        if (left === 'codex') return -1
-        if (right === 'codex') return 1
-        return 0
+        const leftIndex = CREATE_SESSION_AGENT_ORDER.indexOf(left)
+        const rightIndex = CREATE_SESSION_AGENT_ORDER.indexOf(right)
+        if (leftIndex === -1 && rightIndex === -1) return 0
+        if (leftIndex === -1) return 1
+        if (rightIndex === -1) return -1
+        return leftIndex - rightIndex
     })
 }
 
