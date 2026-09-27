@@ -56,6 +56,12 @@ type PendingScrollRestore = {
 type HistoryLoadSource = 'user' | 'consumer'
 type PullToLoadState = 'idle' | 'pulling' | 'ready'
 
+/** Minimum user messages the outline should show after it opens; each click on
+ *  "Load earlier" appends another batch on top. The chat keeps its own unit
+ *  budget (INITIAL_USER_UNITS/INITIAL_AGENT_UNITS) — this knob only governs
+ *  how aggressively the outline backfills beyond what the chat already has. */
+const OUTLINE_USER_BATCH = 10
+
 type HistoryLoaderState = {
     runId: number
     phase: 'idle' | 'loading' | 'backoff' | 'awaiting-render'
@@ -632,6 +638,7 @@ export function HappyThread(props: {
     const isSyncingTailRef = useRef(props.isSyncingTail)
     const onLoadMoreRef = useRef(props.onLoadMore)
     const onCancelLoadMoreRef = useRef(props.onCancelLoadMore)
+    const outlineItemsRef = useRef<readonly ConversationOutlineItem[]>(props.outlineItems)
     const pendingLoadPromiseRef = useRef<Promise<OlderHistoryLoadResult> | null>(null)
     const pendingLoadResolveRef = useRef<((value: OlderHistoryLoadResult) => void) | null>(null)
     const failureRetryTimerRef = useRef<number | null>(null)
@@ -687,6 +694,9 @@ export function HappyThread(props: {
     useEffect(() => {
         hasMoreMessagesRef.current = props.hasMoreMessages
     }, [props.hasMoreMessages])
+    useEffect(() => {
+        outlineItemsRef.current = props.outlineItems
+    }, [props.outlineItems])
     useEffect(() => {
         isSyncingTailRef.current = props.isSyncingTail
     }, [props.isSyncingTail])
@@ -1506,7 +1516,29 @@ export function HappyThread(props: {
     }, [requestOlder])
 
     const loadOlderForOutline = useCallback(async (): Promise<boolean> => {
-        return await loadOlderFromConsumer() === 'loaded'
+        // Keep paging until the outline grows by at least one batch, or history
+        // is exhausted. Single requestOlder() may grow the window by less than a
+        // batch in a record-dense session where one agent turn packs hundreds
+        // of stream rows into a single unit, so we loop.
+        const baseline = outlineItemsRef.current.length
+        const target = baseline + OUTLINE_USER_BATCH
+        let grew = false
+        // Bound the loop so a misbehaving store can't hang the UI.
+        for (let attempt = 0; attempt < OUTLINE_USER_BATCH; attempt += 1) {
+            const result = await loadOlderFromConsumer()
+            if (result === 'transient-stop' || result === 'terminal-stop') {
+                break
+            }
+            if (outlineItemsRef.current.length >= target) {
+                grew = true
+                break
+            }
+            if (!hasMoreMessagesRef.current) {
+                break
+            }
+            grew = true
+        }
+        return grew
     }, [loadOlderFromConsumer])
 
     const handleOutlineSelect = useCallback(async (item: ConversationOutlineItem) => {
@@ -1523,6 +1555,20 @@ export function HappyThread(props: {
         props.onOutlineItemClick?.(item)
         props.onOutlineOpenChange(false)
     }, [loadOlderForOutline, props.onOutlineItemClick, props.onOutlineOpenChange])
+
+    // When the outline opens, ensure it has at least OUTLINE_USER_BATCH user
+    // messages visible — otherwise the user's first prompt (which may live
+    // many pages back in record-dense sessions) silently stays out of reach.
+    useEffect(() => {
+        if (!props.outlineOpen) return
+        if (props.outlineItems.length >= OUTLINE_USER_BATCH) return
+        if (!props.hasMoreMessages) return
+        void loadOlderForOutline()
+        // We intentionally only react to the open transition; further growth is
+        // driven by the user's explicit "Load earlier" clicks. outlineItems is
+        // read here only to gate the initial trigger.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [props.outlineOpen, props.hasMoreMessages])
 
     useEffect(() => {
         const content = contentRef.current
