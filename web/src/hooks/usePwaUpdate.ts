@@ -1,68 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { registerSW } from 'virtual:pwa-register'
 
 export const PWA_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000
-export const PWA_UPDATE_RELOAD_FALLBACK_MS = 2000
+export const PWA_UPDATING_INDICATOR_MS = 800
 
-export async function requestPwaUpdateReload(
-    updateSW: ((reloadPage?: boolean) => Promise<void>) | null | undefined,
-    options: {
-        reloadPage?: () => void
-        setTimeoutFn?: typeof setTimeout
-        clearTimeoutFn?: typeof clearTimeout
-    } = {},
-): Promise<void> {
-    const reloadPage = options.reloadPage ?? (() => window.location.reload())
-    const setTimeoutFn = options.setTimeoutFn ?? setTimeout
-    const clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout
+// Module-level guard — survives React component re-mounts within the same
+// page load. Multiple SW lifecycle events (onNeedRefresh, registration.waiting
+// on first check, install-state transitions, hourly update ticks, visibility
+// resumes) all funnel into the same auto-apply path, and any of them firing
+// twice must not trigger a second page reload while the first is already in
+// flight.
+let autoReloadScheduled = false
 
-    if (!updateSW) {
-        reloadPage()
-        return
-    }
-
-    let reloaded = false
-    const doReload = () => {
-        if (reloaded) {
-            return
-        }
-        reloaded = true
-        reloadPage()
-    }
-
-    const onControllerChange = () => {
-        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
-        doReload()
-    }
-
-    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
-
-    let fallbackTimer: ReturnType<typeof setTimeout> | undefined
-
-    try {
-        await updateSW(true)
-    } catch (error) {
-        console.error('PWA update failed', error)
-        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
-        if (fallbackTimer !== undefined) {
-            clearTimeoutFn(fallbackTimer)
-        }
-        doReload()
-        return
-    }
-
-    fallbackTimer = setTimeoutFn(() => {
-        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
-        doReload()
-    }, PWA_UPDATE_RELOAD_FALLBACK_MS)
+// Test-only — production callers must not reset the guard. The guard is a
+// real, cross-reload invariant in the deployed build; exposing the reset
+// hook keeps test isolation honest without making the guard inspectable.
+export function __resetAutoReloadGuardForTests() {
+    autoReloadScheduled = false
 }
 
-// Surface a waiting service worker as an in-app banner. Detection is skipped
-// when no previous controller exists (fresh PWA install) so the banner does
-// not appear before the app ever loads. Detection also requires a real
-// previous controller — not a leftover from a prior uninstall — to avoid
-// false positives on a no-store reload that re-registers an active worker.
-function shouldSurfaceUpdate(): boolean {
+// Surface a waiting service worker as a brief "Updating…" indicator before the
+// page reloads. Detection is skipped when no previous controller exists (fresh
+// PWA install) so we do not flash the indicator before the app ever loads.
+// Detection also requires a real previous controller — not a leftover from a
+// prior uninstall — to avoid false positives on a no-store reload that
+// re-registers an active worker.
+function shouldAutoApplyUpdate(): boolean {
     return navigator.serviceWorker.controller !== null
 }
 
@@ -71,7 +34,7 @@ export function setupRegistrationUpdateChecks(
     onUpdateWaiting: () => void = () => {},
 ): () => void {
     const detectWaitingUpdate = () => {
-        if (registration.waiting && shouldSurfaceUpdate()) {
+        if (registration.waiting && shouldAutoApplyUpdate()) {
             onUpdateWaiting()
         }
     }
@@ -81,7 +44,7 @@ export function setupRegistrationUpdateChecks(
     const handleInstallingStateChange = () => {
         if (
             observedInstallingWorker?.state === 'installed' &&
-            shouldSurfaceUpdate()
+            shouldAutoApplyUpdate()
         ) {
             onUpdateWaiting()
         }
@@ -129,56 +92,41 @@ export function setupRegistrationUpdateChecks(
 }
 
 export function usePwaUpdate() {
-    const [needRefresh, setNeedRefresh] = useState(false)
-    const updateSWRef = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null)
-    const cleanupRef = useRef<(() => void) | null>(null)
+    const [updating, setUpdating] = useState(false)
 
     useEffect(() => {
-        const surfaceUpdateWaiting = () => {
-            if (!shouldSurfaceUpdate()) {
+        const scheduleAutoReload = () => {
+            if (autoReloadScheduled) {
                 return
             }
-            setNeedRefresh(true)
+            if (!shouldAutoApplyUpdate()) {
+                return
+            }
+            autoReloadScheduled = true
+            setUpdating(true)
+            window.setTimeout(() => {
+                window.location.reload()
+            }, PWA_UPDATING_INDICATOR_MS)
         }
 
-        const updateSW = registerSW({
+        registerSW({
             onNeedRefresh() {
-                surfaceUpdateWaiting()
+                scheduleAutoReload()
             },
             onOfflineReady() {
                 console.log('App ready for offline use')
             },
             onRegistered(registration) {
-                cleanupRef.current?.()
-                cleanupRef.current = null
-
                 if (!registration) {
                     return
                 }
-
-                cleanupRef.current = setupRegistrationUpdateChecks(
-                    registration,
-                    surfaceUpdateWaiting,
-                )
+                setupRegistrationUpdateChecks(registration, scheduleAutoReload)
             },
             onRegisterError(error) {
                 console.error('SW registration error:', error)
             },
         })
-
-        updateSWRef.current = updateSW
-
-        return () => {
-            cleanupRef.current?.()
-            cleanupRef.current = null
-            updateSWRef.current = null
-        }
     }, [])
 
-    const reload = useCallback(() => {
-        setNeedRefresh(false)
-        void requestPwaUpdateReload(updateSWRef.current)
-    }, [])
-
-    return { needRefresh, reload }
+    return { updating }
 }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
 import { PwaUpdateBanner, PwaUpdateBannerWithStatusOffset } from '@/components/PwaUpdateBanner'
@@ -12,10 +12,6 @@ vi.mock('@/lib/pwa-update-context', () => ({
 
 vi.mock('@/lib/voice-context', () => ({
     useVoiceOptional: () => useVoiceOptionalMock(),
-}))
-
-vi.mock('@/hooks/useOnlineStatus', () => ({
-    useOnlineStatus: () => true,
 }))
 
 vi.mock('@/hooks/usePlatform', () => ({
@@ -56,10 +52,9 @@ describe('PwaUpdateBanner', () => {
         cleanup()
     })
 
-    it('does not render when no update is available', () => {
+    it('does not render when no update is in flight', () => {
         usePwaUpdateMock.mockReturnValue({
-            needRefresh: false,
-            reload: vi.fn(),
+            updating: false,
         })
 
         renderBanner()
@@ -67,29 +62,26 @@ describe('PwaUpdateBanner', () => {
         expect(screen.queryByTestId('pwa-update-banner')).not.toBeInTheDocument()
     })
 
-    it('renders a reload-only banner with no dismiss action', () => {
-        const reload = vi.fn()
-
+    it('renders a status banner while the auto-reload is pending, with no action button', () => {
         usePwaUpdateMock.mockReturnValue({
-            needRefresh: true,
-            reload,
+            updating: true,
         })
 
         renderBanner()
 
-        expect(screen.getByTestId('pwa-update-banner')).toBeInTheDocument()
-        expect(screen.getByText('New version available')).toBeInTheDocument()
-        expect(screen.getByText('Reload to get the latest HAPI')).toBeInTheDocument()
-        expect(screen.getAllByRole('button')).toHaveLength(1)
-
-        fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
-        expect(reload).toHaveBeenCalledTimes(1)
+        const banner = screen.getByTestId('pwa-update-banner')
+        expect(banner).toBeInTheDocument()
+        expect(banner.getAttribute('role')).toBe('status')
+        expect(screen.getByText('Updating HAPI…')).toBeInTheDocument()
+        expect(
+            screen.getByText('A new version was just deployed and HAPI is reloading to apply it.'),
+        ).toBeInTheDocument()
+        expect(screen.queryAllByRole('button')).toHaveLength(0)
     })
 
     it('honors a custom top offset when provided', () => {
         usePwaUpdateMock.mockReturnValue({
-            needRefresh: true,
-            reload: vi.fn(),
+            updating: true,
         })
 
         render(
@@ -103,8 +95,7 @@ describe('PwaUpdateBanner', () => {
 
     it('offsets below voice error banners when shown inside the voice provider', () => {
         usePwaUpdateMock.mockReturnValue({
-            needRefresh: true,
-            reload: vi.fn(),
+            updating: true,
         })
         useVoiceOptionalMock.mockReturnValue({
             status: 'error',
@@ -120,22 +111,5 @@ describe('PwaUpdateBanner', () => {
         expect(screen.getByTestId('pwa-update-banner')).toHaveClass(
             'top-[calc(env(safe-area-inset-top)+3rem)]'
         )
-    })
-
-    it('expands the rationale section when the disclosure is opened', () => {
-        usePwaUpdateMock.mockReturnValue({
-            needRefresh: true,
-            reload: vi.fn(),
-        })
-
-        renderBanner()
-
-        const disclosure = screen.getByText("Why can't I dismiss this?")
-        expect(screen.queryByText(/agent running/i)).not.toBeVisible()
-
-        fireEvent.click(disclosure)
-
-        expect(screen.getByText(/agent running/i)).toBeVisible()
-        expect(screen.getByText(/finish what you are doing first/i)).toBeVisible()
     })
 })

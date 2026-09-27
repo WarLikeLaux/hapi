@@ -62,15 +62,15 @@ registerRoute(
     })
 )
 
-// A top-level self.skipWaiting() is intentionally absent: it would activate
-// the new worker the moment its module is parsed, which then races against the
-// in-app "Reload" banner. The waiting state is what `usePwaUpdate` listens
-// for, and the banner is the only sanctioned path to apply an update while a
-// session is in progress — activating early silently swaps `controllerchange`
-// ahead of the user click and fires the controllerchange-reload fallback after
-// ~2 s on the next manual reload, which presents as "the page reloads
-// itself". Wait for the explicit SKIP_WAITING message below so activation is
-// always coordinated with the user's click.
+// Auto-activate the new worker the moment its module is parsed so that
+// `clients.claim()` below can hand every existing client over to the new
+// shell. The corresponding client reload is driven by `usePwaUpdate` after
+// the in-app "Updating HAPI…" indicator has had time to render — both paths
+// share a single module-level guard so multiple SW lifecycle events firing
+// in quick succession cannot trigger more than one page reload per page
+// load.
+void self.skipWaiting()
+
 self.addEventListener('message', (event) => {
     if (event.data?.type === 'SKIP_WAITING') {
         self.skipWaiting()
