@@ -22,6 +22,14 @@ if [[ -n "${caller_top}" && "${caller_top}" != "$(git -C "${repo_root}" rev-pars
     echo "deploy:local-hub refuses to run from another worktree (${caller_top}). Run it from the main checkout." >&2
     exit 1
 fi
+
+# A slot marked ready holds work nobody collected yet: deploying now would ship
+# a main without it and restart the hub under the worker's feet.
+if command -v pitbox >/dev/null 2>&1 && [[ -f "${repo_root}/.pitbox/config" ]]; then
+    if ! pitbox deploy-guard; then
+        exit 1
+    fi
+fi
 bun_bin="${BUN_BIN:-bun}"
 service_name="${HAPI_SERVICE_NAME:-hapi-hub.service}"
 runner_service_name="${HAPI_RUNNER_SERVICE_NAME:-hapi-runner.service}"
