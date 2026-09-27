@@ -25,6 +25,7 @@ export function isAskUserQuestionToolName(toolName: string): boolean {
     return toolName === 'AskUserQuestion'
         || toolName === 'ask_user_question'
         || toolName === 'CursorAskQuestion'
+        || toolName === 'ask_user'
 }
 
 export function parseAskUserQuestionInput(input: unknown): { questions: AskUserQuestionQuestion[] } {

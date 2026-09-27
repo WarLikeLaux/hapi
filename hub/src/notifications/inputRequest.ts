@@ -6,6 +6,7 @@ const INPUT_REQUEST_TOOLS = new Set([
     'request_user_input',
     'AskUserQuestion',
     'ask_user_question',
+    'ask_user',
     'CursorAskQuestion'
 ])
 
@@ -49,13 +50,19 @@ function truncate(text: string, limit: number): string {
 
 /** Extract display text only. IDs, options, descriptions, prefill and answers are never previews. */
 export function formatInputRequestPreview(args: unknown, limit: number = BODY_LIMIT): string {
-    const questions = isObject(args) && Array.isArray(args.questions)
-        ? args.questions.flatMap((question) => {
-            if (!isObject(question)) return []
-            const text = oneLine(question.question) || oneLine(question.header)
-            return text ? [text] : []
-        })
+    // Most question tools (`AskUserQuestion`, `ask_user_question`, `request_user_input`)
+    // pack their payloads under `questions: []`. MiniMax Code's `ask_user` uses
+    // `steps: []` with the same shape per item, so we accept either here.
+    const candidates = isObject(args)
+        ? (Array.isArray(args.questions)
+            ? args.questions
+            : Array.isArray(args.steps) ? args.steps : [])
         : []
+    const questions = candidates.flatMap((question) => {
+        if (!isObject(question)) return []
+        const text = oneLine(question.question) || oneLine(question.header)
+        return text ? [text] : []
+    })
     const remaining = questions.length - 1
     const suffix = remaining > 0 ? `\n+${remaining} more question${remaining === 1 ? '' : 's'}` : ''
     const first = truncate(questions[0] ?? FALLBACK_QUESTION, Math.max(0, limit - suffix.length))

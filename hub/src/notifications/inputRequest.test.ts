@@ -16,7 +16,7 @@ function session(args: unknown, tool = 'request_user_input', name = '查看 PR #
 }
 
 describe('input request notifications', () => {
-    it.each(['request_user_input', 'AskUserQuestion', 'ask_user_question', 'CursorAskQuestion', 'functions.request_user_input'])(
+    it.each(['request_user_input', 'AskUserQuestion', 'ask_user_question', 'ask_user', 'CursorAskQuestion', 'functions.request_user_input'])(
         'recognizes %s as a question, not approval', (tool) => {
             expect(isInputRequestTool(tool)).toBe(true)
             const notification = new NativeNotificationComposer().composePermissionRequest(session({
@@ -47,6 +47,17 @@ describe('input request notifications', () => {
             { question: '', header: ' 第二题标题 ' }, { question: '第三题' }] })).toBe('第一题 内容\n+2 more questions')
         expect(formatInputRequestPreview({ questions: [{ question: 'First?' }, { question: 'Second?' }] }))
             .toBe('First?\n+1 more question')
+    })
+
+    it('reads the same preview from ask_user steps[] payloads', () => {
+        expect(formatInputRequestPreview({ steps: [
+            { id: 'task', question: '  Какую задачу делать?  ' },
+            { id: 'now', question: 'Срочно?' }
+        ] })).toBe('Какую задачу делать?\n+1 more question')
+        // Falls back through `header` when `question` is blank, matching the
+        // questions[] behaviour, so legacy ask_user payloads stay previewable.
+        expect(formatInputRequestPreview({ steps: [{ header: 'Priority' }, { question: 'Now?' }] }))
+            .toBe('Priority\n+1 more question')
     })
 
     it.each([null, undefined, [], 'raw arguments', 3, {}, { questions: 'invalid' },

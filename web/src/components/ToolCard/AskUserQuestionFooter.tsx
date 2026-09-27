@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { isAskUserQuestionToolName, parseAskUserQuestionInput, type AskUserQuestionQuestion } from '@/components/ToolCard/askUserQuestion'
 import { isCursorAskQuestionToolName, parseCursorAskQuestionInput } from '@/components/ToolCard/cursorAskQuestion'
+import { isAskUserToolName, parseAskUserInput } from '@/components/ToolCard/askUser'
 import {
     AskUserQuestionOptionBody,
     askUserQuestionQuoteClassName,
@@ -100,11 +101,15 @@ export function AskUserQuestionFooter(props: {
     const { haptic } = usePlatform()
     const permission = props.tool.permission
     const useStableQuestionIds = isCursorAskQuestionToolName(props.tool.name)
-    const parsed = useMemo(() => (
-        useStableQuestionIds
-            ? parseCursorAskQuestionInput(props.tool.input)
-            : parseAskUserQuestionInput(props.tool.input)
-    ), [props.tool.name, props.tool.input, useStableQuestionIds])
+        || isAskUserToolName(props.tool.name)
+    const parsed = useMemo(() => {
+        if (useStableQuestionIds) {
+            return isCursorAskQuestionToolName(props.tool.name)
+                ? parseCursorAskQuestionInput(props.tool.input)
+                : parseAskUserInput(props.tool.input)
+        }
+        return parseAskUserQuestionInput(props.tool.input)
+    }, [props.tool.name, props.tool.input, useStableQuestionIds])
     const questions = parsed.questions
 
     const draftKey = askUserQuestionDraftKey(props.sessionId, props.tool.id)

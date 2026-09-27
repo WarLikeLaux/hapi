@@ -15,6 +15,7 @@ import {
     getCodexAgentType,
     summarizeCodexAgentResult
 } from '@/components/ToolCard/codexAgents'
+import { extractAskUserQuestionsInfo as extractAskUserStepsInfo } from '@/components/ToolCard/askUser'
 
 const DEFAULT_ICON_CLASS = 'h-3.5 w-3.5'
 // Tool presentation registry for `hapi/web` (aligned with `hapi-app`).
@@ -639,6 +640,35 @@ export const knownTools: Record<string, {
             const first = questions[0] ?? null
             const question = isObject(first) && typeof first.question === 'string'
                 ? first.question.trim() : ''
+
+            if (count > 1 && question.length > 0) {
+                return truncate(question, 100) + ` (+${count - 1} more)`
+            }
+            return question.length > 0 ? truncate(question, 120) : null
+        },
+        minimal: true
+    },
+    ask_user: {
+        icon: () => <QuestionIcon className={DEFAULT_ICON_CLASS} />,
+        title: (opts) => {
+            const steps = extractAskUserStepsInfo(opts.input) ?? []
+            const count = steps.length
+            const first = steps[0] ?? null
+            const header = first?.header ?? ''
+            const fallback = isObject(opts.input) && typeof opts.input.title === 'string'
+                ? opts.input.title.trim()
+                : ''
+
+            if (count > 1) {
+                return `${count} Questions`
+            }
+            return header || fallback || 'Question'
+        },
+        subtitle: (opts) => {
+            const steps = extractAskUserStepsInfo(opts.input) ?? []
+            const count = steps.length
+            const first = steps[0] ?? null
+            const question = first?.question ?? ''
 
             if (count > 1 && question.length > 0) {
                 return truncate(question, 100) + ` (+${count - 1} more)`

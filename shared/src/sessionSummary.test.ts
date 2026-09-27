@@ -45,6 +45,19 @@ describe('getPendingRequestKinds', () => {
         expect(kinds).toEqual(['input'])
     })
 
+    it('classifies MiniMax Code ask_user as input alongside sibling question tools', () => {
+        const kinds = getPendingRequestKinds(makeSession({
+            agentState: {
+                requests: {
+                    req1: { tool: 'ask_user', arguments: {} },
+                    req2: { tool: 'ask_user_question', arguments: {} },
+                    req3: { tool: 'Bash', arguments: {} }
+                }
+            }
+        }))
+        expect(kinds).toEqual(['permission', 'input'])
+    })
+
     it('classifies other pending tools as permission', () => {
         const kinds = getPendingRequestKinds(makeSession({
             agentState: {
