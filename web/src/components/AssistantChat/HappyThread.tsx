@@ -50,10 +50,13 @@ type PendingScrollRestore = {
     targetHistoryVersion: number | null
 }
 
-/** Who asked for an older page: an explicit upward gesture ('user') or a
- *  consumer feature locating an out-of-window target ('consumer'). The store
- *  owns the initial coverage backfill; the thread never auto-loads history. */
-type HistoryLoadSource = 'user' | 'consumer'
+/** Who asked for an older page: an explicit upward gesture ('user'),
+ *  a consumer feature locating an out-of-window target ('consumer'), or
+ *  the viewport reaching the top of the loaded history on its own
+ *  ('coverage'). The store still owns the initial cold-window backfill;
+ *  'coverage' only kicks in once the user has already opened the thread
+ *  and is browsing through the rendered window. */
+type HistoryLoadSource = 'user' | 'consumer' | 'coverage'
 type PullToLoadState = 'idle' | 'pulling' | 'ready'
 
 /** Minimum user messages the outline should show after it opens; each click on
@@ -881,11 +884,17 @@ export function HappyThread(props: {
                 return
             }
 
-            // Scroll position is the source of truth. Only an explicit upward
-            // gesture starts an older-page request; ordinary browsing through
-            // a covered viewport never loads history on its own.
+            // Scroll position is the source of truth. An explicit upward
+            // gesture starts an older-page request via the 'user' source
+            // (which resets the backoff timer); merely reaching the top of
+            // the loaded window uses 'coverage' so plain scrolling still
+            // surfaces older pages without forcing the user to add a second
+            // gesture. 'coverage' honours the auto-pause backoff so a flaky
+            // network does not get hammered by idle browse-throughs.
             if (explicitUpwardIntent) {
                 void requestOlderRef.current('user')
+            } else if (needsCoverage) {
+                void requestOlderRef.current('coverage')
             }
 
             if (intent.isScrollingUp && intent.distanceFromBottom > MANUAL_SCROLL_EPSILON_PX) {

@@ -541,3 +541,24 @@ describe('share turn snapshots', () => {
         expect(prependMissingUserSnapshot([user], fallback)).toEqual([user])
     })
 })
+
+describe('auto-load history on reaching scroll top', () => {
+    // The cc8ea904 refactor moved history loading behind an explicit
+    // upward-gesture requirement, which left users stranded when they
+    // simply scroll to the top. Restoring the 'coverage' source keeps the
+    // thread useful for plain scroll input (trackpad, mouse wheel,
+    // scrollbar drag) while preserving the backoff gate for noisy
+    // browse-throughs.
+
+    it('treats a content-short viewport at scrollTop=0 as auto-loadable', () => {
+        // The viewport's content fits within its bounds (e.g. a short
+        // session) — any scroll to 0 should trigger auto-load.
+        expect(shouldLoadOlderForViewport({
+            scrollHeight: 800,
+            clientHeight: 600,
+            viewportTop: 0,
+            sentinelTop: 0,
+            sentinelBottom: 1
+        })).toBe(true)
+    })
+})
