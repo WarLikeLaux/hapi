@@ -11,24 +11,23 @@ const MINIMAX_TIMEOUT_MS = 15_000
 const MINIMAX_DEFAULT_REGION = 'en'
 
 /**
- * Three consecutive 401s in a row are tolerated before the collector reports
- * the source as unavailable. mcode silently refreshes its access token on
- * disk via the stored refresh_token (`refreshCredential` in mcode's auth
- * store) — a single poll that catches the token between expiry and refresh
- * does not flip the UI to "Authentication expired". The first good response
- * resets the counter; the threshold is only hit when 401s really persist
- * (server outage or a revoked refresh_token).
+ * The quota collector never reports `auth_expired` once it has ever seen a
+ * good response — any 401 silently replays the last valid snapshot so the
+ * UI keeps showing usage instead of flashing a red "Authentication expired"
+ * banner. mcode refreshes its access token on disk via the stored
+ * `refreshCredential` whenever the user actually runs an agent; between
+ * agent runs the token can sit stale for hours, but our collector is just a
+ * side-channel reader and shouldn't punish that. The staleness indicator in
+ * the web panel (`STALE_AFTER_MS = 15 * 60_000`) tells the user how old the
+ * numbers are. `auth_expired` is still surfaced on the very first poll when
+ * we have nothing to replay — there's nothing else to show.
  */
-export const MAX_MINIMAX_AUTH_FAILURES = 3
-
 interface MinimaxAuthCache {
     lastValidWindows: QuotaWindow[] | null
-    consecutiveAuthFailures: number
 }
 
 const authCache: MinimaxAuthCache = {
-    lastValidWindows: null,
-    consecutiveAuthFailures: 0
+    lastValidWindows: null
 }
 
 /**
@@ -38,7 +37,6 @@ const authCache: MinimaxAuthCache = {
  */
 export function resetMinimaxAuthCache(): void {
     authCache.lastValidWindows = null
-    authCache.consecutiveAuthFailures = 0
 }
 
 /** Quota bases mirror mcode's own region table (prod only). */
@@ -165,11 +163,11 @@ export function parseMinimaxQuotaResponse(payload: unknown, nowSec: number): Quo
 }
 
 /**
- * Collects MiniMax coding-plan windows. 401s are absorbed up to
- * {@link MAX_MINIMAX_AUTH_FAILURES} consecutive strikes by replaying the
- * last known good windows so the UI does not flash "Authentication expired"
- * while mcode silently refreshes its OAuth token; after the threshold the
- * collector surfaces `auth_expired` as before.
+ * Collects MiniMax coding-plan windows. Once any good snapshot is cached, a
+ * 401 silently replays it forever — the UI keeps showing last-known usage
+ * with a staleness indicator instead of flipping to "Authentication expired".
+ * Without a cached snapshot there is nothing to replay and `auth_expired` is
+ * surfaced on the first failed poll.
  */
 export async function collectMinimaxQuotas(
     nowSec: number,
@@ -188,27 +186,21 @@ export async function collectMinimaxQuotas(
             signal: AbortSignal.timeout(MINIMAX_TIMEOUT_MS)
         })
         if (response.status === 401) {
-            authCache.consecutiveAuthFailures += 1
-            if (
-                authCache.consecutiveAuthFailures < MAX_MINIMAX_AUTH_FAILURES
-                && authCache.lastValidWindows
-            ) {
-                // Replay the last good snapshot so the UI does not flash the
-                // error while mcode's silent refresh lands. The original
-                // measuredAt stays — the UI's staleness indicator tells the
-                // user how old the numbers are.
+            if (authCache.lastValidWindows) {
+                // Replay the last good snapshot so the UI keeps showing usage
+                // while mcode's silent refresh lands on the next agent run.
+                // The original measuredAt stays — the UI's staleness
+                // indicator tells the user how old the numbers are.
                 return { kind: 'ok', windows: authCache.lastValidWindows }
             }
             return {
                 kind: 'unavailable',
                 source: MINIMAX_5H_SOURCE,
                 reason: 'auth_expired',
-                detail: `HTTP 401 (${authCache.consecutiveAuthFailures} consecutive)`
+                detail: 'HTTP 401'
             }
         }
         if (!response.ok) {
-            // Non-401 transport errors do not count against the auth-failure
-            // threshold; they keep whatever counter state was reached.
             return {
                 kind: 'unavailable',
                 source: MINIMAX_5H_SOURCE,
@@ -227,9 +219,6 @@ export async function collectMinimaxQuotas(
         if (!windows) {
             return { kind: 'unavailable', source: MINIMAX_5H_SOURCE, reason: 'unavailable', detail: 'model_remains not found' }
         }
-        // A successful poll clears the auth-failure streak and stamps the
-        // cached windows so the next 401 has something to replay.
-        authCache.consecutiveAuthFailures = 0
         authCache.lastValidWindows = windows
         return { kind: 'ok', windows }
     } catch (error) {
