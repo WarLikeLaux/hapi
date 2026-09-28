@@ -296,9 +296,14 @@ describe('collectMinimaxQuotas replay-on-401', () => {
         expect(transportError.source).toBe(MINIMAX_5H_SOURCE)
         expect(transportError.detail).toContain('503')
 
+        // Consume the second queued 503 the same way — it must not poison the
+        // cache or the replay path either.
+        const transportErrorRepeat = await collectMinimaxQuotas(NOW_SEC + 2, paths, fetchMock as unknown as typeof fetch)
+        expect(transportErrorRepeat.kind).toBe('unavailable')
+
         // The cache is intact and the next 401 still replays it.
         fetchMock.mockResolvedValueOnce(authExpiredResponse())
-        const replay = await collectMinimaxQuotas(NOW_SEC + 2, paths, fetchMock as unknown as typeof fetch)
+        const replay = await collectMinimaxQuotas(NOW_SEC + 3, paths, fetchMock as unknown as typeof fetch)
         expect(replay.kind).toBe('ok')
         if (replay.kind !== 'ok') return
         expect(replay.windows).toEqual(cachedWindows)
