@@ -55,8 +55,9 @@ function clampPage(raw: string | undefined): number {
 
 /**
  * Pick a usable variant out of the `file.<bucket>.<format>` tree KLIPY ships.
- * We try the smallest bucket first so the picker grid stays cheap; for sending
- * we prefer animated GIF/MP4 and skip jpg (Telegram would not animate it).
+ * Previews lead with md so the grid tiles stay sharp; downloads lead with the
+ * animated gif format the user expects to see sent. jpg is skipped for
+ * downloads because chats would not animate it.
  */
 function pickVariant(file: Record<string, unknown>, buckets: string[], formats: string[]): KlipyFileVariant | null {
     for (const bucket of buckets) {
@@ -81,13 +82,14 @@ function pickVariant(file: Record<string, unknown>, buckets: string[], formats: 
 
 function pickPreview(file: Record<string, unknown>): string | null {
     // Stills first (cheap to render in the picker grid), then animated gif/webp.
-    return pickVariant(file, ['xs', 'sm', 'md', 'hd'], ['jpg', 'gif', 'webp'])?.url ?? null
+    // md leads so an ~150px tile gets a ~480px source instead of blurry xs.
+    return pickVariant(file, ['md', 'sm', 'hd', 'xs'], ['jpg', 'gif', 'webp'])?.url ?? null
 }
 
 function pickDownload(file: Record<string, unknown>): string | null {
-    // Animated only — Telegram will display the mp4/gif/webm inline.
-    // Prefer mp4 (smallest bytes), then gif, then webm.
-    return pickVariant(file, ['sm', 'md', 'hd', 'xs'], ['mp4', 'gif', 'webm'])?.url ?? null
+    // Animated only — chats display the gif/webm/mp4 inline.
+    // The user wants real GIFs, so gif leads; md keeps the sent file sharp.
+    return pickVariant(file, ['md', 'sm', 'hd', 'xs'], ['gif', 'webm', 'mp4'])?.url ?? null
 }
 
 function normaliseGif(item: unknown): KlipyGif | null {
