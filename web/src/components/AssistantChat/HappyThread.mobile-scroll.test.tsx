@@ -284,7 +284,15 @@ describe('mobile initial scroll settling', () => {
     })
 
     it('recovers an unexpected upward jump after initial settling ends', () => {
-        const { viewport, onViewModeChange } = renderThread()
+        const { container, viewport, onViewModeChange } = renderThread()
+        const sentinel = container.querySelector('.chat-scroll-content > [aria-hidden="true"]')!
+        // Simulate a layout-driven upward jump that leaves the preload sentinel
+        // well above the viewport, which is what real browsers do when content
+        // shifts up without a user gesture.
+        vi.spyOn(sentinel, 'getBoundingClientRect').mockImplementation(() => ({
+            top: -viewport.scrollTop - 500,
+            bottom: -viewport.scrollTop - 500 + 1
+        } as DOMRect))
         act(() => {
             vi.advanceTimersByTime(1_801)
         })

@@ -1014,6 +1014,14 @@ async function extendToInitialCoverage(api: ApiClient, sessionId: string, genera
 async function restoreLatestAfterCoverage(api: ApiClient, sessionId: string, generation: number): Promise<void> {
     const state = getState(sessionId)
     if (!isCurrentTailSync(sessionId, generation) || !state.requiresLatestReset) return
+    // The cold-window backfill trims newer rows to fit the history budget and
+    // sets `requiresLatestReset` so a fresh latest fetch refreshes the tail.
+    // That refresh is destructive — it replaces the window. If the user has
+    // already scrolled into the loaded history, the latest page they asked for
+    // is no longer on screen, and a replace would yank them back to a single
+    // page of the latest 120 messages. Skip the refresh; the next time the
+    // user scrolls to the bottom, `activateMessageWindow` will refill the tail.
+    if (state.viewMode !== 'tail') return
     const requestBaseline = new Map(state.messages.map((message) => [message.id, message]))
     const response = await api.getMessages(sessionId, { limit: PAGE_SIZE })
     if (!isCurrentTailSync(sessionId, generation)) return
