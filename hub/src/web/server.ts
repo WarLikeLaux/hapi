@@ -34,6 +34,7 @@ import { createVoiceRoutes } from './routes/voice'
 import { createHubSettingsRoutes } from './routes/hubSettings'
 import { createWorkGraphRoutes } from './routes/workGraph'
 import { createMessengerRoutes } from './routes/messengers'
+import { createKlipyRoutes } from './routes/klipy'
 import type { MessengerManager } from '../messengers/manager'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
@@ -318,6 +319,7 @@ function createWebApp(options: {
     // Path is intentionally NOT `/api/events` — that route is the SSE stream.
     app.route('/api', createWorkGraphRoutes(options.store))
     app.route('/api', createMessengerRoutes(options.messengerManager))
+    app.route('/api', createKlipyRoutes())
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {

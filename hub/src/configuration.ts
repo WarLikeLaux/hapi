@@ -19,6 +19,8 @@
  * - HAPI_RELAY_API: Relay API domain for tunwg (default: relay.hapi.run)
  * - HAPI_RELAY_AUTH: Relay auth key override (default: per-hub key issued by the relay)
  * - HAPI_RELAY_FORCE_TCP: Force TCP relay mode when UDP is unavailable (true/1)
+ * - KLIPY_API_KEY: KLIPY partner API key for the GIF search proxy (optional; picker
+ *   disables itself when absent). Never expose this to the browser.
  * - VAPID_SUBJECT: Contact email or URL for Web Push (defaults to mailto:admin@hapi.run)
  * - FCM_SERVICE_ACCOUNT_PATH: Firebase service-account JSON for Android push (settings: fcmServiceAccountPath;
  *   the project id comes from the JSON itself)
@@ -60,6 +62,7 @@ export interface ConfigSources {
     apnsTeamId: ConfigSource
     apnsBundleId: ConfigSource
     apnsEnv: ConfigSource
+    klipyApiKey: ConfigSource | 'unset'
     cliApiToken: 'env' | 'file' | 'generated'
 }
 
@@ -124,6 +127,13 @@ class Configuration {
     public readonly apnsBundleId: string | null
     public readonly apnsEnv: string | null
 
+    /**
+     * KLIPY partner API key. `null` when not configured — the GIF picker
+     * proxy responds 503 so the UI disables itself instead of silently failing.
+     * Loaded from `KLIPY_API_KEY` env var; never sent to the browser.
+     */
+    public readonly klipyApiKey: string | null
+
     /** Sources of each configuration value */
     public readonly sources: ConfigSources
 
@@ -158,6 +168,9 @@ class Configuration {
         this.apnsTeamId = serverSettings.apnsTeamId
         this.apnsBundleId = serverSettings.apnsBundleId
         this.apnsEnv = serverSettings.apnsEnv
+        // KLIPY key — only loaded from env so it is never persisted to
+        // settings.json (treat it the same way as Telegram/SERVERCHAN keys).
+        this.klipyApiKey = readKlipyApiKeyFromEnv()
 
         // CLI API token - will be set by _setCliApiToken() before create() returns
         this.cliApiToken = ''
@@ -167,6 +180,7 @@ class Configuration {
         // Store sources for logging (cliApiToken will be set by _setCliApiToken)
         this.sources = {
             ...sources,
+            klipyApiKey: this.klipyApiKey ? 'env' : 'unset',
         } as ConfigSources
 
         // Ensure data directory exists
@@ -229,6 +243,16 @@ class Configuration {
 
 // Singleton instance (set by createConfiguration)
 let _configuration: Configuration | null = null
+
+/**
+ * Read the KLIPY partner API key from the environment only. We deliberately do
+ * NOT persist it to settings.json — the partner key is a deployment secret that
+ * should travel with the hub process, not with the user data directory.
+ */
+function readKlipyApiKeyFromEnv(): string | null {
+    const raw = process.env.KLIPY_API_KEY?.trim()
+    return raw ? raw : null
+}
 
 /**
  * Create and initialize configuration asynchronously.
