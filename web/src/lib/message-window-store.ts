@@ -760,6 +760,9 @@ function applyLatestResponse(
     options: {
         replaceServerRows: boolean
         requestBaseline: Map<string, DecryptedMessage>
+        budgetUnits?: number
+        trimMode?: 'append' | 'prepend'
+        bumpTailRevision?: boolean
     }
 ): InternalState {
     const dismissedIds = new Set(
@@ -788,7 +791,10 @@ function applyLatestResponse(
         : previous.messages
     const authoritative = mergeMessages(preserved, retainedResponseMessages)
     const incoming = mergeMessages(authoritative, concurrentServerRows)
-    const { kept, dropped } = trimToUnitBudget(incoming, TAIL_UNIT_BUDGET, 'append')
+    const budgetUnits = options.budgetUnits ?? TAIL_UNIT_BUDGET
+    const trimMode = options.trimMode ?? 'append'
+    const { kept, dropped } = trimToUnitBudget(incoming, budgetUnits, trimMode)
+    const bumpTailRevision = options.bumpTailRevision ?? true
     const snapshotHead = pagePosition(response.page.snapshotHeadAt, response.page.snapshotHeadSeq)
         ?? derivePosition(response.messages, 'newest')
     const newestKept = derivePosition(kept, 'newest')
@@ -810,7 +816,7 @@ function applyLatestResponse(
         oldestPositionSeq: oldest?.seq ?? null,
         newestPositionAt: newest?.at ?? null,
         newestPositionSeq: newest?.seq ?? null,
-        tailRevision: previous.tailRevision + 1,
+        tailRevision: bumpTailRevision ? previous.tailRevision + 1 : previous.tailRevision,
         requiresLatestReset: false,
         isLoadingMore: options.replaceServerRows ? false : previous.isLoadingMore,
         olderGeneration: options.replaceServerRows
@@ -1020,6 +1026,36 @@ async function restoreLatestAfterCoverage(api: ApiClient, sessionId: string, gen
     })
 }
 
+/**
+ * After a user-initiated older-page load (`fetchOlderMessages`) the prepend
+ * may have trimmed the newest side to fit the history budget, flagging the
+ * window with `requiresLatestReset`. Unlike the cold-window tail sync, no
+ * outer caller runs `restoreLatestAfterCoverage` — so we refill the latest
+ * here ourselves, preserving the rows the user just loaded instead of
+ * replacing the window with the newest page.
+ */
+async function refillLatestAfterUserHistoryLoad(
+    api: ApiClient,
+    sessionId: string,
+    olderGeneration: number
+): Promise<void> {
+    const state = getState(sessionId)
+    if (state.olderGeneration !== olderGeneration || !state.requiresLatestReset) return
+    const requestBaseline = new Map(state.messages.map((message) => [message.id, message]))
+    const response = await api.getMessages(sessionId, { limit: PAGE_SIZE })
+    if (getState(sessionId).olderGeneration !== olderGeneration) return
+    updateState(sessionId, (previous) => {
+        if (previous.olderGeneration !== olderGeneration) return previous
+        return applyLatestResponse(previous, response, {
+            replaceServerRows: false,
+            requestBaseline,
+            budgetUnits: HISTORY_UNIT_BUDGET,
+            trimMode: 'append',
+            bumpTailRevision: false
+        })
+    })
+}
+
 function startTailSync(sessionId: string, controller: TailSyncController): Promise<void> {
     const running = runTailSync(controller.api, sessionId)
     controller.running = running
@@ -1221,6 +1257,21 @@ export async function fetchOlderMessages(
             if (addedUnits > 0 || !response.page.hasMore || !cursor) {
                 break
             }
+        }
+
+        // The prepend's HISTORY_UNIT_BUDGET trim drops newer rows when the
+        // window overflows, which leaves `requiresLatestReset` set. Unlike the
+        // cold-window backfill (which closes the tail sync with
+        // `restoreLatestAfterCoverage`), user-initiated older-page loads have
+        // no caller for that step — so the dangling flag would let the next
+        // tail sync wipe every message the user just loaded. Refill the latest
+        // page here, preserving the loaded history.
+        const finalState = getState(sessionId)
+        if (
+            finalState.olderGeneration === generation
+            && finalState.requiresLatestReset
+        ) {
+            await refillLatestAfterUserHistoryLoad(api, sessionId, generation)
         }
 
         updateState(sessionId, (previous) => {
