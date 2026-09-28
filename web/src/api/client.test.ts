@@ -403,3 +403,48 @@ describe('ApiClient Kimi session model discovery', () => {
         expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/sessions/session%2F1/kimi-models')
     })
 })
+
+describe('ApiClient.downloadKlipyGifAsFile', () => {
+    let originalFetch: typeof globalThis.fetch
+    let fetchMock: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+        originalFetch = globalThis.fetch
+        fetchMock = vi.fn()
+        globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch
+    })
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch
+    })
+
+    it('sends no authorization header to the cross-origin KLIPY CDN', async () => {
+        // An auth header would trigger a CORS preflight, and the CDN rejects
+        // OPTIONS with 403 — the bug that surfaced as "Failed to fetch".
+        fetchMock.mockResolvedValueOnce(new Response('gif-bytes', {
+            status: 200,
+            headers: { 'content-type': 'image/gif' }
+        }))
+        const api = new ApiClient('test-token')
+
+        const file = await api.downloadKlipyGifAsFile('https://static.klipy.com/x/1.gif', 'klipy-1.gif')
+
+        expect(file.name).toBe('klipy-1.gif')
+        expect(fetchMock).toHaveBeenCalledWith('https://static.klipy.com/x/1.gif', { headers: {} })
+    })
+
+    it('keeps the authorization header for same-origin (hub) downloads', async () => {
+        fetchMock.mockResolvedValueOnce(new Response('gif-bytes', {
+            status: 200,
+            headers: { 'content-type': 'image/gif' }
+        }))
+        const api = new ApiClient('test-token')
+
+        await api.downloadKlipyGifAsFile(`${window.location.origin}/api/klipy/media?url=x`, 'klipy-2.gif')
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            `${window.location.origin}/api/klipy/media?url=x`,
+            { headers: { authorization: 'Bearer test-token' } }
+        )
+    })
+})

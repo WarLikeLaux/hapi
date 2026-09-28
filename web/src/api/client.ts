@@ -342,11 +342,18 @@ export class ApiClient {
      * Download a GIF by URL and return it as a `File` ready to feed into
      * `sendExternalMedia`. Used by the GIF picker so the user-selected media
      * flows down the exact same path as a clipboard paste or file-picker drop.
+     *
+     * GIF URLs point at the public KLIPY CDN, so the authorization header is
+     * attached only for same-origin (hub) URLs: on a cross-origin fetch it
+     * would trigger a CORS preflight, and the CDN rejects `OPTIONS` with 403,
+     * which surfaces in the UI as "Failed to fetch".
      */
     async downloadKlipyGifAsFile(url: string, fileName: string): Promise<File> {
         const token = this.getToken ? this.getToken() : this.token
         const headers: Record<string, string> = {}
-        if (token) headers.authorization = `Bearer ${token}`
+        const requestOrigin = typeof window === 'undefined' ? null : window.location.origin
+        const isSameOrigin = requestOrigin !== null && new URL(url, requestOrigin).origin === requestOrigin
+        if (token && isSameOrigin) headers.authorization = `Bearer ${token}`
         const response = await fetch(url, { headers })
         if (!response.ok) throw new Error(`Failed to download GIF (${response.status})`)
         const blob = await response.blob()
