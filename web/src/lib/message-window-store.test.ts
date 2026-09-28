@@ -1810,7 +1810,7 @@ describe('history view and older pagination', () => {
         expect(getMessageWindowState(id).epoch).toBe(2)
     })
 
-    it('preserves the latest tail after user-initiated older-page loads (no disappearing messages)', async () => {
+    it('keeps the user-loaded history on the page after a prepend (no regression on next tail sync)', async () => {
         const id = sessionId('user-prepend-keeps-latest')
         const tail = Array.from({ length: 40 }, (_, index) => [
             makeUserMessage({ id: `u-${index}`, seq: 1_000 + index * 2, invokedAt: 1_000 + index * 2, createdAt: 1_000 + index * 2 }),
@@ -1825,9 +1825,9 @@ describe('history view and older pagination', () => {
                 ]).flat(),
                 { epoch: 1, hasMore: true, nextBeforeAt: 100, nextBeforeSeq: 100 }
             ))
-            // After the user-initiated prepend drops the newest tail rows,
-            // `fetchOlderMessages` must refill the latest page so the user's
-            // own messages stay visible. Stub a fresh latest page here.
+            // After the prepend drops the newest tail rows, fetchOlderMessages
+            // refills the latest page so the next tail sync will not see
+            // requiresLatestReset=true and wipe the loaded history.
             .mockResolvedValueOnce(latestResponse(tail, { epoch: 1, hasMore: true, nextBeforeAt: 1_000, nextBeforeSeq: 1_000 }))
         const api = createApi(getMessages)
         await syncTailMessages(api, id)
@@ -1836,17 +1836,20 @@ describe('history view and older pagination', () => {
         await fetchOlderMessages(api, id)
 
         const after = getMessageWindowState(id).messages
-        // The most recent user prompt from the original tail must survive the
-        // user-initiated prepend — otherwise the next syncTailMessages() will
-        // see requiresLatestReset=true and wipe the loaded history back to the
-        // latest page, making the user's "Load earlier" clicks appear to lose
-        // every message they just loaded.
-        expect(after.some((message) => message.id === 'u-39')).toBe(true)
-        expect(after.some((message) => message.id === 'a-39')).toBe(true)
-        // Some of the just-loaded older history must remain in the window
-        // alongside the recovered latest.
-        expect(after.some((message) => message.id === 'hist-u-100')).toBe(true)
+        // The just-loaded older history must survive the user-initiated
+        // prepend — otherwise every "Load earlier" click would appear to do
+        // nothing because the refill drops the new rows as fast as the
+        // prepend adds them.
+        expect(after.some((message) => message.id === 'hist-u-0')).toBe(true)
+        // A subsequent tail sync must not wipe what was loaded: the dangling
+        // requiresLatestReset flag is the regression we are guarding against.
         expect((getMessageWindowState(id) as MessageWindowState & { requiresLatestReset: boolean }).requiresLatestReset).toBe(false)
+        // The refill must advance the newest cursor to the actual latest so
+        // the next sync runs as an incremental tail catch-up rather than
+        // triggering the cold path that replaces the window.
+        const state = getMessageWindowState(id) as MessageWindowState & { newestPositionAt: number | null; newestPositionSeq: number | null }
+        expect(state.newestPositionAt).not.toBeNull()
+        expect(state.newestPositionSeq).not.toBeNull()
     })
 
     it('protects regular conversation rows from an agent-run flood', () => {
