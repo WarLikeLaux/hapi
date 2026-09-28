@@ -1031,8 +1031,13 @@ async function restoreLatestAfterCoverage(api: ApiClient, sessionId: string, gen
  * may have trimmed the newest side to fit the history budget, flagging the
  * window with `requiresLatestReset`. Unlike the cold-window tail sync, no
  * outer caller runs `restoreLatestAfterCoverage` — so we refill the latest
- * here ourselves, preserving the rows the user just loaded instead of
- * replacing the window with the newest page.
+ * here ourselves. We merge with `replaceServerRows: false` and use a
+ * `prepend` trim so the rows the user just loaded stay visible (a plain
+ * `append` trim would drop them as soon as the latest page arrived and the
+ * user would be stuck on the same top-of-window after every click). The
+ * latest side falls out of the budget and is reloaded when the user
+ * scrolls back to the bottom (which flips the view back to `tail` via
+ * `activateMessageWindow`).
  */
 async function refillLatestAfterUserHistoryLoad(
     api: ApiClient,
@@ -1050,7 +1055,7 @@ async function refillLatestAfterUserHistoryLoad(
             replaceServerRows: false,
             requestBaseline,
             budgetUnits: HISTORY_UNIT_BUDGET,
-            trimMode: 'append',
+            trimMode: 'prepend',
             bumpTailRevision: false
         })
     })
