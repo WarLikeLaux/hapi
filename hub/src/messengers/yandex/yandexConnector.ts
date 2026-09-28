@@ -20,6 +20,7 @@ import type { DownloadedExternalMedia, MessengerConnector, MessengerConnectorEve
 import { createPayloadId, PUSH_METHOD, XivaClient } from './xivaClient'
 import { CookieRejectedError, RegistryClient, toWireTimestamp } from './registry'
 import { reactionTypeForEmoji } from './reactionMap'
+import { buildFileClientMessage, buildImageClientMessage } from './pushShape'
 import {
     buildAvatarUrlFromId,
     buildHistoryParams,
@@ -47,7 +48,6 @@ const PUSH_COMMIT_STATUS_NAMES: Record<number, string> = {
 
 const USER_AGENT = 'chats-web/3.22.0'
 const SERVICE_ID = 27
-const FILE_SOURCE_DISK = 1
 const FILE_PRIVATE_HOST = 'files.messenger.yandex.ru'
 const CHAT_LIST_LIMIT = 50
 const DEBOUNCE_MS = 800
@@ -404,23 +404,29 @@ export class YandexConnector implements MessengerConnector {
         const fileId = typeof registered.files?.[0]?.id === 'string' ? registered.files?.[0]?.id : undefined
         if (!fileId) throw new Error('add_files did not return a file id')
 
-        const fileInfo = { Id2: fileId, Name: input.fileName, Size: bytes.byteLength, Source: FILE_SOURCE_DISK }
+        const payloadId = input.clientId ?? createPayloadId()
         if (input.mimeType.startsWith('image/')) {
-            await this.pushMutation({
-                Plain: {
-                    ChatId: remoteId,
-                    PayloadId: input.clientId ?? createPayloadId(),
-                    Image: { FileInfo: fileInfo }
-                }
-            })
+            /* Telemost fullscreen renders the image at the declared size; without Width/Height
+             * it falls back to a black placeholder, even though the file itself is reachable
+             * (miniatures still work because the server sizes them from the original bytes).
+             * GIFs hit the same path - animation has no separate wire flag. */
+            await this.pushMutation(buildImageClientMessage({
+                chatId: remoteId,
+                payloadId,
+                fileId,
+                fileName: input.fileName,
+                size: bytes.byteLength,
+                bytes,
+                mimeType: input.mimeType
+            }))
         } else {
-            await this.pushMutation({
-                Plain: {
-                    ChatId: remoteId,
-                    PayloadId: input.clientId ?? createPayloadId(),
-                    MiscFile: { FileInfo: fileInfo }
-                }
-            })
+            await this.pushMutation(buildFileClientMessage({
+                chatId: remoteId,
+                payloadId,
+                fileId,
+                fileName: input.fileName,
+                size: bytes.byteLength
+            }))
         }
         // A caption rides as its own text message: the outgoing image+caption wire form
         // (Gallery) has never been observed live, and a wrong shape would silently drop text.
