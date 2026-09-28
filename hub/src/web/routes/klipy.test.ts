@@ -196,10 +196,11 @@ describe('klipy proxy routes', () => {
         expect(body.gifs).toHaveLength(1)
         expect(body.gifs[0].id).toBe('4978743036025682')
         expect(body.gifs[0].title).toBe('Siddharth Ji')
-        // previewUrl prefers the smallest still (xs.jpg), downloadUrl prefers mp4 (smallest anim).
-        expect(body.gifs[0].previewUrl).toContain('/xs/')
-        expect(body.gifs[0].downloadUrl).toContain('/sm/')
-        expect(body.gifs[0].downloadUrl).toMatch(/\.mp4$|\.gif$|\.webm$/)
+        // previewUrl prefers an md source (sharp inside the grid tiles),
+        // downloadUrl a real GIF (the user-visible contract for sending).
+        expect(body.gifs[0].previewUrl).toContain('/md/')
+        expect(body.gifs[0].downloadUrl).toContain('/md/')
+        expect(body.gifs[0].downloadUrl).toMatch(/\.gif$/)
         // Pagination: has_next=true means next = current_page(1) + 1 = 2.
         expect(body.next).toBe(2)
     })

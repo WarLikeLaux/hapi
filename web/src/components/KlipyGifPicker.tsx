@@ -89,7 +89,11 @@ export function KlipyGifPicker(props: KlipyGifPickerProps) {
                     {t('chats.klipyPickerDescription')}
                 </DialogDescription>
 
-                {!isConfigured ? (
+                {availability.isFetching ? (
+                    <div className="flex h-32 items-center justify-center text-sm text-[var(--app-hint)]">
+                        {t('common.loading')}
+                    </div>
+                ) : !isConfigured ? (
                     <UnavailableState
                         onClose={() => onOpenChange(false)}
                         message={availability.error instanceof Error ? availability.error.message : null}
@@ -140,7 +144,7 @@ export function KlipyGifPicker(props: KlipyGifPickerProps) {
                                         : t('chats.klipyTrendingEmpty')}
                                 </div>
                             ) : (
-                                <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                <ul className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
                                     {gifs.map((gif) => (
                                         <li key={gif.id}>
                                             <button
