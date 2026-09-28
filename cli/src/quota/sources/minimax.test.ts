@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-    MAX_MINIMAX_AUTH_FAILURES,
     MINIMAX_5H_SOURCE,
     MINIMAX_WEEKLY_SOURCE,
     collectMinimaxQuotas,
@@ -175,12 +174,13 @@ describe('readMinimaxCredentials', () => {
 })
 
 /**
- * Retry-collector tests. The collector caches the last successful snapshot
- * and replays it on transient 401s so the UI does not flash "Authentication
- * expired" while mcode silently refreshes its OAuth token. Three consecutive
- * 401s are tolerated; the fourth surfaces `auth_expired` as before.
+ * Quota-collector behavior on auth failures. Once any good snapshot is cached,
+ * the collector silently replays it on every 401 — the limits panel keeps
+ * showing last-known usage with a staleness indicator instead of flashing a
+ * red "Authentication expired" banner. Without a cached snapshot there is
+ * nothing to replay, so the very first 401 surfaces `auth_expired`.
  */
-describe('collectMinimaxQuotas retry-on-401', () => {
+describe('collectMinimaxQuotas replay-on-401', () => {
     const fetchMock = vi.fn<typeof fetch>()
     let paths: MinimaxAuthPaths
 
@@ -225,85 +225,82 @@ describe('collectMinimaxQuotas retry-on-401', () => {
         expect(second.windows).toEqual(first.kind === 'ok' ? first.windows : [])
     })
 
-    it('tolerates up to 3 consecutive 401s by replaying the cached snapshot', async () => {
+    it('replays the cached snapshot on every consecutive 401 — no threshold trips an error', async () => {
         fetchMock.mockResolvedValueOnce(okResponse())
-        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES - 1; i++) {
+        // Many strikes in a row — none of them should ever surface auth_expired
+        // once the cache has anything to replay.
+        for (let i = 0; i < 50; i++) {
             fetchMock.mockResolvedValueOnce(authExpiredResponse())
         }
 
         const first = await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
         expect(first.kind).toBe('ok')
+        const cachedWindows = first.kind === 'ok' ? first.windows : []
 
-        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES - 1; i++) {
+        for (let i = 0; i < 50; i++) {
             const result = await collectMinimaxQuotas(NOW_SEC + i + 1, paths, fetchMock as unknown as typeof fetch)
             expect(result.kind).toBe('ok')
+            if (result.kind !== 'ok') return
+            expect(result.windows).toEqual(cachedWindows)
         }
     })
 
-    it('surfaces auth_expired once the threshold is exceeded', async () => {
+    it('refreshes the cached windows as soon as a poll succeeds again', async () => {
         fetchMock.mockResolvedValueOnce(okResponse())
-        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES; i++) {
-            fetchMock.mockResolvedValueOnce(authExpiredResponse())
-        }
-
-        await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
-
-        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES - 1; i++) {
-            const replay = await collectMinimaxQuotas(NOW_SEC + i + 1, paths, fetchMock as unknown as typeof fetch)
-            expect(replay.kind).toBe('ok')
-        }
-
-        const trip = await collectMinimaxQuotas(NOW_SEC + MAX_MINIMAX_AUTH_FAILURES, paths, fetchMock as unknown as typeof fetch)
-        expect(trip.kind).toBe('unavailable')
-        if (trip.kind !== 'unavailable') return
-        expect(trip.reason).toBe('auth_expired')
-        expect(trip.source).toBe(MINIMAX_5H_SOURCE)
-        expect(trip.detail).toContain(`${MAX_MINIMAX_AUTH_FAILURES} consecutive`)
-    })
-
-    it('resets the failure counter as soon as a poll succeeds', async () => {
-        fetchMock
-            .mockResolvedValueOnce(okResponse())
-            .mockResolvedValueOnce(authExpiredResponse())
-            .mockResolvedValueOnce(authExpiredResponse())
-            .mockResolvedValueOnce(okResponse())
-            .mockResolvedValueOnce(authExpiredResponse())
-            .mockResolvedValueOnce(authExpiredResponse())
+        fetchMock.mockResolvedValueOnce(authExpiredResponse())
+        fetchMock.mockResolvedValueOnce(authExpiredResponse())
+        fetchMock.mockResolvedValueOnce(okResponse())
 
         const calls: Array<Awaited<ReturnType<typeof collectMinimaxQuotas>>> = []
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 4; i++) {
             calls.push(await collectMinimaxQuotas(NOW_SEC + i, paths, fetchMock as unknown as typeof fetch))
         }
 
+        // After the second success the cache reflects that response, so the
+        // measuredAt moves forward — the third ok response is the new truth.
         expect(calls[0]!.kind).toBe('ok')
         expect(calls[1]!.kind).toBe('ok')
         expect(calls[2]!.kind).toBe('ok')
         expect(calls[3]!.kind).toBe('ok')
-        expect(calls[4]!.kind).toBe('ok')
-        expect(calls[5]!.kind).toBe('ok')
+        if (calls[3]!.kind !== 'ok' || calls[0]!.kind !== 'ok') return
+        expect(calls[3]!.windows[0]!.measuredAt).toBe(NOW_SEC + 3)
+        expect(calls[0]!.windows[0]!.measuredAt).toBe(NOW_SEC)
     })
 
-    it('reports auth_expired immediately when no snapshot has been cached yet', async () => {
+    it('reports auth_expired on the very first poll when no snapshot has been cached yet', async () => {
         fetchMock.mockResolvedValueOnce(authExpiredResponse())
         const result = await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
         expect(result.kind).toBe('unavailable')
         if (result.kind !== 'unavailable') return
         expect(result.reason).toBe('auth_expired')
+        expect(result.source).toBe(MINIMAX_5H_SOURCE)
+        expect(result.detail).toBe('HTTP 401')
     })
 
-    it('does not bump the counter on non-401 transport errors', async () => {
+    it('surfaces non-401 transport errors as unavailable without disturbing the cache', async () => {
         fetchMock.mockResolvedValueOnce(okResponse())
-        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES + 1; i++) {
-            fetchMock.mockResolvedValueOnce(new Response('boom', { status: 503 }))
-        }
+        fetchMock.mockResolvedValueOnce(new Response('boom', { status: 503 }))
+        fetchMock.mockResolvedValueOnce(new Response('boom', { status: 503 }))
 
-        await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
-        for (let i = 0; i < MAX_MINIMAX_AUTH_FAILURES + 1; i++) {
-            const result = await collectMinimaxQuotas(NOW_SEC + i + 1, paths, fetchMock as unknown as typeof fetch)
-            expect(result.kind).toBe('unavailable')
-            if (result.kind === 'unavailable') {
-                expect(result.reason).toBe('unavailable')
-            }
-        }
+        const first = await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
+        expect(first.kind).toBe('ok')
+        const cachedWindows = first.kind === 'ok' ? first.windows : []
+
+        // 503s must NOT be mistaken for auth failures — the collector surfaces
+        // them as plain unavailable. Once the network recovers, the cache
+        // returns and replays cleanly.
+        const transportError = await collectMinimaxQuotas(NOW_SEC + 1, paths, fetchMock as unknown as typeof fetch)
+        expect(transportError.kind).toBe('unavailable')
+        if (transportError.kind !== 'unavailable') return
+        expect(transportError.reason).toBe('unavailable')
+        expect(transportError.source).toBe(MINIMAX_5H_SOURCE)
+        expect(transportError.detail).toContain('503')
+
+        // The cache is intact and the next 401 still replays it.
+        fetchMock.mockResolvedValueOnce(authExpiredResponse())
+        const replay = await collectMinimaxQuotas(NOW_SEC + 2, paths, fetchMock as unknown as typeof fetch)
+        expect(replay.kind).toBe('ok')
+        if (replay.kind !== 'ok') return
+        expect(replay.windows).toEqual(cachedWindows)
     })
 })
