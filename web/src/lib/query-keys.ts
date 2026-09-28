@@ -50,7 +50,8 @@ export const queryKeys = {
     machinePiModels: (machineId: string) => ['machine-pi-models', machineId] as const,
     skills: (sessionId: string) => ['skills', sessionId] as const,
     scratchlist: (sessionId: string) => ['scratchlist', sessionId] as const,
-    klipySearch: (q: string, limit: number) => ['klipy-search', q, limit] as const,
-    klipyTrending: (limit: number) => ['klipy-trending', limit] as const,
+    klipySearch: (q: string, perPage: number) => ['klipy-search', q, perPage] as const,
+    klipyTrending: (perPage: number) => ['klipy-trending', perPage] as const,
     klipyAvailability: ['klipy-availability'] as const,
+    klipyCategories: ['klipy-categories'] as const,
 }

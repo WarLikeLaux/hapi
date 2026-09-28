@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
-import type { KlipySearchResponse } from '@hapi/protocol/klipy'
+import type { KlipyCategoriesResponse, KlipySearchResponse } from '@hapi/protocol/klipy'
 import { useAppContext } from '@/lib/app-context'
 import { queryKeys } from '@/lib/query-keys'
 
@@ -10,11 +10,11 @@ import { queryKeys } from '@/lib/query-keys'
  * `q` is required and non-empty — when the picker mounts we fetch `trending`
  * instead.
  */
-export function useKlipySearch(params: { q: string; limit?: number; enabled?: boolean }): UseQueryResult<KlipySearchResponse> {
+export function useKlipySearch(params: { q: string; perPage?: number; page?: number; enabled?: boolean }): UseQueryResult<KlipySearchResponse> {
     const { api } = useAppContext()
-    const limit = params.limit ?? 12
+    const perPage = params.perPage ?? 12
     return useQuery<KlipySearchResponse>({
-        queryKey: queryKeys.klipySearch(params.q, limit),
+        queryKey: queryKeys.klipySearch(params.q, perPage),
         enabled: params.enabled !== false && Boolean(api) && params.q.trim().length > 0,
         staleTime: 30_000,
         retry: (failureCount, error) => {
@@ -23,30 +23,30 @@ export function useKlipySearch(params: { q: string; limit?: number; enabled?: bo
             if (error instanceof Error && /503/.test(error.message)) return false
             return failureCount < 2
         },
-        queryFn: async () => api!.searchKlipyGifs({ q: params.q, limit })
+        queryFn: async () => api!.searchKlipyGifs({ q: params.q, perPage, page: params.page })
     })
 }
 
-export function useKlipyTrending(params: { limit?: number; enabled?: boolean } = {}): UseQueryResult<KlipySearchResponse> {
+export function useKlipyTrending(params: { perPage?: number; page?: number; enabled?: boolean } = {}): UseQueryResult<KlipySearchResponse> {
     const { api } = useAppContext()
-    const limit = params.limit ?? 12
+    const perPage = params.perPage ?? 12
     return useQuery<KlipySearchResponse>({
-        queryKey: queryKeys.klipyTrending(limit),
+        queryKey: queryKeys.klipyTrending(perPage),
         enabled: params.enabled !== false && Boolean(api),
         staleTime: 60_000,
         retry: (failureCount, error) => {
             if (error instanceof Error && /503/.test(error.message)) return false
             return failureCount < 2
         },
-        queryFn: async () => api!.getKlipyTrending({ limit })
+        queryFn: async () => api!.getKlipyTrending({ perPage, page: params.page })
     })
 }
 
 /**
- * Lightweight availability probe. We use the trending endpoint with limit=1
- * to discover whether the hub has KLIPY configured without rendering a giant
- * grid. The 503-vs-other distinction is enough to decide whether the composer
- * should show the GIF button at all.
+ * Lightweight availability probe. We use the trending endpoint with
+ * per_page=1 to discover whether the hub has KLIPY configured without
+ * rendering a giant grid. The 503-vs-other distinction is enough to decide
+ * whether the composer should show the GIF button at all.
  *
  * `enabled` defaults to true so the probe runs eagerly when the chat route
  * mounts — the picker no longer has to discover this on click.
@@ -60,7 +60,7 @@ export function useKlipyAvailability(params: { enabled?: boolean } = {}): UseQue
         // Don't burn retries on a partner outage — the cached "not available"
         // verdict should hold until the operator refreshes the partner key.
         retry: false,
-        queryFn: async () => api!.getKlipyTrending({ limit: 1 })
+        queryFn: async () => api!.getKlipyTrending({ perPage: 1 })
     })
 }
 
@@ -73,4 +73,20 @@ export function useKlipyAvailability(params: { enabled?: boolean } = {}): UseQue
 export function useKlipyEnabled(params: { enabled?: boolean } = {}): boolean {
     const query = useKlipyAvailability(params)
     return query.isSuccess
+}
+
+/**
+ * Categories come from the partner endpoint and change rarely. We cache
+ * them aggressively so the picker chip row paints instantly on subsequent
+ * opens — and so a partner outage does not break the chip row mid-use.
+ */
+export function useKlipyCategories(params: { enabled?: boolean } = {}): UseQueryResult<KlipyCategoriesResponse> {
+    const { api } = useAppContext()
+    return useQuery<KlipyCategoriesResponse>({
+        queryKey: queryKeys.klipyCategories,
+        enabled: params.enabled !== false && Boolean(api),
+        staleTime: 30 * 60_000,
+        retry: false,
+        queryFn: async () => api!.getKlipyCategories()
+    })
 }

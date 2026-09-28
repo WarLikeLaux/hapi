@@ -939,7 +939,7 @@ export function ChatConversationPage() {
         // the messenger pipeline (rate limits, FLOOD_WAIT, caption plumbing) is
         // the same for GIFs as for any other image attachment.
         mutationFn: async (gif: import('@hapi/protocol/klipy').KlipyGif) => {
-            const downloadUrl = gif.downloadUrl ?? gif.previewUrl ?? gif.url
+            const downloadUrl = gif.downloadUrl ?? gif.previewUrl
             if (!downloadUrl) throw new Error('KLIPY result has no downloadable URL')
             const extension = /\.gif(\?|$)/i.test(downloadUrl) ? 'gif'
                 : /\.webp(\?|$)/i.test(downloadUrl) ? 'webp'

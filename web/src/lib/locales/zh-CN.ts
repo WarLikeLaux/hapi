@@ -121,6 +121,7 @@ export default {
   'chats.klipySending': '发送中…',
   'chats.klipyUnavailableTitle': 'GIF 不可用',
   'chats.klipyUnavailableBody': '请在 hub 上设置 KLIPY_API_KEY 并重启以启用 GIF 搜索。',
+  'chats.klipyCategoryAll': '全部',
   'common.loading': '加载中…',
   'sessions.new': '新建会话',
   'sessions.empty.title': '还没有会话',

@@ -121,6 +121,7 @@ export default {
   'chats.klipySending': 'Sending…',
   'chats.klipyUnavailableTitle': 'GIFs are not available',
   'chats.klipyUnavailableBody': 'Set KLIPY_API_KEY on the hub and restart to enable GIF search.',
+  'chats.klipyCategoryAll': 'All',
   'common.loading': 'Loading…',
   'sessions.new': 'New Session',
   'sessions.empty.title': 'No sessions yet',

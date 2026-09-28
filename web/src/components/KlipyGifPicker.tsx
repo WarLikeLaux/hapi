@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import type { KlipyGif } from '@hapi/protocol/klipy'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useAppContext } from '@/lib/app-context'
-import { useKlipyAvailability, useKlipySearch, useKlipyTrending } from '@/hooks/queries/useKlipy'
+import { useKlipyAvailability, useKlipyCategories, useKlipySearch, useKlipyTrending } from '@/hooks/queries/useKlipy'
 import { useTranslation } from '@/lib/use-translation'
 
 /**
@@ -22,7 +22,7 @@ type KlipyGifPickerProps = {
     isSending?: boolean
 }
 
-const DEFAULT_LIMIT = 18
+const DEFAULT_PER_PAGE = 18
 const SEARCH_DEBOUNCE_MS = 250
 
 export function KlipyGifPicker(props: KlipyGifPickerProps) {
@@ -30,6 +30,7 @@ export function KlipyGifPicker(props: KlipyGifPickerProps) {
     const { t } = useTranslation()
     const [query, setQuery] = useState('')
     const [debouncedQuery, setDebouncedQuery] = useState('')
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
 
     // Debounce so the user does not flood the hub with a request per keystroke.
     useEffect(() => {
@@ -37,20 +38,35 @@ export function KlipyGifPicker(props: KlipyGifPickerProps) {
         return () => clearTimeout(handle)
     }, [query])
 
+    // Reset the category whenever the picker re-opens.
+    useEffect(() => {
+        if (!open) {
+            setQuery('')
+            setDebouncedQuery('')
+            setSelectedCategory(null)
+        }
+    }, [open])
+
     const availability = useKlipyAvailability({ enabled: open })
     const isConfigured = availability.isSuccess
 
+    const categories = useKlipyCategories({ enabled: open })
     const trimmedQuery = debouncedQuery
-    const trending = useKlipyTrending({ limit: DEFAULT_LIMIT, enabled: open && trimmedQuery.length === 0 })
-    const search = useKlipySearch({ q: trimmedQuery, limit: DEFAULT_LIMIT, enabled: open && trimmedQuery.length > 0 })
+    const isCategorySearch = trimmedQuery.length === 0 && selectedCategory !== null
+    const searchTerm = isCategorySearch ? selectedCategory! : trimmedQuery
 
-    const activeQuery = trimmedQuery.length > 0 ? search : trending
+    const trending = useKlipyTrending({ perPage: DEFAULT_PER_PAGE, enabled: open && searchTerm.length === 0 })
+    const search = useKlipySearch({ q: searchTerm, perPage: DEFAULT_PER_PAGE, enabled: open && searchTerm.length > 0 })
+
+    const activeQuery = searchTerm.length > 0 ? search : trending
     const gifs = activeQuery.data?.gifs ?? []
     const isLoading = activeQuery.isLoading
     const errorMessage = activeQuery.error instanceof Error ? activeQuery.error.message : null
 
     const handleQueryChange = (event: ChangeEvent<HTMLInputElement>) => {
         setQuery(event.target.value)
+        // Free-text search overrides the category chip.
+        if (event.target.value.trim().length > 0) setSelectedCategory(null)
     }
 
     const handleSelect = async (gif: KlipyGif) => {
@@ -90,6 +106,24 @@ export function KlipyGifPicker(props: KlipyGifPickerProps) {
                             onChange={handleQueryChange}
                             className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2 text-sm outline-none placeholder:text-[var(--app-hint)] focus:border-[var(--app-link)]"
                         />
+                        {categories.data && categories.data.categories.length > 0 ? (
+                            <div className="-mx-1 flex gap-2 overflow-x-auto px-1">
+                                <CategoryChip
+                                    active={selectedCategory === null}
+                                    onClick={() => setSelectedCategory(null)}
+                                    label={t('chats.klipyCategoryAll')}
+                                />
+                                {categories.data.categories.map((entry) => (
+                                    <CategoryChip
+                                        key={entry.category}
+                                        active={selectedCategory === entry.query}
+                                        onClick={() => setSelectedCategory(entry.query)}
+                                        label={entry.category}
+                                        previewUrl={entry.previewUrl}
+                                    />
+                                ))}
+                            </div>
+                        ) : null}
                         <div className="-mx-1 flex-1 overflow-y-auto px-1">
                             {isLoading ? (
                                 <div className="flex h-32 items-center justify-center text-sm text-[var(--app-hint)]">
@@ -101,7 +135,7 @@ export function KlipyGifPicker(props: KlipyGifPickerProps) {
                                 </div>
                             ) : gifs.length === 0 ? (
                                 <div className="flex h-32 items-center justify-center text-sm text-[var(--app-hint)]">
-                                    {trimmedQuery.length > 0
+                                    {searchTerm.length > 0
                                         ? t('chats.klipyNoResults')
                                         : t('chats.klipyTrendingEmpty')}
                                 </div>
@@ -144,6 +178,25 @@ export function KlipyGifPicker(props: KlipyGifPickerProps) {
                 )}
             </DialogContent>
         </Dialog>
+    )
+}
+
+function CategoryChip(props: { active: boolean; onClick: () => void; label: string; previewUrl?: string | null }) {
+    return (
+        <button
+            type="button"
+            onClick={props.onClick}
+            className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors ${
+                props.active
+                    ? 'bg-[var(--app-button)] text-[var(--app-button-text)]'
+                    : 'bg-[var(--app-secondary-bg)] text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)]'
+            }`}
+        >
+            {props.previewUrl ? (
+                <img src={props.previewUrl} alt="" aria-hidden="true" className="h-4 w-4 rounded object-cover" />
+            ) : null}
+            <span>{props.label}</span>
+        </button>
     )
 }
 

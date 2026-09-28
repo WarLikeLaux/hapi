@@ -1,28 +1,33 @@
 import { describe, expect, it } from 'bun:test'
-import { KlipyGifSchema, KlipySearchQuerySchema, KlipySearchResponseSchema } from './klipy'
+import {
+    KlipyCategoriesResponseSchema,
+    KlipyGifSchema,
+    KlipySearchQuerySchema,
+    KlipySearchResponseSchema
+} from './klipy'
 
 describe('klipy shared schema', () => {
-    it('parses a complete GIF record', () => {
+    it('parses a complete GIF record with file variants', () => {
         const parsed = KlipyGifSchema.parse({
-            id: 'abc',
-            title: 'Cat dance',
-            slug: 'cat-dance',
-            url: 'https://klipy.example/cat-dance',
-            previewUrl: 'https://klipy.example/preview.gif',
-            downloadUrl: 'https://klipy.example/download.gif',
-            width: 480,
-            height: 270
+            id: '4978743036025682',
+            slug: 'siddharth-ji',
+            title: 'Good Morning',
+            blurPreview: null,
+            previewUrl: 'https://static.klipy.com/ii/.../xs.jpg',
+            downloadUrl: 'https://static.klipy.com/ii/.../sm.gif',
+            width: 220,
+            height: 352
         })
-        expect(parsed.id).toBe('abc')
-        expect(parsed.title).toBe('Cat dance')
+        expect(parsed.id).toBe('4978743036025682')
+        expect(parsed.slug).toBe('siddharth-ji')
     })
 
     it('accepts nullable fields when KLIPY omits them', () => {
         const parsed = KlipyGifSchema.parse({
             id: 'x',
-            title: '',
             slug: null,
-            url: null,
+            title: '',
+            blurPreview: null,
             previewUrl: null,
             downloadUrl: null,
             width: null,
@@ -34,9 +39,9 @@ describe('klipy shared schema', () => {
     it('rejects a GIF without an id', () => {
         const result = KlipyGifSchema.safeParse({
             id: '',
-            title: '',
             slug: null,
-            url: null,
+            title: '',
+            blurPreview: null,
             previewUrl: null,
             downloadUrl: null,
             width: null,
@@ -45,17 +50,17 @@ describe('klipy shared schema', () => {
         expect(result.success).toBe(false)
     })
 
-    it('parses a paginated response', () => {
+    it('parses a paginated response with `next` page number', () => {
         const parsed = KlipySearchResponseSchema.parse({
             gifs: [
                 {
-                    id: '1', title: 'a', slug: null, url: null,
+                    id: '1', slug: null, title: 'a', blurPreview: null,
                     previewUrl: null, downloadUrl: null, width: null, height: null
                 }
             ],
-            next: 'cursor-1'
+            next: 2
         })
-        expect(parsed.next).toBe('cursor-1')
+        expect(parsed.next).toBe(2)
         expect(parsed.gifs).toHaveLength(1)
     })
 
@@ -65,18 +70,28 @@ describe('klipy shared schema', () => {
     })
 
     it('rejects search queries that are empty or too long', () => {
+        expect(KlipySearchQuerySchema.safeParse({}).success).toBe(true) // q is optional now
         expect(KlipySearchQuerySchema.safeParse({ q: '' }).success).toBe(false)
         expect(KlipySearchQuerySchema.safeParse({ q: 'a'.repeat(101) }).success).toBe(false)
         expect(KlipySearchQuerySchema.safeParse({ q: 'cat' }).success).toBe(true)
     })
 
-    it('coerces and bounds `limit`', () => {
-        // The shared schema is permissive — the server clamps via clampLimit(),
-        // so we only assert the schema accepts the string and produces a finite number.
-        const parsed = KlipySearchQuerySchema.safeParse({ q: 'cat', limit: '999' })
-        expect(parsed.success).toBe(false) // too_big from zod max(48)
-        const ok = KlipySearchQuerySchema.safeParse({ q: 'cat', limit: '20' })
+    it('bounds `per_page` to a sane max', () => {
+        const parsed = KlipySearchQuerySchema.safeParse({ q: 'cat', per_page: '999' })
+        expect(parsed.success).toBe(false)
+        const ok = KlipySearchQuerySchema.safeParse({ q: 'cat', per_page: '20' })
         expect(ok.success).toBe(true)
-        if (ok.success) expect(ok.data.limit).toBe(20)
+        if (ok.success) expect(ok.data.per_page).toBe(20)
+    })
+
+    it('parses a categories response', () => {
+        const parsed = KlipyCategoriesResponseSchema.parse({
+            categories: [
+                { category: 'hello', query: 'hello', previewUrl: 'https://static.klipy.com/x.gif' }
+            ],
+            locale: 'en_US'
+        })
+        expect(parsed.categories).toHaveLength(1)
+        expect(parsed.locale).toBe('en_US')
     })
 })

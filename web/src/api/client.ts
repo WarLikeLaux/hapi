@@ -71,7 +71,7 @@ import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { QuotasResponse } from '@hapi/protocol/quotas'
 import type { CancelMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
-import type { KlipySearchResponse } from '@hapi/protocol/klipy'
+import type { KlipyCategoriesResponse, KlipySearchResponse } from '@hapi/protocol/klipy'
 import type {
     ConfigureTelegramRequest,
     ConfigureYandexRequest,
@@ -318,20 +318,24 @@ export class ApiClient {
      * `enabled` defaults to true; pass `false` for a cheap "is the hub
      * configured?" probe (a 503 means the operator has not set KLIPY_API_KEY yet).
      */
-    async searchKlipyGifs(params: { q: string; limit?: number; pos?: string }): Promise<KlipySearchResponse> {
+    async searchKlipyGifs(params: { q: string; page?: number; perPage?: number }): Promise<KlipySearchResponse> {
         const search = new URLSearchParams()
         search.set('q', params.q)
-        if (params.limit) search.set('limit', String(params.limit))
-        if (params.pos) search.set('pos', params.pos)
+        if (params.page) search.set('page', String(params.page))
+        if (params.perPage) search.set('per_page', String(params.perPage))
         return await this.request<KlipySearchResponse>(`/api/klipy/search?${search.toString()}`)
     }
 
-    async getKlipyTrending(params: { limit?: number; pos?: string } = {}): Promise<KlipySearchResponse> {
+    async getKlipyTrending(params: { page?: number; perPage?: number } = {}): Promise<KlipySearchResponse> {
         const search = new URLSearchParams()
-        if (params.limit) search.set('limit', String(params.limit))
-        if (params.pos) search.set('pos', params.pos)
+        if (params.page) search.set('page', String(params.page))
+        if (params.perPage) search.set('per_page', String(params.perPage))
         const query = search.toString()
         return await this.request<KlipySearchResponse>(`/api/klipy/trending${query ? `?${query}` : ''}`)
+    }
+
+    async getKlipyCategories(): Promise<KlipyCategoriesResponse> {
+        return await this.request<KlipyCategoriesResponse>('/api/klipy/categories')
     }
 
     /**
