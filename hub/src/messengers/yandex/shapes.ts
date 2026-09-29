@@ -197,26 +197,33 @@ function extractAttachments(body: Record<string, unknown>): AttachmentRef[] {
 }
 
 /**
- * Find a sticker attachment inside `plain` across the wire shapes observed or
- * suspected for Yandex Telemost. The conarti reverse-engineering reference does
- * not capture `Plain.Sticker` directly, so we try the most likely paths and log
- * the actual key set when nothing matches — the next live sticker will reveal
- * the real shape and we can narrow this list.
+ * Find a sticker attachment inside `plain` across the wire shapes observed for
+ * Yandex Telemost. The conarti reverse-engineering reference does not capture
+ * `Plain.Sticker`, so the live wire was captured in HAPI's own journal:
+ *
+ *     Plain.Sticker = { Id: "stickers/images/2509/28331.png", SetId: "2509" }
+ *
+ * `Id` is the relative path under `files.messenger.yandex.ru`; the host returns
+ * a 301 redirect to the public `avatars.mds.yandex.net` URL for the same image.
+ * Earlier guesses (FileInfo / Image.FileInfo / File.FileInfo) are kept as
+ * fallbacks in case the wire ever changes again.
  *
  * Tried in order:
- *   1. `Sticker.FileInfo`                  — same pattern as Image / Voice
- *   2. `Sticker.Image.FileInfo`            — sticker wrapping an Image
- *   3. `Sticker.File.FileInfo`             — sticker wrapping a File
- *   4. `Sticker.Sticker.FileInfo`          — sticker wrapped in another Sticker
- *
- * If only `StickerId` + `PackId` arrive (no FileInfo), we emit a placeholder
- * ref with an empty `fileId` so the message survives and the UI can show the
- * sticker fallback icon; the diagnostic log still fires so the real shape can
- * be captured and the placeholder removed.
+ *   1. `Sticker.Id` + `Sticker.SetId`         — live shape observed 2026-09-29
+ *   2. `Sticker.FileInfo`                    — same pattern as Image / Voice
+ *   3. `Sticker.Image.FileInfo`              — sticker wrapping an Image
+ *   4. `Sticker.File.FileInfo`               — sticker wrapping a File
+ *   5. `Sticker.Sticker.FileInfo`            — sticker wrapped in another Sticker
  */
 function extractStickerAttachment(body: Record<string, unknown>): AttachmentRef[] {
     const sticker = asObject(body['Sticker'])
     if (!sticker) return []
+
+    const live = liveStickerRef(sticker)
+    if (live) {
+        console.log(`[Yandex connector] sticker parsed via Sticker.Id (fileId=${live.fileId}, setId=${live.name ?? '?'})`)
+        return [live]
+    }
 
     const tryPath = (label: string, fileInfo: unknown): AttachmentRef | undefined => {
         const ref = attachmentRef('sticker', fileInfo)
@@ -240,19 +247,24 @@ function extractStickerAttachment(body: Record<string, unknown>): AttachmentRef[
     if (nestedSticker) return [nestedSticker]
 
     const keys = Object.keys(sticker).sort().join(',')
-    const stickerId = stringOr(sticker['StickerId']) ?? stringOr(sticker['Id'])
-    const packId = stringOr(sticker['PackId']) ?? stringOr(sticker['StickerPackId'])
-    const tail = stickerId !== undefined || packId !== undefined
-        ? ` (stickerId=${stickerId ?? '?'}, packId=${packId ?? '?'})`
-        : ''
-    console.warn(`[Yandex connector] Plain.Sticker present but no FileInfo found at known paths; keys=[${keys}]${tail} - update extractStickerAttachment once the real shape is captured`)
-
-    if (stickerId !== undefined || packId !== undefined) {
-        /* Placeholder so the message survives normalization; the UI shows the sticker
-         * fallback icon because the ref has no real fileId to download. */
-        return [{ kind: 'sticker', fileId: '' }]
-    }
+    console.warn(`[Yandex connector] Plain.Sticker present but no Id/FileInfo found at known paths; keys=[${keys}] - update extractStickerAttachment once the real shape is captured`)
     return []
+}
+
+/**
+ * Build a sticker attachment from the live `Id` + `SetId` shape. `Id` becomes
+ * `fileId` so the existing `downloadMedia` path can serve it; `SetId` lands in
+ * `name` (overloaded here, the field was previously used for the file name on
+ * FileInfo-based attachments, so it doubles as a small breadcrumb for logs).
+ * The URL pattern used by `downloadMedia` is documented at the call site.
+ */
+function liveStickerRef(sticker: Record<string, unknown>): AttachmentRef | undefined {
+    const id = stringOr(sticker['Id'])
+    if (!id) return undefined
+    const setId = stringOr(sticker['SetId'])
+    const ref: AttachmentRef = { kind: 'sticker', fileId: id }
+    if (setId !== undefined) ref.name = setId
+    return ref
 }
 
 function mediaKindFor(kind: AttachmentKind): ExternalMediaKind {
@@ -331,12 +343,6 @@ export function normalizeMessageItem(
     if (system !== undefined || plain === undefined) return undefined
 
     const attachments = extractAttachments(plain)
-    /* One-shot diagnostic for sticker wire shape: prints the full Plain.Sticker
-     * payload the first time the hub sees one, so we can pin down the real shape
-     * and trim the candidate list in `extractStickerAttachment`. */
-    if (plain['Sticker'] !== undefined) {
-        console.log('[Yandex connector] Plain.Sticker observed:', JSON.stringify(plain['Sticker']))
-    }
     const text = stringOr(asObject(plain['Text'])?.['MessageText'])
         ?? stringOr(asObject(plain['Voice'])?.['Text'])
         ?? stringOr(asObject(plain['Gallery'])?.['Text'])
