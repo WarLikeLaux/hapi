@@ -149,6 +149,71 @@ describe('yandex shapes: message item', () => {
         expect(poll!.message.media![0]).toEqual(expect.objectContaining({ kind: 'poll' }))
     })
 
+    it('extracts a sticker from Sticker.FileInfo', () => {
+        const shaped = normalizeMessageItem({
+            ServerMessage: {
+                ClientMessage: { Plain: { Sticker: { FileInfo: { Id2: 'bucket/sticker-1', Name: 'kiss.webp', Size: 4096 } } } },
+                ServerMessageInfo: { Timestamp: '60', SeqNo: 6, From: { Guid: PEER_GUID, DisplayName: 'S' } }
+            }
+        }, MY_GUID, 'chat-1')
+        expect(shaped!.attachments).toEqual([{ kind: 'sticker', fileId: 'bucket/sticker-1', name: 'kiss.webp', size: 4096 }])
+        expect(shaped!.message.media).toEqual([
+            expect.objectContaining({ kind: 'sticker', fileName: 'kiss.webp', size: 4096 })
+        ])
+    })
+
+    it('extracts a sticker nested as Sticker.Image.FileInfo', () => {
+        const shaped = normalizeMessageItem({
+            ServerMessage: {
+                ClientMessage: { Plain: { Sticker: { Image: { FileInfo: { Id2: 'bucket/sticker-2' } } } } },
+                ServerMessageInfo: { Timestamp: '61', SeqNo: 7, From: { Guid: PEER_GUID, DisplayName: 'S' } }
+            }
+        }, MY_GUID, 'chat-1')
+        expect(shaped!.attachments).toEqual([{ kind: 'sticker', fileId: 'bucket/sticker-2' }])
+        expect(shaped!.message.media![0]).toEqual(expect.objectContaining({ kind: 'sticker' }))
+    })
+
+    it('extracts a sticker nested as Sticker.File.FileInfo', () => {
+        const shaped = normalizeMessageItem({
+            ServerMessage: {
+                ClientMessage: { Plain: { Sticker: { File: { FileInfo: { Id2: 'bucket/sticker-3' } } } } },
+                ServerMessageInfo: { Timestamp: '62', SeqNo: 8, From: { Guid: PEER_GUID, DisplayName: 'S' } }
+            }
+        }, MY_GUID, 'chat-1')
+        expect(shaped!.attachments).toEqual([{ kind: 'sticker', fileId: 'bucket/sticker-3' }])
+        expect(shaped!.message.media![0]).toEqual(expect.objectContaining({ kind: 'sticker' }))
+    })
+
+    it('falls back to a placeholder ref when a Plain.Sticker has no FileInfo on any known path', () => {
+        const originalLog = console.log
+        const originalWarn = console.warn
+        const logs: string[] = []
+        const warns: string[] = []
+        console.log = (...args) => { logs.push(args.map(String).join(' ')) }
+        console.warn = (...args) => { warns.push(args.map(String).join(' ')) }
+        try {
+            const shaped = normalizeMessageItem({
+                ServerMessage: {
+                    ClientMessage: { Plain: { Sticker: { StickerId: 's-42', PackId: 'p-7' } } },
+                    ServerMessageInfo: { Timestamp: '63', SeqNo: 9, From: { Guid: PEER_GUID, DisplayName: 'S' } }
+                }
+            }, MY_GUID, 'chat-1')
+            /* Placeholder ref keeps the message alive; the UI will fall back to the
+             * generic sticker icon because the ref has no real fileId to download. */
+            expect(shaped!.attachments).toEqual([{ kind: 'sticker', fileId: '' }])
+            expect(shaped!.message.media).toEqual([
+                expect.objectContaining({ kind: 'sticker' })
+            ])
+            /* Diagnostic emits both an observed-payload log and a missing-FileInfo warn. */
+            expect(logs.some((line) => line.includes('Plain.Sticker observed'))).toBe(true)
+            expect(warns.some((line) => line.includes('no FileInfo found at known paths'))).toBe(true)
+            expect(warns.some((line) => line.includes('stickerId=s-42') && line.includes('packId=p-7'))).toBe(true)
+        } finally {
+            console.log = originalLog
+            console.warn = originalWarn
+        }
+    })
+
     it('maps aggregate reactions and marks my own as chosen', () => {
         const shaped = normalizeMessageItem({
             ServerMessage: {
