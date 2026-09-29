@@ -220,30 +220,18 @@ function extractStickerAttachment(body: Record<string, unknown>): AttachmentRef[
     if (!sticker) return []
 
     const live = liveStickerRef(sticker)
-    if (live) {
-        console.log(`[Yandex connector] sticker parsed via Sticker.Id (fileId=${live.fileId}, setId=${live.name ?? '?'})`)
-        return [live]
-    }
+    if (live) return [live]
 
-    const tryPath = (label: string, fileInfo: unknown): AttachmentRef | undefined => {
-        const ref = attachmentRef('sticker', fileInfo)
-        if (ref) {
-            console.log(`[Yandex connector] sticker parsed via ${label} (fileId=${ref.fileId})`)
-            return ref
-        }
-        return undefined
-    }
-
-    const direct = tryPath('Sticker.FileInfo', sticker['FileInfo'])
+    const direct = attachmentRef('sticker', sticker['FileInfo'])
     if (direct) return [direct]
 
-    const nestedImage = tryPath('Sticker.Image.FileInfo', asObject(sticker['Image'])?.['FileInfo'])
+    const nestedImage = attachmentRef('sticker', asObject(sticker['Image'])?.['FileInfo'])
     if (nestedImage) return [nestedImage]
 
-    const nestedFile = tryPath('Sticker.File.FileInfo', asObject(sticker['File'])?.['FileInfo'])
+    const nestedFile = attachmentRef('sticker', asObject(sticker['File'])?.['FileInfo'])
     if (nestedFile) return [nestedFile]
 
-    const nestedSticker = tryPath('Sticker.Sticker.FileInfo', asObject(sticker['Sticker'])?.['FileInfo'])
+    const nestedSticker = attachmentRef('sticker', asObject(sticker['Sticker'])?.['FileInfo'])
     if (nestedSticker) return [nestedSticker]
 
     const keys = Object.keys(sticker).sort().join(',')
@@ -254,9 +242,9 @@ function extractStickerAttachment(body: Record<string, unknown>): AttachmentRef[
 /**
  * Build a sticker attachment from the live `Id` + `SetId` shape. `Id` becomes
  * `fileId` so the existing `downloadMedia` path can serve it; `SetId` lands in
- * `name` (overloaded here, the field was previously used for the file name on
- * FileInfo-based attachments, so it doubles as a small breadcrumb for logs).
- * The URL pattern used by `downloadMedia` is documented at the call site.
+ * `name` (overloaded here — the field previously held the file name on
+ * FileInfo-based attachments). The URL pattern used by `downloadMedia` is
+ * documented at the call site.
  */
 function liveStickerRef(sticker: Record<string, unknown>): AttachmentRef | undefined {
     const id = stringOr(sticker['Id'])
