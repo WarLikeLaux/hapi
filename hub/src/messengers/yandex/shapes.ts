@@ -186,7 +186,7 @@ function extractAttachments(body: Record<string, unknown>): AttachmentRef[] {
     single('Image', 'image')
     single('MiscFile', 'file')
     single('Voice', 'voice')
-    single('Sticker', 'sticker')
+    refs.push(...extractStickerAttachment(body))
     const gallery = asObject(body['Gallery'])
     const items = Array.isArray(gallery?.['Items']) ? gallery?.['Items'] as unknown[] : []
     for (const item of items) {
@@ -194,6 +194,65 @@ function extractAttachments(body: Record<string, unknown>): AttachmentRef[] {
         if (ref) refs.push(ref)
     }
     return refs
+}
+
+/**
+ * Find a sticker attachment inside `plain` across the wire shapes observed or
+ * suspected for Yandex Telemost. The conarti reverse-engineering reference does
+ * not capture `Plain.Sticker` directly, so we try the most likely paths and log
+ * the actual key set when nothing matches — the next live sticker will reveal
+ * the real shape and we can narrow this list.
+ *
+ * Tried in order:
+ *   1. `Sticker.FileInfo`                  — same pattern as Image / Voice
+ *   2. `Sticker.Image.FileInfo`            — sticker wrapping an Image
+ *   3. `Sticker.File.FileInfo`             — sticker wrapping a File
+ *   4. `Sticker.Sticker.FileInfo`          — sticker wrapped in another Sticker
+ *
+ * If only `StickerId` + `PackId` arrive (no FileInfo), we emit a placeholder
+ * ref with an empty `fileId` so the message survives and the UI can show the
+ * sticker fallback icon; the diagnostic log still fires so the real shape can
+ * be captured and the placeholder removed.
+ */
+function extractStickerAttachment(body: Record<string, unknown>): AttachmentRef[] {
+    const sticker = asObject(body['Sticker'])
+    if (!sticker) return []
+
+    const tryPath = (label: string, fileInfo: unknown): AttachmentRef | undefined => {
+        const ref = attachmentRef('sticker', fileInfo)
+        if (ref) {
+            console.log(`[Yandex connector] sticker parsed via ${label} (fileId=${ref.fileId})`)
+            return ref
+        }
+        return undefined
+    }
+
+    const direct = tryPath('Sticker.FileInfo', sticker['FileInfo'])
+    if (direct) return [direct]
+
+    const nestedImage = tryPath('Sticker.Image.FileInfo', asObject(sticker['Image'])?.['FileInfo'])
+    if (nestedImage) return [nestedImage]
+
+    const nestedFile = tryPath('Sticker.File.FileInfo', asObject(sticker['File'])?.['FileInfo'])
+    if (nestedFile) return [nestedFile]
+
+    const nestedSticker = tryPath('Sticker.Sticker.FileInfo', asObject(sticker['Sticker'])?.['FileInfo'])
+    if (nestedSticker) return [nestedSticker]
+
+    const keys = Object.keys(sticker).sort().join(',')
+    const stickerId = stringOr(sticker['StickerId']) ?? stringOr(sticker['Id'])
+    const packId = stringOr(sticker['PackId']) ?? stringOr(sticker['StickerPackId'])
+    const tail = stickerId !== undefined || packId !== undefined
+        ? ` (stickerId=${stickerId ?? '?'}, packId=${packId ?? '?'})`
+        : ''
+    console.warn(`[Yandex connector] Plain.Sticker present but no FileInfo found at known paths; keys=[${keys}]${tail} - update extractStickerAttachment once the real shape is captured`)
+
+    if (stickerId !== undefined || packId !== undefined) {
+        /* Placeholder so the message survives normalization; the UI shows the sticker
+         * fallback icon because the ref has no real fileId to download. */
+        return [{ kind: 'sticker', fileId: '' }]
+    }
+    return []
 }
 
 function mediaKindFor(kind: AttachmentKind): ExternalMediaKind {
@@ -272,6 +331,12 @@ export function normalizeMessageItem(
     if (system !== undefined || plain === undefined) return undefined
 
     const attachments = extractAttachments(plain)
+    /* One-shot diagnostic for sticker wire shape: prints the full Plain.Sticker
+     * payload the first time the hub sees one, so we can pin down the real shape
+     * and trim the candidate list in `extractStickerAttachment`. */
+    if (plain['Sticker'] !== undefined) {
+        console.log('[Yandex connector] Plain.Sticker observed:', JSON.stringify(plain['Sticker']))
+    }
     const text = stringOr(asObject(plain['Text'])?.['MessageText'])
         ?? stringOr(asObject(plain['Voice'])?.['Text'])
         ?? stringOr(asObject(plain['Gallery'])?.['Text'])
