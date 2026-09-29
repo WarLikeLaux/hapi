@@ -85,6 +85,28 @@ function assertSafeFileId(fileId: string): void {
     }
 }
 
+/**
+ * Build the download URL for one attachment.
+ *
+ * Regular attachments (Image / MiscFile / Voice / Gallery) carry a `FileInfo.Id2`
+ * of the form `<bucket>/<uuid>` and live under `/file_shortterm/<id>` on the
+ * messenger private host. The `?attach=true` flag is what the Yandex CDN uses
+ * to set the right Content-Disposition for inline preview.
+ *
+ * Stickers observed live on 2026-09-29 use a different namespace: the wire
+ * `Plain.Sticker.Id` is already a relative path on the same host (e.g.
+ * `stickers/images/2509/28331.png`), and the messenger CDN returns a 301 to
+ * the public `avatars.mds.yandex.net` URL for that same image. The path is
+ * ASCII-safe and passes `assertSafeFileId`, so we can reuse the same segment
+ * validation before hitting the network.
+ */
+export function buildMediaUrl(ref: AttachmentRef): string {
+    if (ref.kind === 'sticker') {
+        return `https://${FILE_PRIVATE_HOST}/${ref.fileId}`
+    }
+    return `https://${FILE_PRIVATE_HOST}/file_shortterm/${ref.fileId}?attach=true`
+}
+
 interface ChatSnapshot {
     lastMessageMicros?: bigint
     lastMessage?: YandexMessage
@@ -352,7 +374,7 @@ export class YandexConnector implements MessengerConnector {
         const ref = entry?.attachments[mediaIndex]
         if (!ref) throw new Error('Media attachment not found')
         assertSafeFileId(ref.fileId)
-        const url = `https://${FILE_PRIVATE_HOST}/file_shortterm/${ref.fileId}?attach=true`
+        const url = buildMediaUrl(ref)
         const response = await fetch(url, {
             headers: {
                 Cookie: this.requireCookies(),
