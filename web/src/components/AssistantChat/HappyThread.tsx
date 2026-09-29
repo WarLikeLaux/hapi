@@ -900,10 +900,15 @@ export function HappyThread(props: {
             if (intent.isScrollingUp && intent.distanceFromBottom > MANUAL_SCROLL_EPSILON_PX) {
                 // Layout/runtime updates and late browser restoration can move
                 // a freshly opened thread upward without any user input. Keep
-                // tail ownership in that case; only an explicit gesture may
-                // switch the thread into history mode.
+                // tail ownership in that case; only an explicit gesture (or a
+                // genuine reach for older history via the preload sentinel)
+                // may switch the thread into history mode. A user on a touch
+                // device that does not surface pointer events still scrolls by
+                // reaching the preload area, so the sentinel is the source of
+                // truth there.
                 if (
                     !hadExplicitUpwardIntent
+                    && !needsCoverage
                     && autoScrollEnabledRef.current
                     && atBottomRef.current
                     && !pendingScrollRef.current
@@ -1271,7 +1276,14 @@ export function HappyThread(props: {
             return
         }
 
+        // Mark the session as settled before any view-mode work. If the user
+        // has already started scrolling (atBottomRef is false), skip the
+        // tail-reclaiming scroll so we do not yank them back to the bottom.
         initialScrollSessionRef.current = props.sessionId
+        if (!atBottomRef.current) {
+            return
+        }
+
         autoScrollEnabledRef.current = true
         atBottomRef.current = true
         onViewModeChangeRef.current('tail')
@@ -1636,9 +1648,6 @@ export function HappyThread(props: {
                 phase: 'idle',
                 source: null,
                 failureCount: 0,
-                // A completed page always consumes automatic demand. The next
-                // page requires renewed wheel/touch/keyboard/scrollbar intent;
-                // render, resize, and scroll-restoration events cannot chain it.
                 autoPaused: true
             }
             settlePendingLoad('loaded')
