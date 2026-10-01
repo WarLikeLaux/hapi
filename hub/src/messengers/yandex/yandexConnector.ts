@@ -218,10 +218,10 @@ export class YandexConnector implements MessengerConnector {
     /**
      * Batch-fallback avatar enrichment for direct chats whose `PartnerInfo.AvatarId`
      * was missing from the binary `history` payload. We collect the partner guid
-     * out of the chat id (`<a>_<b>`), ask registry `get_users` for the whole batch,
-     * and patch the `avatarDataUrl` on each conversation before it lands in the store.
-     * Registry errors (including `unknown_method`) are logged and swallowed so the
-     * chat list keeps rendering with the initials fallback.
+     * out of the chat id (`<a>_<b>`), ask registry `get_users_data` for the whole
+     * batch, and patch the `avatarDataUrl` on each conversation before it lands in
+     * the store. Registry errors are soft — the chat list keeps rendering with the
+     * initials fallback when avatars can't be enriched.
      */
     private async enrichMissingAvatars(conversations: ExternalConversation[]): Promise<void> {
         const registry = this.registry
@@ -334,6 +334,17 @@ export class YandexConnector implements MessengerConnector {
         const seenMarker: Record<string, unknown> = cursor
             ? { ChatId: remoteId, Timestamp: timestamp, SeqNo: cursor.seqNo, Version: cursor.version }
             : { ChatId: remoteId, Timestamp: timestamp }
+        // Diagnostic: log the exact SeenMarker envelope we are about to send. Helps
+        // verify on a deployed hub that `SeqNo`/`Version` are populated, since the
+        // server silently drops SeenMarker without them and the peer never sees the
+        // read receipt. Off by default to keep prod logs quiet.
+        if (process.env['HAPI_YANDEX_DEBUG'] === '1') {
+            console.log('[Yandex connector] markRead', {
+                remoteId,
+                maxProviderMessageId,
+                seenMarker
+            })
+        }
         await this.pushMutation({ SeenMarker: seenMarker })
         const snapshot = this.chatSnapshots.get(remoteId)
         if (snapshot) snapshot.unread = 0

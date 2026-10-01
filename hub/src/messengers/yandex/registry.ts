@@ -110,14 +110,15 @@ export class RegistryClient {
      * binary WS `history` payload does not carry `PartnerInfo.AvatarId` for direct
      * chats. Read-only — no CSRF required.
      *
-     * The method name is not part of the public API surface; if `get_users` is
-     * rejected as `unknown_method`, switch to `request_users` (and vice versa).
-     * The caller already swallows `RegistryError` so a missing method is a soft miss.
+     * Per `docs/protocol-research.md §10` the canonical method name is
+     * `get_users_data`; the older `get_users` was rejected by the current
+     * registry with `no_such_path`. The caller already swallows `RegistryError`
+     * so a method miss is a soft fallback (chat renders without avatars).
      */
     async requestUsers(guids: string[]): Promise<RegistryUser[]> {
         if (guids.length === 0) return []
         type Payload = { users?: Array<{ guid?: unknown; avatar_id?: unknown; display_name?: unknown }> }
-        const payload = await this.call<Payload>('get_users', { guids })
+        const payload = await this.call<Payload>('get_users_data', { guids })
         const rows = Array.isArray(payload.users) ? payload.users : []
         const out: RegistryUser[] = []
         for (const row of rows) {
