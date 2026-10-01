@@ -14,10 +14,11 @@ import { getUserBubbleClassName } from '@/components/AssistantChat/messages/user
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
 import { useChatKeyboardTail } from '@/hooks/useChatKeyboardTail'
+import { useChatsComposerAutoFocus } from '@/hooks/useChatsComposerAutoFocus'
+import { useChatsPendingMedia } from '@/hooks/useChatsPendingMedia'
 import { useExternalMessagePrefetch } from '@/hooks/useExternalMessagePrefetch'
 import { useExternalMessages } from '@/hooks/queries/useExternalMessages'
 import { useAppContext } from '@/lib/app-context'
-import { imageFileFromClipboard } from '@/lib/clipboardMedia'
 import { upsertMessengerConnection } from '@/lib/messengerConnections'
 import { queryKeys } from '@/lib/query-keys'
 import { useTranslation } from '@/lib/use-translation'
@@ -839,6 +840,7 @@ export function ChatConversationPage() {
     const queryClient = useQueryClient()
     const [text, setText] = useState('')
     const [gifPickerOpen, setGifPickerOpen] = useState(false)
+    const { pendingMedia, previewUrl, clearPendingMedia, handlePaste: handlePendingPaste } = useChatsPendingMedia()
     const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
     const [reactionPickerExpanded, setReactionPickerExpanded] = useState(false)
     const [reactionUsage, setReactionUsage] = useState<Record<string, number>>(loadReactionUsage)
@@ -848,6 +850,14 @@ export function ChatConversationPage() {
     const composerRef = useRef<HTMLTextAreaElement>(null)
     const stickToBottomRef = useRef(true)
     const handleComposerFocus = useChatKeyboardTail({ viewportRef, composerRef, stickToBottomRef })
+    // Window-level keydown → focus composer + insert character. Closure
+    // captures the latest `setText` on every render so the typed glyph is
+    // appended to the current draft instead of dropping the user's first
+    // keystroke.
+    useChatsComposerAutoFocus({
+        composerRef,
+        onInsertCharacter: (character) => setText((current) => current + character),
+    })
     const conversations = useQuery({
         queryKey: queryKeys.externalConversations,
         queryFn: async () => (await api!.getExternalConversations()).conversations,
@@ -926,11 +936,21 @@ export function ChatConversationPage() {
         },
         onSuccess: async () => {
             setText('')
+            // Release the staged paste/file so the preview chip disappears
+            // and the next paste/file pick starts clean. The paperclip's
+            // hidden <input> also gets cleared so re-picking the same file
+            // fires onChange.
+            clearPendingMedia()
             if (fileInputRef.current) fileInputRef.current.value = ''
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) }),
                 queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
             ])
+        },
+        onError: () => {
+            // Keep the staged media on failure so the user can retry
+            // without re-pasting. The error banner is already shown by the
+            // form below; nothing else to do here.
         }
     })
     const sendKlipyGif = useMutation({
@@ -1249,12 +1269,44 @@ export function ChatConversationPage() {
             </div>
             <form className="shrink-0 border-t border-[var(--app-border)] bg-[var(--app-bg)] p-2 pb-[max(.5rem,env(safe-area-inset-bottom))]" onSubmit={(event) => {
                 event.preventDefault()
+                // Pending media takes precedence: a staged paste/file plus
+                // optional caption goes out via sendMedia (single trip on
+                // the wire, with `text` snapshotted by the mutationFn
+                // closure at call time). Falling back to a plain text
+                // submission preserves the original flow when there's no
+                // staged media.
+                if (pendingMedia) {
+                    if (sendMedia.isPending) return
+                    composerRef.current?.focus({ preventScroll: true })
+                    sendMedia.mutate(pendingMedia)
+                    return
+                }
                 const value = text.trim()
                 if (value && !send.isPending) {
                     composerRef.current?.focus({ preventScroll: true })
                     send.mutate({ text: value, clientId: crypto.randomUUID() })
                 }
             }}>
+                {pendingMedia ? (
+                    <div className="mx-auto mb-1 flex max-w-content items-center gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] p-1.5 pl-2" data-testid="chats-pending-media">
+                        {previewUrl ? (
+                            <img src={previewUrl} alt="" className="h-14 w-14 shrink-0 rounded-md object-cover" />
+                        ) : (
+                            <div className="h-14 w-14 shrink-0 rounded-md bg-[var(--app-bg)]" />
+                        )}
+                        <div className="min-w-0 flex-1 text-xs">
+                            <div className="truncate font-medium">{pendingMedia.name || 'Pasted image'}</div>
+                            <div className="text-[var(--app-hint)]">{pendingMedia.type || 'image'}</div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={clearPendingMedia}
+                            disabled={sendMedia.isPending}
+                            aria-label="Remove attachment"
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35"
+                        >×</button>
+                    </div>
+                ) : null}
                 <div className="mx-auto flex max-w-content items-end gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] p-1.5 pl-3 focus-within:border-[var(--app-link)]">
                     <input
                         ref={fileInputRef}
@@ -1262,6 +1314,11 @@ export function ChatConversationPage() {
                         className="hidden"
                         onChange={(event) => {
                             const file = event.target.files?.[0]
+                            // Paperclip still auto-sends so users who
+                            // explicitly picked a file from the picker
+                            // don't need to press Enter twice. Paste goes
+                            // through the staged path instead — see
+                            // textarea onPaste below.
                             if (file) sendMedia.mutate(file)
                         }}
                     />
@@ -1273,12 +1330,17 @@ export function ChatConversationPage() {
                         value={text}
                         onChange={(event) => setText(event.target.value)}
                         onPaste={(event) => {
-                            const image = imageFileFromClipboard(event.clipboardData.items)
-                            if (!image) return
-                            event.preventDefault()
-                            sendMedia.mutate(image)
+                            // Stage the image in the composer; do NOT send.
+                            // Sending happens on Enter / Send button click
+                            // so a paste is no longer a one-step commit.
+                            handlePendingPaste(event)
                         }}
                         onKeyDown={(event) => {
+                            if (event.key === 'Escape' && pendingMedia) {
+                                event.preventDefault()
+                                clearPendingMedia()
+                                return
+                            }
                             if (event.key === 'Enter' && !event.shiftKey) {
                                 event.preventDefault()
                                 event.currentTarget.form?.requestSubmit()
@@ -1288,7 +1350,7 @@ export function ChatConversationPage() {
                         placeholder={t('chats.messagePlaceholder')}
                         className="max-h-32 min-h-9 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[var(--app-hint)]"
                     />
-                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={!text.trim() || send.isPending || sendMedia.isPending || sendKlipyGif.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
+                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={(!text.trim() && !pendingMedia) || send.isPending || sendMedia.isPending || sendKlipyGif.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
                 </div>
                 {send.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{send.error.message}</div> : null}
                 {sendMedia.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{sendMedia.error.message}</div> : null}
