@@ -47,7 +47,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 34
+const SCHEMA_VERSION: number = 35
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -388,6 +388,7 @@ export class Store {
             31: () => this.migrateFromV31ToV32(),
             32: () => this.migrateFromV32ToV33(),
             33: () => this.migrateFromV33ToV34(),
+            34: () => this.migrateFromV34ToV35(),
         })
 
         if (currentVersion === 0) {
@@ -676,6 +677,8 @@ export class Store {
                 edited_at INTEGER,
                 delivery_status TEXT CHECK (delivery_status IN ('sent', 'read')),
                 reactions_json TEXT NOT NULL DEFAULT '[]',
+                seq_no INTEGER,
+                version INTEGER,
                 PRIMARY KEY (namespace, id),
                 UNIQUE (namespace, conversation_id, provider_message_id),
                 FOREIGN KEY (namespace, conversation_id)
@@ -792,6 +795,22 @@ export class Store {
             }
         })
         backfill()
+    }
+
+    /**
+     * Adds the per-message `seq_no` and `version` cursors that some providers
+     * (chats-web / Yandex Messenger) require for `SeenMarker`. Both columns
+     * are nullable — providers that don't expose them stay unaffected, and the
+     * existing rows backfill to NULL until the next sync overwrites them.
+     */
+    private migrateFromV34ToV35(): void {
+        const messageColumns = this.db.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
+        if (!messageColumns.some((column) => column.name === 'seq_no')) {
+            this.db.exec('ALTER TABLE external_messages ADD COLUMN seq_no INTEGER')
+        }
+        if (!messageColumns.some((column) => column.name === 'version')) {
+            this.db.exec('ALTER TABLE external_messages ADD COLUMN version INTEGER')
+        }
     }
 
     private migrateLegacySchemaIfNeeded(): void {
