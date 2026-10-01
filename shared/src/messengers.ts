@@ -100,7 +100,19 @@ export const ExternalMessageSchema = z.object({
     editedAt: z.number().int().nullable(),
     deliveryStatus: ExternalMessageDeliveryStatusSchema.optional(),
     media: z.array(ExternalMediaSchema).optional(),
-    reactions: z.array(ExternalReactionSchema).optional()
+    reactions: z.array(ExternalReactionSchema).optional(),
+    /**
+     * Provider-specific chat-local sequence number. The chats-web protocol uses this
+     * (not a timestamp) for read-receipt ordering — `SeenMarker` requires `SeqNo`
+     * and a matching `Version` to be durably accepted. Carried on the wire but
+     * optional in this contract so providers that do not expose it can omit it.
+     */
+    seqNo: z.number().int().nonnegative().optional(),
+    /**
+     * Monotonic per-message version that bumps on edit/delete. Required alongside
+     * `seqNo` for `SeenMarker` in chats-web.
+     */
+    version: z.number().int().nonnegative().optional()
 })
 export type ExternalMessage = z.infer<typeof ExternalMessageSchema>
 
