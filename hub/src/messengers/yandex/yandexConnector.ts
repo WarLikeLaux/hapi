@@ -337,14 +337,13 @@ export class YandexConnector implements MessengerConnector {
         // Diagnostic: log the exact SeenMarker envelope we are about to send. Helps
         // verify on a deployed hub that `SeqNo`/`Version` are populated, since the
         // server silently drops SeenMarker without them and the peer never sees the
-        // read receipt. Off by default to keep prod logs quiet.
-        if (process.env['HAPI_YANDEX_DEBUG'] === '1') {
-            console.log('[Yandex connector] markRead', {
-                remoteId,
-                maxProviderMessageId,
-                seenMarker
-            })
-        }
+        // read receipt. Always on — the chatter is bounded by user-initiated chat
+        // opens, so prod noise stays minimal while we still have live unknowns.
+        console.log('[Yandex connector] markRead', {
+            remoteId,
+            maxProviderMessageId,
+            seenMarker
+        })
         await this.pushMutation({ SeenMarker: seenMarker })
         const snapshot = this.chatSnapshots.get(remoteId)
         if (snapshot) snapshot.unread = 0
