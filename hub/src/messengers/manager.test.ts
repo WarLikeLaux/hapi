@@ -191,7 +191,7 @@ describe('MessengerManager', () => {
     it('marks Telegram history read remotely before keeping the local unread count cleared', async () => {
         const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-mark-read-'))
         const store = new Store(':memory:')
-        const calls: Array<[string, number]> = []
+        const calls: Array<[string, number, { seqNo: number; version: number } | undefined]> = []
         const conversation: ExternalConversation = {
             id: 'test:user:1', provider: 'test', remoteId: 'user:1', title: 'Friend', kind: 'direct',
             selected: false, lastMessageAt: 9, lastMessagePreview: 'Unread', unreadCount: 2, avatarDataUrl: null
@@ -201,7 +201,7 @@ describe('MessengerManager', () => {
             getConnection: () => ({ provider: 'test', state: 'ready', accountLabel: null, detail: null }),
             configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [conversation],
             loadMessages: async () => [],
-            markRead: async (remoteId, maxProviderMessageId) => { calls.push([remoteId, maxProviderMessageId]) },
+            markRead: async (remoteId, maxProviderMessageId, cursor) => { calls.push([remoteId, maxProviderMessageId, cursor]) },
             downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
             sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
         }
@@ -219,7 +219,7 @@ describe('MessengerManager', () => {
 
         try {
             await manager.listMessages('default', conversation.id, { refresh: false })
-            expect(calls).toEqual([['user:1', 9]])
+            expect(calls).toEqual([['user:1', 9, undefined]])
             expect(store.messengers.getConversation('default', conversation.id)?.unreadCount).toBe(0)
         } finally {
             await manager.stop()

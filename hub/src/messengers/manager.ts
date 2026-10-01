@@ -321,14 +321,34 @@ export class MessengerManager {
         if (options.markRead !== false && conversation.unreadCount > 0) {
             this.options.store.messengers.setUnreadCount(namespace, conversationId, 0)
             this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId })
-            const maxProviderMessageId = cached.reduce((max, message) => {
+            // chats-web requires `SeenMarker.SeqNo`/`Version` (not a timestamp) for
+            // durable acceptance. Track the highest seqNo/version seen alongside the
+            // provider message id; providers that ignore the cursor fall back to
+            // `maxProviderMessageId` only.
+            let maxProviderMessageId = 0
+            let maxSeqNo: number | undefined
+            let maxVersion: number | undefined
+            for (const message of cached) {
                 const id = Number(message.providerMessageId)
-                return Number.isSafeInteger(id) && id > max ? id : max
-            }, 0)
+                if (Number.isSafeInteger(id) && id > maxProviderMessageId) {
+                    maxProviderMessageId = id
+                }
+                if (message.seqNo !== undefined) {
+                    if (maxSeqNo === undefined || message.seqNo > maxSeqNo) {
+                        maxSeqNo = message.seqNo
+                        // Pair the seqNo with the same message's version (1 when
+                        // unedited) so the cursor describes a real ServerMessageInfo.
+                        maxVersion = message.version ?? 1
+                    }
+                }
+            }
             if (maxProviderMessageId > 0) {
                 const connector = await this.requireConnector(namespace, conversation.provider)
                 try {
-                    await connector.markRead?.(conversation.remoteId, maxProviderMessageId)
+                    const cursor = maxSeqNo !== undefined && maxVersion !== undefined
+                        ? { seqNo: maxSeqNo, version: maxVersion }
+                        : undefined
+                    await connector.markRead?.(conversation.remoteId, maxProviderMessageId, cursor)
                 } catch (error) {
                     console.error(`[Messengers] Failed to mark ${conversation.id} read:`, error)
                 }

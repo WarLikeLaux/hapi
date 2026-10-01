@@ -52,6 +52,17 @@ const FILE_PRIVATE_HOST = 'files.messenger.yandex.ru'
 const CHAT_LIST_LIMIT = 50
 const DEBOUNCE_MS = 800
 const REACTION_ACTION_REMOVE = 1
+/**
+ * chats-web presence: send `Heartbeat: { Type: 2 }` (FOREGROUND) periodically
+ * to keep this account flagged as online for the peer. The server derives
+ * `onlineUntil = lastSeenMs + onlineDuration*1000`, so missing a beat drops us
+ * back to "last seen recently". Interval tuned conservatively to avoid rate
+ * limits; chats-web keeps the WebSocket alive through server-driven pings
+ * regardless.
+ */
+const HEARTBEAT_INTERVAL_MS = 60_000
+/** `HeartbeatType.FOREGROUND=2` in §9.3 — explicitly online. */
+const HEARTBEAT_TYPE_FOREGROUND = 2
 
 /** `Meta.LogData.YandexUid` comes from the `yandexuid` cookie, not from request_user. */
 function yandexUidFromCookies(cookieHeader: string): string | undefined {
@@ -132,6 +143,7 @@ export class YandexConnector implements MessengerConnector {
     private readonly chatSnapshots = new Map<string, ChatSnapshot>()
     private readonly messageSnapshots = new Map<string, Map<string, { attachments: AttachmentRef[]; chosen: Set<number> }>>()
     private refreshTimer: ReturnType<typeof setTimeout> | null = null
+    private heartbeatTimer: ReturnType<typeof setTimeout> | null = null
 
     constructor(private readonly options: {
         namespace: string
@@ -308,13 +320,21 @@ export class YandexConnector implements MessengerConnector {
         }
     }
 
-    async markRead(remoteId: string, maxProviderMessageId: number): Promise<void> {
-        await this.pushMutation({
-            SeenMarker: {
-                ChatId: remoteId,
-                Timestamp: toWireTimestamp(BigInt(maxProviderMessageId))
-            }
-        })
+    async markRead(
+        remoteId: string,
+        maxProviderMessageId: number,
+        cursor?: { seqNo: number; version: number }
+    ): Promise<void> {
+        // chats-web `SeenMarker` requires `{ChatId, Timestamp, SeqNo, Version}` per
+        // §9.3 of the protocol research; without `SeqNo`/`Version` the mutation
+        // is silently dropped by the server, so a "seen" never reaches the peer.
+        // When the manager did not yet observe a seqNo (older cache), we keep the
+        // legacy `{ChatId, Timestamp}` envelope so we don't regress pre-fix chats.
+        const timestamp = toWireTimestamp(BigInt(maxProviderMessageId))
+        const seenMarker: Record<string, unknown> = cursor
+            ? { ChatId: remoteId, Timestamp: timestamp, SeqNo: cursor.seqNo, Version: cursor.version }
+            : { ChatId: remoteId, Timestamp: timestamp }
+        await this.pushMutation({ SeenMarker: seenMarker })
         const snapshot = this.chatSnapshots.get(remoteId)
         if (snapshot) snapshot.unread = 0
     }
@@ -460,6 +480,7 @@ export class YandexConnector implements MessengerConnector {
     async stop(): Promise<void> {
         if (this.refreshTimer !== null) clearTimeout(this.refreshTimer)
         this.refreshTimer = null
+        this.stopHeartbeat()
         this.xiva?.close()
         this.xiva = null
     }
@@ -505,6 +526,9 @@ export class YandexConnector implements MessengerConnector {
                 void this.refreshChats().catch((error) => {
                     console.error('[Yandex connector] initial chat refresh failed:', error)
                 })
+                // Declare ourselves online once the live channel is up; the
+                // timer keeps re-asserting presence at HEARTBEAT_INTERVAL_MS.
+                this.startHeartbeat()
             }
         })
         this.xiva = client
@@ -548,6 +572,43 @@ export class YandexConnector implements MessengerConnector {
     private rememberChat(remoteId: string, patch: ChatSnapshot): void {
         const existing = this.chatSnapshots.get(remoteId)
         this.chatSnapshots.set(remoteId, { ...existing, ...patch })
+    }
+
+    /**
+     * Schedules the periodic `Heartbeat` push that keeps this account flagged as
+     * "online" to the chats-web server. Idempotent: re-calling resets the
+     * schedule (used by `onConnected` after every xiva reconnect). Errors from a
+     * single heartbeat are logged but never propagate, so a misbehaving backend
+     * can't tear down the connector.
+     */
+    private startHeartbeat(): void {
+        this.stopHeartbeat()
+        const scheduleNext = (): void => {
+            if (this.connection.state !== 'ready') return
+            this.heartbeatTimer = setTimeout(() => {
+                this.heartbeatTimer = null
+                this.startHeartbeat()
+            }, HEARTBEAT_INTERVAL_MS)
+        }
+        // Fire the first beat immediately so the peer flips to "online" as
+        // soon as the live channel is up; subsequent beats fall on the timer.
+        void this.sendHeartbeat().catch((error) => {
+            console.error('[Yandex connector] heartbeat push failed:',
+                error instanceof Error ? error.message : error)
+        }).finally(scheduleNext)
+    }
+
+    private stopHeartbeat(): void {
+        if (this.heartbeatTimer !== null) {
+            clearTimeout(this.heartbeatTimer)
+            this.heartbeatTimer = null
+        }
+    }
+
+    private async sendHeartbeat(): Promise<void> {
+        // FOREGROUND signals an active user-facing session. `pushMutation`
+        // throws on a non-committed push status; the caller swallows.
+        await this.pushMutation({ Heartbeat: { Type: HEARTBEAT_TYPE_FOREGROUND } })
     }
 
     private rememberMessage(remoteId: string, message: YandexMessage): void {

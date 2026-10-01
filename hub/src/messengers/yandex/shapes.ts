@@ -343,6 +343,7 @@ export function normalizeMessageItem(
     const senderGuid = stringOr(from?.['Guid']) ?? ''
     const outgoing = senderGuid === myGuid
     const seqNo = numberOr(info['SeqNo'])
+    const version = numberOr(info['Version'])
     const lastEdit = numberOr(info['LastEditTimestamp'])
 
     const media = attachments.map((ref) => ({
@@ -377,7 +378,12 @@ export function normalizeMessageItem(
             }
             : {}),
         ...(media.length > 0 ? { media } : {}),
-        ...(reactions.length > 0 ? { reactions } : {})
+        ...(reactions.length > 0 ? { reactions } : {}),
+        // `SeqNo`/`Version` are required for the read-receipt `SeenMarker` on
+        // chats-web; only attach them when both are known to keep the schema
+        // strictly optional for providers that don't surface them.
+        ...(seqNo !== undefined ? { seqNo } : {}),
+        ...(version !== undefined ? { version } : {})
     }
 
     // The wire shape puts the avatar under `From.UserInfo.AvatarId` for

@@ -37,7 +37,18 @@ export interface MessengerConnector {
     submitAuth(input: SubmitMessengerAuthRequest): Promise<void>
     listConversations(): Promise<ExternalConversation[]>
     loadMessages(remoteId: string, limit?: number): Promise<ExternalMessage[]>
-    markRead?(remoteId: string, maxProviderMessageId: number): Promise<void>
+    markRead?(
+        remoteId: string,
+        maxProviderMessageId: number,
+        /**
+         * Provider-specific read-receipt cursor. For chats-web the `SeenMarker`
+         * mutation is durably accepted only when `seqNo` and `version` match the
+         * `ServerMessageInfo` of the message being marked read. Providers that
+         * do not need a cursor (e.g. Telegram, where the connector itself
+         * resolves seq numbers from the API) should ignore the extra fields.
+         */
+        cursor?: { seqNo: number; version: number }
+    ): Promise<void>
     downloadMedia(remoteId: string, providerMessageId: string, mediaIndex: number): Promise<DownloadedExternalMedia>
     sendText(remoteId: string, text: string, clientId?: string): Promise<void>
     setReactions(remoteId: string, providerMessageId: string, reactions: string[]): Promise<void>
