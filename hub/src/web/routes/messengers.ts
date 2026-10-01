@@ -7,6 +7,7 @@ import {
     SubmitMessengerAuthRequestSchema,
     UpdateExternalAliasRequestSchema
 } from '@hapi/protocol'
+import { z } from 'zod'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { MessengerManager } from '../../messengers/manager'
@@ -124,6 +125,24 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
     app.get('/conversations/:id/participants', (c) => {
         try {
             return c.json({ participants: manager.listParticipants(c.get('namespace'), c.req.param('id')) })
+        } catch (error) {
+            return c.json({ error: errorMessage(error) }, 502)
+        }
+    })
+
+    app.post('/conversations/:id/active', async (c) => {
+        // Tells the hub that the operator currently has this chat open in the
+        // web UI. Drives real-time SeenMarker pushes on new incoming messages
+        // and keeps the peer ✓✓ cursor fresh on every connector sync event.
+        const parsed = z.object({ active: z.boolean() }).safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid active state' }, 400)
+        try {
+            await manager.setConversationOpen(
+                c.get('namespace'),
+                c.req.param('id'),
+                parsed.data.active
+            )
+            return c.json({ ok: true })
         } catch (error) {
             return c.json({ error: errorMessage(error) }, 502)
         }

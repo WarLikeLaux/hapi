@@ -405,13 +405,43 @@ export class YandexConnector implements MessengerConnector {
         if (!ref) throw new Error('Media attachment not found')
         assertSafeFileId(ref.fileId)
         const url = buildMediaUrl(ref)
+        // The Yandex CDN is picky about User-Agent — `Bun/1.x` triggers 5xx for
+        // some endpoints, while the matching chats-web UA is accepted. We mirror
+        // the connector-wide UA already used for `history`/`push` calls.
         const response = await fetch(url, {
             headers: {
                 Cookie: this.requireCookies(),
-                Referer: 'https://yandex.ru/chat'
+                Referer: 'https://yandex.ru/chat',
+                'User-Agent': USER_AGENT
             }
         })
-        if (!response.ok) throw new Error(`Attachment download failed with HTTP ${response.status}`)
+        if (!response.ok) {
+            // Detailed diagnostic: a 502 (or any non-2xx) used to surface as a
+            // bare `HTTP 502` to the UI. Surface the URL, status, content-type
+            // and a couple of body bytes so we can tell whether the upstream
+            // refused us (fileId stale, cookie lost on the 302 redirect, or
+            // a path migration we haven't caught yet).
+            let bodySnippet = ''
+            try {
+                const text = await response.text()
+                bodySnippet = text.slice(0, 256)
+            } catch {
+                // best-effort only
+            }
+            console.error('[Yandex connector] media download failed', {
+                remoteId,
+                providerMessageId,
+                mediaIndex,
+                kind: ref.kind,
+                fileId: ref.fileId,
+                name: ref.name ?? null,
+                url,
+                status: response.status,
+                contentType: response.headers.get('content-type'),
+                bodySnippet
+            })
+            throw new Error(`Attachment download failed with HTTP ${response.status}`)
+        }
         const bytes = new Uint8Array(await response.arrayBuffer())
         const mediaRoot = join(this.options.dataDir, 'media-cache')
         await mkdir(mediaRoot, { recursive: true, mode: 0o700 })

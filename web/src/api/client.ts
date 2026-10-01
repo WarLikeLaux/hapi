@@ -408,6 +408,13 @@ export class ApiClient {
         return await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages${query}`)
     }
 
+    async setConversationActive(conversationId: string, active: boolean): Promise<void> {
+        await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/active`, {
+            method: 'POST',
+            body: JSON.stringify({ active })
+        })
+    }
+
     async sendExternalMessage(conversationId: string, text: string, clientId?: string): Promise<void> {
         await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
             method: 'POST',
