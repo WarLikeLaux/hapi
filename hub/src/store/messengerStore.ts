@@ -30,6 +30,19 @@ type MessageRow = {
     delivery_status: 'sent' | 'read' | null
     media_json: string
     reactions_json: string
+    /**
+     * chats-web / Yandex Messenger `ServerMessageInfo.SeqNo`. Required for
+     * `SeenMarker.SeqNo` on the read-receipt push mutation; the server silently
+     * drops `SeenMarker` without it. NULL for providers that don't surface
+     * sequence numbers (Telegram, etc).
+     */
+    seq_no: number | null
+    /**
+     * chats-web / Yandex Messenger `ServerMessageInfo.Version`. Monotonic per
+     * message; bumps on edit/delete. Required alongside `seq_no` for durable
+     * read-receipt acceptance.
+     */
+    version: number | null
 }
 
 function toConversation(row: ConversationRow): ExternalConversation {
@@ -64,7 +77,12 @@ function toMessage(row: MessageRow): ExternalMessage {
         editedAt: row.edited_at,
         ...(row.delivery_status ? { deliveryStatus: row.delivery_status } : {}),
         media: JSON.parse(row.media_json) as ExternalMessage['media'],
-        ...(reactions.length > 0 ? { reactions } : {})
+        ...(reactions.length > 0 ? { reactions } : {}),
+        // `seqNo`/`version` are optional in the shared contract; only attach
+        // them when the row actually carries values, so providers that don't
+        // surface them stay schema-clean.
+        ...(row.seq_no !== null ? { seqNo: row.seq_no } : {}),
+        ...(row.version !== null ? { version: row.version } : {})
     }
     return message
 }
@@ -279,8 +297,8 @@ export class MessengerStore {
                 INSERT INTO external_messages (
                     id, namespace, conversation_id, provider_message_id,
                     sender_id, sender_name, direction, text, media_json, created_at, edited_at,
-                    delivery_status, reactions_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    delivery_status, reactions_json, seq_no, version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(namespace, conversation_id, provider_message_id) DO UPDATE SET
                     sender_id = excluded.sender_id,
                     sender_name = excluded.sender_name,
@@ -290,7 +308,9 @@ export class MessengerStore {
                     created_at = excluded.created_at,
                     edited_at = excluded.edited_at,
                     delivery_status = excluded.delivery_status,
-                    reactions_json = excluded.reactions_json
+                    reactions_json = excluded.reactions_json,
+                    seq_no = excluded.seq_no,
+                    version = excluded.version
             `).run(
                 message.id,
                 namespace,
@@ -304,7 +324,9 @@ export class MessengerStore {
                 message.createdAt,
                 message.editedAt,
                 message.deliveryStatus ?? null,
-                JSON.stringify(message.reactions ?? [])
+                JSON.stringify(message.reactions ?? []),
+                message.seqNo ?? null,
+                message.version ?? null
             )
             this.db.prepare(`
                 UPDATE external_conversations
@@ -408,7 +430,8 @@ export class MessengerStore {
             SELECT messages.id, messages.conversation_id, messages.provider_message_id, messages.sender_id,
                    COALESCE(participants.custom_name, messages.sender_name) AS sender_name,
                    messages.direction, messages.text, messages.media_json, messages.created_at,
-                   messages.edited_at, messages.delivery_status, messages.reactions_json
+                   messages.edited_at, messages.delivery_status, messages.reactions_json,
+                   messages.seq_no, messages.version
             FROM external_messages AS messages
             JOIN external_conversations AS conversations
               ON conversations.namespace = messages.namespace
