@@ -1024,6 +1024,18 @@ export function ChatConversationPage() {
         return () => cancelAnimationFrame(frame)
     }, [conversationId])
 
+    useEffect(() => {
+        if (!api) return
+        // Tell the hub the operator has this chat open. The hub emits SeenMarker
+        // for new messages and keeps the peer ✓✓ cursor fresh on every connector
+        // sync event while we stay mounted. Fire and forget — any failure shows
+        // up as a delayed/missing read receipt on the peer, not in our UI.
+        void api.setConversationActive(conversationId, true)
+        return () => {
+            void api.setConversationActive(conversationId, false)
+        }
+    }, [api, conversationId])
+
     useLayoutEffect(() => {
         if (!stickToBottomRef.current) return
         const viewport = viewportRef.current

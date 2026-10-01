@@ -77,6 +77,14 @@ export class MessengerManager {
     private readonly mediaPrefetchPausedUntil = new Map<string, number>()
     private readonly avatarLazyRefreshAt = new Map<string, number>()
     private mediaPrefetchRunning = false
+    /**
+     * Conversations the operator currently has open in the web UI. Keyed by
+     * `<namespace>:<conversationId>` so a single namespace can host several
+     * messengers side by side. Used to drive real-time SeenMarker pushes on
+     * incoming messages and to keep peer read-receipt cursors fresh in the
+     * open chat as soon as the connector's sync handler delivers them.
+     */
+    private readonly openConversations = new Set<string>()
     private stopped = false
 
     constructor(private readonly options: {
@@ -318,7 +326,12 @@ export class MessengerManager {
         const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         const cached = this.options.store.messengers.listMessages(namespace, conversationId)
-        if (options.markRead !== false && conversation.unreadCount > 0) {
+        if (options.markRead !== false) {
+            // Always emit SeenMarker when the chat opens — the `unreadCount > 0`
+            // gate used to leave a stale counter (e.g. another device already
+            // drained it) so the peer never saw "read" for messages the user
+            // actually opened. The connector ignores the push when the cursor
+            // matches what's already on the server.
             this.options.store.messengers.setUnreadCount(namespace, conversationId, 0)
             this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId })
             // chats-web requires `SeenMarker.SeqNo`/`Version` (not a timestamp) for
@@ -698,7 +711,97 @@ export class MessengerManager {
         }
     }
 
-    private handleEvent(namespace: string, event: MessengerConnectorEvent): void {
+    private openConversationKey(namespace: string, conversationId: string): string {
+ return `${ namespace }::${ conversationId }`
+ }
+
+ /**
+ * Mark a conversation as currently open in the operator's web UI, or closed.
+ * When transitioning to open we immediately fire `markReadForConversation` so
+ * any unread backlog is durably marked as read on the provider (catches the
+ * case where the user opens a chat whose `unreadCount` is stale).
+ */
+ async setConversationOpen(namespace: string, conversationId: string, isOpen: boolean): Promise<void> {
+ const key = this.openConversationKey(namespace, conversationId)
+ if (isOpen) {
+ if (this.openConversations.has(key)) return
+ this.openConversations.add(key)
+ const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+ if (conversation) await this.markReadForConversation(namespace, conversation)
+ return
+ }
+ this.openConversations.delete(key)
+ }
+
+ private isConversationOpen(namespace: string, conversationId: string): boolean {
+ return this.openConversations.has(this.openConversationKey(namespace, conversationId))
+ }
+
+ /**
+ * Push a `SeenMarker` (or provider equivalent) using the highest cursor known
+ * to the local store. No-op when the chat has no messages yet or when the
+ * provider does not implement `markRead`.
+ */
+ private async markReadForConversation(namespace: string, conversation: ExternalConversation): Promise<void> {
+ const cached = this.options.store.messengers.listMessages(namespace, conversation.id)
+ if (cached.length === 0) return
+ let maxProviderMessageId = 0
+ let maxSeqNo: number | undefined
+ let maxVersion: number | undefined
+ for (const message of cached) {
+ const id = Number(message.providerMessageId)
+ if (Number.isSafeInteger(id) && id > maxProviderMessageId) {
+ maxProviderMessageId = id
+ }
+ if (message.seqNo !== undefined) {
+ if (maxSeqNo === undefined || message.seqNo > maxSeqNo) {
+ maxSeqNo = message.seqNo
+ maxVersion = message.version ?? 1
+ }
+ }
+ }
+ if (maxProviderMessageId <= 0) return
+ const connector = await this.requireConnector(namespace, conversation.provider)
+ const cursor = maxSeqNo !== undefined && maxVersion !== undefined
+ ? { seqNo: maxSeqNo, version: maxVersion }
+ : undefined
+ try {
+ await connector.markRead?.(conversation.remoteId, maxProviderMessageId, cursor)
+ } catch (error) {
+ console.error(`[Messengers] Failed to mark ${conversation.id} read (real-time):`, error)
+ }
+ }
+
+ /**
+ * Re-derive `deliveryStatus = 'read'` for outgoing messages in the open chat
+ * whenever the connector signals that the latest outgoing message flipped to
+ * `read`. Because `LastSeenSeqNo` is monotonic, "last message read" implies
+ * "every prior outgoing message read" — so we walk every outgoing row and
+ * mark it through the store's existing read-sweep path. Broadcasts the
+ * per-message update event so the open chat's ✓✓ flips without waiting for
+ * a UI refetch.
+ */
+ private applyPeerReadForConversation(namespace: string, conversation: ExternalConversation): void {
+ if (conversation.lastMessageDeliveryStatus !== 'read') return
+ const cached = this.options.store.messengers.listMessages(namespace, conversation.id)
+ let maxTimestamp: number | null = null
+ for (const message of cached) {
+ if (message.direction !== 'outgoing') continue
+ const id = Number(message.providerMessageId)
+ if (Number.isSafeInteger(id)) {
+ if (maxTimestamp === null || id > maxTimestamp) maxTimestamp = id
+ }
+ }
+ if (maxTimestamp === null) return
+ this.options.store.messengers.markOutgoingMessagesRead(namespace, conversation.id, maxTimestamp)
+ this.options.sseManager.broadcast({
+ type: 'external-message-updated',
+ namespace,
+ conversationId: conversation.id
+ })
+ }
+
+ private handleEvent(namespace: string, event: MessengerConnectorEvent): void {
         if (event.type === 'connection') {
             this.options.sseManager.broadcast({
                 type: 'messenger-connection-updated',
@@ -726,6 +829,12 @@ export class MessengerManager {
                 namespace,
                 conversationId: event.conversation.id
             })
+            // Real-time peer read receipts: while the chat is open, every
+            // `conversation` event from the connector is an opportunity to flip
+            // outgoing messages to `read` against the latest peer cursor.
+            if (this.isConversationOpen(namespace, event.conversation.id)) {
+                this.applyPeerReadForConversation(namespace, event.conversation)
+            }
             return
         }
         if (event.type === 'messages-deleted') {
@@ -813,5 +922,11 @@ export class MessengerManager {
             namespace,
             conversationId: event.message.conversationId
         })
+        // While the chat is open, emit a SeenMarker the instant a new message
+        // arrives (incoming or echo of our own outgoing). The provider
+        // collapses the push to a no-op when the cursor is already current.
+        if (this.isConversationOpen(namespace, event.message.conversationId)) {
+            void this.markReadForConversation(namespace, conversation)
+        }
     }
 }
