@@ -23,6 +23,17 @@ import type {
     ExternalMessage,
     ExternalReaction
 } from '@hapi/protocol'
+
+/**
+ * One-shot debug dump of the first chat element + first message parsed from a
+ * live history response, so we can locate where Yandex actually puts `SeqNo`
+ * (we suspect chat-level only, not per-message) and pick the right field for
+ * the `SeenMarker.SeqNo` payload. `console.log` keeps it inside the standard
+ * hub log pipeline — fire-and-forget. The flags are intentionally module-level
+ * so a long-running hub dumps once and then stays quiet.
+ */
+let dumpedFirstChat = false
+let dumpedFirstMessage = false
 import { microsToEpochMs, parseMicros } from './registry'
 import { REACTION_EMOJI_BY_TYPE } from './reactionMap'
 
@@ -319,6 +330,24 @@ export function normalizeMessageItem(
     if (!info || !clientMessage) return undefined
     if (info['Deleted'] === true) return undefined
 
+    // Temporary diagnostic: surface the exact wire shape for the very first
+    // message parsed in this hub session. Logs `ServerMessageInfo` keys + a
+    // few known fields so we can confirm whether `SeqNo` exists per-message
+    // or only on the chat envelope.
+    if (!dumpedFirstMessage) {
+        dumpedFirstMessage = true
+        const serverKeys = source ? Object.keys(source) : []
+        console.log('[Yandex wire dump] first ServerMessageInfo', {
+            serverMessageKeys: serverKeys,
+            serverMessageInfoKeys: Object.keys(info),
+            Timestamp: info['Timestamp'],
+            SeqNo: info['SeqNo'],
+            Version: info['Version'],
+            From: info['From'],
+            LastEditTimestamp: info['LastEditTimestamp']
+        })
+    }
+
     let micros: bigint
     try {
         micros = parseMicros(info['Timestamp'])
@@ -442,6 +471,25 @@ export function normalizeChatElement(raw: unknown, myGuid: string): ChatShape | 
     const element = asObject(raw)
     const remoteChatId = stringOr(element?.['ChatId'])
     if (!element || !remoteChatId) return undefined
+
+    // Temporary diagnostic: surface the exact wire shape of the first chat
+    // element so we can see whether `LastSeqNo` (which the parser already reads
+    // for `peerLastSeenSeqNo`) and friends carry the per-chat sequence cursor.
+    if (!dumpedFirstChat) {
+        dumpedFirstChat = true
+        const messageCount = Array.isArray(element['Messages']) ? element['Messages'].length : 0
+        console.log('[Yandex wire dump] first chat element', {
+            chatId: remoteChatId,
+            elementKeys: Object.keys(element),
+            LastSeqNo: element['LastSeqNo'],
+            LastSeenByMeSeqNo: element['LastSeenByMeSeqNo'],
+            LastSeenSeqNo: element['LastSeenSeqNo'],
+            LastTsMcs: element['LastTsMcs'],
+            LastSeenTsMcs: element['LastSeenTsMcs'],
+            LastSeenByMeTsMcs: element['LastSeenByMeTsMcs'],
+            messageCount
+        })
+    }
 
     const partner = asObject(element['PartnerInfo'])
     const partnerName = stringOr(partner?.['DisplayName']) ?? stringOr(partner?.['PublicName'])
