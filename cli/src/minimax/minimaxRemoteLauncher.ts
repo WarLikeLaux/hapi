@@ -60,6 +60,12 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
         const backend = createMinimaxBackend();
         this.backend = backend;
         registerAcpSessionTitleSync(backend, session.client);
+        this.permissionHandler = new AcpPermissionHandler(
+            session.client,
+            backend,
+            () => session.getPermissionMode() as PermissionMode | undefined,
+            (message) => this.handleAgentMessage(message)
+        );
 
         backend.onStderrError((error) => {
             logger.debug('[minimax-remote] stderr error', error);
@@ -97,12 +103,6 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
             });
         }
         session.onSessionFound(acpSessionId);
-
-        this.permissionHandler = new AcpPermissionHandler(
-            session.client,
-            backend,
-            () => session.getPermissionMode() as PermissionMode | undefined
-        );
 
         // Model selection goes over the ACP `model` config option. Adopt the
         // agent-reported current model unless the session pinned one; publish

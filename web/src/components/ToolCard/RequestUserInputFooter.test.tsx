@@ -50,6 +50,31 @@ function makeTool(input: unknown): ChatToolCall {
 }
 
 describe('RequestUserInputFooter', () => {
+    it('requires custom text for MiniMax Other and keeps it out of ordinary choice answers', async () => {
+        const { approvePermission } = renderFooter({ questions: [
+            { ...choice, otherRequiresText: true, required: false },
+            { ...choice, id: 'second', question: 'Second', otherRequiresText: true }
+        ] })
+        expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: /以上都不是/ }))
+        expect(screen.getByRole('textbox')).toHaveFocus()
+        fireEvent.click(screen.getByRole('button', { name: 'tool.next' }))
+        expect(screen.getByText('Choose')).toBeInTheDocument()
+        expect(approvePermission).not.toHaveBeenCalled()
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Old custom draft' } })
+        fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
+        expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'tool.next' }))
+        fireEvent.click(screen.getByRole('button', { name: /以上都不是/ }))
+        fireEvent.click(screen.getByRole('button', { name: 'tool.submit' }))
+        expect(approvePermission).not.toHaveBeenCalled()
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Custom answer' } })
+        fireEvent.click(screen.getByRole('button', { name: 'tool.submit' }))
+        await waitFor(() => expect(approvePermission).toHaveBeenCalledWith('session-1', 'permission-1', {
+            answers: { choice: { answers: ['Alpha'] }, second: { answers: ['None of the above', 'user_note: Custom answer'] } }
+        }))
+    })
+
     it('answers a completed async question card without a permission and retains failed drafts', async () => {
         const answerCodexAsyncQuestion = vi.fn().mockRejectedValueOnce(new Error('not delivered')).mockResolvedValue(undefined)
         const approvePermission = vi.fn()

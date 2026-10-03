@@ -80,6 +80,10 @@ export type PermissionResponse =
     | { outcome: 'selected'; optionId: string }
     | { outcome: 'cancelled' };
 
+export type FormElicitationResponse =
+    | { action: 'accept'; content: Record<string, string | string[] | number | boolean> }
+    | { action: 'decline' | 'cancel' };
+
 export type AgentSessionModelDescriptor = {
     modelId: string;
     name?: string;
@@ -109,6 +113,7 @@ export interface AgentBackend {
     cancelPrompt(sessionId: string): Promise<void>;
     respondToPermission(sessionId: string, request: PermissionRequest, response: PermissionResponse): Promise<void>;
     onPermissionRequest(handler: (request: PermissionRequest) => void): void;
+    onFormElicitation?(handler: (params: unknown) => Promise<FormElicitationResponse>): void;
     disconnect(): Promise<void>;
 }
 
