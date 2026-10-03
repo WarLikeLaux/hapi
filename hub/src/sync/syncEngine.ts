@@ -1302,8 +1302,7 @@ export class SyncEngine {
      * Ask the CLI to deliver one waiting-queue message into the active turn
      * (native steer). Supported for Pi (native), Codex (app-server
      * `turn/steer`), Cursor ACP (concurrent session/prompt soft-send), and
-     * MiniMax Code (head-of-FIFO promotion + dispatch after the active turn
-     * settles; MiniMax Code ACP rejects concurrent session/prompt). The CLI's
+     * MiniMax Code (native `mcode/session/steer`). The CLI's
      * `steer-queued-message` handler is registered per flavor. Legacy
      * stream-json Cursor sessions and other flavors are rejected by the
      * capability gate.

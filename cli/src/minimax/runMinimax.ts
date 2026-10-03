@@ -151,57 +151,10 @@ export async function runMinimax(opts: {
         return { applied };
     });
 
-    // MiniMax Code "steer" — MiniMax Code's ACP server rejects a new
-    // `session/prompt` while a turn is still considered active ("Session
-    // already has an active Turn. Use queue send to deliver the message
-    // after it."), so MiniMax has no concurrent prompt primitive the way
-    // Pi/Codex/Cursor ACP do. Steer here means "promote this queued row to
-    // the head of the FIFO and dispatch it as soon as the current turn
-    // settles." The launcher's `dispatchWithActiveTurnRetry` already
-    // retries on the active-Turn rejection, so the handler only has to
-    // reposition the row — the retry handles the actual delivery. If the
-    // user steers something that is in flight or already consumed, we
-    // surface a structured failure instead of a generic error so the web
-    // can drop the Steer button into the right state.
-    session.rpcHandlerManager.registerHandler(RPC_METHODS.SteerQueuedMessage, async (payload: unknown) => {
-        if (!payload || typeof payload !== 'object') {
-            return { status: 'failed' as const, error: 'Invalid steer payload', localId: null };
-        }
-        const localId = (payload as { localId?: unknown }).localId;
-        if (typeof localId !== 'string' || localId.length === 0) {
-            return { status: 'failed' as const, error: 'localId is required', localId: null };
-        }
-
-        const peeked = messageQueue.peekByLocalId(localId);
-        if (!peeked) {
-            // Not in queue: either dispatched already, in-flight inside a
-            // batch the launcher just consumed, or never queued (hub sent
-            // us a stale steer). cancelByLocalId disambiguates which one.
-            const cancelResult = messageQueue.cancelByLocalId(localId);
-            if (cancelResult === 'consumed') {
-                return { status: 'failed' as const, error: 'Message already dispatched', localId };
-            }
-            return { status: 'failed' as const, error: 'Message not found in queue', localId: null };
-        }
-
-        const cancelled = messageQueue.cancelByLocalId(localId);
-        if (cancelled !== true) {
-            return {
-                status: 'failed' as const,
-                error: `Cannot steer message (state: ${String(cancelled)})`,
-                localId
-            };
-        }
-
-        // Push the row back at the head of the FIFO with its original mode.
-        // The launcher will pick it up on the next loop tick and dispatch
-        // it; `dispatchWithActiveTurnRetry` covers the "previous turn
-        // still considered active" rejection in case the user steers
-        // before the prior prompt's settle window has elapsed.
-        messageQueue.unshift(peeked.message, peeked.mode, peeked.localId);
-        logger.debug(`[minimax] steer: promoted ${localId} to head of FIFO`);
-        return { status: 'steered' as const, localId };
-    });
+    session.rpcHandlerManager.registerHandler(RPC_METHODS.SteerQueuedMessage, async () => ({
+        steered: false,
+        error: 'Steering is only available for an active remote MiniMax turn'
+    }));
 
     let crashed = false;
 
