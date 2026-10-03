@@ -569,7 +569,7 @@ describe('message tail synchronization', () => {
             ...makeExchange(1, 37_000, 'cached-agent-1'),
             ...makeExchange(2, 39_000, 'cached-agent-2')
         ]
-        sessionStorage.setItem(`hapi:message-window:v2:${id}`, JSON.stringify({
+        sessionStorage.setItem(`hapi:message-window:v3:${id}`, JSON.stringify({
             messages: cached,
             hasMore: true,
             oldestPositionAt: 37_000,
@@ -620,7 +620,7 @@ describe('message tail synchronization', () => {
             invokedAt: null,
             status: 'queued'
         })
-        sessionStorage.setItem(`hapi:message-window:v2:${id}`, JSON.stringify({
+        sessionStorage.setItem(`hapi:message-window:v3:${id}`, JSON.stringify({
             messages: [cached, queued],
             hasMore: true,
             oldestPositionAt: 4_000,
@@ -656,7 +656,7 @@ describe('message tail synchronization', () => {
     it('re-entry catch-up replaces stale rows and backfills the initial exchanges', async () => {
         const id = sessionId('reentry-older-history')
         const cached = makeAgentMessage({ id: 'cached', seq: 40, at: 40_000 })
-        sessionStorage.setItem(`hapi:message-window:v2:${id}`, JSON.stringify({
+        sessionStorage.setItem(`hapi:message-window:v3:${id}`, JSON.stringify({
             messages: [cached],
             hasMore: true,
             oldestPositionAt: 40_000,
@@ -722,7 +722,7 @@ describe('message tail synchronization', () => {
     it('keeps cached messages visible when the re-entry refresh fails', async () => {
         const id = sessionId('reentry-refresh-failure')
         const cached = makeAgentMessage({ id: 'cached', seq: 40, at: 40_000 })
-        sessionStorage.setItem(`hapi:message-window:v2:${id}`, JSON.stringify({
+        sessionStorage.setItem(`hapi:message-window:v3:${id}`, JSON.stringify({
             messages: [cached],
             hasMore: true,
             oldestPositionAt: 40_000,
@@ -757,7 +757,7 @@ describe('message tail synchronization', () => {
     it('preserves live and optimistic rows that arrive during a re-entry refresh', async () => {
         const id = sessionId('reentry-concurrent-rows')
         const cached = makeAgentMessage({ id: 'cached', seq: 40, at: 40_000 })
-        sessionStorage.setItem(`hapi:message-window:v2:${id}`, JSON.stringify({
+        sessionStorage.setItem(`hapi:message-window:v3:${id}`, JSON.stringify({
             messages: [cached],
             hasMore: true,
             oldestPositionAt: 40_000,
@@ -807,7 +807,7 @@ describe('message tail synchronization', () => {
     it('keeps incremental synchronization for non-activation refreshes', async () => {
         const id = sessionId('incremental-refresh')
         const cached = makeAgentMessage({ id: 'cached', seq: 40, at: 40_000 })
-        sessionStorage.setItem(`hapi:message-window:v2:${id}`, JSON.stringify({
+        sessionStorage.setItem(`hapi:message-window:v3:${id}`, JSON.stringify({
             messages: [cached],
             hasMore: true,
             oldestPositionAt: 40_000,
@@ -989,14 +989,18 @@ describe('message tail synchronization', () => {
         ])
     })
 
-    it('keeps the newest SSE cursor when a forward page finishes behind it', async () => {
+    it('catches up from the REST cursor when live delivery skips messages during a forward fetch', async () => {
         const id = sessionId('forward-sse-cursor')
         const initial = makeAgentMessage({ id: 'initial', seq: 10, at: 1_000 })
         const stalePage = deferred<MessagesResponse>()
         const getMessages = vi.fn()
             .mockResolvedValueOnce(latestResponse([initial], { epoch: 5 }))
             .mockImplementationOnce(async () => await stalePage.promise)
-            .mockResolvedValueOnce(afterResponse([], {
+            .mockImplementationOnce(async (_sessionId, query) => afterResponse(
+                query?.afterSeq === 11 ? [
+                    makeUserMessage({ id: 'missed-user', seq: 13, createdAt: 1_150, invokedAt: 1_150 }),
+                    makeAgentMessage({ id: 'concurrent', seq: 12, at: 1_200 })
+                ] : [], {
                 epoch: 5,
                 nextAfterAt: 1_200,
                 nextAfterSeq: 12,
@@ -1024,18 +1028,51 @@ describe('message tail synchronization', () => {
 
         await syncTailMessages(api, id)
 
-        expect(getMessages.mock.calls[2]?.[1]).toEqual({
-            afterAt: 1_200,
-            afterSeq: 12,
-            untilAt: null,
-            untilSeq: null,
-            epoch: 5,
-            limit: 200
-        })
         expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual([
             'initial',
             'page',
+            'missed-user',
             'concurrent'
+        ])
+    })
+
+    it('keeps earlier exchanges while one response emits many usage updates', () => {
+        const id = sessionId('usage-is-not-a-conversation-boundary')
+        const messages = [...makeExchange(1, 1), makeUserMessage({ id: 'current-user', seq: 3, createdAt: 3, invokedAt: 3 })]
+        for (let index = 0; index < 200; index++) {
+            const seq = 4 + index * 2
+            messages.push(makeAgentMessage({ id: `work-${index}`, seq, at: seq }))
+            messages.push({
+                id: `usage-${index}`, seq: seq + 1, localId: null, createdAt: seq + 1,
+                content: { role: 'agent', content: { type: 'codex', data: {
+                    type: 'token_count', info: { last: { inputTokens: 10, outputTokens: 1 } }
+                } } }
+            } as DecryptedMessage)
+        }
+
+        ingestIncomingMessages(id, messages)
+
+        expect(getMessageWindowState(id).messages.filter(message => message.content && typeof message.content === 'object'
+            && 'role' in message.content && message.content.role === 'user').map(message => message.id)).toEqual(['user-1', 'current-user'])
+        expect(getMessageWindowState(id).messages.some(message => message.id === 'work-199')).toBe(true)
+    })
+
+    it('replaces sparse background messages with a complete first REST window', async () => {
+        const id = sessionId('sparse-background')
+        ingestIncomingMessages(id, [
+            ...makeExchange(1, 1),
+            makeAgentMessage({ id: 'live-answer', seq: 100, at: 100 })
+        ])
+        const getMessages = vi.fn().mockResolvedValueOnce(latestResponse([
+            ...makeExchange(2, 90),
+            ...makeExchange(3, 92),
+            makeAgentMessage({ id: 'live-answer', seq: 100, at: 100 })
+        ], { hasMore: true, nextBeforeAt: 90, nextBeforeSeq: 90 }))
+
+        await syncTailMessages(createApi(getMessages), id)
+
+        expect(getMessageWindowState(id).messages.map(message => message.id)).toEqual([
+            'user-2', 'agent-2', 'user-3', 'agent-3', 'live-answer'
         ])
     })
 
@@ -1045,7 +1082,7 @@ describe('message tail synchronization', () => {
             ...makeExchange(1, 37_000, 'cached-agent-1'),
             ...makeExchange(2, 39_000, 'cached-agent-2')
         ]
-        sessionStorage.setItem(`hapi:message-window:v2:${id}`, JSON.stringify({
+        sessionStorage.setItem(`hapi:message-window:v3:${id}`, JSON.stringify({
             messages: cached,
             hasMore: true,
             oldestPositionAt: 37_000,
@@ -1505,9 +1542,15 @@ describe('history view and older pagination', () => {
             }))
         const api = createApi(getMessages)
         await syncTailMessages(api, id)
-        const outcome = await fetchOlderMessages(api, id)
+        const publishedVersions: number[] = []
+        const onBeforeApply = (version: number) => {
+            publishedVersions.push(version)
+            return true
+        }
+        const outcome = await fetchOlderMessages(api, id, { onBeforeApply })
 
         expect(outcome).toMatchObject({ kind: 'applied', historyVersion: 1 })
+        expect(getMessageWindowState(id).historyVersion).toBe(publishedVersions[0])
         expect(getMessages).toHaveBeenCalledTimes(2)
         expect(getMessages.mock.calls[1]?.[1]).toEqual({
             beforeAt: 6,
@@ -1964,7 +2007,7 @@ describe('optimistic and queued-message operations', () => {
     })
 })
 
-describe('V2 persistence boundary', () => {
+describe('persisted window boundary', () => {
     it('ignores the V1 pending-buffer state entirely', () => {
         const id = sessionId('ignore-v1')
         sessionStorage.setItem(`hapi:message-window:v1:${id}`, JSON.stringify({
@@ -1975,9 +2018,9 @@ describe('V2 persistence boundary', () => {
         expect(getMessageWindowState(id).messages).toEqual([])
     })
 
-    it('hydrates V2 sending rows as queued reconciliation candidates', () => {
+    it('hydrates sending rows as queued reconciliation candidates', () => {
         const id = sessionId('hydrate-sending')
-        sessionStorage.setItem(`hapi:message-window:v2:${id}`, JSON.stringify({
+        sessionStorage.setItem(`hapi:message-window:v3:${id}`, JSON.stringify({
             messages: [makeUserMessage({
                 id: 'local-1',
                 localId: 'local-1',
