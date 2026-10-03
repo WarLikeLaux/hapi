@@ -1,4 +1,5 @@
 import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, PermissionMode } from '@hapi/protocol/types'
+import { isObject, type AnswerCodexAsyncQuestionRequest } from '@hapi/protocol'
 import { PERMISSION_REQUEST_NOT_FOUND_MESSAGE, RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import {
     ArchiveCodexSessionRpcResponseSchema,
@@ -614,6 +615,12 @@ export class RpcGateway {
 
     async implementCodexPlan(sessionId: string, planId: string): Promise<ImplementCodexPlanResult> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ImplementCodexPlan, { planId }, 60_000) as ImplementCodexPlanResult
+    }
+    async answerCodexAsyncQuestion(sessionId: string, request: AnswerCodexAsyncQuestionRequest): Promise<void> {
+        const response = await this.sessionRpc(sessionId, RPC_METHODS.AnswerCodexAsyncQuestion, request, 60_000)
+        if (!isObject(response) || response.ok !== true) {
+            throw new Error(isObject(response) && typeof response.error === 'string' ? response.error : 'Answer delivery could not be confirmed')
+        }
     }
 
     async rewindConversation(

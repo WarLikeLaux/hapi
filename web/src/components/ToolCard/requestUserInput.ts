@@ -40,7 +40,7 @@ export type RequestUserInputQuestionInfo = {
 export type RequestUserInputAnswers = Record<string, { answers: string[] }>
 
 export function isRequestUserInputToolName(toolName: string): boolean {
-    return toolName === 'request_user_input'
+    return toolName === 'request_user_input' || toolName === 'request_user_input_async'
 }
 
 export function openRequestUserInputUrl(url: string): boolean {

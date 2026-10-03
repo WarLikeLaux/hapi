@@ -211,6 +211,12 @@ describe('RpcGateway permission RPC error surfacing (tiann/hapi#1735)', () => {
         // mislabeled — a narrower, orthogonal gap than what this PR fixes.
         await expect(gateway.approvePermission('session-1', 'request-1')).resolves.toBeUndefined()
     })
+    it('does not report an async question answer as delivered when the CLI returns an error envelope', async () => {
+        const gateway = createGatewayWithResponse('Previous answer delivery is uncertain')
+        await expect(gateway.answerCodexAsyncQuestion('session-1', {
+            questionId: 'question', answers: { '0': { answers: ['Chat'] } }
+        })).rejects.toThrow('Previous answer delivery is uncertain')
+    })
 
     it('resolves normally when the CLI accepts the answer', async () => {
         const { gateway } = createGateway()

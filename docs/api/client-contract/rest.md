@@ -133,6 +133,8 @@ Errors include HTTP 409 (`stale_plan` / `unavailable`), 502 (`failed`) and 503
 automatically resend after an unconfirmed result. "Continue planning" is a
 local composer-focus action and does not submit a native approval or message.
 
+Shared Codex async questions: `POST /api/sessions/:id/codex/async-question/answer` accepts `{questionId, answers: Record<string, {answers: string[]}>}` and returns `{ok: true}` after native acceptance. Match the `request_user_input_async` card's tool-call id and question ids. The CLI validates the question against the root thread's native history, steers the answer into an active turn, or queues it when idle. Replies and selected choices persist in history. Repeated submissions use one stable native message id. Invalid bodies return 400, inactive or unsupported sessions return 409, and unconfirmed delivery returns 502 with `{error}`. The question does not create a permission request or block the agent. Questions in descendant traces are currently displayed for reference.
+
 The configuration routes in the table above respond `{ok: true}`; apply-failures return 409 with a message. Model/effort **catalogs** (RPC-wrapped; all return `{success, ...} \| {success: false, error}`):
 
 | Method & path | Notes |

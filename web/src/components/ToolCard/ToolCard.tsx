@@ -39,6 +39,7 @@ export function shouldShowInlineToolCardBody(
     presentationMinimal: boolean,
     terminalToolDisplayMode: TerminalToolDisplayMode
 ): boolean {
+    if (toolName === 'request_user_input_async') return true
     if (isSubagentToolName(toolName)) return false
     if (TERMINAL_RELATED_TOOL_NAMES.has(toolName)) {
         return terminalToolDisplayMode === 'detailed'
@@ -447,7 +448,11 @@ function ToolCardInner(props: ToolCardProps) {
         permission.status === 'resolved' || permission.status === 'pending'
         || ((permission.status === 'denied' || permission.status === 'canceled') && Boolean(permission.reason))
     ))
-    const hasBody = showInline || taskSummary !== null || showsPermissionFooter
+    const hasAsyncQuestion = toolName === 'request_user_input_async'
+        && props.metadata?.flavor === 'codex'
+        && !(isObject(props.block.tool.input) && props.block.tool.input.readOnly === true)
+        && props.block.tool.result == null
+    const hasBody = showInline || taskSummary !== null || showsPermissionFooter || hasAsyncQuestion
     // Header/content padding already supplies 12-16px below timing; add only
     // the remainder needed to match the detail dialog's 16px section gap.
     const inlineBodySpacing = props.block.tool.state === 'pending'
@@ -565,7 +570,7 @@ function ToolCardInner(props: ToolCardProps) {
                         </div>
                     ) : null}
 
-                    {showInline ? (
+                    {showInline && !hasAsyncQuestion ? (
                         CompactToolView ? (
                             compactViewOwnsInteractions ? (
                                 <div className={cn(inlineBodySpacing, 'rounded-xl')}>
@@ -620,7 +625,7 @@ function ToolCardInner(props: ToolCardProps) {
                             disabled={props.disabled}
                             onDone={props.onDone}
                         />
-                    ) : isRequestUserInput && permission?.status === 'pending' ? (
+                    ) : isRequestUserInput && (permission?.status === 'pending' || hasAsyncQuestion) ? (
                         <RequestUserInputFooter
                             api={props.api}
                             sessionId={props.sessionId}

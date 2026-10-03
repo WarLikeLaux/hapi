@@ -5,6 +5,7 @@ import { registerGeneratedImageFromPath } from '@/modules/common/generatedImages
 import { AppServerEventConverter } from '../utils/appServerEventConverter';
 import { record, string } from './gateway';
 import { codexPlanProposalId } from './plan';
+import { asyncQuestionForItem, asyncQuestionAnswerId, asyncQuestionAnswerDisplay, parseAsyncQuestionAnswer } from './asyncQuestions';
 
 export function inputText(input: unknown): string {
     if (!Array.isArray(input)) return '';
@@ -48,6 +49,9 @@ export class SharedCodexProjection {
     }
 
     turnFor(id: string): string | undefined { return this.turns.get(id); }
+    answerAsyncQuestion(questionId: string, answers: Record<string, { answers: string[] }>): void {
+        this.send({ type: 'tool-call-result', callId: questionId, output: { answers } }, `async-answer:${questionId}`);
+    }
     reset(): void { this.converter = new AppServerEventConverter(); this.emitted.clear(); }
     private send(body: Record<string, unknown>, key: string, publish = true): void {
         if (this.emitted.has(key)) return;
@@ -112,8 +116,12 @@ export class SharedCodexProjection {
                 if (turnId) this.turns.set(id, turnId);
                 if (publish) await this.committed(id);
                 const text = inputText(item.content);
+                const answer = parseAsyncQuestionAnswer(text);
+                if (answer && id === asyncQuestionAnswerId(answer.questionId) && publish) {
+                    this.answerAsyncQuestion(answer.questionId, answer.answers);
+                }
                 if (publish) {
-                    if (text) this.session.sendUserMessage(text, undefined, id);
+                    if (text) this.session.sendUserMessage(answer ? asyncQuestionAnswerDisplay(text) : text, undefined, id);
                     this.session.updateMetadata(metadata => ({ ...metadata, conversationHistoryTurns: Object.fromEntries(this.turns),
                         ...(turnId && (!firstInTurn || firstInTurn === id) ? { conversationHistoryPoints: { ...metadata.conversationHistoryPoints, [id]: true } } : {})
                     }));
@@ -124,6 +132,14 @@ export class SharedCodexProjection {
             this.send({ type: 'agent-run-update', agentId: this.threadId, cardId: `codex-agent:${this.threadId}`,
                 status: method === 'turn/started' ? 'running' : record(p.turn).status === 'completed' ? 'completed' : 'failed'
             }, `lifecycle:${turnId}:${method}`, publish);
+        }
+        const question = method === 'item/completed' ? asyncQuestionForItem(this.threadId, item) : undefined;
+        if (question) {
+            const key = `${turnId ?? 'thread'}:${itemId}:async-question`;
+            this.send({ type: 'tool-call', name: 'request_user_input_async', callId: question.id,
+                input: { questions: question.questions, readOnly: Boolean(this.parentThreadId) } }, key, publish);
+            this.send({ type: 'tool-call-result', callId: question.id, output: null }, `${key}:result`, publish);
+            return;
         }
         const events = this.converter.handleNotification(method, params);
         for (const event of events) {
@@ -200,7 +216,8 @@ export class SharedCodexProjection {
                 await this.project('item/started', params, undefined, publish);
                 // Active snapshots can contain partial assistant text. Do not
                 // settle it under the final stable id and suppress completion.
-                if (turn.status !== 'inProgress' || record(item).status === 'completed' || record(item).type === 'userMessage') {
+                if (turn.status !== 'inProgress' || record(item).status === 'completed' || record(item).type === 'userMessage'
+                    || asyncQuestionForItem(this.threadId, item)) {
                     if (!this.parentThreadId) {
                         const title = successfulTitle(record(item));
                         if (title && string(record(item).id)) {

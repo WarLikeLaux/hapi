@@ -1164,3 +1164,8 @@ export type UsageSummaryResponse = {
     byModel: UsageSummaryBucket[]
     updatedAt: number
 }
+export const AnswerCodexAsyncQuestionRequestSchema = z.object({
+    questionId: z.string().min(1),
+    answers: z.record(z.string(), z.object({ answers: z.array(z.string()).min(1) }))
+})
+export type AnswerCodexAsyncQuestionRequest = z.infer<typeof AnswerCodexAsyncQuestionRequestSchema>

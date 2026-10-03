@@ -15,6 +15,7 @@ import {
 import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, GitComparisonResponse, GitComparisonScope, MessageDeliveryMode, MessageSearchResponse, MessagesResponse, QueuedStateResponse, RewindConversationErrorCode, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
 import type { SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { ImplementCodexPlanResult } from '@hapi/protocol/apiTypes'
+import type { AnswerCodexAsyncQuestionRequest } from '@hapi/protocol'
 import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import type { MachineQuotaSnapshot, QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
 import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
@@ -2313,6 +2314,12 @@ export class SyncEngine {
         // CLI validates native history and deduplicates already accepted actions.
         // A stale Hub plan id must not prevent a safe retry of a lost RPC reply.
         return await this.rpcGateway.implementCodexPlan(access.sessionId, planId)
+    }
+    async answerCodexAsyncQuestion(sessionId: string, namespace: string, request: AnswerCodexAsyncQuestionRequest): Promise<void> {
+        const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
+        if (!access.ok || !access.session.active || access.session.metadata?.flavor !== 'codex'
+            || !access.session.metadata.capabilities?.concurrentClients) throw new Error('An active shared Codex session is required')
+        await this.rpcGateway.answerCodexAsyncQuestion(access.sessionId, request)
     }
 
     async switchSession(sessionId: string, to: 'remote' | 'local'): Promise<void> {
