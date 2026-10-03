@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router'
 import './index.css'
+import { ImagePreviewProvider } from './components/ImagePreview'
 import { initializeFontScale } from '@/hooks/useFontScale'
 import { getTelegramWebApp, isTelegramEnvironment, loadTelegramSdk } from './hooks/useTelegram'
 import { queryClient } from './lib/query-client'
@@ -60,7 +61,9 @@ async function bootstrap() {
         <React.StrictMode>
             <I18nProvider>
                 <QueryClientProvider client={queryClient}>
-                    <RouterProvider router={router} />
+                    <ImagePreviewProvider>
+                        <RouterProvider router={router} />
+                    </ImagePreviewProvider>
                     {import.meta.env.DEV ? <ReactQueryDevtools initialIsOpen={false} /> : null}
                 </QueryClientProvider>
             </I18nProvider>
