@@ -619,7 +619,25 @@ export class ApiClient {
 
         const qs = params.toString()
         const url = `/api/sessions/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ''}`
-        return await this.request<MessagesResponse>(url)
+        const controller = new AbortController()
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        const deadline = new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => {
+                const error = new Error('Message loading timed out. Please retry.')
+                controller.abort(error)
+                reject(error)
+            }, 30_000)
+        })
+        try {
+            // Bound the entire read, including body decoding and authentication refresh.
+            // Racing also releases the caller if a suspended fetch ignores abort.
+            return await Promise.race([
+                this.request<MessagesResponse>(url, { signal: controller.signal }),
+                deadline
+            ])
+        } finally {
+            clearTimeout(timeout)
+        }
     }
 
     async searchMessages(

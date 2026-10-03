@@ -98,12 +98,18 @@ type TailSyncController = {
 }
 
 const states = new Map<string, InternalState>()
+// Keep each session's latest answer available even while its active window
+// pages away from the tail. These snapshots share message objects with states.
+const cachedTails = new Map<string, InternalState>()
 const listeners = new Map<string, Set<() => void>>()
 const tailSyncControllers = new Map<string, TailSyncController>()
 const appliedRewindLocalIds = new Map<string, Set<string>>()
 
 const NOTIFY_THROTTLE_MS = 150
 const PERSIST_THROTTLE_MS = 200
+const CACHE_UNIT_BUDGET = 4
+const CACHE_CHARACTER_BUDGET = 256 * 1024
+const messageCharacterSizes = new WeakMap<DecryptedMessage, number>()
 // V3 cursors certify REST coverage. V2 could persist a live message past an unseen gap, so those snapshots must be fetched again rather than resumed.
 const STORAGE_KEY_PREFIX = 'hapi:message-window:v3:'
 const pendingNotifySessionIds = new Set<string>()
@@ -196,14 +202,16 @@ function persistState(sessionId: string, state: InternalState): void {
             sessionStorage.removeItem(getStorageKey(sessionId))
             return
         }
+        const tail = cachedTails.get(sessionId)
+        if (!tail) return
         const persisted: PersistedMessageWindowState = {
-            messages: state.messages,
-            hasMore: state.hasMore,
-            oldestPositionAt: state.oldestPositionAt,
-            oldestPositionSeq: state.oldestPositionSeq,
-            newestPositionAt: state.newestPositionAt,
-            newestPositionSeq: state.newestPositionSeq,
-            epoch: state.epoch
+            messages: tail.messages,
+            hasMore: tail.hasMore,
+            oldestPositionAt: tail.oldestPositionAt,
+            oldestPositionSeq: tail.oldestPositionSeq,
+            newestPositionAt: tail.newestPositionAt,
+            newestPositionSeq: tail.newestPositionSeq,
+            epoch: tail.epoch
         }
         sessionStorage.setItem(getStorageKey(sessionId), JSON.stringify(persisted))
     } catch {
@@ -211,6 +219,7 @@ function persistState(sessionId: string, state: InternalState): void {
 }
 
 function clearPersistedState(sessionId: string): void {
+    cachedTails.delete(sessionId)
     pendingPersistSessionIds.delete(sessionId)
     if (!isSessionStorageAvailable()) {
         return
@@ -222,6 +231,7 @@ function clearPersistedState(sessionId: string): void {
 }
 
 function flushPersistedStates(): void {
+    if (persistTimerId !== null) clearTimeout(persistTimerId)
     persistTimerId = null
     const sessionIds = [...pendingPersistSessionIds]
     pendingPersistSessionIds.clear()
@@ -229,16 +239,27 @@ function flushPersistedStates(): void {
         const state = states.get(sessionId)
         if (state) {
             persistState(sessionId, state)
+            const tail = cachedTails.get(sessionId)
+            if (tail && !listeners.has(sessionId) && !state.isSyncingTail && !state.isLoadingMore) {
+                // Defer cleanup so React's temporary unsubscribe in StrictMode
+                // cannot replace a mounted reader's history window.
+                states.set(sessionId, restoreCachedTail(state, tail))
+                if (!tailSyncControllers.get(sessionId)?.running) {
+                    tailSyncControllers.delete(sessionId)
+                }
+            }
         } else {
             clearPersistedState(sessionId)
         }
     }
 }
 
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', flushPersistedStates)
+}
+
 function schedulePersist(sessionId: string): void {
-    if (!isSessionStorageAvailable()) {
-        return
-    }
+    // In-memory cleanup still runs when browser storage is unavailable.
     pendingPersistSessionIds.add(sessionId)
     if (persistTimerId === null) {
         persistTimerId = setTimeout(flushPersistedStates, PERSIST_THROTTLE_MS)
@@ -321,6 +342,7 @@ function getState(sessionId: string): InternalState {
     }
     const created = hydrateState(sessionId) ?? createState(sessionId)
     states.set(sessionId, created)
+    if (shouldPersistState(created)) cachedTails.set(sessionId, compactCachedTail(created))
     return created
 }
 
@@ -333,11 +355,34 @@ function notifyImmediate(sessionId: string): void {
 }
 
 function setState(sessionId: string, next: InternalState, immediate = false): void {
+    const previous = states.get(sessionId)
+    if (next.viewMode === 'tail' && !next.requiresLatestReset) {
+        cachedTails.set(sessionId, compactCachedTail(next))
+    } else if (previous?.viewMode === 'tail' && next.viewMode === 'history' && !previous.requiresLatestReset) {
+        cachedTails.set(sessionId, compactCachedTail(previous))
+    }
+    const tail = cachedTails.get(sessionId)
+    if (tail && previous && (next.viewMode === 'history' || next.requiresLatestReset) && next.messages !== previous.messages) {
+        const currentById = new Map(next.messages.map(message => [message.id, message]))
+        const currentByLocalId = new Map(next.messages.filter(message => message.localId).map(message => [message.localId, message]))
+        const previousIds = new Set(previous.messages.map(message => message.id))
+        const refreshed = tail.messages.flatMap(message => {
+            const current = currentById.get(message.id) ?? (message.localId ? currentByLocalId.get(message.localId) : undefined)
+            if (current) return [current]
+            // Removing a queued/optimistic prompt must also remove it from the
+            // warm snapshot. Paging ordinary history out is not a deletion.
+            if (previousIds.has(message.id) && isQueuedForInvocation(message)) return []
+            return [message]
+        })
+        cachedTails.set(sessionId, compactCachedTail(buildState(tail, {
+            messages: mergeMessages(refreshed, next.messages.filter(isQueuedForInvocation))
+        })))
+    }
     states.set(sessionId, next)
-    // A latest-reset state still contains the previous server snapshot. Do not
-    // persist that stale window while the authoritative replacement is in
-    // flight; a reload during the reset must not resurrect removed messages.
-    if (next.requiresLatestReset) {
+    // A history window can lose its tail while paging. Persist only its warm
+    // tail, never that incomplete history window. Structural invalidation
+    // clears the warm snapshot so removed messages cannot be resurrected.
+    if (next.requiresLatestReset && !cachedTails.has(sessionId)) {
         pendingPersistSessionIds.delete(sessionId)
     } else {
         schedulePersist(sessionId)
@@ -347,6 +392,65 @@ function setState(sessionId: string, next: InternalState, immediate = false): vo
     } else {
         scheduleNotify(sessionId)
     }
+}
+
+function cachedCharacterSize(messages: DecryptedMessage[]): number {
+    let total = 0
+    for (const message of messages) {
+        let size = messageCharacterSizes.get(message)
+        if (size === undefined) {
+            size = JSON.stringify(message).length
+            messageCharacterSizes.set(message, size)
+        }
+        total += size
+    }
+    return total
+}
+
+function compactCachedTail(previous: InternalState): InternalState {
+    let { kept } = trimToUnitBudget(previous.messages, CACHE_UNIT_BUDGET, 'append')
+    let partialCoverage = previous.requiresLatestReset
+    if (cachedCharacterSize(kept) > CACHE_CHARACTER_BUDGET) {
+        // The final text stays complete. Intermediate tool/stream records can
+        // be restored asynchronously without delaying the cached first paint.
+        const anchors = findConversationAnchorIds(kept)
+        const compacted = kept.filter(message => anchors.has(message.id) || isQueuedForInvocation(message))
+        partialCoverage ||= compacted.length !== kept.length
+        kept = compacted
+        for (let units = CACHE_UNIT_BUDGET - 1; units >= 2 && cachedCharacterSize(kept) > CACHE_CHARACTER_BUDGET; units--) {
+            kept = trimToUnitBudget(kept, units, 'append').kept
+        }
+        // The latest prompt and complete answer may exceed the soft budget.
+        // Prefer instant access to that answer over truncating its text.
+    }
+    const dropped = kept.length !== previous.messages.length
+    const oldest = dropped ? derivePosition(kept, 'oldest') : readPosition(previous.oldestPositionAt, previous.oldestPositionSeq)
+    return buildState(previous, {
+        messages: kept,
+        viewMode: 'tail',
+        hasMore: previous.hasMore || dropped,
+        isSyncingTail: false,
+        isLoadingMore: false,
+        oldestPositionAt: oldest?.at ?? null,
+        oldestPositionSeq: oldest?.seq ?? null,
+        newestPositionAt: partialCoverage ? null : previous.newestPositionAt,
+        newestPositionSeq: partialCoverage ? null : previous.newestPositionSeq,
+        requiresLatestReset: partialCoverage
+    })
+}
+
+function restoreCachedTail(previous: InternalState, tail: InternalState): InternalState {
+    return buildState(previous, {
+        messages: mergeMessages(tail.messages, previous.messages.filter(isQueuedForInvocation)),
+        viewMode: 'tail',
+        hasMore: tail.hasMore,
+        epoch: tail.epoch,
+        oldestPositionAt: tail.oldestPositionAt,
+        oldestPositionSeq: tail.oldestPositionSeq,
+        newestPositionAt: tail.newestPositionAt,
+        newestPositionSeq: tail.newestPositionSeq,
+        requiresLatestReset: previous.requiresLatestReset || tail.requiresLatestReset
+    })
 }
 
 function updateState(
@@ -813,7 +917,7 @@ function applyLatestResponse(
         : options.replaceServerRows
             ? responseOldest
             : responseOldest ?? previousOldest
-    return buildState(previous, {
+    const next = buildState(previous, {
         messages: kept,
         hasMore: response.page.hasMore || (!options.replaceServerRows && previous.hasMore) || dropped.length > 0,
         epoch: response.page.epoch,
@@ -829,6 +933,26 @@ function applyLatestResponse(
             : previous.olderGeneration,
         warning: null
     })
+    if (previous.viewMode === 'history') {
+        // A latest response may be trimmed out of the reader's history window.
+        // Cache that authoritative tail separately before applying the trim.
+        const cached = cachedTails.get(previous.sessionId)
+        const cacheRows = cached?.epoch === response.page.epoch && !response.page.reset
+            ? mergeMessages(cached.messages, retainedResponseMessages)
+            : retainedResponseMessages
+        const cacheOldest = derivePosition(cacheRows, 'oldest')
+        cachedTails.set(previous.sessionId, compactCachedTail(buildState(createState(previous.sessionId), {
+            messages: cacheRows,
+            hasMore: response.page.hasMore || cached?.hasMore === true,
+            epoch: response.page.epoch,
+            oldestPositionAt: cacheOldest?.at ?? null,
+            oldestPositionSeq: cacheOldest?.seq ?? null,
+            // The compacted snapshot may contain earlier rows outside this
+            // page's coverage. Reconcile the full tail on re-entry.
+            requiresLatestReset: true
+        })))
+    }
+    return next
 }
 
 function beginTailSync(sessionId: string): number {
@@ -1109,6 +1233,10 @@ async function waitForTailSyncDrain(
 }
 
 function enterTailMode(previous: InternalState): InternalState {
+    const tail = cachedTails.get(previous.sessionId)
+    if (previous.viewMode === 'history' && previous.requiresLatestReset && tail) {
+        previous = restoreCachedTail(previous, tail)
+    }
     const { kept, dropped } = trimToUnitBudget(previous.messages, TAIL_UNIT_BUDGET, 'append')
     const forceLatest = previous.requiresLatestReset
     const oldest = dropped.length > 0
@@ -1349,6 +1477,13 @@ export function setMessageViewMode(sessionId: string, mode: MessageViewMode): vo
 
 export function ingestIncomingMessages(sessionId: string, incoming: DecryptedMessage[]): void {
     if (incoming.length === 0) return
+    const previous = getState(sessionId)
+    const tail = cachedTails.get(sessionId)
+    if (tail && (previous.viewMode === 'history' || previous.requiresLatestReset)) {
+        cachedTails.set(sessionId, compactCachedTail(mergeIntoWindow(tail, incoming, {
+            mode: 'append', budgetUnits: CACHE_UNIT_BUDGET
+        })))
+    }
     // Live events can arrive after a missed interval or ahead of a REST page. Display them immediately, but only REST can certify a covered cursor.
     updateState(sessionId, (previous) => mergeIntoWindow(previous, incoming, {
         advanceTailRevision: true
@@ -1369,6 +1504,7 @@ export function subscribeMessageWindow(sessionId: string, listener: () => void):
         current.delete(listener)
         if (current.size === 0) {
             listeners.delete(sessionId)
+            schedulePersist(sessionId)
         }
     }
 }
