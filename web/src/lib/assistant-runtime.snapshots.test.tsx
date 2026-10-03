@@ -1,34 +1,41 @@
 import { StrictMode, useSyncExternalStore } from 'react'
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { AssistantRuntimeProvider, useAuiState } from '@assistant-ui/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Session } from '@/types/api'
 import type { UserTextBlock } from '@/chat/types'
 import { useHappyRuntime } from './assistant-runtime'
 
 describe('assistant-ui composer snapshots', () => {
-    it('replaces a same-size bounded history window', async () => {
+    it.each([false, true])('opens and replaces a bounded history window while running=%s', async (isRunning) => {
         const session = { id: 'history-window-test', active: true, thinking: false } as Session
         const block = (id: string): UserTextBlock => ({
             kind: 'user-text', id, localId: null, createdAt: 0, text: id
         })
-        const { result, rerender } = renderHook(({ blocks, historyVersion }) => useHappyRuntime({
-            session,
-            blocks,
-            messagesVersion: historyVersion,
-            historyVersion,
-            isSending: false,
-            onSendMessage: vi.fn(),
-            onAbort: vi.fn(async () => {}),
-        }), {
-            initialProps: { blocks: [block('m-3'), block('m-4')], historyVersion: 1 },
-            wrapper: StrictMode
-        })
-
-        await waitFor(() => expect(result.current.thread.getState().messages.map((message) => message.id))
-            .toEqual(['user-text:m-3', 'user-text:m-4']))
-        rerender({ blocks: [block('m-1'), block('m-2')], historyVersion: 2 })
-        await waitFor(() => expect(result.current.thread.getState().messages.map((message) => message.id))
-            .toEqual(['user-text:m-1', 'user-text:m-2']))
+        function Messages() {
+            const messages = useAuiState(state => state.thread.messages)
+            return <div data-testid="transcript">{messages.map(message => message.id).join(',')}</div>
+        }
+        function Transcript({ blocks, historyVersion }: { blocks: UserTextBlock[]; historyVersion: number }) {
+            const runtime = useHappyRuntime({
+                session,
+                blocks,
+                messagesVersion: historyVersion,
+                historyVersion,
+                isSending: false,
+                isRunning,
+                onSendMessage: vi.fn(),
+                onAbort: vi.fn(async () => {}),
+            })
+            return <AssistantRuntimeProvider runtime={runtime}><Messages /></AssistantRuntimeProvider>
+        }
+        const { rerender } = render(<Transcript blocks={[]} historyVersion={0} />, { wrapper: StrictMode })
+        rerender(<Transcript blocks={[block('m-3'), block('m-4')]} historyVersion={0} />)
+        await waitFor(() => expect(screen.getByTestId('transcript')).toHaveTextContent('user-text:m-3,user-text:m-4'))
+        rerender(<Transcript blocks={[block('m-1'), block('m-2')]} historyVersion={1} />)
+        await waitFor(() => expect(screen.getByTestId('transcript')).toHaveTextContent('user-text:m-1,user-text:m-2'))
+        expect(screen.getByTestId('transcript')).not.toHaveTextContent('user-text:m-3')
+        expect(screen.getByTestId('transcript')).not.toHaveTextContent('user-text:m-4')
     })
 
     it('keeps snapshots stable and updates running state without a composer edit', async () => {

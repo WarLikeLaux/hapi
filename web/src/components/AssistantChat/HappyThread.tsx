@@ -40,6 +40,7 @@ import { matchesSearchQuery } from '@hapi/protocol'
 type ScrollAnchor = {
     id: string
     topOffset: number
+    fallbacks?: { id: string; topOffset: number }[]
 }
 
 type PendingScrollRestore = {
@@ -233,12 +234,17 @@ export function shouldCancelInitialScrollSettling(
 export function captureScrollAnchor(viewport: HTMLElement): ScrollAnchor | null {
     const viewportRect = viewport.getBoundingClientRect()
     const messages = Array.from(viewport.querySelectorAll<HTMLElement>(MESSAGE_ANCHOR_SELECTOR))
-    for (const message of messages) {
+    for (const [index, message] of messages.entries()) {
         const rect = message.getBoundingClientRect()
         if (rect.bottom > viewportRect.top && rect.top < viewportRect.bottom) {
+            const fallbacks = messages.slice(index + 1, index + 4).map(message => ({
+                id: message.id,
+                topOffset: message.getBoundingClientRect().top - viewportRect.top
+            }))
             return {
                 id: message.id,
-                topOffset: rect.top - viewportRect.top
+                topOffset: rect.top - viewportRect.top,
+                ...(fallbacks.length > 0 ? { fallbacks } : {})
             }
         }
     }
@@ -246,14 +252,16 @@ export function captureScrollAnchor(viewport: HTMLElement): ScrollAnchor | null 
 }
 
 export function restoreScrollAnchor(viewport: HTMLElement, anchor: ScrollAnchor): boolean {
-    const target = document.getElementById(anchor.id)
-    if (!target || !viewport.contains(target)) {
-        return false
+    // A partial assistant card can be regrouped during a prepend. Preserve a nearby surviving row instead of relying on total chat height, which can also change below the reader.
+    for (const candidate of [anchor, ...(anchor.fallbacks ?? [])]) {
+        const target = document.getElementById(candidate.id)
+        if (!target || !viewport.contains(target)) continue
+        const viewportRect = viewport.getBoundingClientRect()
+        const targetRect = target.getBoundingClientRect()
+        viewport.scrollTop += targetRect.top - viewportRect.top - candidate.topOffset
+        return true
     }
-    const viewportRect = viewport.getBoundingClientRect()
-    const targetRect = target.getBoundingClientRect()
-    viewport.scrollTop += targetRect.top - viewportRect.top - anchor.topOffset
-    return true
+    return false
 }
 
 export function hasAppliedHistoryVersion(
@@ -636,6 +644,7 @@ export function HappyThread(props: {
     const shareTurnIdRef = useRef(0)
     const topSentinelRef = useRef<HTMLDivElement | null>(null)
     const pendingScrollRef = useRef<PendingScrollRestore | null>(null)
+    const restoredHistoryAnchorRef = useRef<ScrollAnchor | null>(null)
     const isLoadingMoreRef = useRef(props.isLoadingMoreMessages)
     const hasMoreMessagesRef = useRef(props.hasMoreMessages)
     const isSyncingTailRef = useRef(props.isSyncingTail)
@@ -833,6 +842,10 @@ export function HappyThread(props: {
             // once the matching historyVersion is rendered.
             if (historyLoaderRef.current.phase === 'awaiting-render') {
                 return
+            }
+            if (restoredHistoryAnchorRef.current) {
+                if (viewport.scrollTop === lastScrollTopRef.current) return
+                restoredHistoryAnchorRef.current = null
             }
             if (viewport.scrollTop > lastScrollTopRef.current) {
                 keyboardResumeActive = false
@@ -1218,6 +1231,7 @@ export function HappyThread(props: {
     // Scroll to bottom handler for the indicator button
     const scrollToBottom = useCallback(() => {
         const viewport = viewportRef.current
+        restoredHistoryAnchorRef.current = null
         setShowScrollToBottom(false)
         if (viewport) {
             tailScrollInProgressRef.current = true
@@ -1245,6 +1259,7 @@ export function HappyThread(props: {
         onViewModeChangeRef.current('tail')
         forceScrollTokenRef.current = props.forceScrollToken
         pendingScrollRef.current = null
+        restoredHistoryAnchorRef.current = null
         pullToLoadStateRef.current = 'idle'
         setPullToLoadState('idle')
         historyLoaderRef.current = {
@@ -1389,7 +1404,7 @@ export function HappyThread(props: {
         clearFailureRetryTimer()
         pendingScrollRef.current = {
             runId,
-            anchor: captureScrollAnchor(viewport),
+            anchor: restoredHistoryAnchorRef.current ?? captureScrollAnchor(viewport),
             scrollTop: viewport.scrollTop,
             scrollHeight: viewport.scrollHeight,
             targetHistoryVersion: null
@@ -1563,6 +1578,7 @@ export function HappyThread(props: {
     }, [loadOlderFromConsumer])
 
     const handleOutlineSelect = useCallback(async (item: ConversationOutlineItem) => {
+        restoredHistoryAnchorRef.current = null
         const target = await locateOutlineTargetMessage({
             targetMessageId: item.targetMessageId,
             findTarget: (anchorId) => document.getElementById(anchorId),
@@ -1611,6 +1627,12 @@ export function HappyThread(props: {
                 && !pendingScrollRef.current
             ) {
                 scrollToBottomInstant()
+            } else if (!pendingScrollRef.current && restoredHistoryAnchorRef.current) {
+                // Markdown and tool cards can finish sizing after the history commit. Keep the same reading anchor until the user scrolls again.
+                const viewport = viewportRef.current
+                if (viewport && restoreScrollAnchor(viewport, restoredHistoryAnchorRef.current)) {
+                    lastScrollTopRef.current = viewport.scrollTop
+                }
             }
         })
         observer.observe(content)
@@ -1641,6 +1663,7 @@ export function HappyThread(props: {
                 return
             }
             lastScrollTopRef.current = viewport.scrollTop
+            restoredHistoryAnchorRef.current = restoredByAnchor ? pending.anchor : null
             pendingScrollRef.current = null
             clearFailureRetryTimer()
             historyLoaderRef.current = {

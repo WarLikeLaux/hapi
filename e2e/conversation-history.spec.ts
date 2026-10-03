@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('successive history loads preserve the visible conversation anchor', async ({ page }) => {
+test('history loads and late content sizing preserve the reading position until the user scrolls', async ({ page }) => {
     await page.goto('/e2e-fixtures/history-load-fixture.html?conversation=1')
     const viewport = page.locator('.chat-scroll-y')
     await expect(viewport).toBeVisible()
@@ -31,6 +31,30 @@ test('successive history loads preserve the visible conversation anchor', async 
             const message = document.getElementById(saved.id)
             return message ? Math.abs(message.getBoundingClientRect().top - element.getBoundingClientRect().top - saved.offset) : Infinity
         }, anchor)).toBeLessThan(2)
+
+        // An attachment or markdown block above the reader can finish sizing after the page is applied.
+        await page.evaluate(saved => {
+            const preceding = document.getElementById(saved.id)?.previousElementSibling
+            if (!(preceding instanceof HTMLElement)) throw new Error('No preceding message to resize')
+            preceding.style.paddingBottom = '180px'
+        }, anchor)
+        await expect.poll(() => viewport.evaluate((element, saved) => {
+            const message = document.getElementById(saved.id)
+            return message ? Math.abs(message.getBoundingClientRect().top - element.getBoundingClientRect().top - saved.offset) : Infinity
+        }, anchor)).toBeLessThan(2)
+
+        const movedTop = await viewport.evaluate(element => {
+            element.scrollTop += 150
+            element.dispatchEvent(new Event('scroll'))
+            return element.scrollTop
+        })
+        await page.evaluate(saved => {
+            const preceding = document.getElementById(saved.id)?.previousElementSibling
+            if (!(preceding instanceof HTMLElement)) throw new Error('No preceding message to resize')
+            preceding.style.paddingBottom = '360px'
+        }, anchor)
+        await page.waitForTimeout(100)
+        expect(await viewport.evaluate(element => element.scrollTop)).toBe(movedTop)
     }
 
     await page.evaluate(() => window.__probe.refetch())

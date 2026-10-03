@@ -434,18 +434,29 @@ describe('scroll anchor helpers', () => {
         expect(shouldCancelInitialScrollSettling(intent, false)).toBe(false)
     })
 
-    it('restores the captured message to the same viewport offset', () => {
+    it.each([false, true])('restores the reading position when the first card is regrouped=%s', (regrouped) => {
         const viewport = document.createElement('div')
         const message = document.createElement('div')
+        const nextMessage = document.createElement('div')
         message.id = 'anchored-message'
-        viewport.append(message)
+        nextMessage.id = 'next-message'
+        const messages = document.createElement('div')
+        messages.className = 'happy-thread-messages'
+        messages.append(message, nextMessage)
+        viewport.append(messages)
         document.body.append(viewport)
         viewport.scrollTop = 200
 
         vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue(rect({ top: 100, bottom: 500 }))
-        vi.spyOn(message, 'getBoundingClientRect').mockReturnValue(rect({ top: 180, bottom: 260 }))
+        const messageRect = vi.spyOn(message, 'getBoundingClientRect').mockReturnValue(rect({ top: 130, bottom: 200 }))
+        const nextRect = vi.spyOn(nextMessage, 'getBoundingClientRect').mockReturnValue(rect({ top: 210, bottom: 300 }))
+        const anchor = captureScrollAnchor(viewport)
+        expect(anchor).not.toBeNull()
+        messageRect.mockReturnValue(rect({ top: 180, bottom: 250 }))
+        nextRect.mockReturnValue(rect({ top: 260, bottom: 350 }))
+        if (regrouped) message.remove()
 
-        expect(restoreScrollAnchor(viewport, { id: 'anchored-message', topOffset: 30 })).toBe(true)
+        expect(restoreScrollAnchor(viewport, anchor!)).toBe(true)
         expect(viewport.scrollTop).toBe(250)
 
         viewport.remove()
