@@ -7,6 +7,7 @@ React Mini App / PWA for monitoring and controlling hapi sessions.
 - Session list with status, pending approvals, todos, and summaries.
 - Chat view with streaming updates and message sending.
 - Permission approval and denial workflows.
+- Codex async questions show choices and free-text answers while the agent continues working. Replies enter the active turn or the native queue, and selected answers remain in the conversation after reconnecting.
 - Codex `request_user_input` choices honor `isOther`: **None of the above**
   focuses optional notes, supports empty notes, and preserves the canonical
   wire value across languages. Recorded other answers and notes remain visible

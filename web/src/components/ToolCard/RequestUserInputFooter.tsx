@@ -78,6 +78,7 @@ export function RequestUserInputFooter(props: {
     const { t } = useTranslation()
     const { haptic } = usePlatform()
     const permission = props.tool.permission
+    const isAsync = props.tool.name === 'request_user_input_async'
     const parsed = useMemo(() => parseRequestUserInputInput(props.tool.input), [props.tool.input])
     const questions = parsed.questions
 
@@ -86,6 +87,7 @@ export function RequestUserInputFooter(props: {
 
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [submitted, setSubmitted] = useState(false)
     const noteRef = useRef<HTMLTextAreaElement>(null)
 
     useEffect(() => {
@@ -97,9 +99,10 @@ export function RequestUserInputFooter(props: {
         setStateByQuestion(initial)
         setLoading(false)
         setError(null)
+        setSubmitted(false)
     }, [props.tool.id])
 
-    if (!permission || permission.status !== 'pending') return null
+    if (isAsync ? props.tool.result != null || submitted : !permission || permission.status !== 'pending') return null
     if (!isRequestUserInputToolName(props.tool.name)) return null
 
     const run = async (action: () => Promise<void>, hapticType: 'success' | 'error') => {
@@ -152,7 +155,12 @@ export function RequestUserInputFooter(props: {
         }
 
         setLoading(true)
-        await run(() => props.api.approvePermission(props.sessionId, permission.id, formattedAnswers), 'success')
+        await run(async () => {
+            if (isAsync) {
+                await props.api.answerCodexAsyncQuestion(props.sessionId, props.tool.id, formattedAnswers.answers)
+                setSubmitted(true)
+            } else if (permission) await props.api.approvePermission(props.sessionId, permission.id, formattedAnswers)
+        }, 'success')
         setLoading(false)
     }
 

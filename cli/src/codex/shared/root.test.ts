@@ -39,6 +39,14 @@ vi.mock('../codexAppServerClient', () => ({
                 this.queue.push(entry);
                 return { queuedSubmission: entry };
             }
+            if (method === 'turn/steer') {
+                const turn = this.thread.turns.find(turn => turn.id === params.expectedTurnId);
+                if (!turn || turn.status !== 'inProgress') throw new Error('Turn is no longer active');
+                const item = { id: 'steered-answer', type: 'userMessage', clientId: params.clientUserMessageId, content: params.input };
+                turn.items.push(item);
+                this.notify?.('item/completed', { threadId: 'thread', turnId: turn.id, item });
+                return { turnId: turn.id };
+            }
             throw new Error(`Unexpected request: ${method}`);
         }
     },
@@ -77,7 +85,7 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end'] }) 
         },
         rpcHandlerManager: { registerHandler: (name: string, handler: (raw: unknown) => Promise<unknown>) => rpc.set(name, handler) },
         sendSessionEvent() {}, sendAgentMessage: send, emitSessionReady() {},
-        sendUserMessage() {}, emitMessagesConsumed() {}, emitSteerIndeterminate() {}, syncNativeQueuedMessage() {},
+        sendUserMessage: vi.fn(), emitMessagesConsumed() {}, emitSteerIndeterminate() {}, syncNativeQueuedMessage() {},
         sendSessionDeath() {}, async flush() {}, close() {}
     } as unknown as ApiSessionClient;
     const end = opts?.end ?? (async () => { throw new Error('Unexpected root archive'); });
@@ -118,6 +126,67 @@ async function completePlan(f: Awaited<ReturnType<typeof fixture>>, status = 'co
     await vi.waitFor(() => expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ name: 'ExitPlanMode' }), expect.any(String)));
     return codexPlanProposalId('thread', turn.id, 'plan-item');
 }
+
+describe('shared async questions', () => {
+    it.each([false, true])('projects async questions and delivers exactly one reply (active turn: %s)', async active => {
+        const f = await fixture();
+        await f.root.activate();
+        const item = { id: 'ask', type: 'agentMessage', delivery: 'async', text: 'Choose a workflow',
+            questions: [{ title: 'Workflow?', options: ['Chat', 'Page'] }, { title: 'Details?', options: null }] };
+        f.native.thread.turns.push({ id: 'turn', status: active ? 'inProgress' : 'completed', items: [item] });
+        f.native.notify('item/completed', { threadId: 'thread', turnId: 'turn', item });
+        await vi.waitFor(() => expect(f.send).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'tool-call', name: 'request_user_input_async', callId: 'codex-async-question:thread:ask',
+            input: expect.objectContaining({ questions: [
+                expect.objectContaining({ id: '0', question: 'Workflow?', options: [{ label: 'Chat' }, { label: 'Page' }] }),
+                expect.objectContaining({ id: '1', question: 'Details?', options: [] })
+            ] })
+        }), expect.any(String)));
+        const answer = f.rpc.get('answer-codex-async-question')!;
+        const request = { questionId: 'codex-async-question:thread:ask', answers: {
+            '0': { answers: ['Page'] }, '1': { answers: ['user_note: private diary'] }
+        } };
+        await expect(answer({ ...request, answers: {} })).rejects.toThrow('Answer every question');
+        const nativeRequest = vi.spyOn(f.root.client, 'request');
+        await answer(request);
+        await answer({ ...request, answers: { '0': { answers: ['Chat'] }, '1': { answers: ['changed'] } } });
+        const deliveries = nativeRequest.mock.calls.filter(([method]) => method === (active ? 'turn/steer' : 'thread/queue/add'));
+        expect(deliveries).toHaveLength(1);
+        expect(JSON.stringify(deliveries[0][1])).toContain('private diary');
+        expect(f.send.mock.calls.filter(([body]) => body.type === 'tool-call-result' && body.output?.answers).at(-1)?.[0])
+            .toMatchObject({ callId: request.questionId, output: { answers: request.answers } });
+        if (active) await vi.waitFor(() => expect(f.root.session.sendUserMessage).toHaveBeenCalledWith(
+            'Workflow?\nPage\n\nDetails?\nprivate diary', undefined, `${request.questionId}:answer`
+        ));
+        await expect(answer({ ...request, questionId: 'codex-async-question:other:ask' })).rejects.toThrow();
+        f.send.mockClear();
+        f.reconnect();
+        await f.root.refresh();
+        await answer(request);
+        expect(nativeRequest.mock.calls.filter(([method]) => method === (active ? 'turn/steer' : 'thread/queue/add'))).toHaveLength(1);
+        expect(f.send.mock.calls.filter(([body]) => body.type === 'tool-call-result' && body.output?.answers).at(-1)?.[0])
+            .toMatchObject({ callId: request.questionId, output: { answers: request.answers } });
+    });
+
+    it('keeps an uncertain reply unresolved and refuses a blind retry', async () => {
+        const f = await fixture();
+        await f.root.activate();
+        f.native.thread.turns.push({ id: 'turn', status: 'completed', items: [
+            { id: 'ask', type: 'agentMessage', delivery: 'async', text: 'Choose', questions: [{ title: 'Choose', options: ['Chat'] }] }
+        ] });
+        const nativeRequest = f.root.client.request.bind(f.root.client);
+        const request = vi.spyOn(f.root.client, 'request').mockImplementation(async (method, params) => {
+            if (method === 'thread/queue/add') return {};
+            return nativeRequest(method, params);
+        });
+        const answer = f.rpc.get('answer-codex-async-question')!;
+        const payload = { questionId: 'codex-async-question:thread:ask', answers: { '0': { answers: ['Chat'] } } };
+        await expect(answer(payload)).rejects.toThrow();
+        await expect(answer(payload)).rejects.toThrow('Previous answer delivery is uncertain');
+        expect(request.mock.calls.filter(([method]) => method === 'thread/queue/add')).toHaveLength(1);
+        expect(f.send.mock.calls.some(([body]) => body.type === 'tool-call-result' && body.output?.answers)).toBe(false);
+    });
+});
 
 describe('shared settings confirmation', () => {
     it('skips the native round trip when the requested state already holds (Codex 0.157 no-op suppression)', async () => {

@@ -25,6 +25,8 @@ import { record, string } from './gateway';
 import { initializeSharedClient, type SharedLaunchOptions } from './launch';
 import { inheritedSandbox, settingsMatch } from './settings';
 import { planImplementationMessageId, planProposalForItem, planProposalForTurn } from './plan';
+import { AnswerCodexAsyncQuestionRequestSchema, type AnswerCodexAsyncQuestionRequest } from '@hapi/protocol';
+import { asyncQuestionForItem, asyncQuestionAnswerId, asyncQuestionAnswerText, asyncQuestionAnswerDisplay, parseAsyncQuestionAnswer } from './asyncQuestions';
 
 type RuntimeSettings = NonNullable<Parameters<ApiSessionClient['keepAlive']>[2]>;
 export type RootHost = {
@@ -211,7 +213,7 @@ export class SharedCodexRoot {
         this.threadId = threadId;
         this.queue = new SharedCodexQueue(this.client, threadId, join(this.host.directory, `${this.session.sessionId}.queue.json`),
             (ids, steered) => this.session.emitMessagesConsumed(ids, { steered }), ids => this.session.emitSteerIndeterminate(ids),
-            (id, input) => this.session.syncNativeQueuedMessage(id, input === null ? null : inputText(input)),
+            (id, input) => this.session.syncNativeQueuedMessage(id, input === null ? null : asyncQuestionAnswerDisplay(inputText(input))),
             ids => this.session.setSteerDeliveryState(ids, 'queued'));
         await this.queue.load();
         this.projection = new SharedCodexProjection(this.session, threadId, id => this.queue.committed(id));
@@ -540,6 +542,12 @@ export class SharedCodexRoot {
             this.work = work;
             return work;
         });
+        rpc.registerHandler(RPC_METHODS.AnswerCodexAsyncQuestion, raw => {
+            const request = AnswerCodexAsyncQuestionRequestSchema.parse(raw);
+            const work = this.work.catch(() => {}).then(() => this.answerAsyncQuestion(request)).then(() => ({ ok: true }));
+            this.work = work;
+            return work;
+        });
         rpc.registerHandler(RPC_METHODS.SteerQueuedMessage, async raw => {
             const { localId } = z.object({ localId: z.string().min(1) }).parse(raw);
             const expectedTurnId = this.currentTurn;
@@ -563,6 +571,36 @@ export class SharedCodexRoot {
         rpc.registerHandler(RPC_METHODS.RewindConversation, async () => {
             throw new Error('In-place rewind is not supported for concurrent Codex clients; fork at the message instead');
         });
+    }
+    private async answerAsyncQuestion(request: AnswerCodexAsyncQuestionRequest): Promise<void> {
+        if (this.closed || this.stopping || this.reconnecting || !this.client.isInitialized()) throw new Error('Codex is unavailable');
+        await this.notifications;
+        await this.refreshing;
+        const thread = await this.readThread();
+        const turns = Array.isArray(thread.turns) ? thread.turns.map(record) : [];
+        const items = turns.flatMap(turn => Array.isArray(turn.items) ? turn.items : []);
+        const question = items.map(item => asyncQuestionForItem(this.threadId, item)).find(value => value?.id === request.questionId);
+        if (!question) throw new Error('Async question not found in this Codex thread');
+        const id = asyncQuestionAnswerId(question.id);
+        const prior = items.map(record).find(item => item.type === 'userMessage' && (item.clientId ?? item.clientUserMessageId) === id);
+        const saved = parseAsyncQuestionAnswer(inputText(prior?.content ?? this.queue.input(id)));
+        const state = this.queue.state(id);
+        if (prior || state === 'queued' || state === 'consumed') {
+            if (saved) this.projection.answerAsyncQuestion(question.id, saved.answers);
+            return;
+        }
+        if (state === 'unknown') throw new Error('Previous answer delivery is uncertain. Check the queue before retrying.');
+        if (Object.keys(request.answers).length !== question.questions.length || question.questions.some(q => !request.answers[q.id]?.answers.some(value => value.trim()))) {
+            throw new Error('Answer every question');
+        }
+        const input = buildUserInputFromMessage(asyncQuestionAnswerText(request, question.questions));
+        const last = turns.at(-1);
+        const turnId = last?.status === 'inProgress' ? string(last.id) : undefined;
+        if (turnId) {
+            const result = await this.queue.steer(id, turnId, input);
+            if (!result.steered) throw new Error(result.error ?? 'Answer delivery is uncertain. Check the queue before retrying.');
+        } else await this.queue.enqueue(id, input, last?.status === 'interrupted');
+        this.projection.answerAsyncQuestion(question.id, request.answers);
     }
     private async assertBoundary(localId: string, turnId: string): Promise<Record<string, unknown>> {
         const thread = await this.readThread();

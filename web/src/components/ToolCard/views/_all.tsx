@@ -98,7 +98,8 @@ export const toolViewRegistry: Record<string, ToolViewComponent> = {
     ask_user_question: AskUserQuestionView,
     ask_user: AskUserQuestionView,
     exit_plan_mode: ExitPlanModeView,
-    request_user_input: RequestUserInputView
+    request_user_input: RequestUserInputView,
+    request_user_input_async: RequestUserInputView
 }
 
 export const toolFullViewRegistry: Record<string, ToolViewComponent> = {
@@ -125,7 +126,8 @@ export const toolFullViewRegistry: Record<string, ToolViewComponent> = {
     ask_user_question: AskUserQuestionView,
     ask_user: AskUserQuestionView,
     exit_plan_mode: ExitPlanModeView,
-    request_user_input: RequestUserInputView
+    request_user_input: RequestUserInputView,
+    request_user_input_async: RequestUserInputView
 }
 
 export function getToolViewComponent(toolName: string): ToolViewComponent | null {

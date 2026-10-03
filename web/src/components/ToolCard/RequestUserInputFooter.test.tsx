@@ -17,6 +17,7 @@ vi.mock('@/lib/use-translation', () => ({
 }))
 
 import { RequestUserInputFooter } from './RequestUserInputFooter'
+import { ToolCard } from './ToolCard'
 
 const choice = { id: 'choice', question: 'Choose', isOther: true, options: [{ label: 'Alpha' }, { label: 'Beta' }] }
 
@@ -49,6 +50,31 @@ function makeTool(input: unknown): ChatToolCall {
 }
 
 describe('RequestUserInputFooter', () => {
+    it('answers a completed async question card without a permission and retains failed drafts', async () => {
+        const answerCodexAsyncQuestion = vi.fn().mockRejectedValueOnce(new Error('not delivered')).mockResolvedValue(undefined)
+        const approvePermission = vi.fn()
+        const tool = { ...makeTool({ questions: [choice, { id: 'details', question: 'Details', options: [] }] }),
+            name: 'request_user_input_async', state: 'completed' as const, permission: undefined, result: null }
+        render(<ToolCard
+            api={{ answerCodexAsyncQuestion, approvePermission } as unknown as ApiClient}
+            sessionId="session-1" metadata={{ path: '/tmp', host: 'localhost', flavor: 'codex' }}
+            terminalToolDisplayMode="detailed" disabled={false} onDone={() => {}}
+            block={{ kind: 'tool-call', id: tool.id, localId: null, createdAt: 1, tool, children: [] }}
+        />)
+        fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
+        fireEvent.click(screen.getByRole('button', { name: 'tool.next' }))
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Private diary' } })
+        fireEvent.click(screen.getByRole('button', { name: 'tool.submit' }))
+        await screen.findByText('not delivered')
+        expect(screen.getByRole('textbox')).toHaveValue('Private diary')
+        fireEvent.click(screen.getByRole('button', { name: 'tool.submit' }))
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'tool.submit' })).not.toBeInTheDocument())
+        expect(answerCodexAsyncQuestion).toHaveBeenLastCalledWith('session-1', 'request-1', {
+            choice: { answers: ['Alpha'] }, details: { answers: ['user_note: Private diary'] }
+        })
+        expect(approvePermission).not.toHaveBeenCalled()
+    })
+
     it.each(['', ' \n ', '  自定义\n说明  '])('focuses notes without submitting and posts canonical values (%j)', async (note) => {
         const { approvePermission } = renderFooter()
         fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))

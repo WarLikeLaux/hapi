@@ -70,6 +70,7 @@ function createApp(session: Session, opts?: {
     forkConversation?: SyncEngine['forkConversation']
     clearConversation?: SyncEngine['clearConversation']
     implementCodexPlan?: SyncEngine['implementCodexPlan']
+    answerCodexAsyncQuestion?: SyncEngine['answerCodexAsyncQuestion']
     rewindConversation?: SyncEngine['rewindConversation']
     suggestSessionTitle?: SyncEngine['suggestSessionTitle']
     updateSessionSummary?: SyncEngine['updateSessionSummary']
@@ -184,6 +185,7 @@ function createApp(session: Session, opts?: {
         forkConversation: opts?.forkConversation ?? (async () => ({ type: 'success', sessionId: 'child-1' })),
         clearConversation: opts?.clearConversation,
         implementCodexPlan: opts?.implementCodexPlan,
+        answerCodexAsyncQuestion: opts?.answerCodexAsyncQuestion,
         rewindConversation: opts?.rewindConversation ?? (async () => ({ type: 'success' })),
         suggestSessionTitle: opts?.suggestSessionTitle ?? (async () => 'Generated title'),
         updateSessionSummary: opts?.updateSessionSummary ?? (async () => {}),
@@ -202,6 +204,23 @@ function createApp(session: Session, opts?: {
 }
 
 describe('sessions routes', () => {
+    it('validates async question answers and scopes delivery to the authenticated session', async () => {
+        const request = { questionId: 'question', answers: { '0': { answers: ['Chat'] } } }
+        const calls: unknown[] = []
+        const session = createSession({ metadata: { path: '/tmp', host: 'test', flavor: 'codex', capabilities: { concurrentClients: true } } })
+        const { app } = createApp(session, { answerCodexAsyncQuestion: async (...args) => { calls.push(args) } })
+        const post = (body: unknown) => app.request('/api/sessions/session-1/codex/async-question/answer', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        })
+        expect((await post({ questionId: 'question', answers: { '0': { answers: 'Chat' } } })).status).toBe(400)
+        expect(calls).toHaveLength(0)
+        expect((await post(request)).status).toBe(200)
+        expect(calls).toEqual([['session-1', 'default', request]])
+        session.active = false
+        expect((await post(request)).status).toBe(409)
+        expect(calls).toHaveLength(1)
+    })
+
     it('dispatches plan implementation using the authenticated namespace and returns stale/unknown outcomes', async () => {
         const session = createSession({ metadata: { path: '/tmp', host: 'test', flavor: 'codex', capabilities: { concurrentClients: true } } })
         const calls: unknown[] = []

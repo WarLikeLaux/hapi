@@ -695,7 +695,7 @@ export function getToolPresentation(
         }
     }
 
-    const known = knownTools[opts.toolName]
+    const known = knownTools[opts.toolName === 'request_user_input_async' ? 'request_user_input' : opts.toolName]
     if (known) {
         const minimal = typeof known.minimal === 'function' ? known.minimal(opts) : (known.minimal ?? false)
         return {
