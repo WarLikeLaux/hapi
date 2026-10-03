@@ -45,24 +45,3 @@ export function getOptimisticExternalSender(
 export function isOptimisticExternalMessage(message: ExternalMessage): boolean {
     return message.id.startsWith(OPTIMISTIC_MESSAGE_PREFIX)
 }
-
-export function appendOptimisticExternalMessage(
-    current: ExternalMessagesResponse | undefined,
-    message: ExternalMessage
-): ExternalMessagesResponse {
-    return {
-        messages: [...(current?.messages ?? []).filter((item) => item.id !== message.id), message],
-        participants: current?.participants ?? []
-    }
-}
-
-export function removeOptimisticExternalMessage(
-    current: ExternalMessagesResponse | undefined,
-    messageId: string
-): ExternalMessagesResponse | undefined {
-    if (!current) return current
-    return {
-        ...current,
-        messages: current.messages.filter((message) => message.id !== messageId)
-    }
-}

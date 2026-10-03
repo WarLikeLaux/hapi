@@ -18,6 +18,8 @@ import { useChatsComposerAutoFocus } from '@/hooks/useChatsComposerAutoFocus'
 import { useChatsPendingMedia } from '@/hooks/useChatsPendingMedia'
 import { useExternalMessagePrefetch } from '@/hooks/useExternalMessagePrefetch'
 import { useExternalMessages } from '@/hooks/queries/useExternalMessages'
+import { useExternalMessageOutbox } from '@/hooks/mutations/useExternalMessageOutbox'
+import { MessageStatusIndicator } from '@/components/AssistantChat/messages/MessageStatusIndicator'
 import { useAppContext } from '@/lib/app-context'
 import { upsertMessengerConnection } from '@/lib/messengerConnections'
 import { queryKeys } from '@/lib/query-keys'
@@ -26,13 +28,7 @@ import { cn } from '@/lib/utils'
 import { formatMessageTimestamp } from '@/chat/presentation'
 import { areExternalMessagesGrouped } from '@/chat/messageGrouping'
 import { shouldAutoLoadExternalMedia } from '@/chat/externalMedia'
-import {
-    appendOptimisticExternalMessage,
-    createOptimisticExternalMessage,
-    getOptimisticExternalSender,
-    isOptimisticExternalMessage,
-    removeOptimisticExternalMessage
-} from '@/chat/optimisticExternalMessages'
+import { isOptimisticExternalMessage } from '@/chat/optimisticExternalMessages'
 
 function TelegramMark(props: { className?: string }) {
     return (
@@ -888,100 +884,18 @@ export function ChatConversationPage() {
             return next
         })
     }, [])
-    const send = useMutation({
-        mutationFn: async (input: { text: string; clientId: string }) => {
-            await api!.sendExternalMessage(conversationId, input.text, input.clientId)
-        },
-        onMutate: async (input) => {
-            stickToBottomRef.current = true
-            setText('')
-            await queryClient.cancelQueries({ queryKey: queryKeys.externalMessages(conversationId) })
-            const optimistic = createOptimisticExternalMessage({
-                conversationId,
-                clientId: input.clientId,
-                text: input.text,
-                ...getOptimisticExternalSender(
-                    queryClient.getQueryData<ExternalMessagesResponse>(queryKeys.externalMessages(conversationId))
-                )
-            })
-            queryClient.setQueryData<ExternalMessagesResponse>(
-                queryKeys.externalMessages(conversationId),
-                (current) => appendOptimisticExternalMessage(current, optimistic)
-            )
-            return { optimisticId: optimistic.id }
-        },
-        onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) }),
-                queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
-            ])
-        },
-        onError: (_error, input, context) => {
-            if (context?.optimisticId) {
-                queryClient.setQueryData<ExternalMessagesResponse>(
-                    queryKeys.externalMessages(conversationId),
-                    (current) => removeOptimisticExternalMessage(current, context.optimisticId)
-                )
-            }
-            setText((current) => current ? `${input.text}\n${current}` : input.text)
-        }
-    })
-    const sendMedia = useMutation({
-        mutationFn: async (file: File) => {
-            if (file.size > 50 * 1024 * 1024) throw new Error('Media file must be 50 MB or smaller')
-            await api!.sendExternalMedia(conversationId, file, text, crypto.randomUUID())
-        },
-        onMutate: () => {
-            stickToBottomRef.current = true
-        },
-        onSuccess: async () => {
-            setText('')
-            // Release the staged paste/file so the preview chip disappears
-            // and the next paste/file pick starts clean. The paperclip's
-            // hidden <input> also gets cleared so re-picking the same file
-            // fires onChange.
+    const outbox = useExternalMessageOutbox(api, conversationId, messages)
+    const submitMessage = (payload: Parameters<typeof outbox.send>[0]) => {
+        if (!outbox.send(payload)) return
+        stickToBottomRef.current = true
+        setText('')
+        if (payload.kind === 'media') {
             clearPendingMedia()
             if (fileInputRef.current) fileInputRef.current.value = ''
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) }),
-                queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
-            ])
-        },
-        onError: () => {
-            // Keep the staged media on failure so the user can retry
-            // without re-pasting. The error banner is already shown by the
-            // form below; nothing else to do here.
         }
-    })
-    const sendKlipyGif = useMutation({
-        // The GIF arrives as a KLIPY-shaped object — we download the smallest
-        // sensible preview and feed it through the existing send-media path so
-        // the messenger pipeline (rate limits, FLOOD_WAIT, caption plumbing) is
-        // the same for GIFs as for any other image attachment.
-        mutationFn: async (gif: import('@hapi/protocol/klipy').KlipyGif) => {
-            const downloadUrl = gif.downloadUrl ?? gif.previewUrl
-            if (!downloadUrl) throw new Error('KLIPY result has no downloadable URL')
-            const extension = /\.gif(\?|$)/i.test(downloadUrl) ? 'gif'
-                : /\.webp(\?|$)/i.test(downloadUrl) ? 'webp'
-                : /\.mp4(\?|$)/i.test(downloadUrl) ? 'mp4'
-                : 'gif'
-            const fileName = `klipy-${gif.id || Date.now()}.${extension}`
-            const file = await api!.downloadKlipyGifAsFile(downloadUrl, fileName)
-            if (file.size > 50 * 1024 * 1024) throw new Error('Selected GIF is too large (50 MB limit)')
-            await api!.sendExternalMedia(conversationId, file, text, crypto.randomUUID())
-        },
-        onMutate: () => {
-            stickToBottomRef.current = true
-            setGifPickerOpen(false)
-        },
-        onSuccess: async () => {
-            setText('')
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) }),
-                queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
-            ])
-        }
-    })
+        if (payload.kind === 'gif') setGifPickerOpen(false)
+        composerRef.current?.focus({ preventScroll: true })
+    }
     const setReactions = useMutation({
         mutationFn: async (input: { providerMessageId: string; selected: string[]; optimistic: ExternalReaction[] }) => {
             await api!.setExternalMessageReactions(conversationId, input.providerMessageId, input.selected)
@@ -1044,7 +958,7 @@ export function ChatConversationPage() {
             viewport.scrollTop = viewport.scrollHeight
         })
         return () => cancelAnimationFrame(frame)
-    }, [messages.data])
+    }, [messages.data, outbox.entries])
 
     useEffect(() => {
         const content = messageContentRef.current
@@ -1063,7 +977,8 @@ export function ChatConversationPage() {
     if (!conversation) {
         return <div className="m-auto text-sm text-[var(--app-hint)]">{t('chats.notFound')}</div>
     }
-    const messageItems = messages.data?.messages ?? []
+    const messageItems = [...(messages.data?.messages ?? []), ...outbox.entries.map((entry) => entry.message)]
+    const outboxById = new Map(outbox.entries.map((entry) => [entry.message.id, entry]))
 
     return (
         <div className="flex h-full min-h-0 flex-col pt-[env(safe-area-inset-top)]">
@@ -1088,6 +1003,7 @@ export function ChatConversationPage() {
                     {messageItems.map((item, index) => {
                         const incoming = item.direction === 'incoming'
                         const optimistic = isOptimisticExternalMessage(item)
+                        const outgoing = outboxById.get(item.id)
                         const hasMedia = Boolean(item.media?.length)
                         const reactions = item.reactions ?? []
                         const chosenReactionCount = reactions.filter((reaction) => reaction.chosen).length
@@ -1120,8 +1036,11 @@ export function ChatConversationPage() {
                                     className="shrink-0 pb-0.5 text-[9px] leading-none opacity-60 tabular-nums"
                                 >
                                     {formatTime(item.createdAt)}
-                                    {optimistic
-                                        ? <span aria-label="Sending" className="ml-1 inline-block">◷</span>
+                                    {outgoing
+                                        ? <span className="ml-1 inline-flex align-middle"><MessageStatusIndicator
+                                            status={outgoing.status}
+                                            onRetry={() => outbox.retry(outgoing.input.clientId)}
+                                        /></span>
                                         : !incoming && item.deliveryStatus
                                             ? <ExternalDeliveryStatus status={item.deliveryStatus} className="ml-1 align-middle" />
                                             : null}
@@ -1183,6 +1102,7 @@ export function ChatConversationPage() {
                                             {!incoming && item.deliveryStatus ? <ExternalDeliveryStatus status={item.deliveryStatus} /> : null}
                                         </div>
                                     ) : null}
+                                    {outgoing?.error ? <div role="alert" className="mt-1 max-w-full text-xs text-red-600">{outgoing.error}</div> : null}
                                     {reactions.length > 0 ? (
                                         <div className={cn('mt-1 flex max-w-full flex-wrap items-center gap-1 px-1', incoming ? 'justify-start' : 'justify-end')}>
                                             {reactions.map((reaction) => (
@@ -1281,22 +1201,10 @@ export function ChatConversationPage() {
             </div>
             <form className="shrink-0 border-t border-[var(--app-border)] bg-[var(--app-bg)] p-2 pb-[max(.5rem,env(safe-area-inset-bottom))]" onSubmit={(event) => {
                 event.preventDefault()
-                // Pending media takes precedence: a staged paste/file plus
-                // optional caption goes out via sendMedia (single trip on
-                // the wire, with `text` snapshotted by the mutationFn
-                // closure at call time). Falling back to a plain text
-                // submission preserves the original flow when there's no
-                // staged media.
                 if (pendingMedia) {
-                    if (sendMedia.isPending) return
-                    composerRef.current?.focus({ preventScroll: true })
-                    sendMedia.mutate(pendingMedia)
-                    return
-                }
-                const value = text.trim()
-                if (value && !send.isPending) {
-                    composerRef.current?.focus({ preventScroll: true })
-                    send.mutate({ text: value, clientId: crypto.randomUUID() })
+                    submitMessage({ kind: 'media', file: pendingMedia, text })
+                } else if (text.trim()) {
+                    submitMessage({ kind: 'text', text: text.trim() })
                 }
             }}>
                 {pendingMedia ? (
@@ -1313,7 +1221,6 @@ export function ChatConversationPage() {
                         <button
                             type="button"
                             onClick={clearPendingMedia}
-                            disabled={sendMedia.isPending}
                             aria-label="Remove attachment"
                             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35"
                         >×</button>
@@ -1326,16 +1233,12 @@ export function ChatConversationPage() {
                         className="hidden"
                         onChange={(event) => {
                             const file = event.target.files?.[0]
-                            // Paperclip still auto-sends so users who
-                            // explicitly picked a file from the picker
-                            // don't need to press Enter twice. Paste goes
-                            // through the staged path instead — see
-                            // textarea onPaste below.
-                            if (file) sendMedia.mutate(file)
+                            // Explicit file picks send immediately, while pastes stay staged.
+                            if (file) submitMessage({ kind: 'media', file, text })
                         }}
                     />
-                    <button type="button" disabled={sendMedia.isPending} onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Attach media"><AttachmentIcon /></button>
-                    <button type="button" disabled={sendMedia.isPending || sendKlipyGif.isPending} onClick={() => setGifPickerOpen(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Send GIF"><GifIcon /></button>
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Attach media"><AttachmentIcon /></button>
+                    <button type="button" onClick={() => setGifPickerOpen(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Send GIF"><GifIcon /></button>
                     <textarea
                         ref={composerRef}
                         onFocus={handleComposerFocus}
@@ -1362,20 +1265,14 @@ export function ChatConversationPage() {
                         placeholder={t('chats.messagePlaceholder')}
                         className="max-h-32 min-h-9 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[var(--app-hint)]"
                     />
-                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={(!text.trim() && !pendingMedia) || send.isPending || sendMedia.isPending || sendKlipyGif.isPending} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
+                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={!api || (!text.trim() && !pendingMedia)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
                 </div>
-                {send.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{send.error.message}</div> : null}
-                {sendMedia.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{sendMedia.error.message}</div> : null}
-                {sendKlipyGif.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{sendKlipyGif.error.message}</div> : null}
                 {setReactions.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{setReactions.error.message}</div> : null}
-                {sendMedia.isPending ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-[var(--app-hint)]">Uploading media…</div> : null}
-                {sendKlipyGif.isPending ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-[var(--app-hint)]">Sending GIF…</div> : null}
             </form>
             <KlipyGifPicker
                 open={gifPickerOpen}
                 onOpenChange={setGifPickerOpen}
-                onSelect={(gif) => sendKlipyGif.mutate(gif)}
-                isSending={sendKlipyGif.isPending}
+                onSelect={(gif) => submitMessage({ kind: 'gif', gif, text })}
             />
         </div>
     )
