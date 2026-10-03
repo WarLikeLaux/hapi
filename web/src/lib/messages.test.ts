@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DecryptedMessage } from '@/types/api'
-import { mergeMessages } from '@/lib/messages'
+import { isQueuedForInvocation, mergeMessages } from '@/lib/messages'
 
 function userMessage(partial: Partial<DecryptedMessage> & { id: string }): DecryptedMessage {
     return {
@@ -13,11 +13,23 @@ function userMessage(partial: Partial<DecryptedMessage> & { id: string }): Decry
         steered: partial.steered,
         deliveryState: partial.deliveryState,
         queueDismissed: partial.queueDismissed,
+        optimisticImmediate: partial.optimisticImmediate,
         content: { role: 'user', content: [{ type: 'text', text: 'hi' }] },
     }
 }
 
 describe('mergeMessages', () => {
+    it('keeps an idle send in the thread through server echoes and refetches without inventing an invocation', () => {
+        const optimistic = userMessage({ id: 'local-idle', optimisticImmediate: true, status: 'sending' })
+        const echo = userMessage({ id: 'server-idle', localId: 'local-idle' })
+        const merged = mergeMessages([optimistic], [echo])
+        const refetched = mergeMessages(merged, [echo])
+        expect(refetched).toHaveLength(1)
+        expect(refetched[0].invokedAt).toBeNull()
+        expect(isQueuedForInvocation(refetched[0])).toBe(false)
+        const uncertain = mergeMessages(refetched, [{ ...echo, deliveryState: 'indeterminate' }])
+        expect(isQueuedForInvocation(uncertain[0])).toBe(true)
+    })
     it('preserves invokedAt when a stale snapshot omits the ack timestamp', () => {
         const invokedAt = 2_000
         const existing = [userMessage({ id: 'server-1', localId: 'local-1', invokedAt })]

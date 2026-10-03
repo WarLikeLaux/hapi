@@ -19,7 +19,10 @@ export function isUserMessage(msg: DecryptedMessage): boolean {
  *  rows that explicitly carry `invokedAt: null` are queued. `failed` rows are
  *  not queued either — they're surfaced as send errors, not pending work. */
 export function isQueuedForInvocation(msg: DecryptedMessage): boolean {
-    return isUserMessage(msg) && msg.invokedAt === null && msg.status !== 'failed'
+    return isUserMessage(msg)
+        && msg.invokedAt === null
+        && msg.status !== 'failed'
+        && (!msg.optimisticImmediate || msg.deliveryState === 'indeterminate')
 }
 
 function isOptimisticMessage(msg: DecryptedMessage): boolean {
@@ -80,6 +83,9 @@ export function mergeMessages(existing: DecryptedMessage[], incoming: DecryptedM
             if (existing.steered && !msg.steered) {
                 preserved.steered = true
             }
+            if (existing.optimisticImmediate && msg.invokedAt === null) {
+                preserved.optimisticImmediate = true
+            }
             if (
                 existing.queueDismissed
                 && msg.invokedAt === null
@@ -108,6 +114,7 @@ export function mergeMessages(existing: DecryptedMessage[], incoming: DecryptedM
         const optimisticStatusByLocalId = new Map<string, DecryptedMessage['status']>()
         const optimisticInvokedAtByLocalId = new Map<string, number | null | undefined>()
         const optimisticSteeredByLocalId = new Map<string, boolean>()
+        const optimisticImmediateByLocalId = new Set<string>()
         const optimisticQueueDismissedByLocalId = new Map<string, boolean>()
         for (const msg of merged) {
             if (msg.localId && isOptimisticMessage(msg) && incomingStoredLocalIds.has(msg.localId)) {
@@ -119,6 +126,9 @@ export function mergeMessages(existing: DecryptedMessage[], incoming: DecryptedM
                 }
                 if (msg.steered) {
                     optimisticSteeredByLocalId.set(msg.localId, true)
+                }
+                if (msg.optimisticImmediate) {
+                    optimisticImmediateByLocalId.add(msg.localId)
                 }
                 if (msg.queueDismissed) {
                     optimisticQueueDismissedByLocalId.set(msg.localId, true)
@@ -135,11 +145,15 @@ export function mergeMessages(existing: DecryptedMessage[], incoming: DecryptedM
             optimisticStatusByLocalId.size > 0
             || optimisticInvokedAtByLocalId.size > 0
             || optimisticSteeredByLocalId.size > 0
+            || optimisticImmediateByLocalId.size > 0
             || optimisticQueueDismissedByLocalId.size > 0
         ) {
             merged = merged.map((msg) => {
                 if (!msg.localId) return msg
                 const update: Partial<DecryptedMessage> = {}
+                if (optimisticImmediateByLocalId.has(msg.localId) && msg.invokedAt === null) {
+                    update.optimisticImmediate = true
+                }
                 if (optimisticStatusByLocalId.has(msg.localId) && !msg.status) {
                     const optimisticStatus = optimisticStatusByLocalId.get(msg.localId)
                     // Don't carry an optimistic 'queued' status onto a server message

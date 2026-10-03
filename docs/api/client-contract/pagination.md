@@ -195,13 +195,15 @@ Response `{"ok": true}`. Sending to an inactive session returns `409 {"error":"S
 
 Other subscribers learn the same outcome via `message-cancelled` / `messages-consumed` SSE events.
 
-**Steer a queued message into the current turn**: `POST /api/sessions/:id/messages/:messageId/steer` → `SteerQueuedMessageResponseSchema`. Unlike the send-time `deliveryMode` option above, this endpoint supports Pi, Codex, and Cursor ACP sessions (`isSteeringSupportedForSession` in `shared/src/modes.ts`). It rejects all scheduled messages, and rejects terminal-controlled sessions unless they advertise `concurrentClients`.
+**Steer a queued message into the current turn**: `POST /api/sessions/:id/messages/:messageId/steer` → `SteerQueuedMessageResponseSchema`. Unlike the send-time `deliveryMode` option above, this endpoint supports Pi, Codex, MiniMax, Claude Code, and Cursor ACP sessions (`isSteeringSupportedForSession` in `shared/src/modes.ts`). It rejects all scheduled messages, and rejects terminal-controlled sessions unless they advertise `concurrentClients`.
 
 | Response | Client action |
 |---|---|
 | `{"status":"steered","localId"}` | Keep the row queued-side; it is being injected into the live turn. |
 | `{"status":"invoked","message"}` | Already consumed — ingest the message. |
 | `{"status":"failed","error","localId":string\|null}` | Surface the error. Do not infer delivery state from this alone; reconcile before retrying when the native outcome is unknown. |
+
+**Interrupt and send in Antigravity**: `POST /api/sessions/:id/messages/:messageId/interrupt` → `InterruptQueuedMessageResponseSchema`. This remote-only action stops the current native process and moves the selected saved prompt ahead of other queued messages, without batching it with them. The next turn resumes the same native conversation. Scheduled rows are rejected. `interrupted` confirms the interrupt, while the row stays queued until native acceptance arrives through `messages-consumed`. `invoked` carries an already-consumed message and does not interrupt the agent. On `failed`, surface the error and reconcile the existing row rather than creating another send.
 
 **Retry indeterminate delivery**: `POST /api/sessions/:id/messages/:messageId/retry`
 is user-initiated only. `retried` or `already-queued` means normal queue delivery;

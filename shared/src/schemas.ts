@@ -720,3 +720,11 @@ export const SteerQueuedMessageResponseSchema = z.discriminatedUnion('status', [
 ])
 
 export type SteerQueuedMessageResponse = z.infer<typeof SteerQueuedMessageResponseSchema>
+
+export const InterruptQueuedMessageResponseSchema = z.discriminatedUnion('status', [
+    z.object({ status: z.literal('interrupted'), localId: z.string() }),
+    z.object({ status: z.literal('invoked'), message: DecryptedMessageSchema }),
+    z.object({ status: z.literal('failed'), error: z.string(), localId: z.string().nullable() }),
+])
+
+export type InterruptQueuedMessageResponse = z.infer<typeof InterruptQueuedMessageResponseSchema>

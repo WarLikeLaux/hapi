@@ -6,6 +6,8 @@ import { buildAgyHeadlessArgs, AgyHeadlessDriver } from './agyHeadlessDriver';
 import { AgySession } from '../session';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import type { AgyMode, PermissionMode } from '../types';
+import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
+import * as processUtilities from '@/utils/process';
 
 // A fake agy binary: emits a fixed NDJSON stream for one turn, then exits 0.
 function fakeAgyProcess(lines: string[], exitCode = 0): ChildProcessWithoutNullStreams {
@@ -827,6 +829,68 @@ describe('AgyHeadlessDriver', () => {
         await driver['handleExitFromUi']();
         await launchPromise;
         expect(Date.now() - startedAt).toBeLessThan(2000);
+    });
+
+    it('interrupts once, resumes the same conversation with the selected saved prompt first, and waits for native acceptance', async () => {
+        const { session, queue, client } = createSession();
+        const first = scriptableFakeChild([]);
+        Object.assign(first, { exitCode: null });
+        const second = scriptableFakeChild([]);
+        let confirmStopped!: (value: boolean) => void;
+        const kill = vi.spyOn(processUtilities, 'killProcessByChildProcess').mockReturnValueOnce(
+            new Promise<boolean>(resolve => { confirmStopped = resolve; })
+        );
+        const spawned: string[][] = [];
+        const driver = new AgyHeadlessDriver({
+            session,
+            spawnAgy: args => {
+                spawned.push(args);
+                if (spawned.length === 1) return first;
+                if (spawned.length === 2) return second;
+                queue.close();
+                return fakeAgyProcess(FULL_TURN);
+            },
+        });
+        queue.push('original', { permissionMode: 'request-review' }, 'original-id');
+        const launch = driver.launch();
+        try {
+            await vi.waitFor(() => expect(spawned).toHaveLength(1));
+            first.feedStdout(FULL_TURN.slice(0, 2).join('\n') + '\n');
+            queue.push('earlier', { permissionMode: 'request-review' }, 'earlier-id');
+            queue.push('selected', { permissionMode: 'always-proceed' }, 'selected-id');
+            queue.push('later', { permissionMode: 'request-review' }, 'later-id');
+            const handler = client.rpcHandlerManager.registerHandler.mock.calls.find(([method]) => method === RPC_METHODS.InterruptQueuedMessage)?.[1];
+            expect(handler).toBeTypeOf('function');
+            const interrupt = handler({ localId: 'selected-id' });
+            expect(client.emitMessagesConsumed).not.toHaveBeenCalledWith(['selected-id']);
+            first.emit('close', null, 'SIGTERM');
+            await new Promise(resolve => setTimeout(resolve, 25));
+            expect(spawned).toHaveLength(1);
+            confirmStopped(true);
+            expect(await interrupt).toEqual({ interrupted: true });
+            await vi.waitFor(() => expect(spawned).toHaveLength(2));
+            expect(spawned[1][1]).toBe('selected');
+            expect(spawned[1]).toContain('conv-1');
+            expect(spawned[1]).toContain('--dangerously-skip-permissions');
+            expect(client.emitMessagesConsumed).not.toHaveBeenCalledWith(['selected-id']);
+            // A repeated request cannot kill the now-running selected delivery.
+            expect(await handler({ localId: 'selected-id' })).toEqual({ interrupted: false, error: 'Message is no longer queued' });
+            second.feedStdout(FULL_TURN.join('\n') + '\n');
+            second.emit('close', 0, null);
+            await launch;
+            expect(spawned.map(args => args[1])).toEqual(['original', 'selected', 'earlier\nlater']);
+            expect(client.emitMessagesConsumed.mock.calls.filter(([ids]) => ids.includes('selected-id'))).toHaveLength(1);
+            expect(client.sendSessionEvent.mock.calls.filter(([event]) => event.type === 'abort-restore')).toHaveLength(0);
+        } finally {
+            confirmStopped(true);
+            const exit = driver['handleExitFromUi']();
+            queue.close();
+            first.emit('close', 0, null);
+            second.emit('close', 0, null);
+            session.stopKeepAlive();
+            await Promise.all([exit, launch]);
+            kill.mockRestore();
+        }
     });
 
     it('acks the delivery and restores the prompt on interrupt before user_input', async () => {

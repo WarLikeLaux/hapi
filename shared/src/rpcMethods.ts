@@ -52,6 +52,7 @@ export const RPC_METHODS = {
     ListAgyModels: 'listAgyModels',
     /** Deliver one queued message into the active Pi turn (native steer). */
     SteerQueuedMessage: 'steer-queued-message',
+    InterruptQueuedMessage: 'interrupt-queued-message',
     ForkConversation: 'fork-conversation',
     RewindConversation: 'rewind-conversation',
     ClearConversation: 'clear-conversation',

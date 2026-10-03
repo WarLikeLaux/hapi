@@ -1,7 +1,8 @@
 import React from "react";
 import { Session } from "./session";
 import { RemoteModeDisplay } from "@/ui/ink/RemoteModeDisplay";
-import { claudeRemote } from "./claudeRemote";
+import { claudeRemote, type ClaudeSteerSender } from "./claudeRemote";
+import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import { PermissionHandler } from "./utils/permissionHandler";
 import { Future } from "@/utils/future";
 import { SDKAssistantMessage, SDKMessage, SDKUserMessage } from "./sdk";
@@ -52,6 +53,8 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
     private abortFuture: Future<void> | null = null;
     private permissionHandler: PermissionHandler | null = null;
     private handleSessionFound: ((sessionId: string) => void) | null = null;
+    private nativeSteer: { send: ClaudeSteerSender; signal: AbortSignal; modeHash: () => string | null } | null = null;
+    private steeringActive = false;
 
     constructor(session: Session) {
         super(process.env.DEBUG ? session.logPath : undefined);
@@ -96,6 +99,55 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
         await this.abort();
     }
 
+    private async steerQueuedMessage(payload: unknown): Promise<{ steered: boolean; error?: string }> {
+        const localId = typeof (payload as { localId?: unknown } | null)?.localId === 'string'
+            ? (payload as { localId: string }).localId : '';
+        const native = this.nativeSteer;
+        if (!localId || !native || !this.steeringActive || native.signal.aborted || this.exitReason) {
+            return { steered: false, error: 'No active steerable Claude turn' };
+        }
+        const { queue, client } = this.session;
+        const reservation = queue.takeByLocalId(localId);
+        if (!reservation) return { steered: false, error: 'Message is no longer queued' };
+        if (reservation.item.isolate || reservation.item.modeHash !== native.modeHash()) {
+            queue.restoreReservation(reservation);
+            return { steered: false, error: 'Queued message mode differs from the active turn' };
+        }
+        if (!queue.beginReservationDispatch(reservation)) return { steered: false, error: 'Message cancelled' };
+        let uncertain = false;
+        const hold = () => {
+            uncertain = true;
+            if (queue.markReservationIndeterminate(reservation)) client.emitSteerIndeterminate([localId]);
+        };
+        if (!await client.setSteerDeliveryState([localId], 'dispatching')) {
+            hold();
+            return { steered: false, error: 'Could not confirm steer delivery state' };
+        }
+        if (reservation.state !== 'dispatching' || this.nativeSteer !== native || !this.steeringActive || native.signal.aborted) {
+            if (!reservation.originIndeterminate && await client.setSteerDeliveryState([localId], 'queued')) queue.restoreReservation(reservation);
+            else hold();
+            return { steered: false, error: 'Claude turn stopped or changed' };
+        }
+        const text = this.session.expandSkillReference(reservation.item.message);
+        client.notePendingHubPromptEcho(text, [localId]);
+        try {
+            await native.send(text, {
+                onAccepted: () => {
+                    if (queue.commitReservation(reservation)) {
+                        this.messageBuffer.addMessage(reservation.item.message, 'user');
+                        client.emitMessagesConsumed([localId], { steered: true });
+                    }
+                },
+                onFailure: hold,
+            });
+            if (uncertain) return { steered: false, error: 'Steer delivery could not be confirmed' };
+            return { steered: true };
+        } catch (error) {
+            hold();
+            return { steered: false, error: error instanceof Error ? error.message : String(error) };
+        }
+    }
+
     private async handleSwitchRequest(): Promise<void> {
         logger.debug('[remote]: doSwitch');
         await this.requestExit('switch', async () => {
@@ -133,6 +185,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
             onAbort: () => this.handleAbortRequest(),
             onSwitch: () => this.handleSwitchRequest()
         });
+        session.client.rpcHandlerManager.registerHandler(RPC_METHODS.SteerQueuedMessage, payload => this.steerQueuedMessage(payload));
 
         const permissionHandler = new PermissionHandler(session);
         this.permissionHandler = permissionHandler;
@@ -497,7 +550,14 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                                 session.pushKeepAlive();
                             }
                         },
-                        onThinkingChange: session.onThinkingChange,
+                        onSteerReady: sender => {
+                            this.nativeSteer = sender ? { send: sender, signal: controller.signal, modeHash: () => modeHash } : null;
+                        },
+                        onThinkingChange: active => {
+                            this.steeringActive = active && this.nativeSteer !== null;
+                            session.client.updateAgentState(state => ({ ...state, steeringActive: this.steeringActive }));
+                            session.onThinkingChange(active);
+                        },
                         claudeEnvVars: session.claudeEnvVars,
                         claudeArgs: session.claudeArgs,
                         onMessage,

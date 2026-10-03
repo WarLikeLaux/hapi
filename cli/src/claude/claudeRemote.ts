@@ -12,6 +12,9 @@ import { PermissionResult } from "./sdk/types";
 import { getHapiBlobsDir } from "@/constants/uploadPaths";
 import { getDefaultClaudeCodePath } from "./sdk/utils";
 import { filterCatalogAffectingClaudeArgs } from "./sdk/metadataExtractor";
+import type { NativeSteerCallbacks } from './sdk/query';
+
+export type ClaudeSteerSender = (text: string, callbacks: NativeSteerCallbacks) => Promise<void>;
 
 export async function claudeRemote(opts: {
 
@@ -41,6 +44,7 @@ export async function claudeRemote(opts: {
     onFirstResult?: (initialMessage: string) => void,
     onCompletionEvent?: (message: string) => void,
     onSessionReset?: () => void
+    onSteerReady?: (sender: ClaudeSteerSender | null) => void
 }) {
     const debugPrefix = '[claudeRemote][async-debug]';
 
@@ -257,6 +261,7 @@ export async function claudeRemote(opts: {
                     return;
                 }
                 mode = next.mode;
+                updateThinking(true);
                 messages.push({ type: 'user', message: { role: 'user', content: next.message } });
                 logger.debug(
                     `${debugPrefix} nextMessage resolved fetchId=${fetchId} elapsedMs=${Date.now() - startedAt} ` +
@@ -278,6 +283,21 @@ export async function claudeRemote(opts: {
         })();
     };
 
+    let pendingSteers = 0;
+    opts.onSteerReady?.((text, callbacks) => {
+        pendingSteers += 1;
+        return response.sendUserMessage(text, {
+            onAccepted: () => {
+                pendingSteers -= 1;
+                updateThinking(true);
+                callbacks.onAccepted();
+            },
+            onFailure: () => {
+                pendingSteers -= 1;
+                callbacks.onFailure();
+            },
+        });
+    });
     updateThinking(true);
     try {
         logger.debug(`[claudeRemote] Starting to iterate over response`);
@@ -367,7 +387,7 @@ export async function claudeRemote(opts: {
             // Handle result messages
             if (message.type === 'result') {
                 resultSeq += 1;
-                updateThinking(false);
+                if (pendingSteers === 0) updateThinking(false);
                 logger.debug(
                     `${debugPrefix} result #${resultSeq} received; scheduling next user message ` +
                     `(nextInFlight=${nextMessageFetchInFlight}, inputEnded=${inputEnded})`
@@ -388,6 +408,9 @@ export async function claudeRemote(opts: {
                 }
 
                 // Flush the result carrier before completion, then announce ready.
+                // Claude can finish an answer before accepting a mid-generation
+                // input. Keep the native session alive until its replay and result.
+                if (pendingSteers > 0) continue;
                 await opts.onReady(completionEvent);
                 logger.debug(`${debugPrefix} onReady emitted for result #${resultSeq}`);
 
@@ -425,6 +448,7 @@ export async function claudeRemote(opts: {
             `${debugPrefix} finally ` +
             `(streamMessages=${streamMessageSeq}, results=${resultSeq}, nextFetches=${nextMessageFetchSeq}, inputEnded=${inputEnded})`
         );
+        opts.onSteerReady?.(null);
         updateThinking(false);
     }
 }

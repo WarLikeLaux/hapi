@@ -15,6 +15,27 @@ function createEngine() {
 }
 
 describe('SyncEngine.steerQueuedMessage', () => {
+    it('rejects scheduled interrupts and reconciles a stale consumed Antigravity row without interrupting', async () => {
+        const { store, engine } = createEngine()
+        try {
+            const session = engine.getOrCreateSession('interrupt-agy',
+                { path: '/tmp/project', host: 'localhost', flavor: 'agy' },
+                { requests: {}, completedRequests: {} }, 'default')
+            const scheduled = store.messages.addMessage(session.id, { text: 'scheduled' }, 'scheduled-id', Date.now() - 1000)
+            expect(await engine.interruptQueuedMessage(session.id, scheduled.id)).toEqual({
+                status: 'failed', error: 'Only immediate queued messages can interrupt a turn', localId: 'scheduled-id',
+            })
+            const consumed = store.messages.addMessage(session.id, { text: 'consumed' }, 'consumed-id')
+            store.messages.markMessagesInvoked(session.id, ['consumed-id'], 5000)
+            const result = await engine.interruptQueuedMessage(session.id, consumed.id)
+            expect(result.status).toBe('invoked')
+            if (result.status === 'invoked') expect(result.message.invokedAt).toBe(5000)
+            expect(store.messages.lookupQueuedMessage(session.id, scheduled.id).status).toBe('queued')
+        } finally {
+            engine.stop()
+        }
+    })
+
     it('rejects every scheduled row, mature ones included, without invoking the CLI', async () => {
         const { store, engine } = createEngine()
         try {
@@ -52,8 +73,8 @@ describe('SyncEngine.steerQueuedMessage', () => {
         const { store, engine } = createEngine()
         try {
             const session = engine.getOrCreateSession(
-                'steer-claude',
-                { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
+                'steer-agy',
+                { path: '/tmp/project', host: 'localhost', flavor: 'agy' },
                 { requests: {}, completedRequests: {} },
                 'default'
             )
@@ -63,7 +84,7 @@ describe('SyncEngine.steerQueuedMessage', () => {
 
             expect(result).toEqual({
                 status: 'failed',
-                error: 'Steering is only supported for Pi, Codex, Cursor ACP, and MiniMax sessions',
+                error: 'Steering is not supported for this session',
                 localId: null
             })
         } finally {

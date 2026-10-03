@@ -597,6 +597,13 @@ export class RpcGateway {
         }
     }
 
+    async interruptQueuedMessage(sessionId: string, localId: string): Promise<{ interrupted: boolean; error?: string }> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.InterruptQueuedMessage, { localId }) as {
+            interrupted: boolean
+            error?: string
+        }
+    }
+
     async forkConversation(
         sessionId: string,
         params: { messageLocalId?: string }

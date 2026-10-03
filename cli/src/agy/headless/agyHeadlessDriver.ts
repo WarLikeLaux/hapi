@@ -16,6 +16,7 @@ import { readAgyConversationTitle } from '../utils/agySessionTitle';
 import { resolveAgyTurnModels } from '../utils/agyConversationModel';
 import { killProcessByChildProcess } from '@/utils/process';
 import { AGY_MODEL_LABELS, DEFAULT_AGY_MODEL } from '@hapi/protocol';
+import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import { getAgentLaunchCommand } from '@/agent/agentLaunchCommand';
 
 const AGY_PRINT_TIMEOUT = '30m';
@@ -117,7 +118,9 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
     /** Aborted on exit/switch/kill so an idle queue wait resolves immediately. */
     private readonly loopAbortController = new AbortController();
     private child: ChildProcessWithoutNullStreams | null = null;
+    private childTermination: { child: ChildProcessWithoutNullStreams; promise: Promise<void> } | null = null;
     private turnAbortController: AbortController | null = null;
+    private interruptBarrier: Promise<void> | null = null;
     /** Brain conversation UUID — from resume seed or the first turn's init event. */
     private conversationId: string | null;
     private stderrTail = '';
@@ -222,7 +225,7 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
      * the hub row so it is neither replayed nor swept). Must run BEFORE any kill:
      * the child close handler clears both fields via finishTurn.
      */
-    private snapshotAndRestoreDelivery(): void {
+    private snapshotAndRestoreDelivery(restorePrompt = true): void {
         const prompt = this.activeWebPrompt;
         const localIds = [...this.activeLocalIds];
         this.activeWebPrompt = null;
@@ -231,7 +234,7 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
         if (localIds.length > 0) {
             this.session.client.emitMessagesConsumed(localIds);
         }
-        this.session.client.sendSessionEvent({ type: 'abort-restore', text: prompt });
+        if (restorePrompt) this.session.client.sendSessionEvent({ type: 'abort-restore', text: prompt });
     }
 
     /** True while the close handler is finalizing a completed turn (parsing the
@@ -300,6 +303,17 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
     private async terminateChild(): Promise<void> {
         const child = this.child;
         if (!child || child.exitCode !== null) return;
+        if (this.childTermination?.child === child) return this.childTermination.promise;
+        const termination = { child, promise: this.terminateProcessTree(child) };
+        this.childTermination = termination;
+        try {
+            await termination.promise;
+        } finally {
+            if (this.childTermination === termination) this.childTermination = null;
+        }
+    }
+
+    private async terminateProcessTree(child: ChildProcessWithoutNullStreams): Promise<void> {
         const terminated = await killProcessByChildProcess(child);
         if (!terminated && child.exitCode === null) {
             // Last resort if tree-kill reports failure; the close handler is the
@@ -308,7 +322,7 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
         }
     }
 
-    private async handleAbortRequest(): Promise<void> {
+    private async handleAbortRequest(restorePrompt = true): Promise<void> {
         logger.debug('[agy-headless]: handleAbortRequest (interrupt)');
         // A turn that already parsed its result envelope or is in finalization has
         // accepted its delivery — do not restore or abort it (resending could
@@ -324,10 +338,35 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
         // Snapshot BEFORE the kill: the child close handler (triggered by the
         // termination) resolves the turn and clears activeWebPrompt/activeLocalIds
         // via finishTurn — reading them after the wait would find nothing.
-        this.snapshotAndRestoreDelivery();
+        this.snapshotAndRestoreDelivery(restorePrompt);
 
         this.turnAbortController?.abort();
         await this.terminateChild();
+    }
+
+    private async interruptQueuedMessage(payload: unknown): Promise<{ interrupted: boolean; error?: string }> {
+        const localId = typeof (payload as { localId?: unknown } | null)?.localId === 'string'
+            ? (payload as { localId: string }).localId : '';
+        if (!this.activeTurn || !this.turnAbortController || this.turnAbortController.signal.aborted || this.loopAbortController.signal.aborted || this.exitReason) {
+            return { interrupted: false, error: 'No active Antigravity turn' };
+        }
+        const queue = this.session.queue;
+        const item = queue.peekByLocalId(localId);
+        if (!item) return { interrupted: false, error: 'Message is no longer queued' };
+        // Reuse the saved delivery and prioritize it before the first await.
+        // The loop cannot take another batch between the move and the abort.
+        if (queue.cancelByLocalId(localId) !== true) return { interrupted: false, error: 'Message is no longer queued' };
+        let release!: () => void;
+        this.interruptBarrier = new Promise<void>(resolve => { release = resolve; });
+        try {
+            queue.unshiftIsolated(item.message, item.mode, localId);
+            await this.handleAbortRequest(false);
+            // The next native user_input receipt, not this interrupt, confirms delivery.
+            return { interrupted: true };
+        } finally {
+            this.interruptBarrier = null;
+            release();
+        }
     }
 
     private async handleExitFromUi(): Promise<void> {
@@ -826,6 +865,7 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
             // mode; ignore it instead of aborting the session.
             onSwitch: () => {},
         });
+        session.client.rpcHandlerManager.registerHandler(RPC_METHODS.InterruptQueuedMessage, payload => this.interruptQueuedMessage(payload));
 
         if (this.conversationId) {
             messageBuffer.addMessage('Resuming agy session...', 'status');
@@ -836,6 +876,10 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
         try {
             let consecutiveUnaccepted = 0;
             while (!this.exitReason && !this.loopAbortController.signal.aborted) {
+                // Child close can precede tool-process termination. Do not start
+                // another native turn until the whole interrupt has settled.
+                await this.interruptBarrier;
+                if (this.exitReason || this.loopAbortController.signal.aborted) break;
                 const msg = await session.queue.waitForMessagesAndGetAsString(this.loopAbortController.signal);
                 if (!msg) break;
                 const localIds = (msg.items ?? [])
@@ -958,6 +1002,7 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
             }
         } finally {
             this.clearAbortHandlers(session.client.rpcHandlerManager);
+            session.client.rpcHandlerManager.registerHandler(RPC_METHODS.InterruptQueuedMessage, async () => ({ interrupted: false, error: 'Antigravity session ended' }));
         }
         logger.debug('[agy-headless]: main loop ended');
     }
