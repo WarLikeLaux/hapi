@@ -1,8 +1,7 @@
 import { useCallback, useMemo, useRef } from 'react'
 import type React from 'react'
-import type { AppendMessage, AttachmentAdapter, ThreadMessageLike } from '@assistant-ui/react'
+import type { AppendMessage, AttachmentAdapter, ThreadMessage, ThreadMessageLike } from '@assistant-ui/react'
 import { useExternalMessageConverter, useExternalStoreRuntime } from '@assistant-ui/react'
-import { MessageRepository } from '@assistant-ui/core/internal'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import {
@@ -1002,12 +1001,17 @@ export function useHappyRuntime(props: {
         messagesVersion: props.messagesVersion,
         historyVersion: props.historyVersion
     }), [props.messagesVersion, props.historyVersion])
-    // assistant-ui's repository keeps branch links for overlapping IDs. A
-    // bounded prepend replaces both ends of the visible window, so reuse would
-    // retain the evicted tail. Start a clean repository for each history page.
+    // Publish a complete bounded transcript so assistant-ui removes retired rows instead of retaining old branches.
+    // Each runtime owns its repository and temporary reply. Sharing one across StrictMode initializers lets the discarded runtime remove the retained runtime's reply.
     const messageRepository = useMemo(
-        () => new MessageRepository(),
-        [props.session.id, props.historyVersion]
+        () => ({
+            headId: convertedMessages.at(-1)?.id ?? null,
+            messages: convertedMessages.map((message, index) => ({
+                message,
+                parentId: convertedMessages[index - 1]?.id ?? null
+            }))
+        }),
+        [convertedMessages]
     )
 
     // Memoize the adapter to avoid recreating on every render
@@ -1015,9 +1019,8 @@ export function useHappyRuntime(props: {
     const adapter = useMemo(() => ({
         isDisabled: props.isSending || (!props.session.active && !props.allowSendWhenInactive),
         isRunning,
-        messages: convertedMessages,
+        messageRepository,
         extras,
-        unstable_messageRepositoryInstance: messageRepository,
         onNew,
         onCancel,
         adapters: props.attachmentAdapter ? { attachments: props.attachmentAdapter } : undefined,
@@ -1027,7 +1030,6 @@ export function useHappyRuntime(props: {
         props.isSending,
         props.allowSendWhenInactive,
         isRunning,
-        convertedMessages,
         extras,
         messageRepository,
         onNew,
@@ -1039,5 +1041,5 @@ export function useHappyRuntime(props: {
     // The ref is read at send time inside onNew (not at render time), so changes
     // to pendingSchedule do not need to invalidate the adapter or re-run onNew.
 
-    return useExternalStoreRuntime(adapter)
+    return useExternalStoreRuntime<ThreadMessage>(adapter)
 }
