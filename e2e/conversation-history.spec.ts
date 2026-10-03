@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('history loads and late content sizing preserve the reading position until the user scrolls', async ({ page }) => {
+test('history loads and late content sizing preserve the current reading position after manual scrolling', async ({ page }) => {
     await page.goto('/e2e-fixtures/history-load-fixture.html?conversation=1')
     const viewport = page.locator('.chat-scroll-y')
     await expect(viewport).toBeVisible()
@@ -43,18 +43,24 @@ test('history loads and late content sizing preserve the reading position until 
             return message ? Math.abs(message.getBoundingClientRect().top - element.getBoundingClientRect().top - saved.offset) : Infinity
         }, anchor)).toBeLessThan(2)
 
-        const movedTop = await viewport.evaluate(element => {
+        const movedAnchor = await viewport.evaluate(element => {
             element.scrollTop += 150
             element.dispatchEvent(new Event('scroll'))
-            return element.scrollTop
+            const top = element.getBoundingClientRect().top
+            const message = [...element.querySelectorAll<HTMLElement>('.happy-thread-messages > [id]')]
+                .find(row => row.getBoundingClientRect().bottom > top)
+            if (!message) throw new Error('No visible conversation anchor after scrolling')
+            return { id: message.id, offset: message.getBoundingClientRect().top - top }
         })
         await page.evaluate(saved => {
             const preceding = document.getElementById(saved.id)?.previousElementSibling
             if (!(preceding instanceof HTMLElement)) throw new Error('No preceding message to resize')
             preceding.style.paddingBottom = '360px'
         }, anchor)
-        await page.waitForTimeout(100)
-        expect(await viewport.evaluate(element => element.scrollTop)).toBe(movedTop)
+        await expect.poll(() => viewport.evaluate((element, saved) => {
+            const message = document.getElementById(saved.id)
+            return message ? Math.abs(message.getBoundingClientRect().top - element.getBoundingClientRect().top - saved.offset) : Infinity
+        }, movedAnchor)).toBeLessThan(2)
     }
 
     await page.evaluate(() => window.__probe.refetch())

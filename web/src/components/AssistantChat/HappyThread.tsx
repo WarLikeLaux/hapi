@@ -845,8 +845,10 @@ export function HappyThread(props: {
             }
             if (restoredHistoryAnchorRef.current) {
                 if (viewport.scrollTop === lastScrollTopRef.current) return
-                restoredHistoryAnchorRef.current = null
             }
+            // Manual scrolling chooses a new reading anchor. Late sizing above
+            // that row should preserve its screen position as well as a prepend.
+            restoredHistoryAnchorRef.current = captureScrollAnchor(viewport)
             if (viewport.scrollTop > lastScrollTopRef.current) {
                 keyboardResumeActive = false
             }
@@ -939,6 +941,7 @@ export function HappyThread(props: {
             }
 
             if (intent.isNearBottom) {
+                restoredHistoryAnchorRef.current = null
                 tailScrollInProgressRef.current = false
                 setShowScrollToBottom(false)
                 setAutoScrollMode(true)
@@ -1628,7 +1631,7 @@ export function HappyThread(props: {
             ) {
                 scrollToBottomInstant()
             } else if (!pendingScrollRef.current && restoredHistoryAnchorRef.current) {
-                // Markdown and tool cards can finish sizing after the history commit. Keep the same reading anchor until the user scrolls again.
+                // Markdown and tool cards can finish sizing while the user reads history. Preserve the current reading anchor.
                 const viewport = viewportRef.current
                 if (viewport && restoreScrollAnchor(viewport, restoredHistoryAnchorRef.current)) {
                     lastScrollTopRef.current = viewport.scrollTop
