@@ -101,12 +101,7 @@ export function AttachmentItem(props: { dragHandleProps?: AttachmentDragHandlePr
     const isUploading = status.type === 'running'
     const isError = status.type === 'incomplete'
     const hasPreview = Boolean(previewUrl) && !isError
-    // Once the attachment ever exposes a preview, keep ImagePreview mounted.
-    // previewUrl can briefly flicker to undefined during runtime updates
-    // (scratchlist handoff, draft restore, etc.); unmounting would reset
-    // ImagePreview's internal viewerOpen and snap a freshly opened lightbox
-    // closed. We hide the trigger button in that window and let the dialog
-    // finish, then reshow the trigger when the preview is back.
+    // Keep the image-sized attachment slot through transient preview URL gaps during upload or draft restoration.
     const hadPreviewRef = useRef(hasPreview)
     if (hasPreview) {
         hadPreviewRef.current = true

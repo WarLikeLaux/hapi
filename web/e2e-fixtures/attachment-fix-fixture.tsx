@@ -1,15 +1,13 @@
 import { createRoot } from 'react-dom/client'
 import { useRef, useState } from 'react'
-import { ImagePreview } from '@/components/ImagePreview'
+import { ImagePreview, ImagePreviewProvider } from '@/components/ImagePreview'
 
 const RED_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
 
 type Attachment = { name: string; status: { type: string }; previewUrl: string | undefined }
 
-// Mirrors the fix applied to AttachmentItem.tsx: keep ImagePreview mounted
-// once the attachment ever exposes a preview, so a transient previewUrl
-// flicker does not reset the open lightbox.
+// Preserve the attachment slot during temporary preview URL gaps.
 function AttachmentItemFixed(props: { attachment: Attachment }) {
     const hasPreview = Boolean(props.attachment.previewUrl) && props.attachment.status.type !== 'incomplete'
     const hadPreviewRef = useRef(hasPreview)
@@ -82,4 +80,4 @@ function Demo() {
 const root = document.getElementById('root')
 if (!root) throw new Error('missing #root')
 
-createRoot(root).render(<Demo />)
+createRoot(root).render(<ImagePreviewProvider><Demo /></ImagePreviewProvider>)

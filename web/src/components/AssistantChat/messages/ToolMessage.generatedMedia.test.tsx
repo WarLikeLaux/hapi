@@ -1,5 +1,7 @@
+import { ImagePreviewProvider } from '@/components/ImagePreview'
+import type { ReactElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render as renderComponent, screen, waitFor } from '@testing-library/react'
 import { HappyChatProvider } from '@/components/AssistantChat/context'
 import {
     createSandboxedHtmlPreviewBlob,
@@ -9,6 +11,10 @@ import {
 import { I18nProvider } from '@/lib/i18n-context'
 import type { ApiClient } from '@/api/client'
 import type { HappyChatContextValue } from '@/components/AssistantChat/context'
+
+function render(ui: ReactElement) {
+    return renderComponent(ui, { wrapper: ImagePreviewProvider })
+}
 
 function renderCard(options: {
     mimeType: string | null

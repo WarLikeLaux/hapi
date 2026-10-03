@@ -1,6 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { fireEvent, render as renderComponent, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { ImagePreview } from './ImagePreview'
+import { ImagePreview, ImagePreviewProvider } from './ImagePreview'
+
+function render(ui: ReactElement) {
+    return renderComponent(ui, { wrapper: ImagePreviewProvider })
+}
 
 function renderGallery() {
     render(
@@ -84,5 +89,30 @@ describe('ImagePreview gallery navigation', () => {
         expect(onTriggerContextMenu).toHaveBeenCalledTimes(1)
         expect(onTriggerClick).toHaveBeenCalledTimes(1)
         expect(screen.getByRole('dialog', { name: 'Drag image' })).toBeInTheDocument()
+    })
+})
+
+
+describe('ImagePreview viewer lifetime', () => {
+    it('keeps the current image and zoom when its message or attachment is replaced', () => {
+        const source = <ImagePreview src="/first.png" fileName="first.png" label="First image" />
+        const { rerender } = render(source)
+        fireEvent.click(screen.getByTitle('Click to zoom'))
+        fireEvent.click(screen.getByTitle('Zoom in'))
+
+        rerender(<div>Updated conversation</div>)
+        const dialog = screen.getByRole('dialog', { name: 'First image' })
+        expect(within(dialog).getByRole('img')).toHaveAttribute('src', '/first.png')
+        expect(within(dialog).getByTitle('Reset zoom')).toHaveTextContent('125%')
+        fireEvent.click(within(dialog).getByTitle('Zoom in'))
+        expect(within(dialog).getByTitle('Reset zoom')).toHaveTextContent('150%')
+
+        fireEvent.click(within(dialog).getByTitle('Close'))
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        rerender(source)
+        fireEvent.click(screen.getByTitle('Click to zoom'))
+        expect(screen.getByTitle('Reset zoom')).toHaveTextContent('100%')
+        fireEvent.keyDown(window, { key: 'Escape' })
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
 })

@@ -1,4 +1,5 @@
 import { useMemo, useRef } from 'react'
+import { ImagePreviewProvider } from '../src/components/ImagePreview'
 import ReactDOM from 'react-dom/client'
 import { AssistantRuntimeProvider } from '@assistant-ui/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -110,6 +111,8 @@ const slowBefore = fixtureParams.has('slowBefore')
 const cachedReentry = fixtureParams.has('cachedReentry')
 const holdLatest = fixtureParams.has('holdLatest')
 const conversation = fixtureParams.has('conversation')
+const screenshot = fixtureParams.has('screenshot')
+const screenshotUrl = screenshot ? URL.createObjectURL(new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#2563eb"/></svg>'], { type: 'image/svg+xml' })) : ''
 if (holdLatest) {
     latestResponseGate = new Promise<void>((resolve) => {
         releaseLatestResponse = resolve
@@ -133,7 +136,7 @@ const allMessages: DecryptedMessage[] = Array.from({ length: TOTAL_MESSAGES }, (
         localId: null,
         content: filtered
             ? { role: 'agent', content: { type: 'output', data: { isMeta: true } } }
-            : assistantContent ?? { role: 'user', content: { type: 'text', text: `Fixture message ${seq}` } },
+            : assistantContent ?? { role: 'user', content: { type: 'text', text: `Fixture message ${seq}`, ...(screenshot && seq === 801 ? { attachments: [{ id: 'screenshot', filename: 'screenshot.svg', path: '/screenshot.svg', mimeType: 'image/svg+xml', size: 150, previewUrl: screenshotUrl }] } : {}) } },
         createdAt: BASE_AT + seq,
         invokedAt: BASE_AT + seq
     } as DecryptedMessage
@@ -399,7 +402,9 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
         <I18nProvider>
-            <FixtureThread />
+            <ImagePreviewProvider>
+                <FixtureThread />
+            </ImagePreviewProvider>
         </I18nProvider>
     </QueryClientProvider>
 )

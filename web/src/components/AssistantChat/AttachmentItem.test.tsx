@@ -1,5 +1,7 @@
+import { ImagePreviewProvider } from '@/components/ImagePreview'
+import type { ReactElement } from 'react'
 import type { ComponentProps, ReactNode } from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render as renderComponent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
 
@@ -25,6 +27,10 @@ vi.mock('@assistant-ui/react', () => ({
 import { AttachmentItem } from './AttachmentItem'
 
 afterEach(() => cleanup())
+
+function render(ui: ReactElement) {
+    return renderComponent(ui, { wrapper: ImagePreviewProvider })
+}
 
 function renderAttachment() {
     return render(

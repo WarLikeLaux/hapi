@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type SyntheticEvent, type WheelEvent } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type SyntheticEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { CloseIcon } from '@/components/icons'
 
 const MIN_IMAGE_SCALE = 0.25
@@ -29,6 +30,36 @@ function getPointCenter(a: ImagePoint, b: ImagePoint): ImagePoint {
     }
 }
 
+type PreviewSelection = {
+    images: PreviewImage[]
+    index: number
+    blobs: Promise<(Blob | null)[]>
+}
+
+const ImagePreviewContext = createContext<((images: PreviewImage[], index: number) => void) | null>(null)
+
+/** Own the open image independently of chat rows, attachment uploads, and route errors. */
+export function ImagePreviewProvider({ children }: { children: ReactNode }) {
+    const [selection, setSelection] = useState<PreviewSelection | null>(null)
+    const [revision, setRevision] = useState(0)
+    const open = useCallback((images: PreviewImage[], index: number) => {
+        // Start copying blob sources while their originating cards still own the URLs.
+        const blobs = Promise.all(images.map(image => image.src.startsWith('blob:')
+            ? fetch(image.src).then(response => response.blob()).catch(() => null)
+            : Promise.resolve(null)))
+        setSelection({ images, index, blobs })
+        setRevision(current => current + 1)
+    }, [])
+    const close = useCallback(() => setSelection(null), [])
+
+    return (
+        <ImagePreviewContext.Provider value={open}>
+            {children}
+            {selection ? <ImageViewer key={revision} selection={selection} onClose={close} /> : null}
+        </ImagePreviewContext.Provider>
+    )
+}
+
 export function ImagePreview(props: {
     src: string
     fileName: string
@@ -42,23 +73,11 @@ export function ImagePreview(props: {
     onTriggerContextMenu?: (event: MouseEvent<HTMLButtonElement>) => void
     onTriggerClick?: (event: MouseEvent<HTMLButtonElement>) => void
 }) {
-    const [viewerOpen, setViewerOpen] = useState(false)
-    const [previewImages, setPreviewImages] = useState<PreviewImage[]>([])
-    const [previewIndex, setPreviewIndex] = useState(0)
-    const [scale, setScale] = useState(1)
-    const [offset, setOffset] = useState({ x: 0, y: 0 })
-    const scaleRef = useRef(scale)
-    const offsetRef = useRef(offset)
-    const activePointersRef = useRef(new Map<number, ImagePoint>())
-    const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
-    const pinchRef = useRef<{ startDistance: number; startScale: number; startCenter: ImagePoint; origin: ImagePoint } | null>(null)
-    const backdropPressRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
-
-    const stopEvent = useCallback((event: SyntheticEvent) => {
-        event.stopPropagation()
-    }, [])
+    const open = useContext(ImagePreviewContext)
+    const stopEvent = useCallback((event: SyntheticEvent) => event.stopPropagation(), [])
 
     const openViewer = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+        if (!open) throw new Error('ImagePreview requires ImagePreviewProvider')
         event.preventDefault()
         event.stopPropagation()
         const galleryId = props.galleryId ?? ''
@@ -74,10 +93,8 @@ export function ImagePreview(props: {
             }]
         })
         const index = triggers.indexOf(event.currentTarget)
-        setPreviewImages(images)
-        setPreviewIndex(index >= 0 ? index : 0)
-        setViewerOpen(true)
-    }, [props.galleryId])
+        open(images, index >= 0 ? index : 0)
+    }, [open, props.galleryId])
 
     const handleTriggerPointerDown = useCallback((event: PointerEvent<HTMLButtonElement>) => {
         props.onTriggerPointerDown?.(event)
@@ -89,6 +106,69 @@ export function ImagePreview(props: {
         if (event.defaultPrevented) return
         openViewer(event)
     }, [openViewer, props.onTriggerClick])
+
+    if (!props.src) return null
+    return (
+        <button
+            type="button"
+            onPointerDown={handleTriggerPointerDown}
+            onMouseDown={stopEvent}
+            onTouchStart={stopEvent}
+            onContextMenu={props.onTriggerContextMenu}
+            onClick={handleTriggerClick}
+            data-image-preview-trigger=""
+            data-image-preview-file-name={props.fileName}
+            data-image-preview-label={props.label}
+            data-image-preview-gallery={props.galleryId ?? ''}
+            className={props.buttonClassName ?? 'group flex min-h-[18rem] w-full items-center justify-center overflow-auto rounded-md border border-[var(--app-border)] bg-[var(--app-code-bg)] p-3 text-left'}
+            title="Click to zoom"
+        >
+            <img
+                src={props.src}
+                alt={props.label}
+                className={props.imageClassName ?? 'max-h-[calc(100vh-14rem)] max-w-full object-contain transition-transform group-hover:scale-[1.01]'}
+                style={props.imageStyle}
+                draggable={false}
+            />
+            {props.caption}
+            <span className="sr-only">{props.fileName}</span>
+        </button>
+    )
+}
+
+function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }) {
+    const [previewImages, setPreviewImages] = useState(props.selection.images)
+    const [previewIndex, setPreviewIndex] = useState(props.selection.index)
+    const [scale, setScale] = useState(1)
+    const [offset, setOffset] = useState({ x: 0, y: 0 })
+    const surfaceRef = useRef<HTMLDivElement>(null)
+    const scaleRef = useRef(scale)
+    const offsetRef = useRef(offset)
+    const activePointersRef = useRef(new Map<number, ImagePoint>())
+    const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
+    const pinchRef = useRef<{ startDistance: number; startScale: number; startCenter: ImagePoint; origin: ImagePoint } | null>(null)
+    const backdropPressRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
+
+    const stopEvent = useCallback((event: SyntheticEvent) => event.stopPropagation(), [])
+
+    useEffect(() => {
+        let disposed = false
+        const ownedUrls: string[] = []
+        void props.selection.blobs.then(blobs => {
+            if (disposed) return
+            setPreviewImages(props.selection.images.map((image, index) => {
+                const blob = blobs[index]
+                if (!blob) return image
+                const src = URL.createObjectURL(blob)
+                ownedUrls.push(src)
+                return { ...image, src }
+            }))
+        })
+        return () => {
+            disposed = true
+            for (const url of ownedUrls) URL.revokeObjectURL(url)
+        }
+    }, [props.selection])
 
     const updateScale = useCallback((next: number | ((current: number) => number)) => {
         setScale((current) => {
@@ -109,13 +189,13 @@ export function ImagePreview(props: {
     }, [updateOffset, updateScale])
 
     const closeViewer = useCallback(() => {
-        setViewerOpen(false)
+        props.onClose()
         activePointersRef.current.clear()
         dragRef.current = null
         pinchRef.current = null
         backdropPressRef.current = null
         resetView()
-    }, [resetView])
+    }, [props.onClose, resetView])
 
     const showPreview = useCallback((index: number) => {
         setPreviewIndex(index)
@@ -126,11 +206,19 @@ export function ImagePreview(props: {
         updateScale((current) => clampImageScale(current + delta))
     }, [updateScale])
 
-    const handleWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
+    const handleWheel = useCallback((event: WheelEvent) => {
         event.preventDefault()
+        event.stopPropagation()
         const delta = event.deltaY < 0 ? IMAGE_SCALE_STEP : -IMAGE_SCALE_STEP
         zoomBy(delta)
     }, [zoomBy])
+
+    useEffect(() => {
+        const surface = surfaceRef.current
+        if (!surface) return
+        surface.addEventListener('wheel', handleWheel, { passive: false })
+        return () => surface.removeEventListener('wheel', handleWheel)
+    }, [handleWheel])
 
     const beginPinch = useCallback(() => {
         const pointers = Array.from(activePointersRef.current.values())
@@ -172,6 +260,10 @@ export function ImagePreview(props: {
     const handlePointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
         if (!activePointersRef.current.has(event.pointerId)) return
         activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+        const press = backdropPressRef.current
+        if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > BACKDROP_CLICK_MAX_MOVEMENT) {
+            backdropPressRef.current = null
+        }
 
         if (activePointersRef.current.size >= 2 && pinchRef.current) {
             const pointers = Array.from(activePointersRef.current.values())
@@ -235,8 +327,6 @@ export function ImagePreview(props: {
     }, [closeViewer])
 
     useEffect(() => {
-        if (!viewerOpen) return
-
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
                 closeViewer()
@@ -260,141 +350,112 @@ export function ImagePreview(props: {
 
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [closeViewer, previewImages.length, previewIndex, resetView, showPreview, viewerOpen, zoomBy])
+    }, [closeViewer, previewImages.length, previewIndex, resetView, showPreview, zoomBy])
 
-    const activePreview = previewImages[previewIndex] ?? {
-        src: props.src,
-        fileName: props.fileName,
-        label: props.label
-    }
+    const activePreview = previewImages[previewIndex]
+    if (!activePreview?.src) return null
     const hasMultiplePreviews = previewImages.length > 1
-    // Keep the trigger hidden when there is no source to preview; the
-    // viewer dialog stays mounted independently so an open lightbox
-    // survives a transient src loss from the parent.
-    const hasSource = Boolean(props.src)
 
-    return (
-        <>
-            {hasSource ? (
+    return createPortal(
+        <div
+            className="fixed inset-0 z-50 flex flex-col bg-black/90 text-white"
+            data-hapi-nested-scroll="true"
+            onWheel={stopEvent}
+            onPointerDown={stopEvent}
+            onPointerMove={stopEvent}
+            onPointerUp={stopEvent}
+            onTouchStart={stopEvent}
+            onTouchMove={stopEvent}
+            onTouchEnd={stopEvent}
+            role="dialog"
+            aria-modal="true"
+            aria-label={activePreview.label}
+        >
+            <div className="flex items-center gap-2 border-b border-white/10 bg-black/50 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+                <div className="min-w-0 flex-1 truncate text-sm font-medium">{activePreview.fileName}</div>
+                {hasMultiplePreviews ? (
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => showPreview(previewIndex - 1)}
+                            className="flex h-8 w-8 items-center justify-center rounded bg-white/10 text-lg hover:bg-white/20 disabled:opacity-40"
+                            disabled={previewIndex === 0}
+                            title="Previous image"
+                            aria-label="Previous image"
+                        >
+                            ←
+                        </button>
+                        <span className="min-w-10 text-center text-xs tabular-nums text-white/70">
+                            {previewIndex + 1} / {previewImages.length}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => showPreview(previewIndex + 1)}
+                            className="flex h-8 w-8 items-center justify-center rounded bg-white/10 text-lg hover:bg-white/20 disabled:opacity-40"
+                            disabled={previewIndex === previewImages.length - 1}
+                            title="Next image"
+                            aria-label="Next image"
+                        >
+                            →
+                        </button>
+                    </>
+                ) : null}
                 <button
                     type="button"
-                    onPointerDown={handleTriggerPointerDown}
-                    onMouseDown={stopEvent}
-                    onTouchStart={stopEvent}
-                    onContextMenu={props.onTriggerContextMenu}
-                    onClick={handleTriggerClick}
-                    data-image-preview-trigger=""
-                    data-image-preview-file-name={props.fileName}
-                    data-image-preview-label={props.label}
-                    data-image-preview-gallery={props.galleryId ?? ''}
-                    className={props.buttonClassName ?? 'group flex min-h-[18rem] w-full items-center justify-center overflow-auto rounded-md border border-[var(--app-border)] bg-[var(--app-code-bg)] p-3 text-left'}
-                    title="Click to zoom"
+                    onClick={() => zoomBy(-IMAGE_SCALE_STEP)}
+                    className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20 disabled:opacity-40"
+                    disabled={scale <= MIN_IMAGE_SCALE}
+                    title="Zoom out"
                 >
-                    <img
-                        src={props.src}
-                        alt={props.label}
-                        className={props.imageClassName ?? 'max-h-[calc(100vh-14rem)] max-w-full object-contain transition-transform group-hover:scale-[1.01]'}
-                        style={props.imageStyle}
-                        draggable={false}
-                    />
-                    {props.caption}
-                    <span className="sr-only">{props.fileName}</span>
+                    −
                 </button>
-            ) : null}
-
-            {viewerOpen && activePreview.src ? (
-                <div
-                    className="fixed inset-0 z-50 flex flex-col bg-black/90 text-white"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label={activePreview.label}
+                <button
+                    type="button"
+                    onClick={resetView}
+                    className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20"
+                    title="Reset zoom"
                 >
-                    <div className="flex items-center gap-2 border-b border-white/10 bg-black/50 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
-                        <div className="min-w-0 flex-1 truncate text-sm font-medium">{activePreview.fileName}</div>
-                        {hasMultiplePreviews ? (
-                            <>
-                                <button
-                                    type="button"
-                                    onClick={() => showPreview(previewIndex - 1)}
-                                    className="flex h-8 w-8 items-center justify-center rounded bg-white/10 text-lg hover:bg-white/20 disabled:opacity-40"
-                                    disabled={previewIndex === 0}
-                                    title="Previous image"
-                                    aria-label="Previous image"
-                                >
-                                    ←
-                                </button>
-                                <span className="min-w-10 text-center text-xs tabular-nums text-white/70">
-                                    {previewIndex + 1} / {previewImages.length}
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => showPreview(previewIndex + 1)}
-                                    className="flex h-8 w-8 items-center justify-center rounded bg-white/10 text-lg hover:bg-white/20 disabled:opacity-40"
-                                    disabled={previewIndex === previewImages.length - 1}
-                                    title="Next image"
-                                    aria-label="Next image"
-                                >
-                                    →
-                                </button>
-                            </>
-                        ) : null}
-                        <button
-                            type="button"
-                            onClick={() => zoomBy(-IMAGE_SCALE_STEP)}
-                            className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20 disabled:opacity-40"
-                            disabled={scale <= MIN_IMAGE_SCALE}
-                            title="Zoom out"
-                        >
-                            −
-                        </button>
-                        <button
-                            type="button"
-                            onClick={resetView}
-                            className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20"
-                            title="Reset zoom"
-                        >
-                            {Math.round(scale * 100)}%
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => zoomBy(IMAGE_SCALE_STEP)}
-                            className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20 disabled:opacity-40"
-                            disabled={scale >= MAX_IMAGE_SCALE}
-                            title="Zoom in"
-                        >
-                            +
-                        </button>
-                        <button
-                            type="button"
-                            onClick={closeViewer}
-                            className="flex h-8 w-8 items-center justify-center rounded bg-white/10 hover:bg-white/20"
-                            title="Close"
-                        >
-                            <CloseIcon className="h-4 w-4" />
-                        </button>
-                    </div>
-                    <div
-                        className="relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden active:cursor-grabbing"
-                        onWheel={handleWheel}
-                        onPointerDown={handlePointerDown}
-                        onPointerMove={handlePointerMove}
-                        onPointerUp={handlePointerUp}
-                        onPointerCancel={handlePointerUp}
-                        onDoubleClick={resetView}
-                    >
-                        <img
-                            src={activePreview.src}
-                            alt={activePreview.label}
-                            draggable={false}
-                            className="absolute left-1/2 top-1/2 max-h-[90vh] max-w-[90vw] select-none object-contain"
-                            style={{
-                                transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
-                                transformOrigin: 'center center'
-                            }}
-                        />
-                    </div>
-                </div>
-            ) : null}
-        </>
+                    {Math.round(scale * 100)}%
+                </button>
+                <button
+                    type="button"
+                    onClick={() => zoomBy(IMAGE_SCALE_STEP)}
+                    className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20 disabled:opacity-40"
+                    disabled={scale >= MAX_IMAGE_SCALE}
+                    title="Zoom in"
+                >
+                    +
+                </button>
+                <button
+                    type="button"
+                    onClick={closeViewer}
+                    className="flex h-8 w-8 items-center justify-center rounded bg-white/10 hover:bg-white/20"
+                    title="Close"
+                >
+                    <CloseIcon className="h-4 w-4" />
+                </button>
+            </div>
+            <div
+                className="relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden active:cursor-grabbing"
+                ref={surfaceRef}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onDoubleClick={resetView}
+            >
+                <img
+                    src={activePreview.src}
+                    alt={activePreview.label}
+                    draggable={false}
+                    className="absolute left-1/2 top-1/2 max-h-[90vh] max-w-[90vw] select-none object-contain"
+                    style={{
+                        transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
+                        transformOrigin: 'center center'
+                    }}
+                />
+            </div>
+        </div>,
+        document.body
     )
 }
