@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { AttachmentMetadata, DecryptedMessage } from '@/types/api'
-import { makeClientSideId } from '@/lib/messages'
+import { isQueuedForInvocation, makeClientSideId } from '@/lib/messages'
 import {
     appendOptimisticMessage,
     getMessageWindowState,
@@ -108,7 +108,7 @@ type UseSendMessageOptions = {
 
 /** Create an optimistic message for display. Extracted as an extension point
  *  so a future floating-UI PR can route queued messages to a separate area. */
-function createOptimisticMessage(input: SendMessageInput, status: 'queued' | 'sending'): DecryptedMessage {
+function createOptimisticMessage(input: SendMessageInput, status: 'queued' | 'sending', immediate: boolean): DecryptedMessage {
     return {
         id: input.localId,
         seq: null,
@@ -131,6 +131,7 @@ function createOptimisticMessage(input: SendMessageInput, status: 'queued' | 'se
         invokedAt: null,
         scheduledAt: input.scheduledAt ?? null,
         status,
+        optimisticImmediate: immediate || undefined,
         originalText: input.text,
     }
 }
@@ -227,7 +228,13 @@ export function useSendMessage(
         },
         onMutate: async (input) => {
             const successStatus = isSessionThinkingRef.current ? 'queued' as const : 'sent' as const
-            appendOptimisticMessage(input.sessionId, createOptimisticMessage(input, 'sending'))
+            const immediate = !isSessionThinkingRef.current
+                && input.scheduledAt == null
+                && !getMessageWindowState(input.sessionId).messages.some(message =>
+                    isQueuedForInvocation(message)
+                    && message.scheduledAt == null
+                    && message.deliveryState !== 'indeterminate')
+            appendOptimisticMessage(input.sessionId, createOptimisticMessage(input, 'sending', immediate))
             return { successStatus }
         },
         onSuccess: (_, input, context) => {

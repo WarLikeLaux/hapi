@@ -69,7 +69,7 @@ import type {
 } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { QuotasResponse } from '@hapi/protocol/quotas'
-import type { CancelMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
+import type { CancelMessageResponse, InterruptQueuedMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
 import type { KlipyCategoriesResponse, KlipySearchResponse } from '@hapi/protocol/klipy'
 import type {
@@ -844,6 +844,13 @@ export class ApiClient {
             { method: 'POST' }
         )
         return response as SteerQueuedMessageResponse
+    }
+
+    async interruptMessage(sessionId: string, messageId: string): Promise<InterruptQueuedMessageResponse> {
+        return await this.request<InterruptQueuedMessageResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/interrupt`,
+            { method: 'POST' }
+        )
     }
 
     async retryIndeterminateMessage(sessionId: string, messageId: string): Promise<RetryIndeterminateMessageResponse> {

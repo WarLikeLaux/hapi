@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useSendMessage, type SendMessageAcceptance } from './useSendMessage'
 import { ApiError, type ApiClient } from '@/api/client'
+import { isQueuedForInvocation } from '@/lib/messages'
+import type { DecryptedMessage } from '@/types/api'
 
 vi.mock('@/lib/message-window-store', () => ({
     appendOptimisticMessage: vi.fn(),
@@ -18,7 +20,8 @@ vi.mock('@/hooks/usePlatform', () => ({
     }),
 }))
 
-vi.mock('@/lib/messages', () => ({
+vi.mock('@/lib/messages', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@/lib/messages')>(),
     makeClientSideId: vi.fn(() => 'local-id-1'),
 }))
 
@@ -44,8 +47,39 @@ function deferred<T>() {
 }
 
 describe('useSendMessage', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks()
+        const { getMessageWindowState } = await import('@/lib/message-window-store')
+        vi.mocked(getMessageWindowState).mockReset().mockReturnValue({
+            messages: [],
+        } as unknown as ReturnType<typeof getMessageWindowState>)
+    })
+
+    it.each([
+        { thinking: false, waiting: 'none', queued: false },
+        { thinking: true, waiting: 'none', queued: true },
+        { thinking: false, waiting: 'immediate', queued: true },
+        { thinking: false, waiting: 'scheduled', queued: false },
+        { thinking: false, waiting: 'indeterminate', queued: false },
+    ])('places a send before its HTTP receipt: thinking=$thinking, waiting=$waiting', async ({ thinking, waiting, queued }) => {
+        const request = deferred<void>()
+        const { appendOptimisticMessage, getMessageWindowState } = await import('@/lib/message-window-store')
+        const prior: DecryptedMessage = {
+            id: 'prior', localId: 'prior-local', seq: 1, createdAt: 1000, invokedAt: null,
+            content: { role: 'user', content: { type: 'text', text: 'prior' } },
+            scheduledAt: waiting === 'scheduled' ? 4102444800000 : null,
+            deliveryState: waiting === 'indeterminate' ? 'indeterminate' : undefined,
+        }
+        vi.mocked(getMessageWindowState).mockReturnValue({
+            messages: waiting === 'none' ? [] : [prior],
+        } as ReturnType<typeof getMessageWindowState>)
+        const { result } = renderHook(() => useSendMessage(createMockApi(() => request.promise), 'session-A', { isSessionThinking: thinking }), { wrapper: createWrapper() })
+        await act(async () => { await result.current.sendMessage('new prompt') })
+        await waitFor(() => expect(appendOptimisticMessage).toHaveBeenCalledOnce())
+        const message = vi.mocked(appendOptimisticMessage).mock.calls[0][1]
+        expect(isQueuedForInvocation(message)).toBe(queued)
+        expect(message.invokedAt).toBeNull()
+        await act(async () => { request.resolve() })
     })
 
     it('calls onSuccess with the session ID that was sent', async () => {

@@ -807,6 +807,8 @@ export default {
   'queuedMessages.editBusyNotRestored': 'Delivery still unresolved — draft not restored (may still be in flight)',
   'queuedMessages.editCurrentDraftKept': 'Queued message cancelled — current draft and schedule were kept.',
   'queuedMessages.steer': 'Deliver into the running turn now',
+  'queuedMessages.interrupt': 'Interrupt and send',
+  'queuedMessages.interruptFailed': 'Could not interrupt and send',
   'queuedMessages.steerFailed': 'Steer failed — message stays queued',
   'queuedMessages.steerOutcomeUnknown': 'Delivery outcome unknown — retry or cancel explicitly',
   'queuedMessages.retryOutcome': 'Retry uncertain delivery',

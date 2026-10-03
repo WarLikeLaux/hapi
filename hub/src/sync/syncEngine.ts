@@ -13,7 +13,7 @@ import {
     isMachineCapabilitySkewed,
 } from '@hapi/protocol/runnerCapabilities'
 import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, GitComparisonResponse, GitComparisonScope, MessageDeliveryMode, MessageSearchResponse, MessagesResponse, QueuedStateResponse, RewindConversationErrorCode, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
-import type { SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
+import type { InterruptQueuedMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { ImplementCodexPlanResult } from '@hapi/protocol/apiTypes'
 import type { AnswerCodexAsyncQuestionRequest } from '@hapi/protocol'
 import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
@@ -1302,7 +1302,8 @@ export class SyncEngine {
      * Ask the CLI to deliver one waiting-queue message into the active turn
      * (native steer). Supported for Pi (native), Codex (app-server
      * `turn/steer`), Cursor ACP (concurrent session/prompt soft-send), and
-     * MiniMax Code (native `mcode/session/steer`). The CLI's
+     * MiniMax Code (native `mcode/session/steer`), and Claude Code
+     * (stream-json input at the next native checkpoint). The CLI's
      * `steer-queued-message` handler is registered per flavor. Legacy
      * stream-json Cursor sessions and other flavors are rejected by the
      * capability gate.
@@ -1316,7 +1317,7 @@ export class SyncEngine {
             return { status: 'failed', error: 'Session not found', localId: null }
         }
         if (!isSteeringSupportedForSession(session.metadata)) {
-            return { status: 'failed', error: 'Steering is only supported for Pi, Codex, Cursor ACP, and MiniMax sessions', localId: null }
+            return { status: 'failed', error: 'Steering is not supported for this session', localId: null }
         }
         if (session.agentState?.controlledByUser === true && !session.metadata?.capabilities?.concurrentClients) {
             return { status: 'failed', error: 'Steering is only available for remote sessions', localId: null }
@@ -1365,6 +1366,32 @@ export class SyncEngine {
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Steer failed'
             return { status: 'failed', error: message, localId }
+        }
+    }
+
+    async interruptQueuedMessage(sessionId: string, messageId: string): Promise<InterruptQueuedMessageResponse> {
+        const session = this.getSession(sessionId)
+        if (session?.metadata?.flavor !== 'agy' || session.agentState?.controlledByUser === true) {
+            return { status: 'failed', error: 'Interrupt and send is only available for remote Antigravity sessions', localId: null }
+        }
+        const lookup = this.store.messages.lookupQueuedMessage(sessionId, messageId)
+        if (lookup.status === 'absent') {
+            return { status: 'failed', error: 'Message not found', localId: null }
+        }
+        if (lookup.status === 'invoked') {
+            return { status: 'invoked', message: lookup.message }
+        }
+        const { localId, scheduledAt } = lookup
+        if (!localId || scheduledAt != null) {
+            return { status: 'failed', error: 'Only immediate queued messages can interrupt a turn', localId }
+        }
+        try {
+            const result = await this.rpcGateway.interruptQueuedMessage(sessionId, localId)
+            return result.interrupted
+                ? { status: 'interrupted', localId }
+                : { status: 'failed', error: result.error ?? 'Interrupt failed', localId }
+        } catch (error) {
+            return { status: 'failed', error: error instanceof Error ? error.message : 'Interrupt failed', localId }
         }
     }
 

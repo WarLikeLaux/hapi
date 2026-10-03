@@ -96,6 +96,7 @@ function renderQueuedMessage(
     pendingScheduleRevision = 0,
     canSteer = false,
     api: ApiClient | null = null,
+    canInterrupt = false,
 ) {
     const onEdit = vi.fn()
     let currentPendingScheduleRevision = pendingScheduleRevision
@@ -114,6 +115,7 @@ function renderQueuedMessage(
                 pendingScheduleRevision={currentPendingScheduleRevision}
                 onEdit={onEdit}
                 canSteer={canSteer}
+                canInterrupt={canInterrupt}
             />
         </QueryClientProvider>
     )
@@ -131,6 +133,7 @@ function renderQueuedMessage(
                         pendingScheduleRevision={currentPendingScheduleRevision}
                         onEdit={onEdit}
                         canSteer={canSteer}
+                        canInterrupt={canInterrupt}
                     />
                 </QueryClientProvider>
             )
@@ -867,5 +870,40 @@ describe('QueuedMessagesBar steer action', () => {
             5_000,
         )
         expect(mocks.addToast).not.toHaveBeenCalled()
+    })
+})
+
+describe('QueuedMessagesBar interrupt and send', () => {
+    it.each(['interrupted', 'failed', 'invoked'] as const)('reuses the saved row and reconciles an %s response without assuming delivery', async status => {
+        let resolve!: (result: unknown) => void
+        const interruptMessage = vi.fn(() => new Promise(settle => { resolve = settle }))
+        const api = { interruptMessage } as unknown as ApiClient
+        renderQueuedMessage(null, null, 0, false, api, true)
+        const button = screen.getByRole('button', { name: 'queuedMessages.interrupt' })
+        fireEvent.click(button)
+        await waitFor(() => expect(button).toHaveProperty('disabled', true))
+        fireEvent.click(button)
+        expect(interruptMessage).toHaveBeenCalledOnce()
+        expect(interruptMessage).toHaveBeenCalledWith('session-1', 'server-message-id')
+        expect(mocks.markMessagesConsumed).not.toHaveBeenCalled()
+        await act(async () => {
+            resolve(status === 'invoked'
+                ? { status, message: { localId: 'local-server-message-id', invokedAt: 5000 } }
+                : { status, localId: 'local-server-message-id', error: 'Native process is unavailable' })
+        })
+        await waitFor(() => expect(button).toHaveProperty('disabled', false))
+        expect(screen.getByText('Queued request')).toBeTruthy()
+        if (status === 'invoked') {
+            expect(mocks.markMessagesConsumed).toHaveBeenCalledWith('session-1', ['local-server-message-id'], 5000)
+        } else {
+            expect(mocks.markMessagesConsumed).not.toHaveBeenCalled()
+        }
+        if (status === 'failed') {
+            expect(mocks.addToast).toHaveBeenCalledWith(expect.objectContaining({
+                title: 'queuedMessages.interruptFailed', body: 'Native process is unavailable',
+            }))
+        } else {
+            expect(mocks.addToast).not.toHaveBeenCalled()
+        }
     })
 })

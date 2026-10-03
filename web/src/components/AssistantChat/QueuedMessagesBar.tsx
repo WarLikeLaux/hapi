@@ -8,6 +8,7 @@ import { normalizeDecryptedMessage } from '@/chat/normalize'
 import type { DecryptedMessage } from '@/types/api'
 import { useCancelQueuedMessage } from '@/hooks/mutations/useCancelQueuedMessage'
 import { useSteerQueuedMessage } from '@/hooks/mutations/useSteerQueuedMessage'
+import { useInterruptQueuedMessage } from '@/hooks/mutations/useInterruptQueuedMessage'
 import { useRetryIndeterminateMessage } from '@/hooks/mutations/useRetryIndeterminateMessage'
 import { useTranslation } from '@/lib/use-translation'
 import { useToast } from '@/lib/toast-context'
@@ -208,6 +209,7 @@ export function QueuedMessagesBar({
     pendingScheduleRevision,
     onEdit,
     canSteer,
+    canInterrupt,
 }: {
     sessionId: string
     api: ApiClient | null
@@ -223,16 +225,18 @@ export function QueuedMessagesBar({
     onEdit?: (params: { text: string; pendingSchedule: PendingSchedule | null }) => void
     /**
      * When true, each queued row gets a Steer button that delivers that
-     * message into the active turn (Pi native steer). The parent computes it
-     * as: pi flavor && session thinking && remote-controlled.
+     * message into the active turn through native steering.
      */
     canSteer?: boolean
+    /** Stop the current Antigravity turn and prioritize this saved prompt. */
+    canInterrupt?: boolean
 }) {
     const queued = useQueuedMessages(sessionId)
     const assistantApi = useAui()
     const composerText = useAuiState((state) => state.composer.text)
     const cancelMutation = useCancelQueuedMessage(api)
     const steerMutation = useSteerQueuedMessage(api)
+    const interruptMutation = useInterruptQueuedMessage(api)
     const retryMutation = useRetryIndeterminateMessage(api)
     const { t } = useTranslation()
     const { addToast } = useToast()
@@ -382,7 +386,7 @@ export function QueuedMessagesBar({
                             })
                         }
 
-                        // Steer delivers this message into the active Pi turn. Gated
+                        // Steer delivers this message into the active native turn. Gated
                         // on the same server-echo + no-pending-op conditions as
                         // Edit/Cancel, and never offered for future-scheduled rows
                         // (the hub rejects those).
@@ -406,6 +410,22 @@ export function QueuedMessagesBar({
                             }).finally(() => {
                                 endQueuedOperation(sessionId, token)
                             })
+                        }
+
+                        const showInterrupt = Boolean(canInterrupt
+                            && msg.deliveryState !== 'indeterminate'
+                            && msg.scheduledAt == null
+                            && msg.localId && msg.id !== msg.localId)
+                        const interruptPending = interruptMutation.isPending
+                            && interruptMutation.variables?.messageId === msg.id
+                        const handleInterrupt = () => {
+                            if (!showInterrupt || !canCancel) return
+                            const token = beginQueuedOperation(sessionId)
+                            if (!token) return
+                            void interruptMutation.mutateAsync({ sessionId, messageId: msg.id })
+                                .catch(() => {
+                                    // The mutation reports errors without resending the prompt.
+                                }).finally(() => endQueuedOperation(sessionId, token))
                         }
 
                         const retryPending = retryMutation.isPending
@@ -560,6 +580,17 @@ export function QueuedMessagesBar({
                                             </span>
                                         </div>
                                     )}
+                                    {showInterrupt ? (
+                                        <button
+                                            type="button"
+                                            disabled={!canCancel || interruptPending}
+                                            onClick={handleInterrupt}
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            className="mt-2 rounded border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--app-fg)] transition-colors hover:bg-[var(--app-border)] disabled:cursor-not-allowed disabled:opacity-40"
+                                        >
+                                            {t('queuedMessages.interrupt')}
+                                        </button>
+                                    ) : null}
                                 </div>
                                 <div className="flex shrink-0 items-center gap-1">
                                     {msg.deliveryState === 'indeterminate' ? (

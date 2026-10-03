@@ -56,6 +56,68 @@ afterEach(() => {
 })
 
 describe('claudeRemote/query real seam', () => {
+    it.each(['accepted', 'stopped'] as const)('waits for a native UUID replay before acknowledging a steer (%s)', async outcome => {
+        const child = createFakeChild()
+        spawnMock.mockReturnValueOnce(child)
+        process.env.HAPI_CLAUDE_PATH = 'claude'
+        const { claudeRemote } = await import('./claudeRemote')
+        const controller = new AbortController()
+        const ready = vi.fn()
+        const accepted = vi.fn()
+        const failed = vi.fn()
+        const received: SDKMessage[] = []
+        let sender: import('./claudeRemote').ClaudeSteerSender | null = null
+        const inputs: Array<{ type: string; uuid?: string; message?: { content: string } }> = []
+        child.stdin.on('data', data => {
+            for (const line of data.toString().trim().split('\n')) inputs.push(JSON.parse(line))
+        })
+        let fetches = 0
+        const run = claudeRemote({
+            sessionId: 'session-1', path: process.cwd(), hookSettingsPath: '/tmp/hook.json',
+            allowedTools: [], signal: controller.signal,
+            canCallTool: async () => ({ behavior: 'allow', updatedInput: {} }),
+            nextMessage: async () => ++fetches === 1 ? { message: 'original', mode: { permissionMode: 'default' } } : null,
+            onReady: ready, isAborted: () => false, onSessionFound: () => {}, onMessage: message => { received.push(message) },
+            onSteerReady: value => { sender = value },
+        })
+        const result = { type: 'result', subtype: 'success', num_turns: 1, session_id: 's-1' }
+        const emit = (value: object) => child.stdout.write(JSON.stringify(value) + '\n')
+        await vi.waitFor(() => expect(sender).not.toBeNull())
+        await vi.waitFor(() => expect(inputs.some(input => input.message?.content === 'original')).toBe(true))
+        const original = inputs.find(input => input.message?.content === 'original')!
+        emit(original)
+        await sender!('steered', { onAccepted: accepted, onFailure: failed })
+        const steer = inputs.find(input => input.message?.content === 'steered')!
+        expect(steer.uuid).toBeTypeOf('string')
+        expect(accepted).not.toHaveBeenCalled()
+        emit(result)
+        emit({ type: 'user', uuid: 'unrelated', message: { role: 'user', content: 'another prompt' } })
+        await new Promise(resolve => setTimeout(resolve, 0))
+        expect(ready).not.toHaveBeenCalled()
+        expect(fetches).toBe(1)
+        expect(received.some(message => message.uuid === original.uuid)).toBe(false)
+        expect(received.some(message => message.uuid === 'unrelated')).toBe(true)
+        if (outcome === 'accepted') {
+            emit(steer)
+            emit(result)
+            await vi.waitFor(() => expect(accepted).toHaveBeenCalledOnce())
+            await vi.waitFor(() => expect(fetches).toBe(2))
+            child.stdout.end()
+            child.emit('close', 0)
+            await run
+            expect(failed).not.toHaveBeenCalled()
+            expect(ready).toHaveBeenCalledOnce()
+            expect(received.some(message => message.uuid === steer.uuid)).toBe(false)
+        } else {
+            controller.abort()
+            await run
+            expect(accepted).not.toHaveBeenCalled()
+            expect(failed).toHaveBeenCalledOnce()
+            expect(fetches).toBe(1)
+        }
+        expect(sender).toBeNull()
+    })
+
     it('propagates scheduled nextMessage failures through real query prompt plumbing', async () => {
         const child = createFakeChild()
         spawnMock.mockReturnValueOnce(child)

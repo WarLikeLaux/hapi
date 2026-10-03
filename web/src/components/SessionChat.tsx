@@ -2089,6 +2089,7 @@ function SessionChatInner(props: SessionChatProps) {
                                         ? props.session.thinking
                                         : props.session.agentState?.steeringActive === true)
                                     && !controlledByUser}
+                                canInterrupt={agentFlavor === 'agy' && props.session.active && props.session.thinking && !controlledByUser}
                             />
                         </div>
 

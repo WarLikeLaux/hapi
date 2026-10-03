@@ -6,6 +6,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { existsSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { Stream } from './stream'
 import {
     type QueryOptions,
@@ -22,7 +23,7 @@ import {
     type PermissionResult,
     AbortError
 } from './types'
-import { getDefaultClaudeCodePath, logDebug, streamToStdin } from './utils'
+import { getDefaultClaudeCodePath, logDebug } from './utils'
 import { withBunRuntimeEnv } from '@/utils/bunRuntime'
 import { killProcessByChildProcess } from '@/utils/process'
 import { stripNewlinesForWindowsShellArg } from '@/utils/shellEscape'
@@ -31,6 +32,11 @@ import { logger } from '@/ui/logger'
 import { appendMcpConfigArg } from '../utils/mcpConfig'
 
 const DEFAULT_PROMPT_FAILURE_CLEANUP_TIMEOUT_MS = 3_000
+
+export type NativeSteerCallbacks = {
+    onAccepted: () => void
+    onFailure: () => void
+}
 
 /**
  * Query class manages Claude Code process interaction
@@ -42,6 +48,8 @@ export class Query implements AsyncIterableIterator<SDKMessage> {
     private inputStream = new Stream<SDKMessage>()
     private canCallTool?: CanCallToolCallback
     private promptFailure: Error | null = null
+    private pendingSteers = new Map<string, NativeSteerCallbacks>()
+    private promptInputUuids = new Set<string>()
 
     constructor(
         private childStdin: Writable | null,
@@ -58,7 +66,52 @@ export class Query implements AsyncIterableIterator<SDKMessage> {
      * Set an error on the stream
      */
     setError(error: Error): void {
+        this.failPendingSteers()
         this.inputStream.error(error)
+    }
+
+    /** Write now, but confirm invocation only when Claude replays this UUID. */
+    async sendUserMessage(text: string, callbacks: NativeSteerCallbacks): Promise<void> {
+        const stdin = this.childStdin
+        if (!stdin?.writable || this.promptFailure) {
+            callbacks.onFailure()
+            throw new Error('Claude input is no longer available')
+        }
+        const uuid = randomUUID()
+        this.pendingSteers.set(uuid, callbacks)
+        const message = { type: 'user', uuid, message: { role: 'user', content: text } }
+        try {
+            await new Promise<void>((resolve, reject) => {
+                stdin.write(JSON.stringify(message) + '\n', error => error ? reject(error) : resolve())
+            })
+        } catch (error) {
+            const pending = this.pendingSteers.get(uuid)
+            this.pendingSteers.delete(uuid)
+            pending?.onFailure()
+            throw error
+        }
+    }
+
+    private failPendingSteers(): void {
+        const pending = [...this.pendingSteers.values()]
+        this.pendingSteers.clear()
+        for (const callbacks of pending) callbacks.onFailure()
+    }
+
+    async writePrompt(prompt: AsyncIterable<SDKMessage>, abort?: AbortSignal): Promise<void> {
+        const stdin = this.childStdin
+        if (!stdin) throw new Error('Streaming prompts require stdin')
+        for await (const message of prompt) {
+            if (abort?.aborted) break
+            if (message.type === 'user') {
+                const uuid = typeof message.uuid === 'string' ? message.uuid : randomUUID()
+                this.promptInputUuids.add(uuid)
+                stdin.write(JSON.stringify({ ...message, uuid }) + '\n')
+            } else {
+                stdin.write(JSON.stringify(message) + '\n')
+            }
+        }
+        stdin.end()
     }
 
     registerPromptFailure(error: Error): boolean {
@@ -135,6 +188,15 @@ export class Query implements AsyncIterableIterator<SDKMessage> {
                             continue
                         }
 
+                        if (message.type === 'user' && typeof message.uuid === 'string') {
+                            const callbacks = this.pendingSteers.get(message.uuid)
+                            this.pendingSteers.delete(message.uuid)
+                            callbacks?.onAccepted()
+                            // Hub input already owns the user row. Native replays
+                            // are receipts, while tool results and synthetic users
+                            // must still pass through the transcript pipeline.
+                            if (callbacks || this.promptInputUuids.delete(message.uuid)) continue
+                        }
                         this.inputStream.enqueue(message)
                     } catch (e) {
                         logger.debug(line)
@@ -146,6 +208,8 @@ export class Query implements AsyncIterableIterator<SDKMessage> {
             hadError = true
             this.inputStream.error(error as Error)
         } finally {
+            this.failPendingSteers()
+            this.promptInputUuids.clear()
             // Only call done() on clean exit - calling done() after error()
             // would mask the error since Stream.next() checks isDone before hasError
             if (!hadError && !this.inputStream.hasTerminalError) {
@@ -363,7 +427,7 @@ export function query(config: {
     if (typeof prompt === 'string') {
         args.push('--print', stripNewlinesForWindowsShellArg(prompt.trim()))
     } else {
-        args.push('--input-format', 'stream-json')
+        args.push('--input-format', 'stream-json', '--replay-user-messages')
     }
 
     // Determine how to spawn Claude Code
@@ -449,7 +513,7 @@ export function query(config: {
     const query = new Query(childStdin, child.stdout, processExitPromise, canCallTool)
 
     if (typeof prompt !== 'string') {
-        void streamToStdin(prompt, child.stdin, config.options?.abort).catch(async (error) => {
+        void query.writePrompt(prompt, config.options?.abort).catch(async (error) => {
             const err = error instanceof Error ? error : new Error(String(error))
             if (!query.registerPromptFailure(err)) {
                 return

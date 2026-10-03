@@ -96,6 +96,14 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         return c.json(result)
     })
 
+    app.post('/sessions/:id/messages/:messageId/interrupt', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        return c.json(await engine.interruptQueuedMessage(sessionResult.sessionId, c.req.param('messageId')))
+    })
+
     app.post('/sessions/:id/messages/:messageId/retry', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {

@@ -805,6 +805,8 @@ export default {
   'queuedMessages.editBusyNotRestored': '发送结果仍未确认，未恢复草稿（消息可能仍在发送中）',
   'queuedMessages.editCurrentDraftKept': '队列消息已取消，已保留当前草稿和定时设置。',
   'queuedMessages.steer': '立即插入当前回合',
+  'queuedMessages.interrupt': '中断并发送',
+  'queuedMessages.interruptFailed': '无法中断并发送',
   'queuedMessages.steerFailed': '插入失败，消息仍在队列中',
   'queuedMessages.steerOutcomeUnknown': '发送结果未知，请明确重试或取消',
   'queuedMessages.retryOutcome': '重试不确定的消息发送',
