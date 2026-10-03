@@ -13,6 +13,7 @@ import {
     openRequestUserInputUrl,
     requestUserInputOptions,
     selectRequestUserInputOption,
+    REQUEST_USER_INPUT_OTHER,
     type RequestUserInputOption,
     type RequestUserInputQuestion
 } from '@/components/ToolCard/requestUserInput'
@@ -255,28 +256,32 @@ export function RequestUserInputFooter(props: {
                                             checked={isSelected}
                                             disabled={props.disabled || loading}
                                             title={opt.isOther ? t('tool.requestUserInput.otherLabel') : opt.label}
-                                            description={opt.isOther ? t('tool.requestUserInput.otherDescription') : opt.description}
+                                            description={opt.isOther
+                                                ? t(currentQuestion.otherRequiresText ? 'tool.otherDescription' : 'tool.requestUserInput.otherDescription')
+                                                : opt.description}
                                             onClick={() => selectOption(currentQuestion, opt)}
                                         />
                                     )
                                 })}
                             </div>
 
-                            {/* User note input - always shown for questions with options */}
-                            <div className="mt-3">
-                                <div className="text-xs text-[var(--app-hint)] mb-1">
-                                    {t('tool.requestUserInput.noteLabel')}
+                            {(!currentQuestion.otherRequiresText || currentState?.selected.includes(REQUEST_USER_INPUT_OTHER)) ? (
+                                <div className="mt-3">
+                                    <div className="text-xs text-[var(--app-hint)] mb-1">
+                                        {t(currentQuestion.otherRequiresText ? 'tool.otherDescription' : 'tool.requestUserInput.noteLabel')}
+                                    </div>
+                                    <textarea
+                                        ref={noteRef}
+                                        autoFocus={currentQuestion.otherRequiresText}
+                                        aria-label={t(currentQuestion.otherRequiresText ? 'tool.otherDescription' : 'tool.requestUserInput.noteLabel')}
+                                        value={currentState?.userNote ?? ''}
+                                        onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
+                                        disabled={props.disabled || loading}
+                                        placeholder={t(currentQuestion.otherRequiresText ? 'tool.requestUserInput.textPlaceholder' : 'tool.requestUserInput.notePlaceholder')}
+                                        className="w-full min-h-[60px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
+                                    />
                                 </div>
-                                <textarea
-                                    ref={noteRef}
-                                    aria-label={t('tool.requestUserInput.noteLabel')}
-                                    value={currentState?.userNote ?? ''}
-                                    onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
-                                    disabled={props.disabled || loading}
-                                    placeholder={t('tool.requestUserInput.notePlaceholder')}
-                                    className="w-full min-h-[60px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
-                                />
-                            </div>
+                            ) : null}
                         </>
                     )}
                 </div>

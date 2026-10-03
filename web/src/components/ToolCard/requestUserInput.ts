@@ -15,6 +15,7 @@ export type RequestUserInputQuestion = {
     required: boolean
     multiple: boolean
     isOther: boolean
+    otherRequiresText?: boolean
     options: RequestUserInputOption[]
     placeholder?: string
     prefill?: string
@@ -98,6 +99,7 @@ export function parseRequestUserInputInput(input: unknown): ParsedRequestUserInp
             required: raw.required !== false,
             multiple: raw.multiple === true,
             isOther: raw.isOther === true,
+            ...(raw.otherRequiresText === true ? { otherRequiresText: true } : {}),
             options,
             ...(typeof raw.placeholder === 'string' ? { placeholder: raw.placeholder } : {}),
             ...(typeof raw.prefill === 'string' ? { prefill: raw.prefill } : {}),
@@ -144,6 +146,9 @@ export function isRequestUserInputQuestionAnswered(
     question: RequestUserInputQuestion,
     answer: RequestUserInputQuestionAnswer | undefined
 ): boolean {
+    if (question.isOther && question.otherRequiresText && answer?.selected.includes(REQUEST_USER_INPUT_OTHER)) {
+        return answer.userNote.trim().length > 0
+    }
     if (!question.required) return true
     if (!answer) return false
     if (question.options.length > 0) {
@@ -188,9 +193,11 @@ export function formatRequestUserInputAnswers(
 
         answerArray.push(...answer.selected)
 
-        const isEditor = questionById.get(id)?.inputType === 'editor'
+        const question = questionById.get(id)
+        const isEditor = question?.inputType === 'editor'
         const note = isEditor ? answer.userNote : answer.userNote.trim()
-        if (isEditor || note.length > 0) {
+        const acceptsNote = !question?.otherRequiresText || answer.selected.includes(REQUEST_USER_INPUT_OTHER)
+        if (acceptsNote && (isEditor || note.length > 0)) {
             answerArray.push(`user_note: ${note}`)
         }
 

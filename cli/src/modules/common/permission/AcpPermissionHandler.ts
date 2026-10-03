@@ -1,5 +1,7 @@
 import type { ApiSessionClient } from '@/api/apiSession'
-import type { AgentBackend, PermissionRequest, PermissionResponse } from '@/agent/types'
+import type { AgentBackend, AgentMessage, FormElicitationResponse, PermissionRequest, PermissionResponse } from '@/agent/types'
+import { randomUUID } from 'node:crypto'
+import { parseAcpFormElicitation, type FormAnswers } from './acpFormElicitation'
 import type { PermissionMode } from '@hapi/protocol/types'
 import { deriveToolInput, deriveToolName } from '@/agent/utils'
 import { logger } from '@/ui/logger'
@@ -15,6 +17,7 @@ interface PermissionResponseMessage {
     approved: boolean
     decision?: 'approved' | 'approved_for_session' | 'denied' | 'abort'
     reason?: string
+    answers?: FormAnswers
 }
 
 function pickOptionId(request: PermissionRequest, preferredKinds: string[]): string | null {
@@ -45,14 +48,39 @@ function mapDecisionToOutcome(
 /** Shared HAPI permission bridge for ACP agents with one-shot choices. */
 export class AcpPermissionHandler extends BasePermissionHandler<PermissionResponseMessage, void> {
     private readonly pendingBackendRequests = new Map<string, PermissionRequest>()
+    private readonly pendingForms = new Map<string, {
+        form: NonNullable<ReturnType<typeof parseAcpFormElicitation>>
+        resolve: (response: FormElicitationResponse) => void
+    }>()
 
     constructor(
         session: ApiSessionClient,
         private readonly backend: AgentBackend,
-        private readonly getPermissionMode: () => PermissionMode | undefined
+        private readonly getPermissionMode: () => PermissionMode | undefined,
+        private readonly onMessage?: (message: AgentMessage) => void
     ) {
         super(session)
         this.backend.onPermissionRequest((request) => this.handlePermissionRequest(request))
+        this.backend.onFormElicitation?.((params) => this.handleFormElicitation(params))
+    }
+
+    private async handleFormElicitation(params: unknown): Promise<FormElicitationResponse> {
+        const form = parseAcpFormElicitation(params)
+        if (!form) return { action: 'cancel' }
+        const id = `acp-elicitation-${randomUUID()}`
+        return await new Promise<FormElicitationResponse>((resolve) => {
+            this.pendingForms.set(id, { form, resolve })
+            // Questions need actual input even when the session auto-approves tools.
+            this.onMessage?.({ type: 'tool_call', id, name: 'request_user_input', input: form.input, status: 'pending' })
+            this.addPendingRequest(id, 'request_user_input', form.input, {
+                resolve: () => {},
+                reject: (error) => {
+                    this.pendingForms.delete(id)
+                    resolve({ action: 'cancel' })
+                    this.onMessage?.({ type: 'tool_result', id, output: { action: 'cancel', reason: error.message }, status: 'failed' })
+                }
+            })
+        })
     }
 
     private handlePermissionRequest(request: PermissionRequest): void {
@@ -108,6 +136,29 @@ export class AcpPermissionHandler extends BasePermissionHandler<PermissionRespon
         response: PermissionResponseMessage,
         pending: PendingPermissionRequest<void>
     ): Promise<PermissionCompletion> {
+        const formRequest = this.pendingForms.get(response.id)
+        if (formRequest) {
+            this.pendingForms.delete(response.id)
+            const decision = response.decision ?? (response.approved ? 'approved' : 'denied')
+            const content = response.approved && decision !== 'denied' && decision !== 'abort'
+                ? formRequest.form.readAnswers(response.answers)
+                : null
+            const result: FormElicitationResponse = content !== null
+                ? { action: 'accept', content }
+                : { action: decision === 'denied' ? 'decline' : 'cancel' }
+            formRequest.resolve(result)
+            this.onMessage?.({
+                type: 'tool_result', id: response.id,
+                output: result.action === 'accept' ? { answers: response.answers } : result,
+                status: result.action === 'accept' ? 'completed' : 'failed'
+            })
+            return {
+                status: result.action === 'accept' ? 'approved' : result.action === 'decline' ? 'denied' : 'canceled',
+                decision: result.action === 'accept' ? 'approved' : result.action === 'decline' ? 'denied' : 'abort',
+                answers: result.action === 'accept' ? response.answers : undefined,
+                reason: response.reason
+            }
+        }
         const request = this.pendingBackendRequests.get(response.id)
         this.pendingBackendRequests.delete(response.id)
         const decision = response.decision ?? (response.approved ? 'approved' : 'denied')

@@ -1,5 +1,5 @@
 import type { AgentFlavor } from '@hapi/protocol';
-import type { AgentBackend, AgentMessage, AgentSessionConfig, PermissionRequest, PermissionResponse, PromptContent } from '@/agent/types';
+import type { AgentBackend, AgentMessage, AgentSessionConfig, FormElicitationResponse, PermissionRequest, PermissionResponse, PromptContent } from '@/agent/types';
 import { asString, isObject } from '@hapi/protocol';
 import { AcpStdioTransport, type AcpStderrError } from './AcpStdioTransport';
 import { AcpMessageHandler, type AcpTextChunkMode } from './AcpMessageHandler';
@@ -63,6 +63,8 @@ type AcpInitializeResult = {
 export class AcpSdkBackend implements AgentBackend {
     private transport: AcpStdioTransport | null = null;
     private permissionHandler: ((request: PermissionRequest) => void) | null = null;
+    private formElicitationHandler: ((params: unknown) => Promise<FormElicitationResponse>) | null = null;
+    private readonly pendingFormElicitations = new Set<Promise<FormElicitationResponse>>();
     private stderrErrorHandler: ((error: AcpStderrError) => void) | null = null;
     private readonly pendingPermissions = new Map<string, PendingPermission>();
     private readonly sessionModelsMetadata = new Map<string, AcpSessionModelsMetadata>();
@@ -190,6 +192,21 @@ export class AcpSdkBackend implements AgentBackend {
         this.transport.registerRequestHandler('session/request_permission', async (params, requestId) => {
             return await this.handlePermissionRequest(params, requestId);
         });
+        this.transport.registerRequestHandler('elicitation/create', async (params) => {
+            if (!this.formElicitationHandler) return { action: 'cancel' };
+            if (isObject(params) && typeof params.sessionId === 'string'
+                && this.activeSessionId && params.sessionId !== this.activeSessionId) {
+                return { action: 'cancel' };
+            }
+            this.agentActivityListener?.(true);
+            const response = this.formElicitationHandler(params);
+            this.pendingFormElicitations.add(response);
+            try {
+                return await response;
+            } finally {
+                this.pendingFormElicitations.delete(response);
+            }
+        });
 
         const response = await withRetry(
             () => this.transport!.sendRequest('initialize', {
@@ -197,6 +214,7 @@ export class AcpSdkBackend implements AgentBackend {
                 clientCapabilities: {
                     fs: { readTextFile: false, writeTextFile: false },
                     terminal: false,
+                    ...(this.formElicitationHandler ? { elicitation: { form: {} } } : {}),
                     _meta: {
                         // Cursor ACP exposes Composer's non-fast/fast choice as separate
                         // `model` + `fast` config options only when the client advertises
@@ -287,6 +305,10 @@ export class AcpSdkBackend implements AgentBackend {
             throw new Error('ACP transport not initialized');
         }
         this.transport.registerRequestHandler(method, handler);
+    }
+
+    onFormElicitation(handler: (params: unknown) => Promise<FormElicitationResponse>): void {
+        this.formElicitationHandler = handler;
     }
 
     async setMode(sessionId: string, modeId: string): Promise<void> {
@@ -625,6 +647,12 @@ export class AcpSdkBackend implements AgentBackend {
                     sessionId,
                     prompt: content
                 }, { timeoutMs: Infinity });
+                // MiniMax can end its prompt while a questionnaire still waits
+                // for client input. Keep the turn open so launcher cleanup and
+                // the next queued message cannot discard or overtake that input.
+                while (this.pendingFormElicitations.size > 0) {
+                    await Promise.all([...this.pendingFormElicitations]);
+                }
             } finally {
                 this.promptRequestInFlight = false;
             }
