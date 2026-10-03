@@ -104,7 +104,8 @@ const appliedRewindLocalIds = new Map<string, Set<string>>()
 
 const NOTIFY_THROTTLE_MS = 150
 const PERSIST_THROTTLE_MS = 200
-const STORAGE_KEY_PREFIX = 'hapi:message-window:v2:'
+// V3 cursors certify REST coverage. V2 could persist a live message past an unseen gap, so those snapshots must be fetched again rather than resumed.
+const STORAGE_KEY_PREFIX = 'hapi:message-window:v3:'
 const pendingNotifySessionIds = new Set<string>()
 const pendingPersistSessionIds = new Set<string>()
 const normalizedMessageCache = new WeakMap<DecryptedMessage, ReturnType<typeof normalizeDecryptedMessage>>()
@@ -476,7 +477,7 @@ function findConversationAnchorIds(messages: DecryptedMessage[]): Set<string> {
     }
 
     for (const message of messages) {
-        const normalized = normalizeWindowMessage(message)
+        const normalized = normalizeConversationUnitMessage(message)
         if (!normalized) continue
 
         if (normalized.role === 'user') {
@@ -511,7 +512,7 @@ function countUnitsFromEnd(messages: DecryptedMessage[]): { userUnits: number; a
     let agentUnits = 0
     let insideAgentRun = false
     for (let index = messages.length - 1; index >= 0; index--) {
-        const normalized = normalizeWindowMessage(messages[index])
+        const normalized = normalizeConversationUnitMessage(messages[index])
         if (!normalized) continue
         if (normalized.role === 'user') {
             userUnits += 1
@@ -582,7 +583,7 @@ function findUnitBudgetCutoff(
     let insideAgentRun = false
     if (mode === 'append') {
         for (let index = regular.length - 1; index >= 0; index--) {
-            const normalized = normalizeWindowMessage(regular[index])
+            const normalized = normalizeConversationUnitMessage(regular[index])
             if (!normalized) continue
             if (normalized.role === 'user') {
                 units += 1
@@ -600,7 +601,7 @@ function findUnitBudgetCutoff(
         return 0
     }
     for (let index = 0; index < regular.length; index++) {
-        const normalized = normalizeWindowMessage(regular[index])
+        const normalized = normalizeConversationUnitMessage(regular[index])
         if (!normalized) continue
         if (normalized.role === 'user') {
             units += 1
@@ -684,6 +685,14 @@ function normalizeWindowMessage(message: DecryptedMessage): ReturnType<typeof no
     const normalized = normalizeDecryptedMessage(message)
     normalizedMessageCache.set(message, normalized)
     return normalized
+}
+
+/** Usage updates feed metadata but do not split a visible assistant response. */
+function normalizeConversationUnitMessage(message: DecryptedMessage): ReturnType<typeof normalizeDecryptedMessage> {
+    const normalized = normalizeWindowMessage(message)
+    return normalized?.role === 'event' && normalized.content.type === 'token-count'
+        ? null
+        : normalized
 }
 
 function countNewRenderableMessages(
@@ -797,10 +806,6 @@ function applyLatestResponse(
     const bumpTailRevision = options.bumpTailRevision ?? true
     const snapshotHead = pagePosition(response.page.snapshotHeadAt, response.page.snapshotHeadSeq)
         ?? derivePosition(response.messages, 'newest')
-    const newestKept = derivePosition(kept, 'newest')
-    const newest = snapshotHead && newestKept
-        ? (comparePosition(snapshotHead, newestKept) >= 0 ? snapshotHead : newestKept)
-        : snapshotHead ?? newestKept
     const responseOldest = pagePosition(response.page.nextBeforeAt, response.page.nextBeforeSeq)
     const previousOldest = readPosition(previous.oldestPositionAt, previous.oldestPositionSeq)
     const oldest = dropped.length > 0
@@ -814,8 +819,8 @@ function applyLatestResponse(
         epoch: response.page.epoch,
         oldestPositionAt: oldest?.at ?? null,
         oldestPositionSeq: oldest?.seq ?? null,
-        newestPositionAt: newest?.at ?? null,
-        newestPositionSeq: newest?.seq ?? null,
+        newestPositionAt: snapshotHead?.at ?? null,
+        newestPositionSeq: snapshotHead?.seq ?? null,
         tailRevision: bumpTailRevision ? previous.tailRevision + 1 : previous.tailRevision,
         requiresLatestReset: false,
         isLoadingMore: options.replaceServerRows ? false : previous.isLoadingMore,
@@ -876,7 +881,8 @@ async function runTailSync(api: ApiClient, sessionId: string): Promise<void> {
             updateState(sessionId, (previous) => {
                 if (previous.syncGeneration !== generation) return previous
                 return applyLatestResponse(previous, response, {
-                    replaceServerRows: initial.requiresLatestReset
+                    replaceServerRows: initial.epoch === null
+                        || initial.requiresLatestReset
                         || response.page.reset,
                     requestBaseline
                 })
@@ -1254,6 +1260,7 @@ export async function fetchOlderMessages(
                 })
                 return buildState(merged, {
                     hasMore: response.page.hasMore,
+                    historyVersion,
                     epoch: response.page.epoch,
                     oldestPositionAt: response.page.nextBeforeAt,
                     oldestPositionSeq: response.page.nextBeforeSeq,
@@ -1342,24 +1349,10 @@ export function setMessageViewMode(sessionId: string, mode: MessageViewMode): vo
 
 export function ingestIncomingMessages(sessionId: string, incoming: DecryptedMessage[]): void {
     if (incoming.length === 0) return
-    updateState(sessionId, (previous) => {
-        let merged = mergeIntoWindow(previous, incoming, {
-            advanceTailRevision: true
-        })
-        if (merged.epoch === null || merged.requiresLatestReset) {
-            return merged
-        }
-        const incomingNewest = derivePosition(incoming, 'newest')
-        const currentNewest = getNewestCursor(merged)
-        const newest = incomingNewest && (!currentNewest || comparePosition(incomingNewest, currentNewest) > 0)
-            ? incomingNewest
-            : currentNewest
-        merged = buildState(merged, {
-            newestPositionAt: newest?.at ?? null,
-            newestPositionSeq: newest?.seq ?? null
-        })
-        return merged
-    })
+    // Live events can arrive after a missed interval or ahead of a REST page. Display them immediately, but only REST can certify a covered cursor.
+    updateState(sessionId, (previous) => mergeIntoWindow(previous, incoming, {
+        advanceTailRevision: true
+    }))
 }
 
 export function getMessageWindowState(sessionId: string): MessageWindowState {

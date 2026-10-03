@@ -24,8 +24,8 @@
             }
         ],
         "newestCursor": {
-            "at": 3000,
-            "seq": 3
+            "at": 1000,
+            "seq": 1
         },
         "olderCursor": {
             "at": 1000,

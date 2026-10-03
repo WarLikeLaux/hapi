@@ -100,7 +100,7 @@ Run after connect, after an SSE `resume: 'gap'` handshake, on session open, and 
 
 1. **No usable state** (no newest cursor, no cached epoch, or a reset is pending):
    - Request `GET …/messages?limit=200` (latest).
-   - Replace/merge into the window, store `page.epoch`, `nextBefore*` (older-page cursor) and `snapshotHead*` (newest cursor).
+   - Replace previously cached server rows with this authoritative window, preserving optimistic rows and concurrent live deliveries. Store `page.epoch`, `nextBefore*` (older-page cursor) and `snapshotHead*` (verified newest cursor).
    - Then run the **initial coverage extension** described below.
 2. **Have cursor + epoch (incremental catch-up, including cached re-entry)**: loop
    - `GET …/messages?afterSeq&afterAt&epoch[&untilSeq&untilAt]&limit=200`, where `after` starts at your newest cursor and `until` is the `snapshotHead*` captured from the **first** response of the loop (fixes the target so the loop terminates).
@@ -109,15 +109,17 @@ Run after connect, after an SSE `resume: 'gap'` handshake, on session open, and 
    - Guard: if `nextAfter` did not advance past the previous cursor, abort with an error (protocol violation, do not spin).
    - Then run the **initial coverage extension**.
 
-**Initial coverage extension.** After every completed tail sync (cold or incremental), make sure the window ends with the *initial conversation coverage*: at least 2 user prompts and 2 agent final messages, counted as conversation units (see below). While the target is unmet and `hasMore` is true with an older cursor, prepend up to 4 before-pages (`GET …/messages?beforeSeq&beforeAt&limit=200`). This is the only automatic backward loading; beyond it, history loads are user-driven.
+**Initial coverage extension.** After every completed tail sync (cold or incremental), make sure the window ends with the *initial conversation coverage*: at least 2 user prompts and 2 agent final messages, counted as conversation units (see below). While the target is unmet and `hasMore` is true with an older cursor, prepend up to 256 before-pages (`GET …/messages?beforeSeq&beforeAt&limit=200`). This is the only automatic backward loading; beyond it, history loads are user-driven.
 
-New live rows keep arriving via the SSE `message-received` event; ingest them and advance the newest cursor to `max(current, incoming position)`. Only run one tail sync at a time per session; if events force another (e.g. a reset was flagged mid-loop), queue a trailing run.
+New live rows keep arriving via the SSE `message-received` event. Display them immediately without advancing the REST catch-up cursor: an event can arrive beyond a missed interval or ahead of an in-flight page. Only REST responses certify coverage through `snapshotHead*` or `nextAfter*`. Persist that verified cursor separately from the newest displayed row. Only run one tail sync at a time per session. If events force another (e.g. a reset was flagged mid-loop), queue a trailing run.
 
 ---
 
 ## Client windowing (normative recommendation)
 
 The window budget is counted in **conversation units**, not raw records. One unit is a user prompt **or** one consecutive run of agent records (a whole agent turn counts once regardless of how many stream records it spans). Rows the chat pipeline hides (meta output) are not retained; codex `agent-run-*` cards keep a separate record budget so background-agent traces don't evict chat.
+
+Usage updates contribute metadata without splitting the surrounding assistant run into new conversation units. Publishing an older page also publishes its new `historyVersion` atomically with the rows, so the runtime and scroll restoration observe the same window.
 
 Constants from the web reference (`web/src/lib/message-window-store.ts`):
 

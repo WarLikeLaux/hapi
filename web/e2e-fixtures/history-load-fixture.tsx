@@ -80,6 +80,7 @@ window.__probe = {
 }
 
 // Test knobs via query params:
+// - ?conversation=1 uses user exchanges with record-dense assistant responses and incremental tail catch-up.
 // - ?shortPages=1  — `before` pages return 2 messages regardless of limit, so
 //   one page is shorter than the preload margin and cannot push the top
 //   sentinel out of the observed box (no intersection transition).
@@ -108,6 +109,7 @@ const coldInitial = fixtureParams.has('coldInitial')
 const slowBefore = fixtureParams.has('slowBefore')
 const cachedReentry = fixtureParams.has('cachedReentry')
 const holdLatest = fixtureParams.has('holdLatest')
+const conversation = fixtureParams.has('conversation')
 if (holdLatest) {
     latestResponseGate = new Promise<void>((resolve) => {
         releaseLatestResponse = resolve
@@ -118,13 +120,20 @@ let beforeAttempts = 0
 const allMessages: DecryptedMessage[] = Array.from({ length: TOTAL_MESSAGES }, (_, index) => {
     const seq = index + 1
     const filtered = filteredOlder && seq <= TOTAL_MESSAGES - 200
+    const assistantContent = conversation && (seq - 1) % 200 !== 0
+        ? { role: 'agent', content: { type: 'codex', data: {
+            type: 'message', message: seq % 200 === 0
+                ? `Fixture response ${seq}\n\n${'A finished response with enough text to scroll through.\n\n'.repeat(18)}`
+                : `Work in response ${Math.ceil(seq / 200)}`
+        } } }
+        : null
     return {
         id: `m-${seq}`,
         seq,
         localId: null,
         content: filtered
             ? { role: 'agent', content: { type: 'output', data: { isMeta: true } } }
-            : { role: 'user', content: { type: 'text', text: `Fixture message ${seq}` } },
+            : assistantContent ?? { role: 'user', content: { type: 'text', text: `Fixture message ${seq}` } },
         createdAt: BASE_AT + seq,
         invokedAt: BASE_AT + seq
     } as DecryptedMessage
@@ -137,7 +146,7 @@ if (cachedReentry) {
     if (!cachedOldest || !cachedNewest) throw new Error('Expected cached fixture messages')
     const oldestPosition = positionOf(cachedOldest)
     const newestPosition = positionOf(cachedNewest)
-    sessionStorage.setItem(`hapi:message-window:v2:${SESSION_ID}`, JSON.stringify({
+    sessionStorage.setItem(`hapi:message-window:v3:${SESSION_ID}`, JSON.stringify({
         messages: cachedMessages,
         hasMore: true,
         oldestPositionAt: oldestPosition.at,
@@ -231,6 +240,31 @@ const fakeApi = {
                     nextAfterAt: null,
                     snapshotHeadSeq: null,
                     snapshotHeadAt: null
+                })
+            }
+        }
+
+        if (direction === 'after' && conversation) {
+            const cursorAt = query.afterAt ?? Number.NEGATIVE_INFINITY
+            const cursorSeq = query.afterSeq ?? Number.NEGATIVE_INFINITY
+            const newer = allMessages.filter((message) => {
+                const position = positionOf(message)
+                return position.at > cursorAt || (position.at === cursorAt && position.seq > cursorSeq)
+            })
+            const pageMessages = newer.slice(0, limit)
+            const newest = pageMessages.at(-1)
+            return {
+                messages: pageMessages,
+                page: pageFrom(pageMessages, {
+                    direction: 'after',
+                    limit,
+                    hasMore: newer.length > pageMessages.length,
+                    nextBeforeSeq: null,
+                    nextBeforeAt: null,
+                    nextAfterSeq: newest?.seq ?? query.afterSeq ?? null,
+                    nextAfterAt: newest ? positionOf(newest).at : query.afterAt ?? null,
+                    snapshotHeadSeq: TOTAL_MESSAGES,
+                    snapshotHeadAt: BASE_AT + TOTAL_MESSAGES
                 })
             }
         }
