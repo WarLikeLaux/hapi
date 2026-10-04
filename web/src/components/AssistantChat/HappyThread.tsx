@@ -241,9 +241,20 @@ export function captureScrollAnchor(viewport: HTMLElement): ScrollAnchor | null 
                 id: message.id,
                 topOffset: message.getBoundingClientRect().top - viewportRect.top
             }))
+            // A response may span several pages. Prepending its early records
+            // changes the joined card's ID and height, but not the prose part
+            // the user is reading. Anchor that part before falling back to rows.
+            const part = Array.from(message.querySelectorAll<HTMLElement>('[data-hapi-scroll-anchor][id]'))
+                .find(element => {
+                    const partRect = element.getBoundingClientRect()
+                    return partRect.bottom > viewportRect.top && partRect.top < viewportRect.bottom
+                })
+            if (part) {
+                fallbacks.unshift({ id: message.id, topOffset: rect.top - viewportRect.top })
+            }
             return {
-                id: message.id,
-                topOffset: rect.top - viewportRect.top,
+                id: part?.id ?? message.id,
+                topOffset: (part?.getBoundingClientRect().top ?? rect.top) - viewportRect.top,
                 ...(fallbacks.length > 0 ? { fallbacks } : {})
             }
         }

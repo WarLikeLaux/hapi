@@ -82,6 +82,8 @@ window.__probe = {
 
 // Test knobs via query params:
 // - ?conversation=1 uses user exchanges with record-dense assistant responses and incremental tail catch-up.
+// - ?denseResponse=1 makes each exchange span two pages, so cold backfill regroups the visible response.
+// - ?holdBefore=1 holds cold backfill until releaseBefore is called.
 // - ?shortPages=1  — `before` pages return 2 messages regardless of limit, so
 //   one page is shorter than the preload margin and cannot push the top
 //   sentinel out of the observed box (no intersection transition).
@@ -111,6 +113,8 @@ const slowBefore = fixtureParams.has('slowBefore')
 const cachedReentry = fixtureParams.has('cachedReentry')
 const holdLatest = fixtureParams.has('holdLatest')
 const conversation = fixtureParams.has('conversation')
+const responseRecords = fixtureParams.has('denseResponse') ? 400 : 200
+if (fixtureParams.has('holdBefore')) window.__probe.holdBefore()
 const screenshot = fixtureParams.has('screenshot')
 const screenshotUrl = screenshot ? URL.createObjectURL(new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#2563eb"/></svg>'], { type: 'image/svg+xml' })) : ''
 if (holdLatest) {
@@ -123,11 +127,11 @@ let beforeAttempts = 0
 const allMessages: DecryptedMessage[] = Array.from({ length: TOTAL_MESSAGES }, (_, index) => {
     const seq = index + 1
     const filtered = filteredOlder && seq <= TOTAL_MESSAGES - 200
-    const assistantContent = conversation && (seq - 1) % 200 !== 0
+    const assistantContent = conversation && (seq - 1) % responseRecords !== 0
         ? { role: 'agent', content: { type: 'codex', data: {
-            type: 'message', message: seq % 200 === 0
+            type: 'message', message: seq % responseRecords === 0
                 ? `Fixture response ${seq}\n\n${'A finished response with enough text to scroll through.\n\n'.repeat(18)}`
-                : `Work in response ${Math.ceil(seq / 200)}`
+                : `Work in response ${Math.ceil(seq / responseRecords)}`
         } } }
         : null
     return {
