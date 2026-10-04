@@ -171,6 +171,7 @@ describe('shared async questions', () => {
     it('keeps an uncertain reply unresolved and refuses a blind retry', async () => {
         const f = await fixture();
         await f.root.activate();
+        const indeterminate = vi.spyOn(f.root.session, 'emitSteerIndeterminate');
         f.native.thread.turns.push({ id: 'turn', status: 'completed', items: [
             { id: 'ask', type: 'agentMessage', delivery: 'async', text: 'Choose', questions: [{ title: 'Choose', options: ['Chat'] }] }
         ] });
@@ -182,6 +183,7 @@ describe('shared async questions', () => {
         const answer = f.rpc.get('answer-codex-async-question')!;
         const payload = { questionId: 'codex-async-question:thread:ask', answers: { '0': { answers: ['Chat'] } } };
         await expect(answer(payload)).rejects.toThrow();
+        expect(indeterminate).toHaveBeenCalledWith([`${payload.questionId}:answer`]);
         await expect(answer(payload)).rejects.toThrow('Previous answer delivery is uncertain');
         expect(request.mock.calls.filter(([method]) => method === 'thread/queue/add')).toHaveLength(1);
         expect(f.send.mock.calls.some(([body]) => body.type === 'tool-call-result' && body.output?.answers)).toBe(false);

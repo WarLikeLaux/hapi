@@ -14,7 +14,7 @@ const state = vi.hoisted(() => ({ home: '', sessions: new Map<string, MockSessio
 class MockSession {
     readonly sessionId = randomUUID();
     state: AgentState = { requests: { 'old-worker': { tool: 'request_user_input', arguments: {}, createdAt: 0 } } }; metadata: Metadata;
-    messages: unknown[] = []; consumed: string[] = []; dead = false;
+    messages: unknown[] = []; consumed: string[] = []; indeterminate: string[] = []; dead = false;
     user?: (message: { content: { text: string } }, id?: string) => void;
     rpc = new Map<string, (params: unknown) => Promise<unknown>>();
     rpcHandlerManager = { registerHandler: (name: string, fn: (params: unknown) => Promise<unknown>) => { this.rpc.set(name, fn); } };
@@ -23,12 +23,13 @@ class MockSession {
     updateMetadata(fn: (m: Metadata) => Metadata) { this.metadata = fn(this.metadata); }
     updateAgentState(fn: (s: AgentState) => AgentState) { this.state = fn(this.state); }
     onUserMessage(fn: MockSession['user']) { this.user = fn; }
+    setHapiTitleToolAvailable() {}
     onCancelQueuedMessage() {} onRetryQueuedMessage() {} onReconnect() {}
     sendUserMessage(text: string) { this.messages.push({ user: text }); }
     sendAgentMessage(body: unknown) { this.messages.push(body); }
     sendSessionEvent(body: unknown) { this.messages.push(body); }
     emitMessagesConsumed(ids: string[]) { this.consumed.push(...ids); }
-    emitSteerIndeterminate() {} keepAlive() {} emitSessionReady() {}
+    emitSteerIndeterminate(ids: string[]) { this.indeterminate.push(...ids); } keepAlive() {} emitSessionReady() {}
     hubArchived = false;
     private readonly events = new Map<string, Array<() => void>>();
     on(event: string, listener: () => void) { const listeners = this.events.get(event) ?? []; listeners.push(listener); this.events.set(event, listeners); }
@@ -147,6 +148,7 @@ describe.skipIf(process.env.HAPI_RUN_SHARED_CODEX_TESTS !== '1')('installed Code
             web.user?.({ content: { text: 'HELLO FROM WEB' } }, 'web-1');
             await vi.waitFor(() => expect(web.consumed).toContain('web-1'), { timeout: 15_000 });
             await vi.waitFor(() => expect(web.messages).toContainEqual(expect.objectContaining({ type: 'message', message: 'MOCK ANSWER' })), { timeout: 15_000 });
+            expect(web.indeterminate).not.toContain('web-1');
             const newResponse = record(await first.request('thread/start', { cwd }));
             const next = String(record(newResponse.thread).id); roots.push(next);
             expect(next).not.toBe(initial); expect(state.sessions.size).toBe(2);
