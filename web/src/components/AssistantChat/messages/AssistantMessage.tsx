@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState, type PropsWithChildren } from 'react'
-import { MessagePrimitive, useAuiState, type TextMessagePart, type ThreadAssistantMessagePart } from '@assistant-ui/react'
+import {
+    MessagePrimitive, useAuiState, getExternalStoreMessages,
+    type TextMessagePart, type TextMessagePartProps, type ThreadMessageLike, type ThreadAssistantMessagePart
+} from '@assistant-ui/react'
 import { Reasoning, ReasoningGroup } from '@/components/assistant-ui/reasoning'
 import { HappyToolMessage } from '@/components/AssistantChat/messages/ToolMessage'
 import { CliOutputBlock } from '@/components/CliOutputBlock'
@@ -21,8 +24,21 @@ const TOOL_COMPONENTS = {
     Fallback: HappyToolMessage
 } as const
 
+// A joined response takes its card ID from its first record, which can change
+// during history backfill. Each prose part retains its original record ID.
+function AnchoredResponseText(props: TextMessagePartProps) {
+    const sourceId = useAuiState(({ part }) => part.type === 'text'
+        ? getExternalStoreMessages<ThreadMessageLike>(part)[0]?.id
+        : undefined)
+    return (
+        <div id={sourceId ? `hapi-response-part-${sourceId}` : undefined} data-hapi-scroll-anchor="true">
+            <NotifySummaryText {...props} />
+        </div>
+    )
+}
+
 const MESSAGE_PART_COMPONENTS = {
-    Text: NotifySummaryText,
+    Text: AnchoredResponseText,
     Reasoning: Reasoning,
     ReasoningGroup: ReasoningGroup,
     tools: TOOL_COMPONENTS

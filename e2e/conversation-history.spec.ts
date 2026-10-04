@@ -67,3 +67,48 @@ test('history loads and late content sizing preserve the current reading positio
     await expect(page.getByText('Fixture message 401', { exact: true })).toHaveCount(1)
     await expect(page.getByText('Fixture message 1001', { exact: true })).toHaveCount(1)
 })
+
+test.describe('mobile response reading', () => {
+    test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+
+    test('cold backfill keeps the reader inside a long response while its earlier records load', async ({ page }) => {
+        await page.goto('/e2e-fixtures/history-load-fixture.html?conversation=1&denseResponse=1&coldInitial=1&holdBefore=1')
+        const viewport = page.locator('.chat-scroll-y')
+        const response = page.getByText('Fixture response 1200', { exact: true })
+        await expect(response).toHaveCount(1)
+        await expect.poll(() => viewport.evaluate(element => (
+            element.scrollHeight - element.clientHeight - element.scrollTop
+        ))).toBeLessThan(2)
+
+        const box = await viewport.boundingBox()
+        if (!box) throw new Error('Missing chat viewport')
+        const touch = await page.context().newCDPSession(page)
+        const points = (offset: number) => [{
+            x: box.x + box.width / 2,
+            y: box.y + 100 + offset
+        }]
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points(0) })
+        for (let offset = 30; offset <= 300; offset += 30) {
+            await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points(offset) })
+            await page.waitForTimeout(30)
+        }
+        // Pause before release so momentum cannot move the saved reading position.
+        await page.waitForTimeout(100)
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        await expect.poll(() => viewport.evaluate(element => (
+            element.scrollHeight - element.clientHeight - element.scrollTop
+        ))).toBeGreaterThan(200)
+        const readingOffset = await response.evaluate(element => (
+            element.getBoundingClientRect().top
+            - element.closest('.chat-scroll-y')!.getBoundingClientRect().top
+        ))
+
+        await page.evaluate(() => window.__probe.releaseBefore())
+        await expect(page.getByText('Fixture message 401', { exact: true })).toHaveCount(1)
+        await expect.poll(() => response.evaluate((element, savedOffset) => Math.abs(
+            element.getBoundingClientRect().top
+            - element.closest('.chat-scroll-y')!.getBoundingClientRect().top
+            - savedOffset
+        ), readingOffset)).toBeLessThan(2)
+    })
+})
