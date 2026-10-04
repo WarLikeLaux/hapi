@@ -310,7 +310,10 @@ export class SharedCodexRoot {
             const name = p.threadName ?? undefined; this.session.updateMetadata(metadata => ({ ...metadata, name }));
         }
         if (method === 'thread/archived') { await this.host.end(this, false); return; }
-        if (method === 'thread/queue/changed') await this.queue.reconcile();
+        // Native dequeue precedes the userMessage receipt. Keep the ledger
+        // conservative without publishing a delivery failure during that gap;
+        // dispatch errors and recovery snapshots still report uncertainty.
+        if (method === 'thread/queue/changed') await this.queue.reconcile(false);
         await this.projection.notification(method, params, modelAtReceipt); this.alive();
     }
     async readThread(threadId = this.threadId): Promise<Record<string, unknown>> {

@@ -81,8 +81,8 @@ export class SharedCodexQueue {
         } while (cursor);
         return items;
     }
-    reconcile(): Promise<void> { return this.serial(() => this.reconcileNow()); }
-    private async reconcileNow(): Promise<void> {
+    reconcile(reportUncertainty = true): Promise<void> { return this.serial(() => this.reconcileNow(reportUncertainty)); }
+    private async reconcileNow(reportUncertainty = true): Promise<void> {
         const present = new Set<string>();
         for (const item of await this.list()) {
             const id = item.clientUserMessageId; present.add(id);
@@ -100,7 +100,7 @@ export class SharedCodexQueue {
         }
         await this.save();
         const unknown = Object.entries(this.entries).filter(([, entry]) => entry.state === 'unknown').map(([id]) => id);
-        if (unknown.length) this.uncertain(unknown);
+        if (reportUncertainty && unknown.length) this.uncertain(unknown);
         await this.publishReleased();
     }
 
