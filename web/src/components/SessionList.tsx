@@ -18,6 +18,20 @@ import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { CopyIcon, CheckIcon, MarkAllReadIcon } from '@/components/icons'
+import { useNavigate } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import type { ExternalConversation } from '@hapi/protocol/messengers'
+import { queryKeys } from '@/lib/query-keys'
+import { useMinuteTick } from '@/hooks/useMinuteTick'
+import { useFreshChatsWindow, getFreshChatsWindowMs } from '@/hooks/useFreshChatsWindow'
+import {
+    mergeSidebarChatRows,
+    selectFreshSidebarConversations,
+    type SidebarChatRow,
+} from '@/lib/freshSidebarChats'
+import { formatRelativeTime } from '@/lib/relativeTime'
+
+const EMPTY_FRESH_CHATS: ExternalConversation[] = []
 
 function PinnedSectionIcon(props: { className?: string }) {
     return (
@@ -1120,6 +1134,54 @@ export function SessionListSearch(props: {
     )
 }
 
+const freshChatProviderAccents: Record<string, string> = {
+    telegram: 'bg-[#2AABEE]/15 text-[#229ED9]',
+    yandex: 'bg-[#FC3F1D]/15 text-[#FC3F1D]',
+}
+
+// A fresh messenger chat rendered as a peer row inside the session list.
+function FreshChatItem({ conversation }: { conversation: ExternalConversation }) {
+    const { t } = useTranslation()
+    const navigate = useNavigate()
+    const accent = freshChatProviderAccents[conversation.provider] ?? 'bg-[var(--app-secondary-bg)] text-[var(--app-hint)]'
+    const title = conversation.customTitle?.trim() || conversation.sourceTitle?.trim() || conversation.title
+    const unread = conversation.unreadCount > 0
+    return (
+        <button
+            type="button"
+            onClick={() => navigate({ to: '/chats/$conversationId', params: { conversationId: conversation.id } })}
+            className="session-list-item group/session-row flex w-full select-none items-center gap-2.5 rounded-lg py-2 pl-2.5 pr-2 text-left transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+        >
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-semibold ${accent}`}>
+                {conversation.avatarDataUrl
+                    ? <img src={conversation.avatarDataUrl} alt="" className="h-full w-full object-cover" />
+                    : title.trim().slice(0, 2).toUpperCase() || '··'}
+            </span>
+            <span className="min-w-0 flex-1">
+                <span className="flex items-baseline gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
+                    {unread ? (
+                        <span
+                            className="min-w-4 shrink-0 rounded-full bg-[var(--app-button)] px-1.5 py-0.5 text-center text-[10px] font-semibold leading-none text-[var(--app-button-text)]"
+                            title={t('nav.chats')}
+                        >
+                            {conversation.unreadCount > 99 ? '99+' : String(conversation.unreadCount)}
+                        </span>
+                    ) : null}
+                    {conversation.lastMessageAt ? (
+                        <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
+                            {formatRelativeTime(conversation.lastMessageAt, t)}
+                        </span>
+                    ) : null}
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-[var(--app-hint)]">
+                    {conversation.lastMessagePreview ?? t('chats.noMessages')}
+                </span>
+            </span>
+        </button>
+    )
+}
+
 function SessionItem(props: {
     session: SessionSummary
     onSelect: (sessionId: string) => void
@@ -1609,6 +1671,31 @@ export function SessionList(props: {
     // Lifted here so the messages tab badge shows the match count while the
     // chats tab is the active one.
     const messageSearchState = useMessageSearch(api, normalizedQuery)
+    // Fresh messenger chats interleaved between the active sessions. The window
+    // is per-device (localStorage); unread chats always stay visible and only
+    // already-read chats age out after the grace window.
+    const { freshChatsWindow } = useFreshChatsWindow()
+    const freshChatsWindowMs = getFreshChatsWindowMs(freshChatsWindow)
+    const freshChatsEnabled = freshChatsWindowMs !== null
+    const freshChatsTick = useMinuteTick(freshChatsEnabled)
+    const externalConversations = useQuery({
+        queryKey: queryKeys.externalConversations,
+        queryFn: async () => (await api!.getExternalConversations()).conversations,
+        enabled: Boolean(api) && freshChatsEnabled
+    })
+    const freshChats = useMemo(() => {
+        if (!freshChatsEnabled || !externalConversations.data) {
+            return EMPTY_FRESH_CHATS
+        }
+        // Skip chats while searching or date-filtering: those views rank
+        // sessions by relevance/time, and chats do not participate in either.
+        if (hasTextQuery || isFiltering) {
+            return EMPTY_FRESH_CHATS
+        }
+        // freshChatsTick re-evaluates the window every minute so read chats age out.
+        void freshChatsTick
+        return selectFreshSidebarConversations(externalConversations.data, freshChatsWindowMs!, Date.now())
+    }, [externalConversations.data, freshChatsEnabled, freshChatsWindowMs, freshChatsTick, hasTextQuery, isFiltering])
     const timeScopedSessions = useMemo(
         () => timeRange === null
             ? allSessions
@@ -1756,6 +1843,12 @@ export function SessionList(props: {
             ? sortSessionsBySearchRelevancePreservingForkOrder(active, searchScoreIndex)
             : active
     }, [hasTextQuery, machineFilteredSessions, pinInProgressSessions, searchScoreIndex])
+    // Interleave fresh chats between the active sessions by recency; null keeps
+    // the section on its pure-session rendering path.
+    const activeRows = useMemo(
+        () => freshChats.length > 0 ? mergeSidebarChatRows(activeSessions, freshChats) : null,
+        [activeSessions, freshChats]
+    )
     const idleSessions = useMemo(() => {
         if (!pinInProgressSessions) {
             return []
@@ -1875,6 +1968,27 @@ export function SessionList(props: {
         )
     }
 
+    const renderSessionRow = (s: SessionSummary, key?: string, timeBasis: SessionActivityTimeBasis = 'agent') => (
+        <SessionItem
+            key={key ?? s.id}
+            session={s}
+            onSelect={props.onSelect}
+            onContinueInFolder={props.onContinueInFolder}
+            showPath={false}
+            api={api}
+            titleSuggestionAvailable={titleSuggestionAvailable}
+            selected={s.id === selectedSessionId}
+            showDetailedStatus={showDetailedStatus}
+            inRunningSection
+            projectLabel={getProjectDisplayName(s)}
+            machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
+            activityTimeBasis={timeBasis}
+            lastSeenVersion={lastSeenVersion}
+            currentContext={resolveSessionContext(s, contextOptions)}
+            onSetContext={(ctx) => setSessionContextOverride(s.id, ctx)}
+        />
+    )
+
     const renderSessionSection = ({
         sectionKey,
         titleKey,
@@ -1884,6 +1998,7 @@ export function SessionList(props: {
         activityTimeBasis,
         collapsible = true,
         statusColorClass = 'bg-[var(--app-badge-success-text)]',
+        mergedRows = null,
     }: {
         sectionKey: string
         titleKey: string
@@ -1893,8 +2008,9 @@ export function SessionList(props: {
         activityTimeBasis: SessionActivityTimeBasis
         collapsible?: boolean
         statusColorClass?: string
+        mergedRows?: SidebarChatRow[] | null
     }) => {
-        if (sessions.length === 0) {
+        if (sessions.length === 0 && !(mergedRows ?? []).some((row) => row.kind === 'chat')) {
             return null
         }
         return (
@@ -1934,26 +2050,11 @@ export function SessionList(props: {
                 <div className="collapsible-panel" data-open={(!collapsible || !collapsed || isFiltering) || undefined}>
                     <div className="collapsible-inner">
                     <div className="flex flex-col gap-0.5 ml-3 pl-1 py-1">
-                        {sessions.map((s) => (
-                            <SessionItem
-                                key={s.id}
-                                session={s}
-                                onSelect={props.onSelect}
-                                onContinueInFolder={props.onContinueInFolder}
-                                showPath={false}
-                                api={api}
-                                titleSuggestionAvailable={titleSuggestionAvailable}
-                                selected={s.id === selectedSessionId}
-                                showDetailedStatus={showDetailedStatus}
-                                inRunningSection
-                                projectLabel={getProjectDisplayName(s)}
-                                machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
-                                activityTimeBasis={activityTimeBasis}
-                                lastSeenVersion={lastSeenVersion}
-                                currentContext={resolveSessionContext(s, contextOptions)}
-                                onSetContext={(ctx) => setSessionContextOverride(s.id, ctx)}
-                            />
-                        ))}
+                        {mergedRows
+                            ? mergedRows.map((row) => row.kind === 'session'
+                                ? renderSessionRow(row.session, row.key, activityTimeBasis)
+                                : <FreshChatItem key={row.key} conversation={row.conversation} />)
+                            : sessions.map((s) => renderSessionRow(s, undefined, activityTimeBasis))}
                     </div>
                     </div>
                 </div>
@@ -2592,6 +2693,7 @@ export function SessionList(props: {
                     sessions: activeSessions,
                     activityTimeBasis: 'agent',
                     collapsible: false,
+                    mergedRows: activeRows,
                 }) : null}
                 {showSessionSections ? renderSessionSection({
                     sectionKey: 'idle-section',
