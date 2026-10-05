@@ -25,6 +25,9 @@ import {
 } from '@/hooks/useDirectorySuggestions'
 import { useLastUsedMachine } from '@/hooks/useLastUsedMachine'
 import { getRecentProjectPaths } from '@/hooks/useRecentProjectPaths'
+import { useProjectPaths } from '@/hooks/useProjectPaths'
+import { useSessionContextFilter } from '@/hooks/useSessionContextFilter'
+import { useSessionContextHubSync } from '@/hooks/useSessionContextHubSync'
 import { useTranslation } from '@/lib/use-translation'
 import { getClaudeGlmBranded, useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
 import { getCodexModelReasoningEfforts, resolveCodexModel } from '@/lib/codexModelCapabilities'
@@ -630,6 +633,14 @@ export function NewSession(props: {
     const recentPaths = useMemo(
         () => getRecentProjectPaths(sessions, machineId),
         [sessions, machineId]
+    )
+
+    const hubContextSync = useSessionContextHubSync()
+    const { workAliases, projectOverrides } = useSessionContextFilter(hubContextSync)
+    const { workPaths, recentPaths: filteredRecentPaths } = useProjectPaths(
+        sessions,
+        machineId,
+        { workAliases, projectOverrides }
     )
 
     const trimmedDirectory = directory.trim()
@@ -1984,7 +1995,8 @@ export function NewSession(props: {
                 suggestions={suggestions}
                 selectedIndex={selectedIndex}
                 isDisabled={isFormDisabled}
-                recentPaths={recentPaths}
+                workPaths={workPaths}
+                recentPaths={filteredRecentPaths}
                 statusMessage={directoryStatusMessage}
                 statusTone={directoryStatusTone}
                 onDirectoryChange={handleDirectoryChange}

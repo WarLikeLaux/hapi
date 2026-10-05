@@ -461,6 +461,7 @@ export default {
   'newSession.directory': '目录',
   'newSession.placeholder': '/path/to/project',
   'newSession.browse': '浏览',
+  'newSession.working': '工作路径+',
   'newSession.recent': '最近路径',
   'newSession.type': '会话类型',
   'newSession.type.simple': '简单',

@@ -24,7 +24,7 @@ function CodexImportIcon(props: { className?: string }) {
             {/* 中文注释：导入 Codex 历史依赖当前目录，放在 Browse 后面表达“选目录后导入”；图标用“下载进托盘”样式，与刷新图标区分。 */}
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
+            <line x1="12" y1="12" x2="12" y2="3" />
         </svg>
     )
 }
@@ -32,8 +32,59 @@ function CodexImportIcon(props: { className?: string }) {
 function FolderIcon(props: { className?: string }) {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1-2-2h5l2 3h9a2 2 0 0 1 2 2z" />
         </svg>
+    )
+}
+
+function PathChip(props: {
+    path: string
+    isDisabled: boolean
+    onPathClick: (path: string) => void
+}) {
+    return (
+        <button
+            key={props.path}
+            type="button"
+            onClick={() => props.onPathClick(props.path)}
+            disabled={props.isDisabled}
+            className="rounded-[5px] border border-[var(--session-project-border)] bg-[var(--session-project-bg)] px-2 py-1 text-xs font-medium leading-tight text-[var(--session-project-fg)] transition-[filter] hover:brightness-110 truncate max-w-[200px] disabled:opacity-50"
+            style={{
+                // Same hue hashing as the session list project
+                // badges, so one project keeps its color in both.
+                '--session-project-fg': `light-dark(hsl(${getProjectLabelHue(props.path)} 78% 27%), hsl(${getProjectLabelHue(props.path)} 95% 88%))`,
+                '--session-project-bg': `light-dark(hsl(${getProjectLabelHue(props.path)} 92% 89%), hsl(${getProjectLabelHue(props.path)} 68% 30%))`,
+                '--session-project-border': `light-dark(hsl(${getProjectLabelHue(props.path)} 70% 72%), hsl(${getProjectLabelHue(props.path)} 68% 45%))`,
+            } as CSSProperties}
+            title={props.path}
+            aria-label={props.path}
+        >
+            {getPathDisplayName(props.path)}
+        </button>
+    )
+}
+
+function PathRow(props: {
+    label: string
+    paths: readonly string[]
+    isDisabled: boolean
+    onPathClick: (path: string) => void
+}) {
+    if (props.paths.length === 0) return null
+    return (
+        <div className="flex flex-col gap-1 mt-1">
+            <span className="text-xs text-[var(--app-hint)]">{props.label}:</span>
+            <div className="flex flex-wrap gap-1">
+                {props.paths.map((path) => (
+                    <PathChip
+                        key={path}
+                        path={path}
+                        isDisabled={props.isDisabled}
+                        onPathClick={props.onPathClick}
+                    />
+                ))}
+            </div>
+        </div>
     )
 }
 
@@ -42,6 +93,7 @@ export function DirectorySection(props: {
     suggestions: readonly Suggestion[]
     selectedIndex: number
     isDisabled: boolean
+    workPaths: string[]
     recentPaths: string[]
     statusMessage?: string | null
     statusTone?: 'warning' | 'error' | null
@@ -116,33 +168,18 @@ export function DirectorySection(props: {
                 ) : null}
             </div>
 
-            {props.recentPaths.length > 0 && (
-                <div className="flex flex-col gap-1 mt-1">
-                    <span className="text-xs text-[var(--app-hint)]">{t('newSession.recent')}:</span>
-                    <div className="flex flex-wrap gap-1">
-                        {props.recentPaths.map((path) => (
-                            <button
-                                key={path}
-                                type="button"
-                                onClick={() => props.onPathClick(path)}
-                                disabled={props.isDisabled}
-                                className="rounded-[5px] border border-[var(--session-project-border)] bg-[var(--session-project-bg)] px-2 py-1 text-xs font-medium leading-tight text-[var(--session-project-fg)] transition-[filter] hover:brightness-110 truncate max-w-[200px] disabled:opacity-50"
-                                style={{
-                                    // Same hue hashing as the session list project
-                                    // badges, so one project keeps its color in both.
-                                    '--session-project-fg': `light-dark(hsl(${getProjectLabelHue(path)} 78% 27%), hsl(${getProjectLabelHue(path)} 95% 88%))`,
-                                    '--session-project-bg': `light-dark(hsl(${getProjectLabelHue(path)} 92% 89%), hsl(${getProjectLabelHue(path)} 68% 30%))`,
-                                    '--session-project-border': `light-dark(hsl(${getProjectLabelHue(path)} 70% 72%), hsl(${getProjectLabelHue(path)} 68% 45%))`,
-                                } as CSSProperties}
-                                title={path}
-                                aria-label={path}
-                            >
-                                {getPathDisplayName(path)}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
+            <PathRow
+                label={t('newSession.working')}
+                paths={props.workPaths}
+                isDisabled={props.isDisabled}
+                onPathClick={props.onPathClick}
+            />
+            <PathRow
+                label={t('newSession.recent')}
+                paths={props.recentPaths}
+                isDisabled={props.isDisabled}
+                onPathClick={props.onPathClick}
+            />
 
             {props.statusMessage ? (
                 <div

@@ -457,6 +457,7 @@ export default {
   'newSession.directory': 'Directory',
   'newSession.placeholder': '/path/to/project',
   'newSession.browse': 'Browse',
+  'newSession.working': 'Working paths+',
   'newSession.recent': 'Recent paths',
   'newSession.type': 'Session type',
   'newSession.type.simple': 'Simple',

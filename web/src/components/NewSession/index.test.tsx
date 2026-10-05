@@ -204,6 +204,22 @@ vi.mock('@/components/PiSessionImportDialog', () => ({
     ) : null
 }))
 vi.mock('./DirectorySection', () => ({ DirectorySection: () => null }))
+vi.mock('@/hooks/useSessionContextHubSync', () => ({
+    useSessionContextHubSync: () => ({
+        ready: true,
+        canPersist: false,
+        workAliases: [],
+        sessionOverrides: {},
+        projectOverrides: {},
+        persist: () => undefined,
+    })
+}))
+vi.mock('@/hooks/useSessionContextFilter', () => ({
+    useSessionContextFilter: () => ({
+        workAliases: [],
+        projectOverrides: {},
+    })
+}))
 vi.mock('./MachineSelector', () => ({
     MachineSelector: (props: { machines: Machine[]; machineId: string | null; isDisabled: boolean; onChange: (machineId: string) => void }) => (
         <select
