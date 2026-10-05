@@ -525,7 +525,7 @@ function ToolCardInner(props: ToolCardProps) {
     )
 
     return (
-        <Card className="overflow-hidden rounded-[20px] bg-[var(--app-tool-card-bg)] shadow-none">
+        <Card id={isQuestionTool ? `hapi-question:${props.block.tool.id}` : undefined} tabIndex={isQuestionTool ? -1 : undefined} className="overflow-hidden rounded-[20px] bg-[var(--app-tool-card-bg)] shadow-none">
             <CardHeader className={cn('space-y-0 p-3', subtitle ? 'pb-2' : null)}>
                 <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
                     <DialogTrigger asChild>

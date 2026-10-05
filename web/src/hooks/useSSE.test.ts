@@ -416,6 +416,7 @@ describe('isRenderIrrelevantPatch', () => {
         ['modelReasoningEffort', { modelReasoningEffort: 'high' }],
         ['effort', { effort: 'medium' }],
         ['pendingRequestsCount', { pendingRequestsCount: 2 }],
+        ['pendingAsyncQuestionsCount', { pendingAsyncQuestionsCount: 2 }],
         ['metadata.path', { metadata: { path: '/other', name: undefined } }],
         ['metadata.flavor', { metadata: { path: '/tmp', flavor: 'claude' as const } }],
         ['metadata.machineId', { metadata: { path: '/tmp', machineId: 'Teemo' } }],

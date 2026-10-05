@@ -76,6 +76,8 @@
     --app-badge-success-border: rgba(34, 197, 94, 0.3);
     --app-badge-error-bg: rgba(239, 68, 68, 0.18);
     --app-badge-error-text: #b91c1c;
+    --app-badge-info-bg: rgba(37, 99, 235, 0.12);
+    --app-badge-info-text: #1d4ed8;
     --app-badge-error-border: rgba(239, 68, 68, 0.3);
 
     --app-font-scale: 1;
@@ -158,6 +160,8 @@
     --app-badge-success-border: rgba(74, 222, 128, 0.3);
     --app-badge-error-bg: rgba(248, 113, 113, 0.2);
     --app-badge-error-text: #fca5a5;
+    --app-badge-info-bg: rgba(96, 165, 250, 0.16);
+    --app-badge-info-text: #93c5fd;
     --app-badge-error-border: rgba(248, 113, 113, 0.35);
 }
 
@@ -239,6 +243,8 @@
     --app-badge-success-border: rgba(74, 222, 128, 0.28);
     --app-badge-error-bg: rgba(248, 113, 113, 0.16);
     --app-badge-error-text: #fca5a5;
+    --app-badge-info-bg: rgba(96, 165, 250, 0.16);
+    --app-badge-info-text: #93c5fd;
     --app-badge-error-border: rgba(248, 113, 113, 0.3);
 }
 

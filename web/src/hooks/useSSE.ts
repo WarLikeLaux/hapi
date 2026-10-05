@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
     computePendingRequestKinds,
+    computePendingAsyncQuestionsCount,
     computePendingRequests,
     computePendingRequestsCount,
     computeTodoProgress,
@@ -174,6 +175,7 @@ export function isRenderIrrelevantPatch(current: SessionSummary, next: SessionSu
         && current.modelReasoningEffort === next.modelReasoningEffort
         && current.effort === next.effort
         && current.pendingRequestsCount === next.pendingRequestsCount
+        && current.pendingAsyncQuestionsCount === next.pendingAsyncQuestionsCount
         // Structured SSE patches (#897) can move these without touching the
         // keep-alive fields above; omit them and a todos/metadata/agentState
         // patch would be dropped as "activeAt-only" churn.
@@ -569,6 +571,7 @@ export function useSSE(options: {
                 }
                 if (patch.agentState !== undefined && patch.agentState.version >= current.agentStateVersion) {
                     nextSummary.pendingRequestsCount = computePendingRequestsCount(patch.agentState.value)
+                    nextSummary.pendingAsyncQuestionsCount = computePendingAsyncQuestionsCount(patch.agentState.value)
                     nextSummary.pendingRequestKinds = computePendingRequestKinds(patch.agentState.value)
                     nextSummary.pendingRequests = computePendingRequests(patch.agentState.value, nextSummary.updatedAt)
                     nextSummary.agentStateVersion = patch.agentState.version

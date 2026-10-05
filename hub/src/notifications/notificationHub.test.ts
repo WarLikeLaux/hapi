@@ -77,7 +77,7 @@ function createSession(overrides: Partial<Session> = {}): Session {
 }
 
 describe('NotificationHub', () => {
-    it('debounces permission notifications and triggers when request IDs change', async () => {
+    it.each(['requests', 'codexAsyncQuestions'] as const)('debounces attention notifications and triggers when request IDs change (%s)', async (field) => {
         const engine = new FakeSyncEngine()
         const channel = new StubChannel()
         const hub = new NotificationHub(engine as unknown as SyncEngine, [channel], {
@@ -87,8 +87,8 @@ describe('NotificationHub', () => {
 
         const firstSession = createSession({
             agentState: {
-                requests: {
-                    req1: { tool: 'Edit', arguments: {}, createdAt: 1 }
+                [field]: {
+                    req1: { tool: field === 'requests' ? 'Edit' : 'request_user_input_async', arguments: {}, createdAt: 1 }
                 }
             }
         })
@@ -108,8 +108,8 @@ describe('NotificationHub', () => {
             id: firstSession.id,
             namespace: firstSession.namespace,
             agentState: {
-                requests: {
-                    req2: { tool: 'Read', arguments: {}, createdAt: 2 }
+                [field]: {
+                    req2: { tool: field === 'requests' ? 'Read' : 'request_user_input_async', arguments: {}, createdAt: 2 }
                 }
             }
         })

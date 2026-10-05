@@ -35,7 +35,9 @@ import { getShareTurnReasoningLabel, selectShareTurnMetadata } from '@/lib/share
 import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { useTransientScrollbar } from '@/hooks/useTransientScrollbar'
 import { queryKeys } from '@/lib/query-keys'
-import { matchesSearchQuery } from '@hapi/protocol'
+import { getAttentionRequests, isObject, matchesSearchQuery } from '@hapi/protocol'
+import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInput'
+import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion'
 
 type ScrollAnchor = {
     id: string
@@ -1565,6 +1567,47 @@ export function HappyThread(props: {
         return requestOlder('consumer')
     }, [requestOlder])
 
+    const pendingQuestions = useMemo(() => Object.entries(getAttentionRequests(props.session.agentState))
+        .filter(([, request]) => isRequestUserInputToolName(request.tool) || isAskUserQuestionToolName(request.tool))
+        .sort((a, b) => (a[1].createdAt ?? 0) - (b[1].createdAt ?? 0)), [props.session.agentState])
+    const pendingQuestionsRef = useRef(pendingQuestions)
+    pendingQuestionsRef.current = pendingQuestions
+    const [locatingQuestion, setLocatingQuestion] = useState(false)
+    const [questionError, setQuestionError] = useState<string | null>(null)
+    const firstQuestion = pendingQuestions[0]
+    const questionArgs = firstQuestion?.[1].arguments
+    const questionItems = isObject(questionArgs) && Array.isArray(questionArgs.questions) ? questionArgs.questions : []
+    const questionPreview = isObject(questionItems[0]) && typeof questionItems[0].question === 'string'
+        ? questionItems[0].question : null
+
+    const focusPendingQuestion = async () => {
+        if (!firstQuestion || locatingQuestion) return
+        const [requestId, request] = firstQuestion
+        const anchorId = `hapi-question:${request.toolCallId ?? requestId}`
+        setLocatingQuestion(true)
+        setQuestionError(null)
+        restoredHistoryAnchorRef.current = null
+        autoScrollEnabledRef.current = false
+        try {
+            let target = document.getElementById(anchorId)
+            while (!target && hasMoreMessagesRef.current && pendingQuestionsRef.current.some(([id]) => id === requestId)) {
+                const result = await loadOlderFromConsumer()
+                if (result === 'transient-stop' || result === 'terminal-stop') break
+                target = document.getElementById(anchorId)
+            }
+            if (target) {
+                target.scrollIntoView({ block: 'center', behavior: 'instant' })
+                target.focus({ preventScroll: true })
+            } else if (pendingQuestionsRef.current.some(([id]) => id === requestId)) {
+                setQuestionError(t('session.question.notFound'))
+            }
+        } catch {
+            setQuestionError(t('session.question.notFound'))
+        } finally {
+            setLocatingQuestion(false)
+        }
+    }
+
     const loadOlderForOutline = useCallback(async (): Promise<boolean> => {
         // Keep paging until the outline grows by at least one batch, or history
         // is exhausted. Single requestOlder() may grow the window by less than a
@@ -1795,6 +1838,25 @@ export function HappyThread(props: {
             loadOlderMessagesPreservingScroll: loadOlderFromConsumer
         }}>
             <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col relative">
+                {firstQuestion ? (
+                    <div className="shrink-0 border-b border-[var(--app-border)] bg-[var(--app-badge-info-bg)] px-3 py-2 text-[var(--app-badge-info-text)]">
+                        <div className="mx-auto flex w-full max-w-content items-center gap-3">
+                            <div className="min-w-0 flex-1 text-sm">
+                                <div className="font-medium" role="status">
+                                    {pendingQuestions.length > 1
+                                        ? t('session.question.count', { count: pendingQuestions.length })
+                                        : t(firstQuestion[1].tool === 'request_user_input_async' ? 'session.item.hasQuestion' : 'session.item.needsInput')}
+                                </div>
+                                {questionPreview ? <div className="truncate text-xs" title={questionPreview}>{questionPreview}</div> : null}
+                                {questionError ? <div role="alert" className="mt-1 text-xs">{questionError}</div> : null}
+                            </div>
+                            <Button size="sm" variant="outline" className="shrink-0" disabled={locatingQuestion || props.disabled} onClick={() => { void focusPendingQuestion() }}>
+                                {locatingQuestion ? <Spinner size="sm" label={null} /> : null}
+                                {t('session.question.answer')}
+                            </Button>
+                        </div>
+                    </div>
+                ) : null}
                 {!props.isSyncingTail && (
                     props.isLoadingMoreMessages || pullToLoadState !== 'idle'
                 ) ? (

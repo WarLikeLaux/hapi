@@ -43,13 +43,25 @@ export class SharedCodexProjection {
     private readonly pendingTitles = new Map<string, string>();
     private readonly completedTitles = new Set<string>();
     private titleRevision = 0;
+    private readonly answeredAsyncQuestions = new Map<string, Record<string, { answers: string[] }>>();
+    private pendingAsyncQuestionIds = new Set<string>();
+    private asyncQuestionsInitialized = false;
     constructor(private readonly session: ApiSessionClient, readonly threadId: string,
-        private readonly committed: (id: string) => Promise<void>, private readonly parentThreadId?: string) {
+        private readonly committed: (id: string) => Promise<void>, private readonly parentThreadId?: string,
+        private readonly acceptedAsyncAnswer: (questionId: string) => Record<string, { answers: string[] }> | undefined = () => undefined) {
         if (!parentThreadId) for (const [id, turn] of Object.entries(session.getMetadata()?.conversationHistoryTurns ?? {})) this.turns.set(id, turn);
     }
 
     turnFor(id: string): string | undefined { return this.turns.get(id); }
     answerAsyncQuestion(questionId: string, answers: Record<string, { answers: string[] }>): void {
+        this.answeredAsyncQuestions.set(questionId, answers);
+        this.pendingAsyncQuestionIds.delete(questionId);
+        if (!this.parentThreadId) this.session.updateAgentState(state => {
+            if (!state.codexAsyncQuestions?.[questionId]) return state;
+            const questions = { ...state.codexAsyncQuestions };
+            delete questions[questionId];
+            return { ...state, codexAsyncQuestions: questions };
+        });
         this.send({ type: 'tool-call-result', callId: questionId, output: { answers } }, `async-answer:${questionId}`);
     }
     reset(): void { this.converter = new AppServerEventConverter(); this.emitted.clear(); }
@@ -135,10 +147,21 @@ export class SharedCodexProjection {
         }
         const question = method === 'item/completed' ? asyncQuestionForItem(this.threadId, item) : undefined;
         if (question) {
+            if (!this.parentThreadId && !this.pendingAsyncQuestionIds.has(question.id)
+                && !this.answeredAsyncQuestions.has(question.id) && !this.acceptedAsyncAnswer(question.id)) {
+                this.pendingAsyncQuestionIds.add(question.id);
+                this.session.updateAgentState(state => state.codexAsyncQuestions?.[question.id] ? state : ({ ...state,
+                    codexAsyncQuestions: { ...state.codexAsyncQuestions, [question.id]: {
+                        tool: 'request_user_input_async', toolCallId: question.id,
+                        arguments: { questions: question.questions }, createdAt: Date.now()
+                    } }
+                }));
+            }
             const key = `${turnId ?? 'thread'}:${itemId}:async-question`;
             this.send({ type: 'tool-call', name: 'request_user_input_async', callId: question.id,
                 input: { questions: question.questions, readOnly: Boolean(this.parentThreadId) } }, key, publish);
-            this.send({ type: 'tool-call-result', callId: question.id, output: null }, `${key}:result`, publish);
+            const answers = this.answeredAsyncQuestions.get(question.id) ?? this.acceptedAsyncAnswer(question.id);
+            this.send({ type: 'tool-call-result', callId: question.id, output: answers ? { answers } : null }, `${key}:result`, publish);
             return;
         }
         const events = this.converter.handleNotification(method, params);
@@ -201,6 +224,29 @@ export class SharedCodexProjection {
     async history(thread: unknown, publish = true): Promise<void> {
         const turns = record(thread).turns;
         if (!Array.isArray(turns)) return;
+        if (!this.parentThreadId) {
+            const questionIds = new Set<string>();
+            for (const value of turns) for (const item of Array.isArray(record(value).items) ? record(value).items as unknown[] : []) {
+                const question = asyncQuestionForItem(this.threadId, item);
+                if (question) questionIds.add(question.id);
+                const receipt = record(item);
+                if (receipt.type !== 'userMessage') continue;
+                const answer = parseAsyncQuestionAnswer(inputText(receipt.content));
+                if (answer && (receipt.clientId ?? receipt.clientUserMessageId) === asyncQuestionAnswerId(answer.questionId)) {
+                    this.answeredAsyncQuestions.set(answer.questionId, answer.answers);
+                }
+            }
+            const pendingIds = new Set([...questionIds].filter(id => !this.answeredAsyncQuestions.has(id) && !this.acceptedAsyncAnswer(id)));
+            const changed = !this.asyncQuestionsInitialized || [...this.pendingAsyncQuestionIds].some(id => !pendingIds.has(id));
+            this.asyncQuestionsInitialized = true;
+            this.pendingAsyncQuestionIds = new Set([...this.pendingAsyncQuestionIds].filter(id => pendingIds.has(id)));
+            if (changed) this.session.updateAgentState(state => {
+                const pending = Object.entries(state.codexAsyncQuestions ?? {}).filter(([id]) =>
+                    pendingIds.has(id));
+                if (pending.length === Object.keys(state.codexAsyncQuestions ?? {}).length) return state;
+                return { ...state, codexAsyncQuestions: Object.fromEntries(pending) };
+            });
+        }
         const titleRevision = this.titleRevision;
         let latestTitle: string | undefined;
         for (const value of turns) {

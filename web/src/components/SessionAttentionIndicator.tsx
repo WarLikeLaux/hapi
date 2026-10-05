@@ -3,16 +3,18 @@ import type { SessionAttention } from '@/lib/sessionAttention'
 import { getSessionAttentionLabelKey } from '@/lib/sessionAttention'
 import { useTranslation } from '@/lib/use-translation'
 import { HoverTooltip, SESSION_ROW_TOOLTIP_FOCUS_CLASS } from '@/components/HoverTooltip'
+import { QuestionIcon } from '@/components/ToolCard/icons'
 
 const ATTENTION_DOT_CLASS: Record<SessionAttention['kind'], string> = {
     permission: 'bg-amber-500 animate-pulse',
     input: 'bg-blue-500',
+    'async-input': 'bg-blue-500',
     background: 'bg-blue-400',
     unread: 'bg-[var(--app-link)]'
 }
 
 /**
- * Visible attention dot + hover tooltip explaining the indicator.
+ * Visible attention indicator + hover tooltip explaining it.
  *
  * The tooltip body composes from `summary.pendingRequests` (capped oldest-first;
  * see `PENDING_REQUEST_SUMMARY_CAP` in `@hapi/protocol`) for permission / input
@@ -25,7 +27,12 @@ export function SessionAttentionIndicator(props: {
     tooltipId: string
 }) {
     const { t } = useTranslation()
-    const dot = (
+    const isQuestion = props.attention.kind === 'input' || props.attention.kind === 'async-input'
+    const count = props.attention.kind === 'async-input' ? props.summary.pendingAsyncQuestionsCount ?? 0 : 0
+    const label = isQuestion && count > 1 ? t('session.question.count', { count }) : props.label
+    const dot = isQuestion ? (
+        <SessionQuestionIcon label={label} />
+    ) : (
         <span
             className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS[props.attention.kind]}`}
         />
@@ -43,10 +50,18 @@ export function SessionAttentionIndicator(props: {
             <AttentionTooltipBody
                 attention={props.attention}
                 summary={props.summary}
-                label={props.label}
+                label={label}
                 t={t}
             />
         </HoverTooltip>
+    )
+}
+
+export function SessionQuestionIcon(props: { label: string; title?: string }) {
+    return (
+        <span role="img" aria-label={props.label} title={props.title} className="inline-flex shrink-0 text-[var(--app-badge-info-text)]">
+            <QuestionIcon className="h-4 w-4" />
+        </span>
     )
 }
 
@@ -72,8 +87,8 @@ function AttentionTooltipDetail(props: {
 }) {
     const { attention, summary, t } = props
 
-    if (attention.kind === 'permission' || attention.kind === 'input') {
-        const wantedKind = attention.kind
+    if (attention.kind === 'permission' || attention.kind === 'input' || attention.kind === 'async-input') {
+        const wantedKind = attention.kind === 'async-input' ? 'input' : attention.kind
         const items = (summary.pendingRequests ?? [])
             .filter((req): req is PendingRequest => req.kind === wantedKind)
         if (items.length === 0) {

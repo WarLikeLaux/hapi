@@ -3,7 +3,7 @@ import type { SessionSummary } from '@/types/api'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { ScheduleIcon } from '@/components/icons'
 import { HoverTooltip, SESSION_ROW_TOOLTIP_FOCUS_CLASS, useSessionRowTooltipIds } from '@/components/HoverTooltip'
-import { getAttentionLabel, SessionAttentionIndicator } from '@/components/SessionAttentionIndicator'
+import { getAttentionLabel, SessionAttentionIndicator, SessionQuestionIcon } from '@/components/SessionAttentionIndicator'
 import { classifyVisibleSessionAttention } from '@/lib/sessionAttention'
 import { getSessionLastSeenAt, getSessionManualUnreadAt } from '@/lib/sessionLastSeen'
 import { formatRelativeTime } from '@/lib/relativeTime'
@@ -53,6 +53,7 @@ function BulbIcon(props: { className?: string }) {
 const ATTENTION_DOT_CLASS = {
     permission: 'bg-amber-500 animate-pulse',
     input: 'bg-blue-500',
+    'async-input': 'bg-blue-500',
     background: 'bg-blue-400',
     unread: 'bg-[var(--app-link)]',
 } as const
@@ -201,7 +202,8 @@ export function SessionRowSummary(props: {
     )
     const attentionLabel = attention ? getAttentionLabel(attention, t) : null
     const urgentAttention = attention !== null
-        && (attention.kind === 'permission' || attention.kind === 'input')
+        && (attention.kind === 'permission' || attention.kind === 'input' || attention.kind === 'async-input')
+    const questionAttention = attention?.kind === 'input' || attention?.kind === 'async-input'
     const scheduledLabel = s.futureScheduledMessageCount > 1
         ? t('session.item.scheduledMessages', { count: s.futureScheduledMessageCount })
         : t('session.item.scheduledMessage')
@@ -226,6 +228,9 @@ export function SessionRowSummary(props: {
                     >
                         {sessionName}
                     </div>
+                    {s.active && s.thinking && questionAttention ? (
+                        <LoaderIcon className="h-3.5 w-3.5 shrink-0 animate-spin-slow text-[var(--app-badge-success-text)]" />
+                    ) : null}
                     {attention?.kind === 'unread' && nestedTooltips && attentionId ? (
                         <SessionAttentionIndicator
                             attention={attention}
@@ -239,7 +244,7 @@ export function SessionRowSummary(props: {
                             title={attentionLabel ?? undefined}
                             aria-label={attentionLabel ?? undefined}
                         />
-                    ) : s.active && s.thinking ? (
+                    ) : s.active && s.thinking && !questionAttention ? (
                         <LoaderIcon className="h-3.5 w-3.5 shrink-0 animate-spin-slow text-[var(--app-badge-success-text)]" />
                     ) : urgentAttention && nestedTooltips && attentionId ? (
                         <SessionAttentionIndicator
@@ -247,6 +252,11 @@ export function SessionRowSummary(props: {
                             summary={s}
                             label={attentionLabel ?? ''}
                             tooltipId={attentionId}
+                        />
+                    ) : questionAttention ? (
+                        <SessionQuestionIcon
+                            label={(s.pendingAsyncQuestionsCount ?? 0) > 1 ? t('session.question.count', { count: s.pendingAsyncQuestionsCount! }) : attentionLabel ?? ''}
+                            title={attentionLabel ?? undefined}
                         />
                     ) : urgentAttention ? (
                         <span

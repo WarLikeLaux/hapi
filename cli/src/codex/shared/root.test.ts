@@ -62,9 +62,9 @@ afterEach(async () => {
     finally { vi.useRealTimers(); }
 });
 
-async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end'] }) {
+async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; initialState?: AgentState; publishInitialHistory?: boolean }) {
     const directory = await mkdtemp('/tmp/hapi-shared-root-');
-    let state: AgentState = { steeringActive: true };
+    let state: AgentState = opts?.initialState ?? { steeringActive: true };
     let metadata: Metadata = { path: directory, host: 'test', flavor: 'codex' };
     let reconnect: (() => void) | null = null;
     let userMessage: ((message: UserMessage, localId?: string) => void) | null = null;
@@ -93,7 +93,7 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end'] }) 
         directory, generation: 'test', endpoint: 'mock', settingsFor: () => undefined,
         create: async () => { throw new Error('Unexpected root creation'); },
         end
-    } satisfies RootHost);
+    } satisfies RootHost, opts?.publishInitialHistory);
     cleanups.push(async () => { await root.close(false); await rm(directory, { recursive: true, force: true }); });
     await root.prepare();
     await root.bind('thread', { model: 'mock', thread: { turns: [] } }, false);
@@ -128,6 +128,19 @@ async function completePlan(f: Awaited<ReturnType<typeof fixture>>, status = 'co
 }
 
 describe('shared async questions', () => {
+    it('clears a persisted question answered after resume without loading history', async () => {
+        const questionId = 'codex-async-question:thread:ask';
+        const f = await fixture({ publishInitialHistory: false, initialState: { codexAsyncQuestions: {
+            [questionId]: { tool: 'request_user_input_async', arguments: { questions: [{ id: '0', question: 'Choose?' }] } }
+        } } });
+        await f.root.activate();
+        f.native.thread.turns.push({ id: 'turn', status: 'completed', items: [
+            { id: 'ask', type: 'agentMessage', delivery: 'async', questions: [{ title: 'Choose?', options: ['Chat'] }] }
+        ] });
+        await f.rpc.get('answer-codex-async-question')!({ questionId, answers: { '0': { answers: ['Chat'] } } });
+        expect(f.state().codexAsyncQuestions).toEqual({});
+    });
+
     it.each([false, true])('projects async questions and delivers exactly one reply (active turn: %s)', async active => {
         const f = await fixture();
         await f.root.activate();
@@ -142,6 +155,12 @@ describe('shared async questions', () => {
                 expect.objectContaining({ id: '1', question: 'Details?', options: [] })
             ] })
         }), expect.any(String)));
+        expect(f.state()).toMatchObject({ codexAsyncQuestions: {
+            'codex-async-question:thread:ask': { tool: 'request_user_input_async' }
+        } });
+        f.reconnect();
+        await f.root.refresh();
+        expect(Object.keys(f.state().codexAsyncQuestions ?? {})).toEqual(['codex-async-question:thread:ask']);
         const answer = f.rpc.get('answer-codex-async-question')!;
         const request = { questionId: 'codex-async-question:thread:ask', answers: {
             '0': { answers: ['Page'] }, '1': { answers: ['user_note: private diary'] }
@@ -149,6 +168,7 @@ describe('shared async questions', () => {
         await expect(answer({ ...request, answers: {} })).rejects.toThrow('Answer every question');
         const nativeRequest = vi.spyOn(f.root.client, 'request');
         await answer(request);
+        expect(f.state().codexAsyncQuestions).toEqual({});
         await answer({ ...request, answers: { '0': { answers: ['Chat'] }, '1': { answers: ['changed'] } } });
         const deliveries = nativeRequest.mock.calls.filter(([method]) => method === (active ? 'turn/steer' : 'thread/queue/add'));
         expect(deliveries).toHaveLength(1);
@@ -162,8 +182,10 @@ describe('shared async questions', () => {
         f.send.mockClear();
         f.reconnect();
         await f.root.refresh();
+        expect(f.send.mock.calls.some(([body]) => body.type === 'tool-call-result' && body.output?.answers)).toBe(true);
         await answer(request);
         expect(nativeRequest.mock.calls.filter(([method]) => method === (active ? 'turn/steer' : 'thread/queue/add'))).toHaveLength(1);
+        expect(f.state().codexAsyncQuestions).toEqual({});
         expect(f.send.mock.calls.filter(([body]) => body.type === 'tool-call-result' && body.output?.answers).at(-1)?.[0])
             .toMatchObject({ callId: request.questionId, output: { answers: request.answers } });
     });

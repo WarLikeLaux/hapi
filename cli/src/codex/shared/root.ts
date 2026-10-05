@@ -216,7 +216,12 @@ export class SharedCodexRoot {
             (id, input) => this.session.syncNativeQueuedMessage(id, input === null ? null : asyncQuestionAnswerDisplay(inputText(input))),
             ids => this.session.setSteerDeliveryState(ids, 'queued'));
         await this.queue.load();
-        this.projection = new SharedCodexProjection(this.session, threadId, id => this.queue.committed(id));
+        this.projection = new SharedCodexProjection(this.session, threadId, id => this.queue.committed(id), undefined, id => {
+            const answerId = asyncQuestionAnswerId(id);
+            const state = this.queue.state(answerId);
+            return state === 'queued' || state === 'consumed'
+                ? parseAsyncQuestionAnswer(inputText(this.queue.input(answerId)))?.answers : undefined;
+        });
         this.session.updateMetadata(metadata => ({ ...metadata, codexSessionId: threadId, capabilities: {
             ...metadata.capabilities, concurrentClients: true, terminal: true,
             // In-place rewind needs a native + hub commit barrier. Do not

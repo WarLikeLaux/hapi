@@ -226,13 +226,17 @@ describe('toSessionSummary', () => {
                     req1: { tool: 'Bash', arguments: {}, createdAt: 100 },
                     req2: { tool: 'AskUserQuestion', arguments: {}, createdAt: 50 },
                     req3: { tool: 'Edit', arguments: {} }
+                },
+                codexAsyncQuestions: {
+                    async1: { tool: 'request_user_input_async', arguments: {}, createdAt: 6000 }
                 }
             }
         }))
 
-        expect(summary.pendingRequestsCount).toBe(3)
+        expect(summary.pendingRequestsCount).toBe(4)
+        expect(summary.pendingAsyncQuestionsCount).toBe(1)
         expect(summary.pendingRequestKinds).toEqual(['permission', 'input'])
-        expect(summary.pendingRequests).toHaveLength(3)
+        expect(summary.pendingRequests).toHaveLength(4)
         expect(summary.pendingRequests[0]).toEqual({
             id: 'req2',
             kind: 'input',
@@ -251,6 +255,7 @@ describe('toSessionSummary', () => {
             tool: 'Edit',
             since: 5000
         })
+        expect(summary.pendingRequests[3]).toEqual({ id: 'async1', kind: 'input', tool: 'request_user_input_async', since: 6000 })
     })
 
     it('returns empty pendingRequests when agentState has no requests', () => {
