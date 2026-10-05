@@ -552,8 +552,12 @@ export function exitCodeForPingPeerError(error: PingPeerError): number {
 
 export type InspectPeerOptions = {
     sessionIdPrefix: string
-    /** Recent message page size (default 30, clamped 1..100). */
+    /** Text messages to return (default 30, clamped 1..200). Tool-call rows are skipped and not counted. */
     messageLimit?: number
+    /** Older-page cursor from a previous call's olderBeforeAt (pass together with beforeSeq). */
+    beforeAt?: number
+    /** Older-page cursor from a previous call's olderBeforeSeq (pass together with beforeAt). */
+    beforeSeq?: number
     apiUrl?: string
     accessToken?: string
     http?: AxiosInstance
@@ -576,11 +580,16 @@ export type InspectPeerResult = {
     lifecycleState: string | null
     updatedAt: number | null
     messages: InspectPeerMessage[]
+    /** Cursor for the next older page; null once the start of the session is reached. */
+    olderBeforeAt: number | null
+    olderBeforeSeq: number | null
 }
 
 const DEFAULT_INSPECT_MESSAGE_LIMIT = 30
-const MAX_INSPECT_MESSAGE_LIMIT = 100
-const MAX_SNIPPET_CHARS = 1_200
+const MAX_INSPECT_MESSAGE_LIMIT = 200
+const MAX_SNIPPET_CHARS = 4_000
+/** Hub /messages page size; schema max is 200. */
+const HUB_RAW_PAGE_LIMIT = 200
 
 function clampInspectMessageLimit(raw: number | undefined): number {
     const n = raw ?? DEFAULT_INSPECT_MESSAGE_LIMIT
@@ -588,6 +597,22 @@ function clampInspectMessageLimit(raw: number | undefined): number {
         throw new PingPeerError('bad_args', 'messageLimit must be a number')
     }
     return Math.min(MAX_INSPECT_MESSAGE_LIMIT, Math.max(1, Math.floor(n)))
+}
+
+function resolveInspectCursor(
+    beforeAt: number | undefined,
+    beforeSeq: number | undefined
+): { at: number; seq: number } | null {
+    const hasAt = beforeAt !== undefined
+    const hasSeq = beforeSeq !== undefined
+    if (hasAt !== hasSeq) {
+        throw new PingPeerError('bad_args', 'beforeAt and beforeSeq must be provided together')
+    }
+    if (!hasAt || !hasSeq) return null
+    if (!Number.isFinite(beforeAt) || !Number.isFinite(beforeSeq)) {
+        throw new PingPeerError('bad_args', 'beforeAt and beforeSeq must be numbers')
+    }
+    return { at: Math.floor(beforeAt), seq: Math.floor(beforeSeq) }
 }
 
 function extractUserPlainText(inner: unknown): string | null {
@@ -613,7 +638,8 @@ export function extractInspectMessageSnippet(content: unknown): InspectPeerMessa
         if (!text) text = extractUserPlainText(inner)
     }
     if (!text) return null
-    const trimmed = text.replace(/\s+/g, ' ').trim()
+    // Keep internal newlines (code blocks survive); only trim the edges.
+    const trimmed = text.replace(/^[\s\uFEFF]+|[\s\uFEFF]+$/g, '')
     if (!trimmed) return null
     const snippet = trimmed.length > MAX_SNIPPET_CHARS
         ? `${trimmed.slice(0, MAX_SNIPPET_CHARS)}…`
@@ -626,18 +652,35 @@ export function extractInspectMessageSnippet(content: unknown): InspectPeerMessa
     }
 }
 
-async function fetchSessionMessages(
+type InspectRawPage = {
+    rows: unknown[]
+    nextBeforeAt: number | null
+    nextBeforeSeq: number | null
+}
+
+type InspectMessagesPage = {
+    messages: InspectPeerMessage[]
+    olderBeforeAt: number | null
+    olderBeforeSeq: number | null
+}
+
+async function fetchInspectRawPage(
     apiUrl: string,
     jwt: string,
     sessionId: string,
-    limit: number,
+    cursor: { at: number; seq: number } | null,
     http: AxiosInstance
-): Promise<InspectPeerMessage[]> {
+): Promise<InspectRawPage> {
+    const params: Record<string, number> = { limit: HUB_RAW_PAGE_LIMIT }
+    if (cursor) {
+        params.beforeAt = cursor.at
+        params.beforeSeq = cursor.seq
+    }
     const response = await http.get(
         `${apiUrl}/api/sessions/${encodeURIComponent(sessionId)}/messages`,
         {
             headers: authHeaders(jwt),
-            params: { limit },
+            params,
             timeout: 20_000,
             validateStatus: () => true
         }
@@ -649,22 +692,79 @@ async function fetchSessionMessages(
         throw new PingPeerError('not_found', `failed to load messages for ${sessionId} (${detail})`)
     }
     const rows = Array.isArray(response.data?.messages) ? response.data.messages : []
-    const out: InspectPeerMessage[] = []
-    for (const row of rows) {
-        if (!isObject(row)) continue
-        const snippet = extractInspectMessageSnippet(row.content)
-        if (!snippet) continue
-        out.push({
-            ...snippet,
-            id: typeof row.id === 'string' ? row.id : snippet.id,
-            createdAt: typeof row.createdAt === 'number' ? row.createdAt : null
-        })
+    const page = isObject(response.data?.page) ? response.data.page : {}
+    return {
+        rows,
+        nextBeforeAt: typeof page.nextBeforeAt === 'number' ? page.nextBeforeAt : null,
+        nextBeforeSeq: typeof page.nextBeforeSeq === 'number' ? page.nextBeforeSeq : null
     }
-    return out
+}
+
+/**
+ * Collect up to `textLimit` extractable text messages, walking hub pages
+ * backwards (newest first). Tool-call / noise rows are skipped and do not
+ * count toward the limit. `olderBefore*` tracks the last consumed raw row so
+ * a follow-up call resumes exactly where this one stopped.
+ */
+async function fetchSessionMessages(
+    apiUrl: string,
+    jwt: string,
+    sessionId: string,
+    textLimit: number,
+    initialCursor: { at: number; seq: number } | null,
+    http: AxiosInstance
+): Promise<InspectMessagesPage> {
+    const messages: InspectPeerMessage[] = []
+    let cursor = initialCursor
+    let olderBeforeAt: number | null = null
+    let olderBeforeSeq: number | null = null
+
+    while (messages.length < textLimit) {
+        const page = await fetchInspectRawPage(apiUrl, jwt, sessionId, cursor, http)
+        if (page.rows.length === 0) break
+        let consumedAllRows = true
+        for (const row of page.rows) {
+            if (!isObject(row)) continue
+            if (messages.length >= textLimit) {
+                // Stopped mid-page: the remaining rows stay unread, so the
+                // hub's nextBefore would skip them. Keep the cursor on the
+                // last consumed row instead.
+                consumedAllRows = false
+                break
+            }
+            const snippet = extractInspectMessageSnippet(row.content)
+            if (snippet) {
+                messages.push({
+                    ...snippet,
+                    id: typeof row.id === 'string' ? row.id : snippet.id,
+                    createdAt: typeof row.createdAt === 'number' ? row.createdAt : null
+                })
+            }
+            if (typeof row.createdAt === 'number' && typeof row.seq === 'number') {
+                olderBeforeAt = row.createdAt
+                olderBeforeSeq = row.seq
+            }
+        }
+        if (messages.length >= textLimit && !consumedAllRows) break
+        // Page fully consumed: the hub cursor is authoritative, including
+        // null once the start of the session is reached.
+        if (page.nextBeforeSeq === null || page.nextBeforeAt === null) {
+            olderBeforeAt = null
+            olderBeforeSeq = null
+            break
+        }
+        cursor = { at: page.nextBeforeAt, seq: page.nextBeforeSeq }
+        olderBeforeAt = page.nextBeforeAt
+        olderBeforeSeq = page.nextBeforeSeq
+    }
+
+    return { messages, olderBeforeAt, olderBeforeSeq }
 }
 
 /**
  * Resolve a peer by id/prefix and return metadata + recent text messages.
+ * Reads newest-first; pass beforeAt/beforeSeq (from a previous result's
+ * olderBeforeAt/olderBeforeSeq) to page further back through the history.
  * Read-only: never resumes inactive sessions (unlike `pingPeer`).
  */
 export async function inspectPeer(options: InspectPeerOptions): Promise<InspectPeerResult> {
@@ -673,6 +773,7 @@ export async function inspectPeer(options: InspectPeerOptions): Promise<InspectP
         throw new PingPeerError('bad_args', 'session id prefix is required')
     }
     const messageLimit = clampInspectMessageLimit(options.messageLimit)
+    const cursor = resolveInspectCursor(options.beforeAt, options.beforeSeq)
 
     const apiUrl = resolveApiUrl(options.apiUrl)
     const accessToken = resolveAccessToken(options.accessToken)
@@ -683,7 +784,7 @@ export async function inspectPeer(options: InspectPeerOptions): Promise<InspectP
     const matched = resolveSessionByPrefix(sessions, prefix)
     const live = await getSession(apiUrl, jwt, matched.id, http)
     const meta = live.metadata ?? matched.metadata ?? null
-    const messages = await fetchSessionMessages(apiUrl, jwt, matched.id, messageLimit, http)
+    const page = await fetchSessionMessages(apiUrl, jwt, matched.id, messageLimit, cursor, http)
 
     return {
         sessionId: matched.id,
@@ -698,7 +799,9 @@ export async function inspectPeer(options: InspectPeerOptions): Promise<InspectP
             : typeof matched.updatedAt === 'number'
                 ? matched.updatedAt
                 : null,
-        messages
+        messages: page.messages,
+        olderBeforeAt: page.olderBeforeAt,
+        olderBeforeSeq: page.olderBeforeSeq
     }
 }
 
@@ -714,14 +817,25 @@ export function formatInspectPeerReport(result: InspectPeerResult): string {
         `lifecycle: ${result.lifecycleState ?? '(none)'}`,
         `cwd: ${result.path ?? '(unknown)'}`,
         `updatedAt: ${result.updatedAt ?? '(unknown)'}`,
-        `messages (text snippets, newest page): ${result.messages.length}`
+        `messages (text, newest-first page): ${result.messages.length}`
     ]
     if (result.messages.length === 0) {
         lines.push('(no extractable user/assistant text in this page)')
     } else {
         for (const message of result.messages) {
-            lines.push(`[${message.role}] ${message.text}`)
+            const [first, ...rest] = message.text.split('\n')
+            lines.push(`[${message.role}] ${first}`)
+            for (const line of rest) {
+                lines.push(`  ${line}`)
+            }
         }
+    }
+    if (result.olderBeforeAt !== null && result.olderBeforeSeq !== null) {
+        lines.push(
+            `older page: available - call again with beforeAt=${result.olderBeforeAt}, beforeSeq=${result.olderBeforeSeq}`
+        )
+    } else {
+        lines.push('older page: none (start of session reached)')
     }
     return lines.join('\n')
 }

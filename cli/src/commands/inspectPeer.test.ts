@@ -16,6 +16,27 @@ describe('parseInspectPeerArgs', () => {
         expect(parseInspectPeerArgs(['aaaa', '--limit=5']).messageLimit).toBe(5)
     })
 
+    it('parses the older-page cursor flags in both forms', () => {
+        expect(parseInspectPeerArgs([
+            'aaaa',
+            '--before-at', '1791210000000',
+            '--before-seq', '1234'
+        ])).toEqual({
+            help: false,
+            sessionIdPrefix: 'aaaa',
+            beforeAt: 1791210000000,
+            beforeSeq: 1234
+        })
+        expect(parseInspectPeerArgs(['aaaa', '--before-at=5', '--before-seq=6']).beforeAt).toBe(5)
+        expect(parseInspectPeerArgs(['aaaa', '--before-at=5', '--before-seq=6']).beforeSeq).toBe(6)
+    })
+
+    it('rejects a half-specified cursor and non-numeric values', () => {
+        expect(() => parseInspectPeerArgs(['aaaa', '--before-seq', '5'])).toThrow(PingPeerError)
+        expect(() => parseInspectPeerArgs(['aaaa', '--before-at', '5'])).toThrow(PingPeerError)
+        expect(() => parseInspectPeerArgs(['aaaa', '--before-at=abc', '--before-seq=1'])).toThrow(PingPeerError)
+    })
+
     it('rejects unknown flags', () => {
         expect(() => parseInspectPeerArgs(['aaaa', '--resume'])).toThrow(PingPeerError)
     })

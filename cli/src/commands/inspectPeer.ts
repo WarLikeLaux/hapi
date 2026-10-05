@@ -12,19 +12,25 @@ type ParsedInspectPeerArgs = {
     help: boolean
     sessionIdPrefix?: string
     messageLimit?: number
+    beforeAt?: number
+    beforeSeq?: number
 }
 
 function showHelp(): void {
     console.log(`
-${chalk.bold('hapi inspect-peer')} - Read another HAPI session's metadata + recent messages
+${chalk.bold('hapi inspect-peer')} - Read another HAPI session's metadata + message history
 
 ${chalk.bold('Usage:')}
   hapi inspect-peer <session-id-or-prefix>
   hapi inspect-peer <session-id-or-prefix> --limit 50
+  hapi inspect-peer <session-id-or-prefix> --before-at 1791210000000 --before-seq 1234
 
 ${chalk.bold('Notes:')}
   Read-only twin of ping-peer. Prefer this (or MCP inspect_peer) over JWT+curl.
   Resolves by id prefix (8 chars OK; full UUID best). Same hub token/namespace.
+  --limit counts text messages (tool calls skipped), default 30, max 200.
+  To page further back, pass the before-at/before-seq pair printed in the
+  "older page" footer of the previous run. Repeat until it says none.
   Does NOT resume inactive sessions.
   When a user cites [title](/sessions/<id>) or Copy-reference
   See session "…" (/sessions/<id>) for context, pass that <id> here.
@@ -56,6 +62,30 @@ export function parseInspectPeerArgs(args: string[]): ParsedInspectPeerArgs {
             result.messageLimit = Number(arg.slice('--limit='.length))
             continue
         }
+        if (arg === '--before-at') {
+            const value = args[++i]
+            if (!value) {
+                throw new PingPeerError('bad_args', '--before-at requires a number')
+            }
+            result.beforeAt = Number(value)
+            continue
+        }
+        if (arg.startsWith('--before-at=')) {
+            result.beforeAt = Number(arg.slice('--before-at='.length))
+            continue
+        }
+        if (arg === '--before-seq') {
+            const value = args[++i]
+            if (!value) {
+                throw new PingPeerError('bad_args', '--before-seq requires a number')
+            }
+            result.beforeSeq = Number(value)
+            continue
+        }
+        if (arg.startsWith('--before-seq=')) {
+            result.beforeSeq = Number(arg.slice('--before-seq='.length))
+            continue
+        }
         if (arg.startsWith('-')) {
             throw new PingPeerError('bad_args', `unexpected flag: ${arg}`)
         }
@@ -68,6 +98,15 @@ export function parseInspectPeerArgs(args: string[]): ParsedInspectPeerArgs {
 
     if (result.messageLimit !== undefined && !Number.isFinite(result.messageLimit)) {
         throw new PingPeerError('bad_args', '--limit must be a number')
+    }
+    if ((result.beforeAt === undefined) !== (result.beforeSeq === undefined)) {
+        throw new PingPeerError('bad_args', '--before-at and --before-seq must be provided together')
+    }
+    if (
+        (result.beforeAt !== undefined && !Number.isFinite(result.beforeAt)) ||
+        (result.beforeSeq !== undefined && !Number.isFinite(result.beforeSeq))
+    ) {
+        throw new PingPeerError('bad_args', '--before-at/--before-seq must be numbers')
     }
 
     return result
@@ -89,7 +128,9 @@ export async function handleInspectPeerCommand(args: string[]): Promise<void> {
 
     const result = await inspectPeer({
         sessionIdPrefix: parsed.sessionIdPrefix,
-        messageLimit: parsed.messageLimit
+        messageLimit: parsed.messageLimit,
+        beforeAt: parsed.beforeAt,
+        beforeSeq: parsed.beforeSeq
     })
     console.log(formatInspectPeerReport(result))
 }
