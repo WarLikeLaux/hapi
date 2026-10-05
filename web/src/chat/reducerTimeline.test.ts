@@ -262,6 +262,52 @@ describe('reduceTimeline', () => {
         })
     })
 
+    it('attaches pending in-turn stats and lets the final full diff replace them', () => {
+        const assistant = makeAgentMessage('Working on it.', { id: 'answer-in-progress' })
+        const pendingStatsEvent: TracedMessage = {
+            id: 'workspace-changes-pending',
+            localId: null,
+            createdAt: 1_700_000_002_000,
+            role: 'event',
+            content: {
+                type: 'workspace-changes',
+                changes: { diff: null, filesChanged: 2, additions: 3, deletions: 1, pending: true },
+            },
+            isSidechain: false,
+        } as TracedMessage
+        const finalEvent: TracedMessage = {
+            id: 'workspace-changes-final',
+            localId: null,
+            createdAt: 1_700_000_003_000,
+            role: 'event',
+            content: {
+                type: 'workspace-changes',
+                changes: { diff: 'diff --git a/a.ts b/a.ts\n', filesChanged: 2, additions: 4, deletions: 1 },
+            },
+            isSidechain: false,
+        } as TracedMessage
+
+        const pendingBlocks = reduceTimeline([assistant, pendingStatsEvent], makeContext()).blocks
+        expect(pendingBlocks).toHaveLength(1)
+        expect(pendingBlocks[0]).toMatchObject({
+            kind: 'agent-text',
+            roundSummary: {
+                workspaceChanges: { diff: null, filesChanged: 2, additions: 3, deletions: 1, pending: true },
+            },
+        })
+
+        const finalBlocks = reduceTimeline([assistant, pendingStatsEvent, finalEvent], makeContext()).blocks
+        expect(finalBlocks).toHaveLength(1)
+        expect(finalBlocks[0]).toMatchObject({
+            kind: 'agent-text',
+            roundSummary: {
+                workspaceChanges: { diff: 'diff --git a/a.ts b/a.ts\n', filesChanged: 2, additions: 4, deletions: 1 },
+            },
+        })
+        if (finalBlocks[0].kind !== 'agent-text') throw new Error('expected an agent-text block')
+        expect(finalBlocks[0].roundSummary?.workspaceChanges?.pending).toBeUndefined()
+    })
+
     it('does not derive a Round summary from unmarked token usage', () => {
         const assistant = makeAgentMessage('Imported Codex answer', {
             id: 'imported-codex-answer',

@@ -22,7 +22,17 @@ export type WorkspaceChanges = {
     additions: number
     deletions: number
     truncated?: boolean
+    /**
+     * Stats are current but the full diff is intentionally omitted; the client
+     * should fetch it via GET /api/sessions/:id/workspace-changes. Only set on
+     * periodic in-turn stats events; the final event of a turn never sets it.
+     */
+    pending?: boolean
 }
+
+export type WorkspaceTurnDiffResponse =
+    | { success: true; changes: WorkspaceChanges | null }
+    | { success: false; error: string }
 
 export const CreateOrLoadMachineRequestSchema = z.object({
     id: z.string().min(1),

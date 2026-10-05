@@ -279,6 +279,74 @@ describe('ApiSessionClient lazy materialization', () => {
         }
     })
 
+    it('emits periodic pending workspace stats during a turn and stops at ready', async () => {
+        socketHarness.sockets.length = 0
+        const directory = mkdtempSync(join(tmpdir(), 'hapi-api-session-polling-'))
+        execFileSync('git', ['init', '-q'], { cwd: directory })
+        execFileSync('git', ['config', 'user.name', 'HAPI Test'], { cwd: directory })
+        execFileSync('git', ['config', 'user.email', 'hapi@example.test'], { cwd: directory })
+        writeFileSync(join(directory, 'file.txt'), 'before\n')
+        execFileSync('git', ['add', 'file.txt'], { cwd: directory })
+        execFileSync('git', ['commit', '-qm', 'Initial'], { cwd: directory })
+
+        const client = new ApiSessionClient('token', createSession({
+            namespace: 'default',
+            metadata: { path: directory, host: 'localhost' },
+            metadataVersion: 1,
+        }), { workspaceChangesPollIntervalMs: 25 })
+        const socket = socketHarness.sockets[0]!
+
+        const sentEvents = () => socket.emitted
+            .filter((entry) => entry.event === 'message')
+            .map((entry) => (entry.args[0] as {
+                message: { content: { data: Record<string, unknown> } }
+            }).message.content.data)
+
+        try {
+            client.emitMessagesConsumed(['turn-1'])
+            writeFileSync(join(directory, 'file.txt'), 'after\n')
+
+            await vi.waitFor(() => {
+                expect(sentEvents().some((event) =>
+                    event.type === 'workspace-changes'
+                    && (event.changes as { pending?: boolean }).pending === true
+                )).toBe(true)
+            })
+
+            const pendingEvent = sentEvents().find((event) =>
+                event.type === 'workspace-changes'
+                && (event.changes as { pending?: boolean }).pending === true
+            )
+            expect(pendingEvent?.changes).toMatchObject({ filesChanged: 1, additions: 1, deletions: 1 })
+            expect((pendingEvent?.changes as { diff?: string | null }).diff).toBeNull()
+
+            // The final ready event carries the full diff (no pending flag)
+            // and lands after every periodic stats event.
+            client.sendSessionEvent({ type: 'ready' })
+
+            // Outbound events drain one per macrotask; wait for ready itself
+            // before asserting on the emitted order.
+            await vi.waitFor(() => {
+                expect(sentEvents().some((event) => event.type === 'ready')).toBe(true)
+            })
+
+            const eventTypes = sentEvents().map((event) => event.type)
+            const finalEvent = sentEvents()[eventTypes.lastIndexOf('workspace-changes')]
+            expect(finalEvent.changes).toMatchObject({ filesChanged: 1, additions: 1, deletions: 1 })
+            expect((finalEvent.changes as { diff?: string }).diff).toContain('+after')
+            expect((finalEvent.changes as { pending?: boolean }).pending).toBeUndefined()
+            expect(eventTypes[eventTypes.indexOf('ready') - 1]).toBe('workspace-changes')
+
+            // The poll stopped: no further events fire while the timer window passes.
+            const messageCountAtReady = socket.emitted.filter((entry) => entry.event === 'message').length
+            await new Promise((resolve) => setTimeout(resolve, 100))
+            expect(socket.emitted.filter((entry) => entry.event === 'message')).toHaveLength(messageCountAtReady)
+        } finally {
+            client.close()
+            rmSync(directory, { recursive: true, force: true })
+        }
+    })
+
     it('does not connect or materialize without a real user message', async () => {
         socketHarness.sockets.length = 0
         const materialize = vi.fn(async () => createSession())

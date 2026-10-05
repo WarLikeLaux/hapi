@@ -512,3 +512,49 @@ describe('file search route', () => {
         })
     })
 })
+
+describe('workspace turn changes route', () => {
+    function buildWorkspaceEngine(result: unknown, calls: unknown[]): Partial<SyncEngine> {
+        const session = {
+            id: 'session-1',
+            namespace: 'default',
+            active: true,
+            metadata: { path: '/project' }
+        } as unknown as Session
+        return {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            getWorkspaceTurnDiff: async (...args: unknown[]) => {
+                calls.push(args)
+                return result
+            }
+        } as unknown as Partial<SyncEngine>
+    }
+
+    it('forwards the session id and cwd to the turn diff RPC', async () => {
+        const calls: unknown[] = []
+        const engine = buildWorkspaceEngine({
+            success: true,
+            changes: { diff: 'diff --git a/a.ts b/a.ts\n', filesChanged: 1, additions: 1, deletions: 0 }
+        }, calls)
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/workspace-changes')
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toMatchObject({
+            success: true,
+            changes: { filesChanged: 1, additions: 1, deletions: 0 }
+        })
+        expect(calls).toEqual([['session-1', { cwd: '/project' }]])
+    })
+
+    it('passes through the null-changes and failure shapes', async () => {
+        const calls: unknown[] = []
+        const endedEngine = buildWorkspaceEngine({ success: true, changes: null }, calls)
+        const endedResponse = await buildApp(endedEngine).request('/api/sessions/session-1/workspace-changes')
+        expect(await endedResponse.json()).toEqual({ success: true, changes: null })
+
+        const failedEngine = buildWorkspaceEngine({ success: false, error: 'CLI offline' }, calls)
+        const failedResponse = await buildApp(failedEngine).request('/api/sessions/session-1/workspace-changes')
+        expect(await failedResponse.json()).toEqual({ success: false, error: 'CLI offline' })
+    })
+})

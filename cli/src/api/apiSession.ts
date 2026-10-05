@@ -14,11 +14,12 @@ import { extractUserRequest } from '@/agy/utils/agyMessageText'
 import { AGENT_MESSAGE_PAYLOAD_TYPE } from "@hapi/protocol"
 import type { SessionEndReason } from '@hapi/protocol'
 import type { ClientToServerEvents, ServerToClientEvents, TerminalOutputPayload, Update } from '@hapi/protocol'
-import type { WorkspaceChanges } from '@hapi/protocol'
+import type { WorkspaceChanges, WorkspaceTurnDiffResponse } from '@hapi/protocol'
 import {
     AgentTerminalInputPayloadSchema,
     AgentTerminalRefreshPayloadSchema,
     AgentTerminalResizePayloadSchema,
+    RPC_METHODS,
     TerminalClosePayloadSchema,
     TerminalOpenPayloadSchema,
     TerminalResizePayloadSchema,
@@ -182,6 +183,8 @@ export type PendingSessionSnapshot = {
 export type ApiSessionClientOptions = {
     materialize?: (snapshot: PendingSessionSnapshot, signal: AbortSignal) => Promise<Session>
     onMaterialized?: (session: Session, snapshot: PendingSessionSnapshot) => void
+    /** Test-only override for the periodic workspace-changes stats interval. */
+    workspaceChangesPollIntervalMs?: number
 }
 
 type PendingOutboundEvent = {
@@ -193,6 +196,9 @@ const MAX_PENDING_DROPPABLE_EVENTS = 256
 const OUTBOUND_EVENT_BATCH_SIZE = 1
 const MATERIALIZATION_RETRY_MIN_MS = 1_000
 const MATERIALIZATION_RETRY_MAX_MS = 30_000
+// Cadence for periodic in-turn workspace-changes stats events. Stats only
+// (no diff text) keep these cheap; the full diff is fetched on demand.
+const WORKSPACE_CHANGES_POLL_INTERVAL_MS = 15_000
 
 function isTransientMaterializationError(error: unknown): boolean {
     if (!axios.isAxiosError(error)) {
@@ -312,6 +318,9 @@ export class ApiSessionClient extends EventEmitter {
     private pendingOutboundDrain: Promise<void> | null = null
     private didWarnPendingQueueFull = false
     private readonly workspaceChangesTracker = new WorkspaceChangesTracker()
+    private readonly workspaceChangesPollIntervalMs: number
+    private workspaceChangesPollTimer: ReturnType<typeof setInterval> | null = null
+    private workspaceChangesPollInFlight = false
     private currentThinking = false
     /**
      * Whether the HAPI change_title MCP tool is exposed for this session's
@@ -332,6 +341,7 @@ export class ApiSessionClient extends EventEmitter {
         this.agentStateVersion = session.agentStateVersion
         this.materializer = options.materialize
         this.onMaterialized = options.onMaterialized
+        this.workspaceChangesPollIntervalMs = options.workspaceChangesPollIntervalMs ?? WORKSPACE_CHANGES_POLL_INTERVAL_MS
         this.state = this.materializer ? 'pending' : 'active'
 
         this.rpcHandlerManager = new RpcHandlerManager({
@@ -341,6 +351,22 @@ export class ApiSessionClient extends EventEmitter {
 
         if (this.metadata?.path) {
             registerCommonHandlers(this.rpcHandlerManager, this.metadata.path)
+
+            // Turn-scoped diff for the web's on-demand "code changes" fetch.
+            // Lives here (not in registerCommonHandlers) because the before-tree
+            // snapshot is per-session tracker state. `changes: null` means no
+            // active turn snapshot (turn ended / capture failure).
+            this.rpcHandlerManager.registerHandler<void, WorkspaceTurnDiffResponse>(RPC_METHODS.WorkspaceTurnDiff, async () => {
+                const path = this.metadata?.path
+                if (!path) {
+                    return { success: false, error: 'Session path not available' }
+                }
+                try {
+                    return { success: true, changes: await this.workspaceChangesTracker.currentFullDiff(path) }
+                } catch (error) {
+                    return { success: false, error: error instanceof Error ? error.message : String(error) }
+                }
+            })
         }
 
         this.socket = io(`${configuration.apiUrl}/cli`, {
@@ -1292,6 +1318,9 @@ export class ApiSessionClient extends EventEmitter {
         estimatedTokensAfter?: number
     }, id?: string): void {
         if (event.type === 'ready') {
+            // Stop the periodic stats poll BEFORE finish(): a pending tick can
+            // then never emit a stats event after this final full-diff event.
+            this.stopWorkspaceChangesPolling()
             const changes = this.workspaceChangesTracker.finish(this.metadata?.path)
             if (changes) {
                 this.sendSessionEvent({ type: 'workspace-changes', changes })
@@ -1433,7 +1462,9 @@ export class ApiSessionClient extends EventEmitter {
     emitMessagesConsumed(localIds: string[], options?: { clearQueuedThinkingGrace?: boolean; steered?: boolean }): void {
         if (localIds.length === 0) return
         if (!options?.clearQueuedThinkingGrace) {
-            this.workspaceChangesTracker.begin(this.metadata?.path)
+            if (this.workspaceChangesTracker.begin(this.metadata?.path)) {
+                this.startWorkspaceChangesPolling()
+            }
         }
         // `clearQueuedThinkingGrace` is an opt-in signal for the hub to drop
         // the 15s queued-thinking grace immediately. Only synchronous handlers
@@ -1457,6 +1488,42 @@ export class ApiSessionClient extends EventEmitter {
             payload.steered = true
         }
         this.emitOrQueue(() => this.socket.emit('messages-consumed', payload))
+    }
+
+    // Periodic in-turn stats for the web's live "code changes" button. Stats
+    // only (diff: null + pending: true) — the full diff is fetched on demand
+    // via the WorkspaceTurnDiff RPC, never pushed on this cadence.
+    private startWorkspaceChangesPolling(): void {
+        this.stopWorkspaceChangesPolling()
+        this.workspaceChangesPollTimer = setInterval(() => {
+            void this.pollWorkspaceChanges()
+        }, this.workspaceChangesPollIntervalMs)
+        this.workspaceChangesPollTimer.unref?.()
+    }
+
+    private stopWorkspaceChangesPolling(): void {
+        if (this.workspaceChangesPollTimer !== null) {
+            clearInterval(this.workspaceChangesPollTimer)
+            this.workspaceChangesPollTimer = null
+        }
+    }
+
+    private async pollWorkspaceChanges(): Promise<void> {
+        const path = this.metadata?.path
+        if (!path || this.workspaceChangesPollInFlight || !this.workspaceChangesTracker.hasSnapshot()) return
+        this.workspaceChangesPollInFlight = true
+        try {
+            const stats = await this.workspaceChangesTracker.currentStats(path)
+            // The ready path clears the snapshot before emitting the final
+            // full-diff event; a null snapshot here means this tick lost the
+            // race and must stay silent so ordering is preserved.
+            if (!stats || !this.workspaceChangesTracker.hasSnapshot() || this.state !== 'active') return
+            this.sendSessionEvent({ type: 'workspace-changes', changes: { ...stats, pending: true } })
+        } catch {
+            // Best-effort signal; the next tick retries.
+        } finally {
+            this.workspaceChangesPollInFlight = false
+        }
     }
 
     /** Persist the durable pre-dispatch/restore state with a hub ACK. */
@@ -1485,6 +1552,7 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     sendSessionDeath(reason?: SessionEndReason, options?: { preserveUploads?: boolean }): void {
+        this.stopWorkspaceChangesPolling()
         if (this.state === 'active') {
             if (options?.preserveUploads) preserveUploadDirOnExit(this.sessionId)
             else void cleanupUploadDir(this.sessionId)
@@ -1776,6 +1844,7 @@ export class ApiSessionClient extends EventEmitter {
             return
         }
         this.state = 'closed'
+        this.stopWorkspaceChangesPolling()
         this.materializationAbortController?.abort()
         this.materializationAbortController = null
         this.materializationRetryAbortController?.abort()

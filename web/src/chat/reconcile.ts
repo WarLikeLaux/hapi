@@ -59,6 +59,7 @@ function areWorkspaceChangesEqual(
         && left.additions === right.additions
         && left.deletions === right.deletions
         && left.truncated === right.truncated
+        && left.pending === right.pending
 }
 
 function areRoundSummariesEqual(left?: RoundSummary, right?: RoundSummary): boolean {

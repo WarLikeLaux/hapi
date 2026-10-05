@@ -12,7 +12,7 @@ import {
     cliBinaryUpdatedOnDisk,
     isMachineCapabilitySkewed,
 } from '@hapi/protocol/runnerCapabilities'
-import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, GitComparisonResponse, GitComparisonScope, MessageDeliveryMode, MessageSearchResponse, MessagesResponse, QueuedStateResponse, RewindConversationErrorCode, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, GitComparisonResponse, GitComparisonScope, MessageDeliveryMode, MessageSearchResponse, MessagesResponse, QueuedStateResponse, RewindConversationErrorCode, SlashCommandsResponse, WorkspaceTurnDiffResponse } from '@hapi/protocol/apiTypes'
 import type { InterruptQueuedMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { ImplementCodexPlanResult } from '@hapi/protocol/apiTypes'
 import type { AnswerCodexAsyncQuestionRequest } from '@hapi/protocol'
@@ -4553,6 +4553,10 @@ export class SyncEngine {
 
     async getGitDiffFile(sessionId: string, options: { cwd?: string; filePath: string; staged?: boolean; comparison?: GitComparisonScope }): Promise<RpcCommandResponse> {
         return await this.rpcGateway.getGitDiffFile(sessionId, options)
+    }
+
+    async getWorkspaceTurnDiff(sessionId: string, options: { cwd?: string }): Promise<WorkspaceTurnDiffResponse> {
+        return await this.rpcGateway.getWorkspaceTurnDiff(sessionId, options)
     }
 
     async readSessionFile(sessionId: string, path: string): Promise<RpcReadFileResponse> {

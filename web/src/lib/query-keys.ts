@@ -20,6 +20,7 @@ export const queryKeys = {
     gitStatus: (sessionId: string) => ['git-status', sessionId] as const,
     gitDiff: (sessionId: string, comparison: string) => ['git-diff', sessionId, comparison] as const,
     gitComparison: (sessionId: string, scope: string) => ['git-comparison', sessionId, scope] as const,
+    workspaceTurnChanges: (sessionId: string) => ['workspace-turn-changes', sessionId] as const,
     sessionFiles: (sessionId: string, query: string) => ['session-files', sessionId, query] as const,
     sessionDirectory: (sessionId: string, path: string) => ['session-directory', sessionId, path] as const,
     sessionFile: (sessionId: string, path: string) => ['session-file', sessionId, path] as const,

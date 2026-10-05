@@ -54,4 +54,59 @@ describe('WorkspaceChangesTracker', () => {
         tracker.begin(plainDirectory)
         expect(tracker.finish(plainDirectory)).toBeNull()
     })
+
+    it('currentStats reports counts without clearing the snapshot', async () => {
+        const directory = createRepository()
+        const tracker = new WorkspaceChangesTracker()
+        expect(tracker.begin(directory)).toBe(true)
+
+        writeFileSync(join(directory, 'new.txt'), 'new\n')
+        const stats = await tracker.currentStats(directory)
+
+        expect(stats).toMatchObject({ filesChanged: 1, additions: 1, deletions: 0 })
+        expect(stats?.diff).toBeNull()
+
+        // The snapshot survives the read, so the turn's finish() still yields
+        // the full diff for the final workspace-changes event.
+        expect(tracker.hasSnapshot()).toBe(true)
+        const final = tracker.finish(directory)
+        expect(final?.diff).toContain('diff --git a/new.txt b/new.txt')
+    })
+
+    it('currentStats returns null when nothing is tracked or nothing changed', async () => {
+        const directory = createRepository()
+        const tracker = new WorkspaceChangesTracker()
+
+        expect(await tracker.currentStats(directory)).toBeNull()
+
+        tracker.begin(directory)
+        expect(await tracker.currentStats(directory)).toBeNull()
+
+        const plainDirectory = mkdtempSync(join(tmpdir(), 'hapi-workspace-plain-test-'))
+        temporaryDirectories.push(plainDirectory)
+        expect(await tracker.currentStats(plainDirectory)).toBeNull()
+    })
+
+    it('currentFullDiff returns the diff and a zero object for equal trees', async () => {
+        const directory = createRepository()
+        const tracker = new WorkspaceChangesTracker()
+        tracker.begin(directory)
+
+        // Equal trees mid-turn mean the agent reverted its edits — a live
+        // zero, not "no snapshot".
+        expect(await tracker.currentFullDiff(directory)).toEqual({
+            diff: '',
+            filesChanged: 0,
+            additions: 0,
+            deletions: 0
+        })
+
+        writeFileSync(join(directory, 'tracked.txt'), 'after\n')
+        const full = await tracker.currentFullDiff(directory)
+        expect(full?.filesChanged).toBe(1)
+        expect(full?.diff).toContain('diff --git a/tracked.txt b/tracked.txt')
+
+        tracker.finish(directory)
+        expect(await tracker.currentFullDiff(directory)).toBeNull()
+    })
 })
