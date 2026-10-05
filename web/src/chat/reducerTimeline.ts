@@ -117,6 +117,9 @@ function parseWorkspaceChanges(value: unknown): WorkspaceChanges | null {
         additions,
         deletions,
         ...(value.truncated === true ? { truncated: true } : {}),
+        // Periodic in-turn stats omit the diff text on purpose; the client
+        // fetches it on demand. The turn's final event never sets this.
+        ...(value.pending === true ? { pending: true } : {}),
     }
 }
 

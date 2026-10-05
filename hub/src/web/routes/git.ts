@@ -215,6 +215,29 @@ export function createGitRoutes(
         return c.json(result)
     })
 
+    // Turn-scoped workspace diff for the live "code changes" button: the CLI
+    // diffs its turn-start tree snapshot against the current tree on demand.
+    // `changes: null` means no active turn snapshot (turn already ended).
+    app.get('/sessions/:id/workspace-changes', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const sessionPath = sessionResult.session.metadata?.path
+        if (!sessionPath) {
+            return c.json({ success: false, error: 'Session path not available' })
+        }
+
+        const result = await runRpc(() => engine.getWorkspaceTurnDiff(sessionResult.sessionId, { cwd: sessionPath }))
+        return c.json(result)
+    })
+
     app.get('/sessions/:id/file', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {

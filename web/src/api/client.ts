@@ -65,7 +65,8 @@ import type {
     UpdateWorkspacePinsRequest,
     WorkspacePinsResponse,
     UsageSummaryResponse,
-    UploadFileResponse
+    UploadFileResponse,
+    WorkspaceTurnDiffResponse
 } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { QuotasResponse } from '@hapi/protocol/quotas'
@@ -688,6 +689,10 @@ export class ApiClient {
         if (comparison) params.set('comparison', comparison)
         const query = params.toString()
         return await this.request<GitCommandResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-diff${query ? `?${query}` : ''}`)
+    }
+
+    async getWorkspaceTurnChanges(sessionId: string): Promise<WorkspaceTurnDiffResponse> {
+        return await this.request<WorkspaceTurnDiffResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/workspace-changes`)
     }
 
     async getGitDiffFile(sessionId: string, path: string, staged?: boolean, comparison?: GitComparisonScope): Promise<GitCommandResponse> {

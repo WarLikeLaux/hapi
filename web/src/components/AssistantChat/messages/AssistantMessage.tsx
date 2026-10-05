@@ -198,7 +198,7 @@ export function HappyAssistantMessage() {
                                 </span>
                             </button>
                         ) : null}
-                        {workspaceChanges ? <ResponseChanges changes={workspaceChanges} /> : null}
+                        {workspaceChanges ? <ResponseChanges changes={workspaceChanges} api={ctx.api} sessionId={ctx.sessionId} /> : null}
                     </div>
 
                     {compactParts ? <Dialog open={workOpen} onOpenChange={setWorkOpen}>

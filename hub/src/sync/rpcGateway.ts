@@ -41,6 +41,7 @@ import type {
     PathExistsResponse,
     PiModelsResponse,
     SlashCommandsResponse,
+    WorkspaceTurnDiffResponse,
     StatFilesResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
@@ -418,6 +419,12 @@ export class RpcGateway {
 
     async getGitDiffFile(sessionId: string, options: { cwd?: string; filePath: string; staged?: boolean; comparison?: GitComparisonScope }): Promise<RpcCommandResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.GitDiffFile, options) as RpcCommandResponse
+    }
+
+    // Turn-scoped workspace diff (before-tree snapshot vs current tree),
+    // computed by the CLI on demand; null when no turn snapshot is active.
+    async getWorkspaceTurnDiff(sessionId: string, options: { cwd?: string }): Promise<WorkspaceTurnDiffResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.WorkspaceTurnDiff, options) as WorkspaceTurnDiffResponse
     }
 
     async readSessionFile(sessionId: string, path: string): Promise<RpcReadFileResponse> {
