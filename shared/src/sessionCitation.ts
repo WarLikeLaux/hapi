@@ -18,10 +18,12 @@ export const SESSION_REFERENCE_STEER_SUFFIX =
  * negative constraint), not for humans.
  */
 export const INSPECT_PEER_TOOL_DESCRIPTION =
-    'Read another HAPI session (metadata + recent message text) on the same hub/namespace. ' +
+    'Read another HAPI session (metadata + message text) on the same hub/namespace. ' +
     'Fires when the user cites a peer via markdown [title](/sessions/<id>), Copy-reference prose ' +
     'See session "…" (/sessions/<id>) for context, or a bare /sessions/<id>. ' +
     'Extract <id> and pass it as sessionIdPrefix. /sessions/<id> is a hub path - do NOT Grep, Glob, or Read it as a local filesystem path. ' +
+    'Returns the newest page of text messages (tool calls skipped); messageLimit counts text messages, not raw rows. ' +
+    'To read further back, pass beforeAt + beforeSeq from the previous response older-page footer; repeat until it says older page: none. ' +
     'Read-only: does not resume. Prefer this (or `hapi inspect-peer`) over JWT+curl.'
 
 /** MCP `ping_peer` tool description (same citation forms as inspect_peer). */

@@ -231,8 +231,14 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
 
     const inspectPeerInputSchema: z.ZodTypeAny = z.object({
       sessionIdPrefix: z.string().trim().min(1).describe(SESSION_ID_PREFIX_PARAM_DESCRIPTION),
-      messageLimit: z.number().int().min(1).max(100).optional().describe(
-        'Recent message page size (default 30, max 100). Text snippets only.'
+      messageLimit: z.number().int().min(1).max(200).optional().describe(
+        'Text messages to return (default 30, max 200). Counts user/agent text only; tool-call rows are skipped.'
+      ),
+      beforeAt: z.number().int().min(0).optional().describe(
+        'Older-page cursor from the previous response olderBeforeAt (pass together with beforeSeq) to page further back.'
+      ),
+      beforeSeq: z.number().int().min(1).optional().describe(
+        'Older-page cursor from the previous response olderBeforeSeq (pass together with beforeAt) to page further back.'
       ),
     });
 
