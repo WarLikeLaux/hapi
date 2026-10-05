@@ -3,6 +3,7 @@ import type { SessionSummary } from '@/types/api'
 export type SessionAttention =
     | { kind: 'permission' }
     | { kind: 'input' }
+    | { kind: 'async-input' }
     | { kind: 'background' }
     | { kind: 'unread' }
 
@@ -27,6 +28,15 @@ export function classifySessionAttention(
     summary: SessionSummary,
     options: { selected: boolean; lastSeenAt: number; manualUnreadAt?: number | null }
 ): SessionAttention | null {
+    const pendingRequestKinds = Array.isArray(summary.pendingRequestKinds)
+        ? summary.pendingRequestKinds
+        : []
+    if (pendingRequestKinds.includes('input')) {
+        return (summary.pendingAsyncQuestionsCount ?? 0) > 0
+            ? { kind: 'async-input' }
+            : { kind: 'input' }
+    }
+
     if (options.selected) {
         return options.manualUnreadAt === getSessionUnreadActivityAt(summary)
             ? { kind: 'unread' }
@@ -37,16 +47,8 @@ export function classifySessionAttention(
         return null
     }
 
-    const pendingRequestKinds = Array.isArray(summary.pendingRequestKinds)
-        ? summary.pendingRequestKinds
-        : []
-
     if (pendingRequestKinds.includes('permission')) {
         return { kind: 'permission' }
-    }
-
-    if (pendingRequestKinds.includes('input')) {
-        return { kind: 'input' }
     }
 
     if (summary.active && (summary.backgroundTaskCount ?? 0) > 0) {
@@ -70,7 +72,8 @@ export function classifyVisibleSessionAttention(
     }
 ): SessionAttention | null {
     const attention = classifySessionAttention(summary, options)
-    return options.detailed || attention?.kind === 'unread' ? attention : null
+    return options.detailed || attention?.kind === 'unread' || attention?.kind === 'input' || attention?.kind === 'async-input'
+        ? attention : null
 }
 
 export function getSessionAttentionLabelKey(attention: SessionAttention): string {
@@ -79,6 +82,8 @@ export function getSessionAttentionLabelKey(attention: SessionAttention): string
             return 'session.item.permission'
         case 'input':
             return 'session.item.needsInput'
+        case 'async-input':
+            return 'session.item.hasQuestion'
         case 'background':
             return 'session.item.background'
         case 'unread':

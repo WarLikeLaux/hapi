@@ -13,7 +13,7 @@ function fixture(parentThreadId?: string, deferWrites = false) {
     const send = vi.fn();
     const committed = vi.fn(async (_id: string) => {});
     const session = {
-        getMetadata: () => metadata, updateMetadata: update, sendAgentMessage: send,
+        getMetadata: () => metadata, updateMetadata: update, updateAgentState: vi.fn(), sendAgentMessage: send,
         sendUserMessage() {}
     } as unknown as ApiSessionClient;
     return {

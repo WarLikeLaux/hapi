@@ -10,7 +10,8 @@ const INPUT_REQUEST_TOOLS = new Set([
     'ask_user',
     'ExitPlanMode',
     'exit_plan_mode',
-    'request_user_input'
+    'request_user_input',
+    'request_user_input_async'
 ])
 
 /** Cap on `pendingRequests` carried in `SessionSummary`. The list is meant for
@@ -68,6 +69,8 @@ export type SessionSummary = {
     todosUpdatedAt: number
     todoProgress: { completed: number; total: number } | null
     pendingRequestsCount: number
+    /** Nonblocking Codex question cards awaiting an answer. */
+    pendingAsyncQuestionsCount?: number
     pendingRequestKinds: PendingRequestKind[]
     /** Capped, oldest-first slice of pending tool requests. Use this for tooltip
      *  / per-row UX. The full count (which may exceed the cap) is in
@@ -86,10 +89,7 @@ export type SessionSummary = {
 // summary fields from a structured `agentState` patch without needing the
 // full Session in hand.
 export function computePendingRequestKinds(agentState: AgentState | null | undefined): PendingRequestKind[] {
-    const requests = agentState?.requests
-    if (!requests) {
-        return []
-    }
+    const requests = getAttentionRequests(agentState)
 
     const kinds = new Set<PendingRequestKind>()
     for (const request of Object.values(requests)) {
@@ -106,10 +106,7 @@ export function computePendingRequests(
     fallbackSince: number,
     cap: number = PENDING_REQUEST_SUMMARY_CAP
 ): PendingRequest[] {
-    const requests = agentState?.requests
-    if (!requests) {
-        return []
-    }
+    const requests = getAttentionRequests(agentState)
 
     const items: PendingRequest[] = []
     for (const [id, request] of Object.entries(requests)) {
@@ -141,7 +138,16 @@ export function getPendingRequests(
 }
 
 export function computePendingRequestsCount(agentState: AgentState | null | undefined): number {
-    return agentState?.requests ? Object.keys(agentState.requests).length : 0
+    return Object.keys(getAttentionRequests(agentState)).length
+}
+
+/** Attention and notifications include questions; permission controls use requests alone. */
+export function getAttentionRequests(agentState: AgentState | null | undefined) {
+    return { ...agentState?.requests, ...agentState?.codexAsyncQuestions }
+}
+
+export function computePendingAsyncQuestionsCount(agentState: AgentState | null | undefined): number {
+    return Object.keys(agentState?.codexAsyncQuestions ?? {}).length
 }
 
 export function computeTodoProgress(todos: TodoItem[] | undefined): SessionSummary['todoProgress'] {
@@ -230,6 +236,7 @@ export function toSessionSummary(session: Session): SessionSummary {
         todosUpdatedAt: session.todosUpdatedAt ?? 0,
         todoProgress: computeTodoProgress(session.todos),
         pendingRequestsCount: computePendingRequestsCount(session.agentState),
+        pendingAsyncQuestionsCount: computePendingAsyncQuestionsCount(session.agentState),
         pendingRequestKinds: computePendingRequestKinds(session.agentState),
         pendingRequests: computePendingRequests(session.agentState, session.updatedAt),
         backgroundTaskCount: session.backgroundTaskCount ?? 0,

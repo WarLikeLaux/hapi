@@ -62,6 +62,15 @@ describe('SessionRowSummary background status', () => {
         localStorage.clear()
     })
 
+    it.each([false, true])('shows questions in a selected Working session (detailed: %s)', (showDetailedStatus) => {
+        render(<I18nProvider><SessionRowSummary
+            session={makeSummary({ thinking: true, pendingRequestsCount: 2, pendingAsyncQuestionsCount: 2,
+                pendingRequestKinds: ['input'], backgroundTaskCount: 0 })}
+            selected={true} showDetailedStatus={showDetailedStatus} nestedTooltips={false}
+        /></I18nProvider>)
+        expect(screen.getByRole('img', { name: 'Questions · 2' })).toBeVisible()
+    })
+
     it('shows the basic running label in Basic mode', () => {
         renderSummary(false)
 

@@ -1,5 +1,6 @@
 import type { Session, SyncEngine, SyncEvent } from '../sync/syncEngine'
 import type { SessionEndReason } from '@hapi/protocol'
+import { getAttentionRequests } from '@hapi/protocol'
 import type { NotificationChannel, NotificationHubOptions, TaskNotification } from './notificationTypes'
 import type { NotificationSendContext } from './notificationSendContext'
 import { extractMessageEventType, extractTaskNotification } from './eventParsing'
@@ -101,11 +102,7 @@ export class NotificationHub {
     }
 
     private checkForPermissionNotification(session: Session): void {
-        const requests = session.agentState?.requests
-
-        if (requests == null) {
-            return
-        }
+        const requests = getAttentionRequests(session.agentState)
 
         const newRequestIds = new Set(Object.keys(requests))
         const oldRequestIds = this.lastKnownRequests.get(session.id) || new Set()

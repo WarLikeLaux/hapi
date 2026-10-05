@@ -231,6 +231,8 @@ export const AgentStateSchema = z.object({
     controlledByUser: z.boolean().nullish(),
     // Current actionable shared Codex proposal; content remains in the transcript.
     codexPlanProposalId: z.string().nullish(),
+    // Nonblocking questions use their own answer RPC, never permission decisions.
+    codexAsyncQuestions: z.record(z.string(), AgentStateRequestSchema).nullish(),
     // True while the CLI is delivering a queued message into the active turn
     // (Steer). Surfaced so the web can reflect the inject in progress.
     steeringActive: z.boolean().nullish(),

@@ -16,7 +16,15 @@ function session(args: unknown, tool = 'request_user_input', name = '查看 PR #
 }
 
 describe('input request notifications', () => {
-    it.each(['request_user_input', 'AskUserQuestion', 'ask_user_question', 'ask_user', 'CursorAskQuestion', 'functions.request_user_input'])(
+    it('offers an async question notification without permission actions', () => {
+        const source = session({})
+        source.agentState = { codexAsyncQuestions: { async1: { tool: 'request_user_input_async',
+            arguments: { questions: [{ question: 'Choose a workflow?' }] } } } }
+        expect(new NativeNotificationComposer().composePermissionRequest(source)).toMatchObject({
+            type: 'input-request', requestId: 'async1', body: 'Choose a workflow?\n查看 PR #1842 的改动'
+        })
+    })
+    it.each(['request_user_input', 'request_user_input_async', 'AskUserQuestion', 'ask_user_question', 'ask_user', 'CursorAskQuestion', 'functions.request_user_input'])(
         'recognizes %s as a question, not approval', (tool) => {
             expect(isInputRequestTool(tool)).toBe(true)
             const notification = new NativeNotificationComposer().composePermissionRequest(session({
@@ -34,7 +42,7 @@ describe('input request notifications', () => {
         }
     )
 
-    it.each(['ExitPlanMode', 'exit_plan_mode', 'Bash', 'Edit', 'request_user_input_async', 'mcp__server__request_user_input', 'other.request_user_input'])(
+    it.each(['ExitPlanMode', 'exit_plan_mode', 'Bash', 'Edit', 'mcp__server__request_user_input', 'other.request_user_input'])(
         'keeps %s out of question classification', (tool) => {
             expect(isInputRequestTool(tool)).toBe(false)
             expect(composeInputRequestNotification(session({}, tool))).toBeNull()

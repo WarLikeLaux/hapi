@@ -1,9 +1,10 @@
-import { isObject, type AgentStateRequest } from '@hapi/protocol'
+import { getAttentionRequests, isObject, type AgentStateRequest } from '@hapi/protocol'
 import type { Session } from '../sync/syncEngine'
 import { getAgentName, getSessionName } from './sessionInfo'
 
 const INPUT_REQUEST_TOOLS = new Set([
     'request_user_input',
+    'request_user_input_async',
     'AskUserQuestion',
     'ask_user_question',
     'ask_user',
@@ -19,7 +20,7 @@ export type PendingNotificationRequest = { requestId: string; request: AgentStat
 
 /** Keep the existing first-pending selection; text and actions must use the same request. */
 export function getFirstPendingRequest(session: Session): PendingNotificationRequest | null {
-    const entry = Object.entries(session.agentState?.requests ?? {})[0]
+    const entry = Object.entries(getAttentionRequests(session.agentState))[0]
     return entry ? { requestId: entry[0], request: entry[1] } : null
 }
 
