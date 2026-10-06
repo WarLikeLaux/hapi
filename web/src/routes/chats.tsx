@@ -853,7 +853,16 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     const fileInputRef = useRef<HTMLInputElement>(null)
     const composerRef = useRef<HTMLTextAreaElement>(null)
     const stickToBottomRef = useRef(true)
+    const swipeGestureRef = useRef<{ id: string | null; startX: number; startY: number; horizontal: boolean; dx: number }>({ id: null, startX: 0, startY: 0, horizontal: false, dx: 0 })
     const handleComposerFocus = useChatKeyboardTail({ viewportRef, composerRef, stickToBottomRef })
+    // Telegram-style reply gestures: double-click or a left swipe on a
+    // message bubble starts a reply to it.
+    const startReply = useCallback((message: ExternalMessage) => {
+        setReactionPickerFor(null)
+        setReactionPickerExpanded(false)
+        setReplyTo(message)
+        composerRef.current?.focus({ preventScroll: true })
+    }, [])
     // Window-level keydown → focus composer + insert character. Closure
     // captures the latest `setText` on every render so the typed glyph is
     // appended to the current draft instead of dropping the user's first
@@ -1126,7 +1135,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
                                         : <ChatParticipantAvatar src={avatarSrc} name={item.senderName ?? conversation.title} />
                                 ) : null}
                                 <div
-                                    className={cn('relative flex min-w-0 max-w-[min(42rem,92%)] flex-col', incoming ? 'items-start' : 'items-end')}
+                                    className={cn('relative flex min-w-0 max-w-[min(42rem,92%)] flex-col touch-pan-y', incoming ? 'items-start' : 'items-end')}
                                     onClick={(event) => {
                                         if (optimistic || (event.target as HTMLElement).closest('button, a, input, video, audio')) return
                                         event.stopPropagation()
@@ -1135,6 +1144,46 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
                                             if (next) setReactionPickerExpanded(false)
                                             return next
                                         })
+                                    }}
+                                    onDoubleClick={(event) => {
+                                        if (optimistic || (event.target as HTMLElement).closest('button, a, input, video, audio')) return
+                                        event.stopPropagation()
+                                        startReply(item)
+                                    }}
+                                    onTouchStart={(event) => {
+                                        if (optimistic || event.touches.length !== 1) return
+                                        const touch = event.touches[0]
+                                        swipeGestureRef.current = { id: item.providerMessageId, startX: touch.clientX, startY: touch.clientY, horizontal: false, dx: 0 }
+                                        event.currentTarget.style.transition = ''
+                                    }}
+                                    onTouchMove={(event) => {
+                                        const gesture = swipeGestureRef.current
+                                        if (gesture.id !== item.providerMessageId || event.touches.length !== 1) return
+                                        const dx = event.touches[0].clientX - gesture.startX
+                                        const dy = event.touches[0].clientY - gesture.startY
+                                        if (!gesture.horizontal) {
+                                            if (Math.abs(dx) < Math.abs(dy)) { gesture.id = null; return }
+                                            if (Math.abs(dx) < 8) return
+                                            gesture.horizontal = true
+                                        }
+                                        // Follow the finger leftwards only; the
+                                        // bubble never drags past a short throw.
+                                        gesture.dx = Math.max(dx, -96)
+                                        event.currentTarget.style.transform = `translateX(${gesture.dx}px)`
+                                    }}
+                                    onTouchEnd={(event) => {
+                                        const gesture = swipeGestureRef.current
+                                        if (gesture.id !== item.providerMessageId) return
+                                        swipeGestureRef.current = { id: null, startX: 0, startY: 0, horizontal: false, dx: 0 }
+                                        event.currentTarget.style.transition = 'transform 150ms ease'
+                                        event.currentTarget.style.transform = ''
+                                        if (gesture.dx < -48) startReply(item)
+                                    }}
+                                    onTouchCancel={(event) => {
+                                        if (swipeGestureRef.current.id !== item.providerMessageId) return
+                                        swipeGestureRef.current = { id: null, startX: 0, startY: 0, horizontal: false, dx: 0 }
+                                        event.currentTarget.style.transition = 'transform 150ms ease'
+                                        event.currentTarget.style.transform = ''
                                     }}
                                 >
                                     {hasMedia && caption ? (
@@ -1276,12 +1325,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
                                                 aria-label={t('chats.reply.action')}
                                                 title={t('chats.reply.action')}
                                                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-secondary-bg)] text-[var(--app-hint)] hover:text-[var(--app-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2AABEE]"
-                                                onClick={() => {
-                                                    setReactionPickerFor(null)
-                                                    setReactionPickerExpanded(false)
-                                                    setReplyTo(item)
-                                                    composerRef.current?.focus({ preventScroll: true })
-                                                }}
+                                                onClick={() => startReply(item)}
                                             >
                                                 <ReplyIcon />
                                             </button>
