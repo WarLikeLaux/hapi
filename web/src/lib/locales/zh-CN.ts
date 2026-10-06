@@ -277,6 +277,8 @@ export default {
   'session.item.needsInput': '需要输入',
   'session.item.hasQuestion': '有问题',
   'session.question.answer': '回答问题',
+  'session.question.dismiss': '忽略',
+  'session.question.dismissFailed': '无法忽略问题。请重试。',
   'session.question.count': '问题 · {count}',
   'session.question.notFound': '无法加载问题。请重试。',
   'session.item.background': '后台任务运行中',

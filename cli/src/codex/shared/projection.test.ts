@@ -122,4 +122,89 @@ describe('shared history projection', () => {
         await projection.notification('item/completed', { threadId: 'child', turnId: 'turn', item: { id: 'prompt', type: 'userMessage', content: [{ type: 'text', text: 'child prompt' }], clientId: 'cid' } });
         expect(user).not.toHaveBeenCalled(); expect(committed).not.toHaveBeenCalled();
     });
+
+    it('does not resurrect questions from older turns on replay', async () => {
+        const send = vi.fn();
+        const session = { getMetadata: () => ({}), updateAgentState: vi.fn(), sendAgentMessage: send } as unknown as ApiSessionClient;
+        const projection = new SharedCodexProjection(session, 'thread', async () => {});
+        const old = { id: 'old-q', type: 'agentMessage', delivery: 'async', questions: [{ title: 'Old question' }] };
+        const fresh = { id: 'fresh-q', type: 'agentMessage', delivery: 'async', questions: [{ title: 'Fresh question' }] };
+        await projection.history({ turns: [
+            { id: 'turn-1', status: 'completed', items: [old] },
+            { id: 'turn-2', status: 'completed', items: [fresh] }
+        ] });
+        let state: { codexAsyncQuestions?: Record<string, unknown> } = {
+            codexAsyncQuestions: { 'codex-async-question:thread:old-q': { tool: 'request_user_input_async' } }
+        };
+        for (const [handler] of session.updateAgentState.mock.calls) state = handler(state);
+        expect(Object.keys(state.codexAsyncQuestions ?? {})).toEqual(['codex-async-question:thread:fresh-q']);
+    });
+
+    it('keeps the newest completed turn question pending until a newer turn exists', async () => {
+        const send = vi.fn();
+        const session = { getMetadata: () => ({}), updateAgentState: vi.fn(), sendAgentMessage: send } as unknown as ApiSessionClient;
+        const projection = new SharedCodexProjection(session, 'thread', async () => {});
+        const only = { id: 'only-q', type: 'agentMessage', delivery: 'async', questions: [{ title: 'Only question' }] };
+        await projection.history({ turns: [{ id: 'turn-1', status: 'completed', items: [only] }] });
+        let state: { codexAsyncQuestions?: Record<string, unknown> } = {};
+        for (const [handler] of session.updateAgentState.mock.calls) state = handler(state);
+        expect(Object.keys(state.codexAsyncQuestions ?? {})).toEqual(['codex-async-question:thread:only-q']);
+    });
+
+    it('never re-adds a question dismissed in metadata', async () => {
+        const send = vi.fn();
+        const metadata = { codexDismissedAsyncQuestions: { 'codex-async-question:thread:q': 123 } };
+        const session = { getMetadata: () => metadata, updateAgentState: vi.fn(), sendAgentMessage: send } as unknown as ApiSessionClient;
+        const projection = new SharedCodexProjection(session, 'thread', async () => {});
+        const question = { id: 'q', type: 'agentMessage', delivery: 'async', questions: [{ title: 'Question' }] };
+        await projection.history({ turns: [{ id: 'turn', status: 'completed', items: [question] }] });
+        let state: { codexAsyncQuestions?: Record<string, unknown> } = {
+            codexAsyncQuestions: { 'codex-async-question:thread:q': { tool: 'request_user_input_async' } }
+        };
+        for (const [handler] of session.updateAgentState.mock.calls) state = handler(state);
+        expect(state.codexAsyncQuestions).toEqual({});
+    });
+
+    it('drops a question dismissed in-process and keeps it dropped after replay', async () => {
+        const send = vi.fn();
+        const session = { getMetadata: () => ({}), updateAgentState: vi.fn(), sendAgentMessage: send } as unknown as ApiSessionClient;
+        const projection = new SharedCodexProjection(session, 'thread', async () => {});
+        const question = { id: 'q', type: 'agentMessage', delivery: 'async', questions: [{ title: 'Question' }] };
+        const snapshot = { turns: [{ id: 'turn', status: 'completed', items: [question] }] };
+        await projection.history(snapshot);
+        projection.dismissAsyncQuestion('codex-async-question:thread:q');
+        let state: { codexAsyncQuestions?: Record<string, unknown> } = {
+            codexAsyncQuestions: { 'codex-async-question:thread:q': { tool: 'request_user_input_async' } }
+        };
+        for (const [handler] of session.updateAgentState.mock.calls) state = handler(state);
+        expect(state.codexAsyncQuestions).toEqual({});
+        projection.reset();
+        session.updateAgentState.mockClear();
+        await projection.history(snapshot);
+        // The hub already dropped the entry at dismiss time; replay must not
+        // call back with an add for the dismissed question.
+        state = {};
+        for (const [handler] of session.updateAgentState.mock.calls) state = handler(state);
+        expect(state.codexAsyncQuestions?.['codex-async-question:thread:q']).toBeUndefined();
+    });
+
+    it('expires older-turn questions once a newer turn starts live', async () => {
+        const send = vi.fn();
+        const session = { getMetadata: () => ({}), updateAgentState: vi.fn(), sendAgentMessage: send } as unknown as ApiSessionClient;
+        const projection = new SharedCodexProjection(session, 'thread', async () => {});
+        const question = { id: 'q', type: 'agentMessage', delivery: 'async', questions: [{ title: 'Question' }] };
+        await projection.notification('item/completed', { threadId: 'thread', turnId: 'turn-1', item: question });
+        let state: { codexAsyncQuestions?: Record<string, unknown> } = {};
+        for (const [handler] of session.updateAgentState.mock.calls) state = handler(state);
+        expect(Object.keys(state.codexAsyncQuestions ?? {})).toEqual(['codex-async-question:thread:q']);
+        // A sibling-thread turn must not expire them.
+        await projection.notification('turn/started', { threadId: 'child', turnId: 'turn-2' });
+        state = {};
+        for (const [handler] of session.updateAgentState.mock.calls) state = handler(state);
+        expect(Object.keys(state.codexAsyncQuestions ?? {})).toEqual(['codex-async-question:thread:q']);
+        await projection.notification('turn/started', { threadId: 'thread', turnId: 'turn-2' });
+        state = {};
+        for (const [handler] of session.updateAgentState.mock.calls) state = handler(state);
+        expect(state.codexAsyncQuestions).toEqual({});
+    });
 });

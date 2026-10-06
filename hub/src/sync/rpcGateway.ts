@@ -636,6 +636,12 @@ export class RpcGateway {
             throw new Error(isObject(response) && typeof response.error === 'string' ? response.error : 'Answer delivery could not be confirmed')
         }
     }
+    async dismissCodexAsyncQuestion(sessionId: string, questionId: string): Promise<void> {
+        const response = await this.sessionRpc(sessionId, RPC_METHODS.DismissCodexAsyncQuestion, { questionId }, 30_000)
+        if (!isObject(response) || response.ok !== true) {
+            throw new Error(isObject(response) && typeof response.error === 'string' ? response.error : 'Dismissal could not be confirmed')
+        }
+    }
 
     async rewindConversation(
         sessionId: string,

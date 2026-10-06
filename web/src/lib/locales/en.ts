@@ -277,6 +277,8 @@ export default {
   'session.item.needsInput': 'Waiting for answer',
   'session.item.hasQuestion': 'Question',
   'session.question.answer': 'Answer question',
+  'session.question.dismiss': 'Dismiss',
+  'session.question.dismissFailed': 'Could not dismiss the question. Try again.',
   'session.question.count': 'Questions · {count}',
   'session.question.notFound': 'Could not load the question. Try again.',
   'session.item.background': 'Background tasks running',

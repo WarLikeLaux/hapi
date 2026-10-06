@@ -44,6 +44,11 @@ export class SharedCodexProjection {
     private readonly completedTitles = new Set<string>();
     private titleRevision = 0;
     private readonly answeredAsyncQuestions = new Map<string, Record<string, { answers: string[] }>>();
+    private readonly dismissedAsyncQuestions = new Set<string>();
+    private readonly turnOfQuestion = new Map<string, string>();
+    /** Questions dropped only because their turn is no longer current. Rebuilt
+     *  by every history pre-scan so the replay loop cannot re-add them. */
+    private turnStaleAsyncQuestionIds = new Set<string>();
     private pendingAsyncQuestionIds = new Set<string>();
     private asyncQuestionsInitialized = false;
     constructor(private readonly session: ApiSessionClient, readonly threadId: string,
@@ -53,6 +58,42 @@ export class SharedCodexProjection {
     }
 
     turnFor(id: string): string | undefined { return this.turns.get(id); }
+    /** Metadata-dismissals survive relaunch; the in-memory set covers the window
+     *  before the metadata write round-trips. */
+    private isDismissedAsyncQuestion(questionId: string): boolean {
+        return this.dismissedAsyncQuestions.has(questionId)
+            || Object.prototype.hasOwnProperty.call(this.session.getMetadata()?.codexDismissedAsyncQuestions ?? {}, questionId);
+    }
+    /** Operator dismissed the card without answering. Recorded durably by the
+     *  caller (metadata) so replay never resurrects the question. */
+    dismissAsyncQuestion(questionId: string): void {
+        this.dismissedAsyncQuestions.add(questionId);
+        this.pendingAsyncQuestionIds.delete(questionId);
+        if (!this.parentThreadId) this.session.updateAgentState(state => {
+            if (!state.codexAsyncQuestions?.[questionId]) return state;
+            const questions = { ...state.codexAsyncQuestions };
+            delete questions[questionId];
+            return { ...state, codexAsyncQuestions: questions };
+        });
+    }
+    /** A question is only attention-worthy while its turn is the newest one (or
+     *  still running). Codex keeps working after an async question; once it
+     *  moves on to a later turn the question is stale by construction. */
+    private expireAsyncQuestionsBeforeTurn(turnId: string): void {
+        const stale = [...this.pendingAsyncQuestionIds].filter(id => this.turnOfQuestion.get(id) !== turnId);
+        if (!stale.length) return;
+        for (const id of stale) this.pendingAsyncQuestionIds.delete(id);
+        this.session.updateAgentState(state => {
+            const questions = { ...state.codexAsyncQuestions };
+            let changed = false;
+            for (const id of stale) {
+                if (questions[id] === undefined) continue;
+                delete questions[id];
+                changed = true;
+            }
+            return changed ? { ...state, codexAsyncQuestions: questions } : state;
+        });
+    }
     answerAsyncQuestion(questionId: string, answers: Record<string, { answers: string[] }>): void {
         this.answeredAsyncQuestions.set(questionId, answers);
         this.pendingAsyncQuestionIds.delete(questionId);
@@ -145,10 +186,15 @@ export class SharedCodexProjection {
                 status: method === 'turn/started' ? 'running' : record(p.turn).status === 'completed' ? 'completed' : 'failed'
             }, `lifecycle:${turnId}:${method}`, publish);
         }
+        if (!this.parentThreadId && method === 'turn/started' && turnId && (string(p.threadId) ?? this.threadId) === this.threadId) {
+            this.expireAsyncQuestionsBeforeTurn(turnId);
+        }
         const question = method === 'item/completed' ? asyncQuestionForItem(this.threadId, item) : undefined;
         if (question) {
+            if (turnId) this.turnOfQuestion.set(question.id, turnId);
             if (!this.parentThreadId && !this.pendingAsyncQuestionIds.has(question.id)
-                && !this.answeredAsyncQuestions.has(question.id) && !this.acceptedAsyncAnswer(question.id)) {
+                && !this.answeredAsyncQuestions.has(question.id) && !this.acceptedAsyncAnswer(question.id)
+                && !this.isDismissedAsyncQuestion(question.id) && !this.turnStaleAsyncQuestionIds.has(question.id)) {
                 this.pendingAsyncQuestionIds.add(question.id);
                 this.session.updateAgentState(state => state.codexAsyncQuestions?.[question.id] ? state : ({ ...state,
                     codexAsyncQuestions: { ...state.codexAsyncQuestions, [question.id]: {
@@ -226,17 +272,39 @@ export class SharedCodexProjection {
         if (!Array.isArray(turns)) return;
         if (!this.parentThreadId) {
             const questionIds = new Set<string>();
-            for (const value of turns) for (const item of Array.isArray(record(value).items) ? record(value).items as unknown[] : []) {
-                const question = asyncQuestionForItem(this.threadId, item);
-                if (question) questionIds.add(question.id);
-                const receipt = record(item);
-                if (receipt.type !== 'userMessage') continue;
-                const answer = parseAsyncQuestionAnswer(inputText(receipt.content));
-                if (answer && (receipt.clientId ?? receipt.clientUserMessageId) === asyncQuestionAnswerId(answer.questionId)) {
-                    this.answeredAsyncQuestions.set(answer.questionId, answer.answers);
+            const questionTurns = new Map<string, { turnId: string; status: string }>();
+            for (const value of turns) {
+                const turn = record(value);
+                const turnId = string(turn.id);
+                for (const item of Array.isArray(turn.items) ? turn.items as unknown[] : []) {
+                    const question = asyncQuestionForItem(this.threadId, item);
+                    if (question) {
+                        questionIds.add(question.id);
+                        if (turnId) {
+                            questionTurns.set(question.id, { turnId, status: string(turn.status) ?? 'unknown' });
+                            this.turnOfQuestion.set(question.id, turnId);
+                        }
+                    }
+                    const receipt = record(item);
+                    if (receipt.type !== 'userMessage') continue;
+                    const answer = parseAsyncQuestionAnswer(inputText(receipt.content));
+                    if (answer && (receipt.clientId ?? receipt.clientUserMessageId) === asyncQuestionAnswerId(answer.questionId)) {
+                        this.answeredAsyncQuestions.set(answer.questionId, answer.answers);
+                    }
                 }
             }
-            const pendingIds = new Set([...questionIds].filter(id => !this.answeredAsyncQuestions.has(id) && !this.acceptedAsyncAnswer(id)));
+            // Only the newest turn's questions (or a still-running turn's) stay
+            // pending after a replay; earlier ones were passed over by the agent.
+            const latestTurnId = string(record(turns.at(-1) ?? {}).id);
+            const pendingIds = new Set([...questionIds].filter(id => {
+                if (this.answeredAsyncQuestions.has(id) || this.acceptedAsyncAnswer(id) || this.isDismissedAsyncQuestion(id)) return false;
+                const turn = questionTurns.get(id);
+                if (!turn) return true;
+                return turn.turnId === latestTurnId || turn.status === 'inProgress';
+            }));
+            this.turnStaleAsyncQuestionIds = new Set([...questionIds].filter(id =>
+                !pendingIds.has(id) && !this.answeredAsyncQuestions.has(id)
+                && !this.acceptedAsyncAnswer(id) && !this.isDismissedAsyncQuestion(id)));
             const changed = !this.asyncQuestionsInitialized || [...this.pendingAsyncQuestionIds].some(id => !pendingIds.has(id));
             this.asyncQuestionsInitialized = true;
             this.pendingAsyncQuestionIds = new Set([...this.pendingAsyncQuestionIds].filter(id => pendingIds.has(id)));

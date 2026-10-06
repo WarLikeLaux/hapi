@@ -1179,3 +1179,7 @@ export const AnswerCodexAsyncQuestionRequestSchema = z.object({
     answers: z.record(z.string(), z.object({ answers: z.array(z.string()).min(1) }))
 })
 export type AnswerCodexAsyncQuestionRequest = z.infer<typeof AnswerCodexAsyncQuestionRequestSchema>
+export const DismissCodexAsyncQuestionRequestSchema = z.object({
+    questionId: z.string().min(1)
+})
+export type DismissCodexAsyncQuestionRequest = z.infer<typeof DismissCodexAsyncQuestionRequestSchema>
