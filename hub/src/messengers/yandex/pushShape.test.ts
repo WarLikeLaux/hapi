@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { buildFileClientMessage, buildImageClientMessage } from './pushShape'
+import { buildFileClientMessage, buildImageClientMessage, buildReplyFields } from './pushShape'
 
 const PNG_BYTES = new Uint8Array([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -104,5 +104,71 @@ describe('buildFileClientMessage', () => {
                 }
             }
         })
+    })
+})
+
+describe('buildReplyFields', () => {
+    it('builds ForwardedMessageRefs with a numeric micros Timestamp (§11.1)', () => {
+        expect(buildReplyFields('chat-1', '1750000000000000', 'оригинал сообщения')).toEqual({
+            ForwardedMessageRefs: [{ ChatId: 'chat-1', Timestamp: 1750000000000000 }],
+            ForwardedMessageStyles: [{ Quote: 'оригинал сообщения' }]
+        })
+    })
+
+    it('omits styles when the quoted text is unknown', () => {
+        expect(buildReplyFields('chat-1', '1750000000000000', undefined)).toEqual({
+            ForwardedMessageRefs: [{ ChatId: 'chat-1', Timestamp: 1750000000000000 }]
+        })
+        expect(buildReplyFields('chat-1', '1750000000000000', '   ')).toEqual({
+            ForwardedMessageRefs: [{ ChatId: 'chat-1', Timestamp: 1750000000000000 }]
+        })
+    })
+
+    it('returns empty fields when there is no reply target', () => {
+        expect(buildReplyFields('chat-1', undefined, 'текст')).toEqual({})
+    })
+
+    it('truncates the quote fragment to 120 chars', () => {
+        const fields = buildReplyFields('chat-1', '1750000000000000', 'ж'.repeat(300))
+        const styles = (fields as { ForwardedMessageStyles?: Array<{ Quote: string }> }).ForwardedMessageStyles
+        expect(styles?.[0].Quote).toHaveLength(120)
+    })
+
+    it('rejects non-numeric reply ids instead of silently sending plain', () => {
+        expect(() => buildReplyFields('chat-1', 'yandex:chat-1:123', 'текст')).toThrow()
+    })
+})
+
+describe('reply forward fields inside builders', () => {
+    it('spreads ForwardedMessageRefs/Styles into the image Plain', () => {
+        const message = buildImageClientMessage({
+            chatId: 'chat-1',
+            payloadId: 'payload-1',
+            fileId: 'bucket/uuid-1',
+            fileName: 'photo.png',
+            size: 1234,
+            bytes: PNG_BYTES,
+            mimeType: 'image/png',
+            replyToProviderMessageId: '1750000000000000',
+            replyQuoteText: 'выпил мелатонин'
+        })
+        expect((message.Plain as Record<string, unknown>).ForwardedMessageRefs).toEqual([
+            { ChatId: 'chat-1', Timestamp: 1750000000000000 }
+        ])
+        expect((message.Plain as Record<string, unknown>).ForwardedMessageStyles).toEqual([
+            { Quote: 'выпил мелатонин' }
+        ])
+    })
+
+    it('keeps media Plains free of forward fields without a reply target', () => {
+        const message = buildFileClientMessage({
+            chatId: 'chat-1',
+            payloadId: 'payload-1',
+            fileId: 'bucket/uuid-2',
+            fileName: 'doc.pdf',
+            size: 5
+        })
+        expect((message.Plain as Record<string, unknown>).ForwardedMessageRefs).toBeUndefined()
+        expect((message.Plain as Record<string, unknown>).ForwardedMessageStyles).toBeUndefined()
     })
 })

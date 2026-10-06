@@ -30,6 +30,7 @@ import {
     type SidebarChatRow,
 } from '@/lib/freshSidebarChats'
 import { formatRelativeTime } from '@/lib/relativeTime'
+import { ExternalDeliveryStatus } from '@/components/ExternalDeliveryStatus'
 
 const EMPTY_FRESH_CHATS: ExternalConversation[] = []
 
@@ -1168,6 +1169,9 @@ function FreshChatItem({ conversation }: { conversation: ExternalConversation })
                             {conversation.unreadCount > 99 ? '99+' : String(conversation.unreadCount)}
                         </span>
                     ) : null}
+                    {conversation.lastMessageDirection === 'outgoing' && conversation.lastMessageDeliveryStatus
+                        ? <ExternalDeliveryStatus status={conversation.lastMessageDeliveryStatus} className="self-center text-[#2AABEE]" />
+                        : null}
                     {conversation.lastMessageAt ? (
                         <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
                             {formatRelativeTime(conversation.lastMessageAt, t)}

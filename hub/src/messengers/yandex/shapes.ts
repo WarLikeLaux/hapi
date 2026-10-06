@@ -301,6 +301,52 @@ function buildReactions(item: Record<string, unknown>, myGuid: string): { reacti
 }
 
 /**
+ * Text of a message body across the content shapes we render (§11.1). Shared by
+ * the main `Plain` normalization and by forwarded/replied original payloads.
+ */
+function extractBodyText(body: Record<string, unknown>): string | undefined {
+    return stringOr(asObject(body['Text'])?.['MessageText'])
+        ?? stringOr(asObject(body['Voice'])?.['Text'])
+        ?? stringOr(asObject(body['Gallery'])?.['Text'])
+}
+
+/**
+ * Element-level `ForwardedMessages` sibling (§11.2): `{Payload, ServerMessageInfo}`
+ * items carrying the original body behind a forward — and chats-web models replies
+ * as forwards with a quote, so this is also where a reply's target surfaces.
+ * The first item becomes HAPI's reply snapshot; later items (multi-forwards) are
+ * not representable in the reply model and are ignored.
+ */
+function extractReplySnapshot(item: Record<string, unknown>): {
+    providerMessageId: string
+    senderName?: string
+    text?: string
+} | undefined {
+    const forwarded = item['ForwardedMessages']
+    if (!Array.isArray(forwarded) || forwarded.length === 0) return undefined
+    const first = asObject(forwarded[0])
+    const info = asObject(first?.['ServerMessageInfo'])
+    let micros: bigint | undefined
+    try {
+        micros = info ? parseMicros(info['Timestamp']) : undefined
+    } catch {
+        micros = undefined
+    }
+    if (micros === undefined || micros <= 0n) {
+        console.warn(`[Yandex connector] ForwardedMessages present but ServerMessageInfo.Timestamp missing; keys=[${Object.keys(first ?? {}).sort().join(',')}] - update extractReplySnapshot once the live shape is captured`)
+        return undefined
+    }
+    const senderName = stringOr(asObject(info?.['From'])?.['DisplayName'])
+    const payload = asObject(first?.['Payload'])
+    const text = payload ? extractBodyText(payload) : undefined
+    return {
+        providerMessageId: micros.toString(),
+        ...(senderName !== undefined ? { senderName } : {}),
+        ...(text !== undefined && text.length > 0 ? { text } : {})
+    }
+}
+
+/**
  * Normalizes one history message element `{ServerMessage, ...}` into a YandexMessage.
  * Returns undefined for elements that cannot be rendered: system events, deleted
  * messages, and bodies without any text or attachments.
@@ -331,10 +377,7 @@ export function normalizeMessageItem(
     if (system !== undefined || plain === undefined) return undefined
 
     const attachments = extractAttachments(plain)
-    const text = stringOr(asObject(plain['Text'])?.['MessageText'])
-        ?? stringOr(asObject(plain['Voice'])?.['Text'])
-        ?? stringOr(asObject(plain['Gallery'])?.['Text'])
-        ?? ''
+    const text = extractBodyText(plain) ?? ''
     if (!text && attachments.length === 0 && plain['Poll'] === undefined && plain['Card'] === undefined) {
         return undefined
     }
@@ -345,6 +388,7 @@ export function normalizeMessageItem(
     const seqNo = numberOr(info['SeqNo'])
     const version = numberOr(info['Version'])
     const lastEdit = numberOr(info['LastEditTimestamp'])
+    const replySnapshot = extractReplySnapshot(item)
 
     const media = attachments.map((ref) => ({
         kind: mediaKindFor(ref.kind),
@@ -379,6 +423,11 @@ export function normalizeMessageItem(
             : {}),
         ...(media.length > 0 ? { media } : {}),
         ...(reactions.length > 0 ? { reactions } : {}),
+        ...(replySnapshot !== undefined ? {
+            replyToProviderMessageId: replySnapshot.providerMessageId,
+            ...(replySnapshot.senderName !== undefined ? { replyToSenderName: replySnapshot.senderName } : {}),
+            ...(replySnapshot.text !== undefined ? { replyToText: replySnapshot.text } : {})
+        } : {}),
         // `SeqNo`/`Version` are required for the read-receipt `SeenMarker` on
         // chats-web; only attach them when both are known to keep the schema
         // strictly optional for providers that don't surface them.
