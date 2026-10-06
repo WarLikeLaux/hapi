@@ -910,6 +910,11 @@ export class ApiClient {
             method: 'POST', body: JSON.stringify({ questionId, answers })
         })
     }
+    async dismissCodexAsyncQuestion(sessionId: string, questionId: string): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/codex/async-question/dismiss`, {
+            method: 'POST', body: JSON.stringify({ questionId })
+        })
+    }
 
     async forkConversation(sessionId: string, messageLocalId?: string): Promise<{ sessionId: string }> {
         return await this.request<{ sessionId: string }>(

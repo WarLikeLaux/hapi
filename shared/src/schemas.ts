@@ -165,6 +165,9 @@ export const MetadataSchema = z.object({
     conversationHistoryIndexes: z.record(z.string(), z.number().int().nonnegative()).optional(),
     // Codex localId → turnId mapping (durable across runner relaunches).
     conversationHistoryTurns: z.record(z.string(), z.string().min(1)).optional(),
+    // Codex async questions the operator explicitly dismissed (questionId →
+    // dismissedAt). Durable so history replay never resurrects them.
+    codexDismissedAsyncQuestions: z.record(z.string(), z.number()).optional(),
     // Pi localId → append-only session entry id mapping. Pi entry ids are the
     // only stable native boundary accepted by its fork API.
     conversationHistoryEntryIds: z.record(z.string(), z.string().min(1)).optional(),

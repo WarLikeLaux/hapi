@@ -71,6 +71,7 @@ function createApp(session: Session, opts?: {
     clearConversation?: SyncEngine['clearConversation']
     implementCodexPlan?: SyncEngine['implementCodexPlan']
     answerCodexAsyncQuestion?: SyncEngine['answerCodexAsyncQuestion']
+    dismissCodexAsyncQuestion?: SyncEngine['dismissCodexAsyncQuestion']
     rewindConversation?: SyncEngine['rewindConversation']
     suggestSessionTitle?: SyncEngine['suggestSessionTitle']
     updateSessionSummary?: SyncEngine['updateSessionSummary']
@@ -186,6 +187,7 @@ function createApp(session: Session, opts?: {
         clearConversation: opts?.clearConversation,
         implementCodexPlan: opts?.implementCodexPlan,
         answerCodexAsyncQuestion: opts?.answerCodexAsyncQuestion,
+        dismissCodexAsyncQuestion: opts?.dismissCodexAsyncQuestion,
         rewindConversation: opts?.rewindConversation ?? (async () => ({ type: 'success' })),
         suggestSessionTitle: opts?.suggestSessionTitle ?? (async () => 'Generated title'),
         updateSessionSummary: opts?.updateSessionSummary ?? (async () => {}),
@@ -218,6 +220,22 @@ describe('sessions routes', () => {
         expect(calls).toEqual([['session-1', 'default', request]])
         session.active = false
         expect((await post(request)).status).toBe(409)
+        expect(calls).toHaveLength(1)
+    })
+
+    it('validates async question dismissals and scopes delivery to the authenticated session', async () => {
+        const calls: unknown[] = []
+        const session = createSession({ metadata: { path: '/tmp', host: 'test', flavor: 'codex', capabilities: { concurrentClients: true } } })
+        const { app } = createApp(session, { dismissCodexAsyncQuestion: async (...args) => { calls.push(args) } })
+        const post = (body: unknown) => app.request('/api/sessions/session-1/codex/async-question/dismiss', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        })
+        expect((await post({})).status).toBe(400)
+        expect(calls).toHaveLength(0)
+        expect((await post({ questionId: 'question' })).status).toBe(200)
+        expect(calls).toEqual([['session-1', 'default', 'question']])
+        session.active = false
+        expect((await post({ questionId: 'question' })).status).toBe(409)
         expect(calls).toHaveLength(1)
     })
 

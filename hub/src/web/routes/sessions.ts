@@ -1,6 +1,7 @@
 import {
     AttachDifitReviewRequestSchema,
     AnswerCodexAsyncQuestionRequestSchema,
+    DismissCodexAsyncQuestionRequestSchema,
     CursorMigrateToAcpRequestSchema,
     DeleteUploadRequestSchema,
     DetachDifitReviewRequestSchema,
@@ -537,6 +538,24 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ ok: true })
         } catch (error) {
             return c.json({ error: error instanceof Error ? error.message : 'Answer could not be confirmed' }, 502)
+        }
+    })
+
+    app.post('/sessions/:id/codex/async-question/dismiss', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const access = requireSessionFromParam(c, engine, { requireActive: true })
+        if (access instanceof Response) return access
+        if (access.session.metadata?.flavor !== 'codex' || !access.session.metadata.capabilities?.concurrentClients) {
+            return c.json({ error: 'An active shared Codex session is required' }, 409)
+        }
+        const parsed = DismissCodexAsyncQuestionRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid body' }, 400)
+        try {
+            await engine.dismissCodexAsyncQuestion(access.sessionId, c.get('namespace'), parsed.data.questionId)
+            return c.json({ ok: true })
+        } catch (error) {
+            return c.json({ error: error instanceof Error ? error.message : 'Dismissal could not be confirmed' }, 502)
         }
     })
 

@@ -25,7 +25,7 @@ import { record, string } from './gateway';
 import { initializeSharedClient, type SharedLaunchOptions } from './launch';
 import { inheritedSandbox, settingsMatch } from './settings';
 import { planImplementationMessageId, planProposalForItem, planProposalForTurn } from './plan';
-import { AnswerCodexAsyncQuestionRequestSchema, type AnswerCodexAsyncQuestionRequest } from '@hapi/protocol';
+import { AnswerCodexAsyncQuestionRequestSchema, type AnswerCodexAsyncQuestionRequest, DismissCodexAsyncQuestionRequestSchema } from '@hapi/protocol';
 import { asyncQuestionForItem, asyncQuestionAnswerId, asyncQuestionAnswerText, asyncQuestionAnswerDisplay, parseAsyncQuestionAnswer } from './asyncQuestions';
 
 type RuntimeSettings = NonNullable<Parameters<ApiSessionClient['keepAlive']>[2]>;
@@ -555,6 +555,17 @@ export class SharedCodexRoot {
             const work = this.work.catch(() => {}).then(() => this.answerAsyncQuestion(request)).then(() => ({ ok: true }));
             this.work = work;
             return work;
+        });
+        rpc.registerHandler(RPC_METHODS.DismissCodexAsyncQuestion, async raw => {
+            const request = DismissCodexAsyncQuestionRequestSchema.parse(raw);
+            // Pure UI bookkeeping: no native delivery, so it also works while
+            // Codex itself is unavailable. Metadata makes it survive relaunches.
+            this.session.updateMetadata(metadata => ({
+                ...metadata,
+                codexDismissedAsyncQuestions: { ...metadata.codexDismissedAsyncQuestions, [request.questionId]: Date.now() }
+            }));
+            this.projection.dismissAsyncQuestion(request.questionId);
+            return { ok: true };
         });
         rpc.registerHandler(RPC_METHODS.SteerQueuedMessage, async raw => {
             const { localId } = z.object({ localId: z.string().min(1) }).parse(raw);

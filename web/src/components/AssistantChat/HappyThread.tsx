@@ -1608,6 +1608,21 @@ export function HappyThread(props: {
         }
     }
 
+    const [dismissingQuestion, setDismissingQuestion] = useState(false)
+    const dismissPendingQuestion = async () => {
+        if (!firstQuestion || dismissingQuestion) return
+        const [requestId, request] = firstQuestion
+        setDismissingQuestion(true)
+        setQuestionError(null)
+        try {
+            await props.api.dismissCodexAsyncQuestion(props.sessionId, request.toolCallId ?? requestId)
+        } catch {
+            setQuestionError(t('session.question.dismissFailed'))
+        } finally {
+            setDismissingQuestion(false)
+        }
+    }
+
     const loadOlderForOutline = useCallback(async (): Promise<boolean> => {
         // Keep paging until the outline grows by at least one batch, or history
         // is exhausted. Single requestOlder() may grow the window by less than a
@@ -1854,6 +1869,12 @@ export function HappyThread(props: {
                                 {locatingQuestion ? <Spinner size="sm" label={null} /> : null}
                                 {t('session.question.answer')}
                             </Button>
+                            {firstQuestion[1].tool === 'request_user_input_async' ? (
+                                <Button size="sm" variant="outline" className="shrink-0" aria-label={t('session.question.dismiss')} title={t('session.question.dismiss')}
+                                    disabled={dismissingQuestion || props.disabled} onClick={() => { void dismissPendingQuestion() }}>
+                                    {dismissingQuestion ? <Spinner size="sm" label={null} /> : <CloseIcon className="h-4 w-4" />}
+                                </Button>
+                            ) : null}
                         </div>
                     </div>
                 ) : null}

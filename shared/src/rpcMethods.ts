@@ -59,6 +59,7 @@ export const RPC_METHODS = {
     ClearConversation: 'clear-conversation',
     ImplementCodexPlan: 'implement-codex-plan',
     AnswerCodexAsyncQuestion: 'answer-codex-async-question',
+    DismissCodexAsyncQuestion: 'dismiss-codex-async-question',
 } as const
 
 export const RPC_TARGET_MISSING_ERROR_CODE = 'rpc_target_missing' as const

@@ -2348,6 +2348,13 @@ export class SyncEngine {
         await this.rpcGateway.answerCodexAsyncQuestion(access.sessionId, request)
     }
 
+    async dismissCodexAsyncQuestion(sessionId: string, namespace: string, questionId: string): Promise<void> {
+        const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
+        if (!access.ok || !access.session.active || access.session.metadata?.flavor !== 'codex'
+            || !access.session.metadata.capabilities?.concurrentClients) throw new Error('An active shared Codex session is required')
+        await this.rpcGateway.dismissCodexAsyncQuestion(access.sessionId, questionId)
+    }
+
     async switchSession(sessionId: string, to: 'remote' | 'local'): Promise<void> {
         if (this.getSession(sessionId)?.metadata?.capabilities?.concurrentClients) throw new Error('control_mode_not_applicable')
         if (this.historyActionsInFlight.has(sessionId)) {
