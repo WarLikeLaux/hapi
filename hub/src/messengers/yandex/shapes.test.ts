@@ -386,3 +386,84 @@ describe('yandex reactions: emoji mapping', () => {
         expect(reactionTypeForEmoji('a')).toBeNull()
     })
 })
+
+describe('yandex shapes: reply/forward snapshot (§11.2)', () => {
+    function replyMessage(input: {
+        micros: string
+        text: string
+        forwarded: Record<string, unknown> | unknown[] | undefined
+    }): Record<string, unknown> {
+        const element = textMessage({ micros: input.micros, text: input.text })
+        if (input.forwarded !== undefined) element['ForwardedMessages'] = input.forwarded
+        return element
+    }
+
+    const forwardedText = {
+        Payload: { Text: { MessageText: 'выпил мелатонин' }, ChatId: 'origin_chat', PayloadId: 'p-1' },
+        ServerMessageInfo: {
+            Timestamp: '1750000000000000',
+            SeqNo: 9,
+            From: { Guid: PEER_GUID, DisplayName: 'Женя' }
+        }
+    }
+
+    it('maps the first ForwardedMessages item onto the reply snapshot fields', () => {
+        const shaped = normalizeMessageItem(
+            replyMessage({ micros: '1750000001000000', text: 'принял', forwarded: [forwardedText] }),
+            MY_GUID,
+            'chat-1'
+        )
+        expect(shaped!.message.replyToProviderMessageId).toBe('1750000000000000')
+        expect(shaped!.message.replyToSenderName).toBe('Женя')
+        expect(shaped!.message.replyToText).toBe('выпил мелатонин')
+    })
+
+    it('attaches the reply id without text when the original has no text body', () => {
+        const shaped = normalizeMessageItem(
+            replyMessage({
+                micros: '1750000001000000',
+                text: 'фото получил',
+                forwarded: [{
+                    Payload: { Image: { FileInfo: { Id2: 'b/u', Name: 'p.png', Size: 1, Source: 1 } } },
+                    ServerMessageInfo: { Timestamp: '1750000000000000', From: { Guid: PEER_GUID } }
+                }]
+            }),
+            MY_GUID,
+            'chat-1'
+        )
+        expect(shaped!.message.replyToProviderMessageId).toBe('1750000000000000')
+        expect(shaped!.message.replyToText).toBeUndefined()
+    })
+
+    it('accepts a numeric Timestamp on the forwarded ServerMessageInfo', () => {
+        const shaped = normalizeMessageItem(
+            replyMessage({
+                micros: '1750000001000000',
+                text: 'ок',
+                forwarded: [{
+                    ...forwardedText,
+                    ServerMessageInfo: { ...forwardedText.ServerMessageInfo, Timestamp: 1750000000000000 }
+                }]
+            }),
+            MY_GUID,
+            'chat-1'
+        )
+        expect(shaped!.message.replyToProviderMessageId).toBe('1750000000000000')
+    })
+
+    it('keeps messages without the sibling clean and warns on an unusable shape', () => {
+        const clean = normalizeMessageItem(
+            replyMessage({ micros: '1750000001000000', text: 'обычное', forwarded: undefined }),
+            MY_GUID,
+            'chat-1'
+        )
+        expect(clean!.message.replyToProviderMessageId).toBeUndefined()
+
+        const broken = normalizeMessageItem(
+            replyMessage({ micros: '1750000002000000', text: 'битый', forwarded: [{ Payload: {} }] }),
+            MY_GUID,
+            'chat-1'
+        )
+        expect(broken!.message.replyToProviderMessageId).toBeUndefined()
+    })
+})

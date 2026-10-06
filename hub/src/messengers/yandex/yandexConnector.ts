@@ -20,7 +20,7 @@ import type { DownloadedExternalMedia, MessengerConnector, MessengerConnectorEve
 import { createPayloadId, PUSH_METHOD, XivaClient } from './xivaClient'
 import { CookieRejectedError, RegistryClient, toWireTimestamp } from './registry'
 import { reactionTypeForEmoji } from './reactionMap'
-import { buildFileClientMessage, buildImageClientMessage } from './pushShape'
+import { buildFileClientMessage, buildImageClientMessage, buildReplyFields } from './pushShape'
 import {
     buildAvatarUrlFromId,
     buildHistoryParams,
@@ -141,7 +141,7 @@ export class YandexConnector implements MessengerConnector {
     private myGuid: string | null = null
     private myUid: string | null = null
     private readonly chatSnapshots = new Map<string, ChatSnapshot>()
-    private readonly messageSnapshots = new Map<string, Map<string, { attachments: AttachmentRef[]; chosen: Set<number> }>>()
+    private readonly messageSnapshots = new Map<string, Map<string, { attachments: AttachmentRef[]; chosen: Set<number>; text: string }>>()
     private refreshTimer: ReturnType<typeof setTimeout> | null = null
     private heartbeatTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -351,13 +351,20 @@ export class YandexConnector implements MessengerConnector {
 
     async sendText(remoteId: string, text: string, clientId?: string, replyToProviderMessageId?: string): Promise<void> {
         void clientId
-        // chats-web has no reverse-engineered reply mutation; the reply intent
-        // degrades to a plain message on this provider.
-        void replyToProviderMessageId
         await this.pushMutation({
             Plain: {
                 ChatId: remoteId,
                 PayloadId: createPayloadId(),
+                // chats-web models replies as forwards with a quote (§11.1): the
+                // ref addresses the original message and the style carries the
+                // quoted fragment the official client renders above the reply.
+                ...buildReplyFields(
+                    remoteId,
+                    replyToProviderMessageId,
+                    replyToProviderMessageId !== undefined
+                        ? this.messageSnapshots.get(remoteId)?.get(replyToProviderMessageId)?.text
+                        : undefined
+                ),
                 Text: { MessageText: text }
             }
         })
@@ -490,6 +497,11 @@ export class YandexConnector implements MessengerConnector {
         if (!fileId) throw new Error('add_files did not return a file id')
 
         const payloadId = input.clientId ?? createPayloadId()
+        // The media message carries the reply; a follow-up caption stays a plain
+        // message so the quote does not render twice in the official client.
+        const replyQuoteText = input.replyToProviderMessageId !== undefined
+            ? this.messageSnapshots.get(remoteId)?.get(input.replyToProviderMessageId)?.text
+            : undefined
         if (input.mimeType.startsWith('image/')) {
             /* Telemost fullscreen renders the image at the declared size; without Width/Height
              * it falls back to a black placeholder, even though the file itself is reachable
@@ -502,7 +514,9 @@ export class YandexConnector implements MessengerConnector {
                 fileName: input.fileName,
                 size: bytes.byteLength,
                 bytes,
-                mimeType: input.mimeType
+                mimeType: input.mimeType,
+                replyToProviderMessageId: input.replyToProviderMessageId,
+                replyQuoteText
             }))
         } else {
             await this.pushMutation(buildFileClientMessage({
@@ -510,7 +524,9 @@ export class YandexConnector implements MessengerConnector {
                 payloadId,
                 fileId,
                 fileName: input.fileName,
-                size: bytes.byteLength
+                size: bytes.byteLength,
+                replyToProviderMessageId: input.replyToProviderMessageId,
+                replyQuoteText
             }))
         }
         // A caption rides as its own text message: the outgoing image+caption wire form
@@ -662,7 +678,8 @@ export class YandexConnector implements MessengerConnector {
         }
         bucket.set(message.message.providerMessageId, {
             attachments: message.attachments,
-            chosen: new Set(message.chosenReactionTypes)
+            chosen: new Set(message.chosenReactionTypes),
+            text: message.message.text
         })
         // The snapshot only backs downloads and reaction diffs; keep it bounded.
         if (bucket.size > 400) {
