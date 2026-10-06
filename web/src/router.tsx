@@ -75,7 +75,7 @@ import SettingsStoragePage from '@/routes/settings/storage'
 import SettingsUsagePage from '@/routes/settings/usage'
 import SettingsLimitsPage from '@/routes/settings/limits'
 import SharePage from '@/routes/share'
-import { ChatConversationPage, ChatsIndexPage, ChatsPage } from '@/routes/chats'
+import { ChatConversationPage, ChatsIndexPage, ChatsPage, SessionChatConversationPage } from '@/routes/chats'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { retargetSharePendingTransfer, setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer, parseShareSearch } from '@/lib/shareTransfer'
@@ -1102,6 +1102,14 @@ const sessionDetailRoute = createRoute({
     component: SessionDetailRoute,
 })
 
+// Messenger chat opened inside the sessions layout: the sessions sidebar stays
+// visible on desktop and the conversation renders in the right-hand pane.
+const sessionChatRoute = createRoute({
+    getParentRoute: () => sessionsRoute,
+    path: 'chats/$conversationId',
+    component: SessionChatConversationPage,
+})
+
 const chatsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/chats',
@@ -1371,6 +1379,7 @@ export const routeTree = rootRoute.addChildren([
     sessionsRoute.addChildren([
         sessionsIndexRoute,
         newSessionRoute,
+        sessionChatRoute,
         sessionDetailRoute.addChildren([
             sessionTerminalRoute,
             sessionFilesRoute,
