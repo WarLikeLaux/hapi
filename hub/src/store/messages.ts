@@ -1243,10 +1243,12 @@ const EMPTY_SEARCH_RESULT: MessageSearchResult = { total: 0, hits: [], sessions:
 /**
  * Substring search over the `search_text` extract column (lowercased at
  * write time, so case-insensitivity works beyond ASCII too). Returns flat
- * newest-first hits plus per-session counts across every match; the LIKE scan
- * touches only the extract column, never message content blobs. Session-scoped
- * mode (`sessionId`) paginates a single chat with the keyset cursor so clients
- * can reach matches older than the first page.
+ * newest-first hits plus per-session counts across every match, groups ordered
+ * by the recency of their newest match (most recent chat first, ties by count)
+ * so fresh conversations are not buried under old high-count ones; the LIKE
+ * scan touches only the extract column, never message content blobs.
+ * Session-scoped mode (`sessionId`) paginates a single chat with the keyset
+ * cursor so clients can reach matches older than the first page.
  */
 export function searchMessages(db: Database, query: string, options: MessageSearchOptions = {}): MessageSearchResult {
     const normalized = query.trim().toLowerCase()
@@ -1268,7 +1270,7 @@ export function searchMessages(db: Database, query: string, options: MessageSear
     let sessions: MessageSearchResult['sessions'] = []
     if (options.sessionId === undefined) {
         const aggregates = prepareCached(db,
-            `SELECT session_id, COUNT(*) AS count FROM messages WHERE ${where} GROUP BY session_id ORDER BY count DESC, session_id ASC`
+            `SELECT session_id, COUNT(*) AS count, MAX(created_at) AS newestAt FROM messages WHERE ${where} GROUP BY session_id ORDER BY newestAt DESC, count DESC, session_id ASC`
         ).all(...baseParams) as Array<{ session_id: string; count: number }>
         sessions = aggregates.map((row) => ({ sessionId: row.session_id, count: row.count }))
         total = sessions.reduce((sum, session) => sum + session.count, 0)

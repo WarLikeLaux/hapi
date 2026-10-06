@@ -141,6 +141,34 @@ describe('MessageStore.searchMessages', () => {
         expect(store.messages.searchMessages('Bash').total).toBe(0)
     })
 
+    it('orders session groups by newest match, then by count', () => {
+        const store = makeStore()
+        const oldBusy = makeSession(store, 'search-old-busy')
+        const recent = makeSession(store, 'search-recent')
+        const midCount = makeSession(store, 'search-mid-count')
+        const tieMany = makeSession(store, 'search-tie-many')
+        const tieFew = makeSession(store, 'search-tie-few')
+        store.messages.addMessage(oldBusy.id, userText('свайп раз'), 'o1', null, 1000)
+        store.messages.addMessage(oldBusy.id, userText('свайп два'), 'o2', null, 2000)
+        store.messages.addMessage(oldBusy.id, userText('свайп три'), 'o3', null, 3000)
+        store.messages.addMessage(midCount.id, userText('свайп четыре'), 'm1', null, 5000)
+        store.messages.addMessage(midCount.id, userText('свайп пять'), 'm2', null, 6000)
+        store.messages.addMessage(tieMany.id, userText('свайп шесть'), 't1', null, 7000)
+        store.messages.addMessage(tieMany.id, userText('свайп семь'), 't2', null, 8000)
+        store.messages.addMessage(tieFew.id, userText('свайп восемь'), 'f1', null, 8000)
+        store.messages.addMessage(recent.id, userText('свайп девять'), 'r1', null, 9000)
+
+        const hits = store.messages.searchMessages('свайп')
+        expect(hits.total).toBe(9)
+        expect(hits.sessions).toEqual([
+            { sessionId: recent.id, count: 1 },
+            { sessionId: tieMany.id, count: 2 },
+            { sessionId: tieFew.id, count: 1 },
+            { sessionId: midCount.id, count: 2 },
+            { sessionId: oldBusy.id, count: 3 }
+        ])
+    })
+
     it('returns match offsets that resolve inside the original text', () => {
         const store = makeStore()
         const session = makeSession(store, 'search-offset')
