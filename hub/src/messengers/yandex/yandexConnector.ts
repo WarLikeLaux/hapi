@@ -349,8 +349,11 @@ export class YandexConnector implements MessengerConnector {
         if (snapshot) snapshot.unread = 0
     }
 
-    async sendText(remoteId: string, text: string, clientId?: string): Promise<void> {
+    async sendText(remoteId: string, text: string, clientId?: string, replyToProviderMessageId?: string): Promise<void> {
         void clientId
+        // chats-web has no reverse-engineered reply mutation; the reply intent
+        // degrades to a plain message on this provider.
+        void replyToProviderMessageId
         await this.pushMutation({
             Plain: {
                 ChatId: remoteId,

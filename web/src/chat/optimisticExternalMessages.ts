@@ -10,6 +10,7 @@ export function createOptimisticExternalMessage(input: {
     senderId?: string | null
     senderName?: string | null
     senderAvatarDataUrl?: string | null
+    replyToProviderMessageId?: string
 }): ExternalMessage {
     return {
         id: `${OPTIMISTIC_MESSAGE_PREFIX}${input.clientId}`,
@@ -22,7 +23,8 @@ export function createOptimisticExternalMessage(input: {
         text: input.text,
         createdAt: input.createdAt ?? Date.now(),
         editedAt: null,
-        media: []
+        media: [],
+        ...(input.replyToProviderMessageId ? { replyToProviderMessageId: input.replyToProviderMessageId } : {})
     }
 }
 

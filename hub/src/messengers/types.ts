@@ -28,6 +28,8 @@ export type SendExternalMediaInput = {
     mimeType: string
     caption: string
     clientId?: string
+    /** Send the media as a reply to this provider message id (providers that support replies). */
+    replyToProviderMessageId?: string
 }
 
 export interface MessengerConnector {
@@ -50,7 +52,13 @@ export interface MessengerConnector {
         cursor?: { seqNo: number; version: number }
     ): Promise<void>
     downloadMedia(remoteId: string, providerMessageId: string, mediaIndex: number): Promise<DownloadedExternalMedia>
-    sendText(remoteId: string, text: string, clientId?: string): Promise<void>
+    sendText(
+        remoteId: string,
+        text: string,
+        clientId?: string,
+        /** Provider message id to send this message as a reply to. */
+        replyToProviderMessageId?: string
+    ): Promise<void>
     setReactions(remoteId: string, providerMessageId: string, reactions: string[]): Promise<void>
     /**
      * Presses a bot inline-keyboard button. `kind: 'url'` buttons never reach

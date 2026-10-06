@@ -47,7 +47,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 36
+const SCHEMA_VERSION: number = 37
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -390,6 +390,7 @@ export class Store {
             33: () => this.migrateFromV33ToV34(),
             34: () => this.migrateFromV34ToV35(),
             35: () => this.migrateFromV35ToV36(),
+            36: () => this.migrateFromV36ToV37(),
         })
 
         if (currentVersion === 0) {
@@ -681,6 +682,9 @@ export class Store {
                 buttons_json TEXT NOT NULL DEFAULT '[]',
                 seq_no INTEGER,
                 version INTEGER,
+                reply_to_provider_message_id TEXT,
+                reply_to_sender_name TEXT,
+                reply_to_text TEXT,
                 PRIMARY KEY (namespace, id),
                 UNIQUE (namespace, conversation_id, provider_message_id),
                 FOREIGN KEY (namespace, conversation_id)
@@ -824,6 +828,24 @@ export class Store {
         const messageColumns = this.db.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
         if (!messageColumns.some((column) => column.name === 'buttons_json')) {
             this.db.exec("ALTER TABLE external_messages ADD COLUMN buttons_json TEXT NOT NULL DEFAULT '[]'")
+        }
+    }
+
+    /**
+     * Adds reply-quote snapshots for messenger messages (`replyToProviderMessageId`
+     * plus the cached sender name / text snippet of the replied-to message).
+     * All nullable; providers without reply support keep them NULL.
+     */
+    private migrateFromV36ToV37(): void {
+        const messageColumns = this.db.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
+        if (!messageColumns.some((column) => column.name === 'reply_to_provider_message_id')) {
+            this.db.exec('ALTER TABLE external_messages ADD COLUMN reply_to_provider_message_id TEXT')
+        }
+        if (!messageColumns.some((column) => column.name === 'reply_to_sender_name')) {
+            this.db.exec('ALTER TABLE external_messages ADD COLUMN reply_to_sender_name TEXT')
+        }
+        if (!messageColumns.some((column) => column.name === 'reply_to_text')) {
+            this.db.exec('ALTER TABLE external_messages ADD COLUMN reply_to_text TEXT')
         }
     }
 

@@ -132,7 +132,16 @@ export const ExternalMessageSchema = z.object({
      * Monotonic per-message version that bumps on edit/delete. Required alongside
      * `seqNo` for `SeenMarker` in chats-web.
      */
-    version: z.number().int().nonnegative().optional()
+    version: z.number().int().nonnegative().optional(),
+    /**
+     * Message this one replies to, as the provider's own message id. Optional:
+     * providers without reply support (or non-reply messages) omit it.
+     */
+    replyToProviderMessageId: z.string().min(1).optional(),
+    /** Snapshot of the replied-to sender's display name, when the provider resolves it. */
+    replyToSenderName: z.string().optional(),
+    /** Snapshot of the replied-to message text (or a media label like "Photo"). */
+    replyToText: z.string().optional()
 })
 export type ExternalMessage = z.infer<typeof ExternalMessageSchema>
 
@@ -176,7 +185,9 @@ export type UpdateExternalAliasRequest = z.infer<typeof UpdateExternalAliasReque
 
 export const SendExternalMessageRequestSchema = z.object({
     text: z.string().trim().min(1).max(4096),
-    clientId: z.string().min(1).max(128).optional()
+    clientId: z.string().min(1).max(128).optional(),
+    /** Provider message id to send this message as a reply to. */
+    replyToProviderMessageId: z.string().min(1).max(64).optional()
 })
 export type SendExternalMessageRequest = z.infer<typeof SendExternalMessageRequestSchema>
 

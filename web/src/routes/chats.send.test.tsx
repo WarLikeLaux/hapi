@@ -128,7 +128,7 @@ describe('messenger background sends', () => {
         fireEvent.change(screen.getByRole('textbox'), { target: { value: 'next draft' } })
         await act(async () => upload.resolve())
         await waitFor(() => expect(sendText).toHaveBeenCalledTimes(1))
-        expect(sendMedia.mock.calls[0]).toEqual([context.conversationId, file, 'caption', expect.any(String)])
+        expect(sendMedia.mock.calls[0]).toEqual([context.conversationId, file, 'caption', expect.any(String), undefined])
         expect(screen.getByRole('textbox')).toHaveValue('next draft')
     })
 })

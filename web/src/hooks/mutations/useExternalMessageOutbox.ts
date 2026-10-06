@@ -6,7 +6,11 @@ import type { ApiClient } from '@/api/client'
 import { createOptimisticExternalMessage, getOptimisticExternalSender } from '@/chat/optimisticExternalMessages'
 import { queryKeys } from '@/lib/query-keys'
 
-type SendPayload = { text: string } & (
+type SendPayload = {
+    text: string
+    /** Provider message id to send this message as a reply to. */
+    replyToProviderMessageId?: string
+} & (
     | { kind: 'text' }
     | { kind: 'media'; file: File }
     | { kind: 'gif'; gif: KlipyGif }
@@ -55,7 +59,7 @@ export function useExternalMessageOutbox(
         mutationFn: async (input: SendInput) => {
             if (!api) throw new Error('API unavailable')
             if (input.kind === 'text') {
-                await api.sendExternalMessage(input.conversationId, input.text, input.clientId)
+                await api.sendExternalMessage(input.conversationId, input.text, input.clientId, input.replyToProviderMessageId)
                 return
             }
             let file: File
@@ -69,7 +73,7 @@ export function useExternalMessageOutbox(
                 file = await api.downloadKlipyGifAsFile(downloadUrl, `klipy-${input.gif.id}.${extension}`)
             }
             if (file.size > 50 * 1024 * 1024) throw new Error('Media file must be 50 MB or smaller')
-            await api.sendExternalMedia(input.conversationId, file, input.text, input.clientId)
+            await api.sendExternalMedia(input.conversationId, file, input.text, input.clientId, input.replyToProviderMessageId)
         },
         onMutate: (input) => {
             update(input.conversationId, (entries) => {
@@ -81,6 +85,7 @@ export function useExternalMessageOutbox(
                     conversationId: input.conversationId,
                     clientId: input.clientId,
                     text: [label, input.text].filter(Boolean).join('\n'),
+                    replyToProviderMessageId: input.replyToProviderMessageId,
                     ...getOptimisticExternalSender(queryClient.getQueryData<ExternalMessagesResponse>(
                         queryKeys.externalMessages(input.conversationId),
                     )),
