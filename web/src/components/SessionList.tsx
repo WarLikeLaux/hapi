@@ -1149,7 +1149,7 @@ function FreshChatItem({ conversation }: { conversation: ExternalConversation })
     return (
         <button
             type="button"
-            onClick={() => navigate({ to: '/chats/$conversationId', params: { conversationId: conversation.id } })}
+            onClick={() => navigate({ to: '/sessions/chats/$conversationId', params: { conversationId: conversation.id } })}
             className="session-list-item group/session-row flex w-full select-none items-center gap-2.5 rounded-lg py-2 pl-2.5 pr-2 text-left transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
         >
             <span className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-semibold ${accent}`}>

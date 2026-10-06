@@ -827,8 +827,10 @@ export function ChatsIndexPage() {
     return <div className="m-auto hidden max-w-sm text-center text-sm text-[var(--app-hint)] split:block">{t('chats.pickConversation')}</div>
 }
 
-export function ChatConversationPage() {
-    const { conversationId } = useParams({ from: '/chats/$conversationId' })
+// Conversation pane shared by the full chats view and the sessions layout:
+// `backTo` decides where the mobile back arrow returns to.
+export function ChatConversationPane(props: { conversationId: string; backTo: '/chats' | '/sessions' }) {
+    const conversationId = props.conversationId
     const { api } = useAppContext()
     const { t } = useTranslation()
     const navigate = useNavigate()
@@ -1013,7 +1015,7 @@ export function ChatConversationPage() {
     return (
         <div className="flex h-full min-h-0 flex-col pt-[env(safe-area-inset-top)]">
             <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-3">
-                <button type="button" onClick={() => navigate({ to: '/chats' })} className="rounded-full p-2 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] split:hidden"><BackIcon /></button>
+                <button type="button" onClick={() => navigate({ to: props.backTo })} className="rounded-full p-2 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] split:hidden"><BackIcon /></button>
                 <ConversationAvatar conversation={conversation} />
                 <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold">{conversation.title}</div>
@@ -1441,4 +1443,16 @@ export function ChatConversationPage() {
             />
         </div>
     )
+}
+
+export function ChatConversationPage() {
+    const { conversationId } = useParams({ from: '/chats/$conversationId' })
+    return <ChatConversationPane conversationId={conversationId} backTo="/chats" />
+}
+
+// Same conversation, but hosted by the sessions layout: the agent-session
+// sidebar stays put and the chat opens in the right-hand pane.
+export function SessionChatConversationPage() {
+    const { conversationId } = useParams({ from: '/sessions/chats/$conversationId' })
+    return <ChatConversationPane conversationId={conversationId} backTo="/sessions" />
 }
