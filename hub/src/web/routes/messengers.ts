@@ -1,6 +1,7 @@
 import {
     ConfigureTelegramRequestSchema,
     ConfigureYandexRequestSchema,
+    PressExternalMessageButtonRequestSchema,
     SelectMessengerConversationsRequestSchema,
     SendExternalMessageRequestSchema,
     SetExternalReactionsRequestSchema,
@@ -209,6 +210,23 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
                 parsed.data.reactions
             )
             return c.json({ ok: true })
+        } catch (error) {
+            const message = errorMessage(error)
+            return c.json({ error: message }, message.includes('not found') ? 404 : 502)
+        }
+    })
+
+    app.post('/conversations/:id/messages/:messageId/buttons', async (c) => {
+        const parsed = PressExternalMessageButtonRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid button press' }, 400)
+        try {
+            const result = await manager.pressMessageButton(
+                c.get('namespace'),
+                c.req.param('id'),
+                c.req.param('messageId'),
+                parsed.data.buttonId
+            )
+            return c.json(result)
         } catch (error) {
             const message = errorMessage(error)
             return c.json({ error: message }, message.includes('not found') ? 404 : 502)

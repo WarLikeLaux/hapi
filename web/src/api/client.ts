@@ -82,6 +82,7 @@ import type {
     ExternalParticipant,
     MessengerConnection,
     MessengerConnectionsResponse,
+    PressExternalMessageButtonResponse,
     SelectMessengerConversationsRequest,
     SubmitMessengerAuthRequest
 } from '@hapi/protocol/messengers'
@@ -431,6 +432,17 @@ export class ApiClient {
         await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(providerMessageId)}/reactions`, {
             method: 'PUT',
             body: JSON.stringify({ reactions })
+        })
+    }
+
+    async pressExternalMessageButton(
+        conversationId: string,
+        providerMessageId: string,
+        buttonId: string
+    ): Promise<PressExternalMessageButtonResponse> {
+        return await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(providerMessageId)}/buttons`, {
+            method: 'POST',
+            body: JSON.stringify({ buttonId })
         })
     }
 

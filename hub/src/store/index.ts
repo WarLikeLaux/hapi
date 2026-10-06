@@ -47,7 +47,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 35
+const SCHEMA_VERSION: number = 36
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -389,6 +389,7 @@ export class Store {
             32: () => this.migrateFromV32ToV33(),
             33: () => this.migrateFromV33ToV34(),
             34: () => this.migrateFromV34ToV35(),
+            35: () => this.migrateFromV35ToV36(),
         })
 
         if (currentVersion === 0) {
@@ -677,6 +678,7 @@ export class Store {
                 edited_at INTEGER,
                 delivery_status TEXT CHECK (delivery_status IN ('sent', 'read')),
                 reactions_json TEXT NOT NULL DEFAULT '[]',
+                buttons_json TEXT NOT NULL DEFAULT '[]',
                 seq_no INTEGER,
                 version INTEGER,
                 PRIMARY KEY (namespace, id),
@@ -810,6 +812,18 @@ export class Store {
         }
         if (!messageColumns.some((column) => column.name === 'version')) {
             this.db.exec('ALTER TABLE external_messages ADD COLUMN version INTEGER')
+        }
+    }
+
+    /**
+     * Adds per-message bot inline-keyboard buttons as a JSON document. Rows
+     * keep the provider's own layout; empty for messages without a keyboard,
+     * so existing providers and rows are unaffected.
+     */
+    private migrateFromV35ToV36(): void {
+        const messageColumns = this.db.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
+        if (!messageColumns.some((column) => column.name === 'buttons_json')) {
+            this.db.exec("ALTER TABLE external_messages ADD COLUMN buttons_json TEXT NOT NULL DEFAULT '[]'")
         }
     }
 

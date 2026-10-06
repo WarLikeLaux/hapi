@@ -136,6 +136,15 @@ type downloadedMedia struct {
 
 const maxMediaCacheBytes int64 = 1024 * 1024 * 1024
 
+type externalButton struct {
+	// ID is positional ("row:col") and resolved against the message's current
+	// markup at press time, so the callback data never leaves the connector.
+	ID   string  `json:"id"`
+	Text string  `json:"text"`
+	Kind string  `json:"kind"`
+	URL  *string `json:"url,omitempty"`
+}
+
 type externalMessage struct {
 	ID                  string             `json:"id"`
 	ConversationID      string             `json:"conversationId"`
@@ -150,6 +159,7 @@ type externalMessage struct {
 	DeliveryStatus      *string            `json:"deliveryStatus,omitempty"`
 	Media               []externalMedia    `json:"media"`
 	Reactions           []externalReaction `json:"reactions"`
+	Buttons             [][]externalButton `json:"buttons,omitempty"`
 }
 
 type senderAvatarCandidate struct {
@@ -569,6 +579,8 @@ func (s *service) configure(apiID int, apiHash, sessionPath string) error {
 	dispatcher := tg.NewUpdateDispatcher()
 	dispatcher.OnNewMessage(s.handleNewMessage)
 	dispatcher.OnNewChannelMessage(s.handleNewChannelMessage)
+	dispatcher.OnEditMessage(s.handleEditMessage)
+	dispatcher.OnEditChannelMessage(s.handleEditChannelMessage)
 	dispatcher.OnDeleteMessages(s.handleDeleteMessages)
 	dispatcher.OnDeleteChannelMessages(s.handleDeleteChannelMessages)
 	dispatcher.OnReadHistoryInbox(s.handleReadHistoryInbox)
@@ -890,6 +902,78 @@ func reactionFromKey(key string) (tg.ReactionClass, error) {
 	return nil, errors.New("unsupported reaction")
 }
 
+// The web client puts url-button targets straight into an <a href>, so only
+// schemes that are safe to open remotely pass through.
+func safeButtonURL(raw string) bool {
+	if len(raw) > 2048 {
+		return false
+	}
+	lower := strings.ToLower(raw)
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "tg://")
+}
+
+func buttonsFromTelegram(markup tg.ReplyMarkupClass) [][]externalButton {
+	inline, ok := markup.(*tg.ReplyInlineMarkup)
+	if !ok {
+		return nil
+	}
+	// Button ids carry the RAW row/column coordinates: the press path resolves
+	// them against the bot's current markup, so skipping an unsupported button
+	// must not shift the numbering of the ones around it.
+	rows := make([][]externalButton, 0, len(inline.Rows))
+	for rowIdx, row := range inline.Rows {
+		buttons := make([]externalButton, 0, len(row.Buttons))
+		for colIdx, button := range row.Buttons {
+			switch value := button.(type) {
+			case *tg.KeyboardButtonURL:
+				if !safeButtonURL(value.URL) {
+					continue
+				}
+				buttons = append(buttons, externalButton{
+					ID:   fmt.Sprintf("%d:%d", rowIdx, colIdx),
+					Text: value.Text,
+					Kind: "url",
+					URL:  &value.URL,
+				})
+			case *tg.KeyboardButtonCallback:
+				buttons = append(buttons, externalButton{
+					ID:   fmt.Sprintf("%d:%d", rowIdx, colIdx),
+					Text: value.Text,
+					Kind: "callback",
+				})
+			}
+		}
+		if len(buttons) > 0 {
+			rows = append(rows, buttons)
+		}
+	}
+	return rows
+}
+
+func buttonByID(markup tg.ReplyMarkupClass, buttonID string) (*tg.KeyboardButtonCallback, error) {
+	inline, ok := markup.(*tg.ReplyInlineMarkup)
+	if !ok {
+		return nil, errors.New("this message has no inline buttons")
+	}
+	rowText, colText, ok := strings.Cut(buttonID, ":")
+	if !ok {
+		return nil, fmt.Errorf("invalid button id %q", buttonID)
+	}
+	row, err := strconv.Atoi(rowText)
+	if err != nil || row < 0 || row >= len(inline.Rows) {
+		return nil, fmt.Errorf("invalid button row in %q", buttonID)
+	}
+	col, err := strconv.Atoi(colText)
+	if err != nil || col < 0 || col >= len(inline.Rows[row].Buttons) {
+		return nil, fmt.Errorf("invalid button column in %q", buttonID)
+	}
+	button, ok := inline.Rows[row].Buttons[col].(*tg.KeyboardButtonCallback)
+	if !ok {
+		return nil, errors.New("this button cannot be pressed remotely")
+	}
+	return button, nil
+}
+
 func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *tg.User, senderAvatar *string, readOutboxMax int) (externalMessage, bool) {
 	remoteID, ok := remoteIDFromPeer(msg.PeerID)
 	if !ok {
@@ -910,6 +994,11 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 	if value, ok := msg.GetReactions(); ok {
 		reactions = reactionsFromTelegram(value)
 	}
+	var editedAt *int64
+	if editDate, ok := msg.GetEditDate(); ok && editDate > 0 {
+		value := int64(editDate) * 1000
+		editedAt = &value
+	}
 	return externalMessage{
 		ID:                  conversationID(remoteID) + ":" + providerMessageID,
 		ConversationID:      conversationID(remoteID),
@@ -920,9 +1009,11 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 		Direction:           direction,
 		Text:                text,
 		CreatedAt:           int64(msg.Date) * 1000,
+		EditedAt:            editedAt,
 		DeliveryStatus:      deliveryStatusForMessage(msg, readOutboxMax),
 		Media:               media,
 		Reactions:           reactions,
+		Buttons:             buttonsFromTelegram(msg.ReplyMarkup),
 	}, true
 }
 
@@ -1008,15 +1099,34 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 }
 
 func messageByID(ctx context.Context, raw *tg.Client, peer tg.InputPeerClass, messageID int) (*tg.Message, error) {
-	result, err := raw.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{Peer: peer, OffsetID: messageID + 1, Limit: 1})
-	if err != nil {
-		return nil, err
+	// Channel peers (broadcast channels and megagroups) reject
+	// messages.getHistory; only channels.getMessages serves messages by id there.
+	var messages []tg.MessageClass
+	if channel, ok := messagepeer.ToInputChannel(peer); ok {
+		result, err := raw.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
+			Channel: channel,
+			ID:      []tg.InputMessageClass{&tg.InputMessageID{ID: messageID}},
+		})
+		if err != nil {
+			return nil, err
+		}
+		modified, ok := result.AsModified()
+		if !ok {
+			return nil, errors.New("Telegram returned no message data")
+		}
+		messages = modified.GetMessages()
+	} else {
+		result, err := raw.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{Peer: peer, OffsetID: messageID + 1, Limit: 1})
+		if err != nil {
+			return nil, err
+		}
+		modified, ok := result.AsModified()
+		if !ok {
+			return nil, errors.New("Telegram returned no message data")
+		}
+		messages = modified.GetMessages()
 	}
-	modified, ok := result.AsModified()
-	if !ok {
-		return nil, errors.New("Telegram returned no message data")
-	}
-	for _, item := range modified.GetMessages() {
+	for _, item := range messages {
 		if msg, ok := item.(*tg.Message); ok && msg.ID == messageID {
 			return msg, nil
 		}
@@ -1411,6 +1521,26 @@ func (s *service) handleNewChannelMessage(ctx context.Context, entities tg.Entit
 	return nil
 }
 
+// Bots deliver follow-up state by editing their message (new text and a new
+// inline keyboard), so edits must flow through as regular message upserts.
+func (s *service) handleEditMessage(ctx context.Context, entities tg.Entities, update *tg.UpdateEditMessage) error {
+	msg, ok := update.Message.(*tg.Message)
+	if !ok {
+		return nil
+	}
+	s.emitNewMessage(ctx, messagepeer.EntitiesFromUpdate(entities), msg)
+	return nil
+}
+
+func (s *service) handleEditChannelMessage(ctx context.Context, entities tg.Entities, update *tg.UpdateEditChannelMessage) error {
+	msg, ok := update.Message.(*tg.Message)
+	if !ok {
+		return nil
+	}
+	s.emitNewMessage(ctx, messagepeer.EntitiesFromUpdate(entities), msg)
+	return nil
+}
+
 func providerMessageIDs(ids []int) []string {
 	result := make([]string, 0, len(ids))
 	for _, id := range ids {
@@ -1524,6 +1654,40 @@ func (s *service) setReactions(ctx context.Context, remoteID, providerMessageID 
 	return err
 }
 
+func (s *service) pressButton(ctx context.Context, remoteID, providerMessageID, buttonID string) (*string, error) {
+	messageID, err := strconv.Atoi(providerMessageID)
+	if err != nil || messageID <= 0 {
+		return nil, errors.New("invalid Telegram message ID")
+	}
+	raw, err := s.ready()
+	if err != nil {
+		return nil, err
+	}
+	peer, err := s.ensurePeer(ctx, remoteID)
+	if err != nil {
+		return nil, err
+	}
+	// Re-fetch the message so the callback data matches the markup the bot has
+	// right now — pressing stale data after an edit fails with BUTTON_DATA_INVALID.
+	msg, err := messageByID(ctx, raw, peer, messageID)
+	if err != nil {
+		return nil, err
+	}
+	button, err := buttonByID(msg.ReplyMarkup, buttonID)
+	if err != nil {
+		return nil, err
+	}
+	answer, err := raw.MessagesGetBotCallbackAnswer(ctx, &tg.MessagesGetBotCallbackAnswerRequest{
+		Peer:  peer,
+		MsgID: messageID,
+		Data:  button.Data,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return nullableString(answer.Message), nil
+}
+
 func (s *service) handle(req rpcRequest) (any, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -1598,6 +1762,20 @@ func (s *service) handle(req rpcRequest) (any, error) {
 			return nil, errors.New("too many reactions")
 		}
 		return map[string]bool{"ok": true}, s.setReactions(ctx, params.RemoteID, params.ProviderMessageID, params.Reactions)
+	case "messages.button.press":
+		var params struct {
+			RemoteID          string `json:"remoteId"`
+			ProviderMessageID string `json:"providerMessageId"`
+			ButtonID          string `json:"buttonId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, err
+		}
+		alert, err := s.pressButton(ctx, params.RemoteID, params.ProviderMessageID, params.ButtonID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true, "message": alert}, nil
 	case "media.download":
 		var params struct {
 			RemoteID          string `json:"remoteId"`
