@@ -18,7 +18,7 @@ import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { CopyIcon, CheckIcon, MarkAllReadIcon } from '@/components/icons'
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import type { ExternalConversation } from '@hapi/protocol/messengers'
 import { queryKeys } from '@/lib/query-keys'
@@ -1144,6 +1144,8 @@ const freshChatProviderAccents: Record<string, string> = {
 function FreshChatItem({ conversation }: { conversation: ExternalConversation }) {
     const { t } = useTranslation()
     const navigate = useNavigate()
+    const params = useParams({ strict: false })
+    const selected = params.conversationId === conversation.id
     const accent = freshChatProviderAccents[conversation.provider] ?? 'bg-[var(--app-secondary-bg)] text-[var(--app-hint)]'
     const title = conversation.customTitle?.trim() || conversation.sourceTitle?.trim() || conversation.title
     const unread = conversation.unreadCount > 0
@@ -1151,7 +1153,8 @@ function FreshChatItem({ conversation }: { conversation: ExternalConversation })
         <button
             type="button"
             onClick={() => navigate({ to: '/sessions/chats/$conversationId', params: { conversationId: conversation.id } })}
-            className="session-list-item group/session-row flex w-full select-none items-center gap-2.5 rounded-lg py-2 pl-2.5 pr-2 text-left transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+            aria-current={selected ? 'page' : undefined}
+            className={`session-list-item group/session-row flex w-full select-none items-center gap-2.5 rounded-lg py-2 pl-2.5 pr-2 text-left transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
         >
             <span className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-semibold ${accent}`}>
                 {conversation.avatarDataUrl
