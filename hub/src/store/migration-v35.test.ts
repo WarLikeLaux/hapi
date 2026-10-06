@@ -26,7 +26,7 @@ describe('schema migration v34 to v35', () => {
             const version = internalDb.prepare('PRAGMA user_version').get() as { user_version: number }
             const messages = internalDb.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
 
-            expect(version.user_version).toBe(36)
+            expect(version.user_version).toBe(37)
             expect(messages.some((column) => column.name === 'seq_no')).toBe(true)
             expect(messages.some((column) => column.name === 'version')).toBe(true)
         } finally {
