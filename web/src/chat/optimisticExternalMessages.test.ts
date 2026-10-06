@@ -21,6 +21,17 @@ describe('optimistic external messages', () => {
         expect(isOptimisticExternalMessage(message)).toBe(true)
     })
 
+    it('carries the reply target on the optimistic message', () => {
+        const message = createOptimisticExternalMessage({
+            conversationId: 'telegram:user:1',
+            clientId: 'client-3',
+            text: 'Answer',
+            replyToProviderMessageId: '7'
+        })
+
+        expect(message.replyToProviderMessageId).toBe('7')
+    })
+
     it('reuses the known current-user identity for a new optimistic message', () => {
         const current = {
             messages: [{

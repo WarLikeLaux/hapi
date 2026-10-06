@@ -43,6 +43,9 @@ type MessageRow = {
      * read-receipt acceptance.
      */
     version: number | null
+    reply_to_provider_message_id: string | null
+    reply_to_sender_name: string | null
+    reply_to_text: string | null
 }
 
 function toConversation(row: ConversationRow): ExternalConversation {
@@ -82,7 +85,13 @@ function toMessage(row: MessageRow): ExternalMessage {
         // them when the row actually carries values, so providers that don't
         // surface them stay schema-clean.
         ...(row.seq_no !== null ? { seqNo: row.seq_no } : {}),
-        ...(row.version !== null ? { version: row.version } : {})
+        ...(row.version !== null ? { version: row.version } : {}),
+        // Reply-quote snapshots; only attached when the connector resolved them.
+        ...(row.reply_to_provider_message_id !== null
+            ? { replyToProviderMessageId: row.reply_to_provider_message_id }
+            : {}),
+        ...(row.reply_to_sender_name !== null ? { replyToSenderName: row.reply_to_sender_name } : {}),
+        ...(row.reply_to_text !== null ? { replyToText: row.reply_to_text } : {})
     }
     return message
 }
@@ -112,7 +121,8 @@ export class MessengerStore {
     private refreshConversationPreview(namespace: string, conversationId: string): void {
         const row = this.db.prepare(`
             SELECT id, conversation_id, provider_message_id, sender_id, sender_name,
-                   direction, text, media_json, reactions_json, created_at, edited_at, delivery_status
+                   direction, text, media_json, reactions_json, created_at, edited_at, delivery_status,
+                   seq_no, version, reply_to_provider_message_id, reply_to_sender_name, reply_to_text
             FROM external_messages
             WHERE namespace = ? AND conversation_id = ?
             ORDER BY created_at DESC,
@@ -297,8 +307,9 @@ export class MessengerStore {
                 INSERT INTO external_messages (
                     id, namespace, conversation_id, provider_message_id,
                     sender_id, sender_name, direction, text, media_json, created_at, edited_at,
-                    delivery_status, reactions_json, seq_no, version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    delivery_status, reactions_json, seq_no, version,
+                    reply_to_provider_message_id, reply_to_sender_name, reply_to_text
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(namespace, conversation_id, provider_message_id) DO UPDATE SET
                     sender_id = excluded.sender_id,
                     sender_name = excluded.sender_name,
@@ -310,7 +321,10 @@ export class MessengerStore {
                     delivery_status = excluded.delivery_status,
                     reactions_json = excluded.reactions_json,
                     seq_no = excluded.seq_no,
-                    version = excluded.version
+                    version = excluded.version,
+                    reply_to_provider_message_id = excluded.reply_to_provider_message_id,
+                    reply_to_sender_name = excluded.reply_to_sender_name,
+                    reply_to_text = excluded.reply_to_text
             `).run(
                 message.id,
                 namespace,
@@ -326,7 +340,10 @@ export class MessengerStore {
                 message.deliveryStatus ?? null,
                 JSON.stringify(message.reactions ?? []),
                 message.seqNo ?? null,
-                message.version ?? null
+                message.version ?? null,
+                message.replyToProviderMessageId ?? null,
+                message.replyToSenderName ?? null,
+                message.replyToText ?? null
             )
             this.db.prepare(`
                 UPDATE external_conversations
@@ -431,7 +448,9 @@ export class MessengerStore {
                    COALESCE(participants.custom_name, messages.sender_name) AS sender_name,
                    messages.direction, messages.text, messages.media_json, messages.created_at,
                    messages.edited_at, messages.delivery_status, messages.reactions_json,
-                   messages.seq_no, messages.version
+                   messages.seq_no, messages.version,
+                   messages.reply_to_provider_message_id, messages.reply_to_sender_name,
+                   messages.reply_to_text
             FROM external_messages AS messages
             JOIN external_conversations AS conversations
               ON conversations.namespace = messages.namespace

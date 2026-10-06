@@ -404,4 +404,56 @@ describe('MessengerManager', () => {
             rmSync(dataDir, { recursive: true, force: true })
         }
     })
+
+    it('passes reply targets to the connector and rejects unknown ones', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-reply-to-'))
+        const store = new Store(':memory:')
+        const conversation: ExternalConversation = {
+            id: 'test:user:1', provider: 'test', remoteId: 'user:1', title: 'Friend', kind: 'direct',
+            selected: false, lastMessageAt: 1, lastMessagePreview: 'Original', unreadCount: 0, avatarDataUrl: null
+        }
+        const original: ExternalMessage = {
+            id: 'test:user:1:7', conversationId: conversation.id, providerMessageId: '7',
+            senderId: 'user:1', senderName: 'Friend', direction: 'incoming', text: 'Original',
+            createdAt: 1, editedAt: null
+        }
+        const sentTexts: Array<{ remoteId: string; text: string; clientId?: string; replyToProviderMessageId?: string }> = []
+        const connector: MessengerConnector = {
+            provider: 'test',
+            getConnection: (): MessengerConnection => ({ provider: 'test', state: 'ready', accountLabel: null, detail: null }),
+            configure: async () => {}, submitAuth: async () => {},
+            listConversations: async () => [conversation],
+            loadMessages: async () => [original],
+            downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
+            sendText: async (remoteId, text, clientId, replyToProviderMessageId) => {
+                sentTexts.push({ remoteId, text, clientId, replyToProviderMessageId })
+            },
+            setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
+        }
+        const manager = new MessengerManager({
+            dataDir,
+            store,
+            sseManager: { broadcast: () => {} } as unknown as SSEManager
+        })
+        manager.registerConnectorFactory('test', () => connector)
+
+        try {
+            await manager.selectConversations('default', 'test', ['user:1'])
+            // Seed the store directly: listMessages only kicks a background
+            // refresh, so the reply target may not be persisted yet otherwise.
+            store.messengers.upsertMessage('default', original)
+            await manager.sendText('default', conversation.id, 'Ответ', undefined, '7')
+            expect(sentTexts).toEqual([
+                expect.objectContaining({ text: 'Ответ', replyToProviderMessageId: '7' })
+            ])
+
+            await expect(manager.sendText('default', conversation.id, 'Ответ', undefined, '999'))
+                .rejects.toThrow('Message not found')
+            expect(sentTexts).toHaveLength(1)
+        } finally {
+            await manager.stop()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
 })

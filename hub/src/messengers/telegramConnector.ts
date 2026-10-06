@@ -100,8 +100,8 @@ export class TelegramConnector implements MessengerConnector {
         return { ...result, path: mediaPath }
     }
 
-    async sendText(remoteId: string, text: string, clientId?: string): Promise<void> {
-        await this.request('messages.send', { remoteId, text, clientId })
+    async sendText(remoteId: string, text: string, clientId?: string, replyToProviderMessageId?: string): Promise<void> {
+        await this.request('messages.send', { remoteId, text, clientId, replyToProviderMessageId })
     }
 
     async setReactions(remoteId: string, providerMessageId: string, reactions: string[]): Promise<void> {

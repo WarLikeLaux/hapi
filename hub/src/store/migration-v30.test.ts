@@ -24,7 +24,7 @@ describe('schema migration v29 to v30', () => {
                 SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'external_participants'
             `).get() as { name: string } | undefined
 
-            expect(version.user_version).toBe(35)
+            expect(version.user_version).toBe(36)
             expect(table?.name).toBe('external_participants')
         } finally {
             store?.close()

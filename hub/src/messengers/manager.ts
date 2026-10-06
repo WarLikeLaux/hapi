@@ -391,12 +391,21 @@ export class MessengerManager {
         return cached
     }
 
-    async sendText(namespace: string, conversationId: string, text: string, clientId?: string): Promise<void> {
+    async sendText(
+        namespace: string,
+        conversationId: string,
+        text: string,
+        clientId?: string,
+        replyToProviderMessageId?: string
+    ): Promise<void> {
         const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
+        if (replyToProviderMessageId && !this.options.store.messengers.hasMessage(namespace, conversationId, replyToProviderMessageId)) {
+            throw new Error('Message not found')
+        }
         const connector = await this.requireConnector(namespace, conversation.provider)
         await this.waitForMediaPrefetchBackoff(namespace, conversation.provider)
-        await connector.sendText(conversation.remoteId, text, clientId)
+        await connector.sendText(conversation.remoteId, text, clientId, replyToProviderMessageId)
         await this.refreshMessages(namespace, conversation, 100, true)
     }
 
@@ -438,9 +447,13 @@ export class MessengerManager {
         mimeType: string
         caption: string
         clientId?: string
+        replyToProviderMessageId?: string
     }): Promise<void> {
         const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
+        if (input.replyToProviderMessageId && !this.options.store.messengers.hasMessage(namespace, conversationId, input.replyToProviderMessageId)) {
+            throw new Error('Message not found')
+        }
         const connector = await this.requireConnector(namespace, conversation.provider)
         const uploadDir = join(this.namespaceDir(namespace, conversation.provider), 'uploads')
         await mkdir(uploadDir, { recursive: true, mode: 0o700 })
@@ -454,7 +467,8 @@ export class MessengerManager {
                 fileName: input.fileName,
                 mimeType: input.mimeType,
                 caption: input.caption,
-                clientId: input.clientId
+                clientId: input.clientId,
+                replyToProviderMessageId: input.replyToProviderMessageId
             })
         } finally {
             await unlink(path).catch(() => {})

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate, useParams } from '@tanstack/react-router'
-import type { ExternalConversation, ExternalMedia, ExternalMessagesResponse, ExternalParticipant, ExternalReaction, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
+import type { ExternalConversation, ExternalMedia, ExternalMessage, ExternalMessagesResponse, ExternalParticipant, ExternalReaction, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
 import { ExternalMessageText } from '@/components/ExternalMessageText'
 import { ExternalDeliveryStatus } from '@/components/ExternalDeliveryStatus'
 import { ImagePreview } from '@/components/ImagePreview'
@@ -87,6 +87,10 @@ function AttachmentIcon() {
 
 function GifIcon() {
     return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" /><text x="12" y="15" fontFamily="ui-sans-serif, system-ui, sans-serif" fontSize="7" fontWeight="700" fill="currentColor" stroke="none" textAnchor="middle">GIF</text></svg>
+}
+
+function ReplyIcon() {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v4" /></svg>
 }
 
 function ReactionMoreIcon({ expanded }: { expanded: boolean }) {
@@ -839,6 +843,8 @@ export function ChatConversationPage() {
     const { pendingMedia, previewUrl, clearPendingMedia, handlePaste: handlePendingPaste } = useChatsPendingMedia()
     const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
     const [reactionPickerExpanded, setReactionPickerExpanded] = useState(false)
+    const [replyTo, setReplyTo] = useState<ExternalMessage | null>(null)
+    const [highlightedReplyId, setHighlightedReplyId] = useState<string | null>(null)
     const [reactionUsage, setReactionUsage] = useState<Record<string, number>>(loadReactionUsage)
     const viewportRef = useRef<HTMLDivElement>(null)
     const messageContentRef = useRef<HTMLDivElement>(null)
@@ -886,9 +892,10 @@ export function ChatConversationPage() {
     }, [])
     const outbox = useExternalMessageOutbox(api, conversationId, messages)
     const submitMessage = (payload: Parameters<typeof outbox.send>[0]) => {
-        if (!outbox.send(payload)) return
+        if (!outbox.send({ ...payload, replyToProviderMessageId: replyTo?.providerMessageId })) return
         stickToBottomRef.current = true
         setText('')
+        setReplyTo(null)
         if (payload.kind === 'media') {
             clearPendingMedia()
             if (fileInputRef.current) fileInputRef.current.value = ''
@@ -925,6 +932,8 @@ export function ChatConversationPage() {
         stickToBottomRef.current = true
         setReactionPickerFor(null)
         setReactionPickerExpanded(false)
+        setReplyTo(null)
+        setHighlightedReplyId(null)
         const viewport = viewportRef.current
         if (!viewport) return
         const frame = requestAnimationFrame(() => {
@@ -979,6 +988,17 @@ export function ChatConversationPage() {
     }
     const messageItems = [...(messages.data?.messages ?? []), ...outbox.entries.map((entry) => entry.message)]
     const outboxById = new Map(outbox.entries.map((entry) => [entry.message.id, entry]))
+    const messagesByProviderId = new Map(messageItems.map((message) => [message.providerMessageId, message]))
+    const scrollToMessage = (providerMessageId: string) => {
+        const viewport = viewportRef.current
+        const node = viewport?.querySelector<HTMLElement>(`[data-provider-message-id="${CSS.escape(providerMessageId)}"]`)
+        if (!node) return
+        node.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        setHighlightedReplyId(providerMessageId)
+        window.setTimeout(() => {
+            setHighlightedReplyId((current) => current === providerMessageId ? null : current)
+        }, 1600)
+    }
 
     return (
         <div className="flex h-full min-h-0 flex-col pt-[env(safe-area-inset-top)]">
@@ -1020,6 +1040,36 @@ export function ChatConversationPage() {
                         const bubbleClassName = incoming
                             ? cn('happy-chat-text w-fit max-w-full rounded-2xl bg-[var(--app-secondary-bg)] px-4 py-2.5 text-[var(--app-fg)]', groupedCornerClassName)
                             : cn(getUserBubbleClassName(), 'max-w-full', groupedCornerClassName)
+                        const replyTarget = item.replyToProviderMessageId
+                            ? messagesByProviderId.get(item.replyToProviderMessageId)
+                            : undefined
+                        const quoteHeader = (() => {
+                            if (!item.replyToProviderMessageId) return null
+                            const name = replyTarget
+                                ? (replyTarget.direction === 'outgoing' ? t('chats.reply.you') : replyTarget.senderName || null)
+                                : item.replyToSenderName ?? null
+                            const quote = replyTarget
+                                ? (replyTarget.text.trim() || (replyTarget.media?.[0] ? mediaLabels[replyTarget.media[0].kind] : ''))
+                                : item.replyToText ?? null
+                            return (
+                                <button
+                                    type="button"
+                                    onClick={(event) => {
+                                        event.stopPropagation()
+                                        scrollToMessage(item.replyToProviderMessageId!)
+                                    }}
+                                    title={t('chats.reply.action')}
+                                    className="mb-1 flex max-w-full flex-col overflow-hidden rounded-lg bg-black/10 px-2 py-1 text-left dark:bg-white/15"
+                                >
+                                    <span className="truncate text-xs font-semibold text-[#168AC4] dark:text-[#2AABEE]">
+                                        {name ?? t('chats.reply.unavailable')}
+                                    </span>
+                                    <span className="truncate text-xs text-[var(--app-hint)]">
+                                        {quote || t('chats.reply.unavailable')}
+                                    </span>
+                                </button>
+                            )
+                        })()
                         const caption = item.text ? (
                             <div className="flex items-end gap-2">
                                 <div className="min-w-0 flex-1">
@@ -1048,7 +1098,16 @@ export function ChatConversationPage() {
                             </div>
                         ) : null
                         return (
-                            <div key={item.id} className={cn('flex w-full items-end gap-2', continuesPrevious && '-mt-1.5', incoming ? 'justify-start' : 'justify-end')}>
+                            <div
+                                key={item.id}
+                                data-provider-message-id={item.providerMessageId}
+                                className={cn(
+                                    'flex w-full items-end gap-2 rounded-2xl transition-colors',
+                                    continuesPrevious && '-mt-1.5',
+                                    incoming ? 'justify-start' : 'justify-end',
+                                    highlightedReplyId === item.providerMessageId && 'bg-[#2AABEE]/10'
+                                )}
+                            >
                                 {incoming ? (
                                     continuesNext
                                         ? <div aria-hidden="true" className="h-8 w-8 shrink-0" />
@@ -1071,10 +1130,11 @@ export function ChatConversationPage() {
                                             <div className="flex max-w-full flex-col gap-1.5">
                                                 {item.media!.map((media, mediaIndex) => <MediaAttachment key={`${item.id}:${mediaIndex}`} media={media} galleryId={`external-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={mediaIndex} />)}
                                             </div>
-                                            <div className="px-3 pb-1.5 pt-2">{caption}</div>
+                                            <div className="px-3 pb-1.5 pt-2">{quoteHeader}{caption}</div>
                                         </div>
                                     ) : (
                                         <>
+                                            {hasMedia && quoteHeader ? <div className="mb-1 flex max-w-full flex-col">{quoteHeader}</div> : null}
                                             {hasMedia ? <div className="mb-1 flex max-w-full flex-col gap-1.5">{item.media!.map((media, mediaIndex) => {
                                                 const overlaysTimestamp = mediaIndex === item.media!.length - 1
                                                     && ['image', 'sticker', 'video'].includes(media.kind)
@@ -1093,7 +1153,7 @@ export function ChatConversationPage() {
                                                     ) : undefined}
                                                 />
                                             })}</div> : null}
-                                            {caption ? <div className={bubbleClassName}>{caption}</div> : null}
+                                            {caption ? <div className={bubbleClassName}>{quoteHeader}{caption}</div> : null}
                                         </>
                                     )}
                                     {!item.text && !item.media?.some((media) => ['image', 'sticker', 'video'].includes(media.kind)) ? (
@@ -1146,6 +1206,21 @@ export function ChatConversationPage() {
                                                 incoming ? 'left-0' : 'right-0'
                                             )}
                                         >
+                                            <button
+                                                type="button"
+                                                role="menuitem"
+                                                aria-label={t('chats.reply.action')}
+                                                title={t('chats.reply.action')}
+                                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-secondary-bg)] text-[var(--app-hint)] hover:text-[var(--app-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2AABEE]"
+                                                onClick={() => {
+                                                    setReactionPickerFor(null)
+                                                    setReactionPickerExpanded(false)
+                                                    setReplyTo(item)
+                                                    composerRef.current?.focus({ preventScroll: true })
+                                                }}
+                                            >
+                                                <ReplyIcon />
+                                            </button>
                                             {(reactionPickerExpanded ? allReactions : frequentReactions).map((emoji) => {
                                                 const reaction = `emoji:${emoji}`
                                                 const alreadyChosen = reactions.some((current) => current.reaction === reaction && current.chosen)
@@ -1207,6 +1282,27 @@ export function ChatConversationPage() {
                     submitMessage({ kind: 'text', text: text.trim() })
                 }
             }}>
+                {replyTo ? (
+                    <div
+                        className="mx-auto mb-1 flex max-w-content items-center gap-2 rounded-xl border-l-4 border-[#2AABEE] bg-[var(--app-secondary-bg)] py-1.5 pl-2 pr-1"
+                        data-testid="chats-reply-bar"
+                    >
+                        <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs font-semibold text-[#168AC4] dark:text-[#2AABEE]">
+                                {replyTo.direction === 'outgoing' ? t('chats.reply.you') : replyTo.senderName || conversation.title}
+                            </div>
+                            <div className="truncate text-xs text-[var(--app-hint)]">
+                                {replyTo.text.trim() || (replyTo.media?.[0] ? mediaLabels[replyTo.media[0].kind] : '') || t('chats.reply.unavailable')}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setReplyTo(null)}
+                            aria-label={t('chats.reply.cancel')}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)]"
+                        >×</button>
+                    </div>
+                ) : null}
                 {pendingMedia ? (
                     <div className="mx-auto mb-1 flex max-w-content items-center gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] p-1.5 pl-2" data-testid="chats-pending-media">
                         {previewUrl ? (
@@ -1251,9 +1347,16 @@ export function ChatConversationPage() {
                             handlePendingPaste(event)
                         }}
                         onKeyDown={(event) => {
-                            if (event.key === 'Escape' && pendingMedia) {
-                                event.preventDefault()
-                                clearPendingMedia()
+                            if (event.key === 'Escape') {
+                                if (pendingMedia) {
+                                    event.preventDefault()
+                                    clearPendingMedia()
+                                    return
+                                }
+                                if (replyTo) {
+                                    event.preventDefault()
+                                    setReplyTo(null)
+                                }
                                 return
                             }
                             if (event.key === 'Enter' && !event.shiftKey) {

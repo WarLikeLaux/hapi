@@ -10,8 +10,11 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"unicode/utf16"
 
+	"github.com/gotd/td/telegram/message/entity"
 	messagepeer "github.com/gotd/td/telegram/message/peer"
+	"github.com/gotd/td/telegram/message/styling"
 	"github.com/gotd/td/tg"
 )
 
@@ -243,6 +246,155 @@ func TestLargestPhotoType(t *testing.T) {
 	if result != "y" {
 		t.Fatalf("expected largest photo type y, got %q", result)
 	}
+}
+
+func TestReplyTargetID(t *testing.T) {
+	if _, ok := replyTargetID(&tg.Message{ID: 5}); ok {
+		t.Fatal("message without a reply header is not a reply")
+	}
+	reply := &tg.Message{ID: 6}
+	reply.SetReplyTo(&tg.MessageReplyHeader{ReplyToMsgID: 9})
+	if id, ok := replyTargetID(reply); !ok || id != 9 {
+		t.Fatalf("expected reply target 9, got %d, %v", id, ok)
+	}
+	topicMessage := &tg.Message{ID: 7}
+	topicMessage.SetReplyTo(&tg.MessageReplyHeader{ForumTopic: true, ReplyToMsgID: 3})
+	if _, ok := replyTargetID(topicMessage); ok {
+		t.Fatal("forum topic membership should not look like a reply")
+	}
+	topicReply := &tg.Message{ID: 8}
+	topicReply.SetReplyTo(&tg.MessageReplyHeader{ForumTopic: true, ReplyToMsgID: 4, ReplyToTopID: 3})
+	if id, ok := replyTargetID(topicReply); !ok || id != 4 {
+		t.Fatalf("expected forum reply target 4, got %d, %v", id, ok)
+	}
+}
+
+func TestMessageFromTelegramCarriesReplyTo(t *testing.T) {
+	msg := &tg.Message{
+		ID:      20,
+		PeerID:  &tg.PeerUser{UserID: 42},
+		Message: "answer",
+		Date:    125,
+	}
+	msg.SetReplyTo(&tg.MessageReplyHeader{ReplyToMsgID: 7})
+	result, ok := messageFromTelegram(msg, messageEntities(), nil, nil, 0)
+	if !ok {
+		t.Fatal("message was not converted")
+	}
+	if result.ReplyToProviderMessageID != "7" {
+		t.Fatalf("expected replyToProviderMessageId 7, got %q", result.ReplyToProviderMessageID)
+	}
+}
+
+func TestReplyQuoteForTelegram(t *testing.T) {
+	quote := replyQuoteForTelegram(&tg.Message{
+		ID:      7,
+		PeerID:  &tg.PeerUser{UserID: 42},
+		Message: "original text",
+		Date:    100,
+	}, messageEntities(), nil)
+	if quote.text == nil || *quote.text != "original text" || quote.senderName != nil {
+		t.Fatalf("unexpected text quote: %#v", quote)
+	}
+	mediaQuote := replyQuoteForTelegram(&tg.Message{
+		ID:     8,
+		PeerID: &tg.PeerUser{UserID: 42},
+		Date:   101,
+		Media:  &tg.MessageMediaPhoto{Photo: &tg.Photo{ID: 1}},
+	}, messageEntities(), nil)
+	if mediaQuote.text == nil || *mediaQuote.text != "Photo" {
+		t.Fatalf("unexpected media quote: %#v", mediaQuote)
+	}
+}
+
+func styledMessage(t *testing.T, text string) (string, []tg.MessageEntityClass) {
+	t.Helper()
+	builder := &entity.Builder{}
+	if err := styling.Perform(builder, styledTextOptions(text)...); err != nil {
+		t.Fatal(err)
+	}
+	return builder.Complete()
+}
+
+func TestStyledTextOptionsMarkdownLink(t *testing.T) {
+	message, entities := styledMessage(t, "смотри [док](https://example.com/a) и ещё")
+	if message != "смотри док и ещё" {
+		t.Fatalf("unexpected message text: %q", message)
+	}
+	if len(entities) != 1 {
+		t.Fatalf("expected one link entity, got %#v", entities)
+	}
+	textURL, ok := entities[0].(*tg.MessageEntityTextURL)
+	if !ok || textURL.URL != "https://example.com/a" {
+		t.Fatalf("unexpected text URL entity: %#v", entities[0])
+	}
+	if offset, length := textURL.Offset, textURL.Length; offset != 7 || length != 3 || utf16Window(message, offset, length) != "док" {
+		t.Fatalf("unexpected entity window %d:%d over %q", offset, length, message)
+	}
+}
+
+func TestStyledTextOptionsBareURL(t *testing.T) {
+	message, entities := styledMessage(t, "открой https://example.org/b. Потом продолжим")
+	// The trailing sentence dot stays in the message text but is excluded
+	// from the clickable URL entity.
+	if message != "открой https://example.org/b. Потом продолжим" {
+		t.Fatalf("unexpected message text: %q", message)
+	}
+	if len(entities) != 1 {
+		t.Fatalf("expected one URL entity, got %#v", entities)
+	}
+	url, ok := entities[0].(*tg.MessageEntityURL)
+	if !ok {
+		t.Fatalf("expected messageEntityUrl, got %#v", entities[0])
+	}
+	if window := utf16Window(message, url.Offset, url.Length); window != "https://example.org/b" {
+		t.Fatalf("unexpected URL window %q", window)
+	}
+}
+
+func TestStyledTextOptionsMixedAndEscaping(t *testing.T) {
+	message, entities := styledMessage(t, "[x](javascript:alert(1)) и (см. https://example.com/a)")
+	if message != "[x](javascript:alert(1)) и (см. https://example.com/a)" {
+		t.Fatalf("non-http markdown should stay plain: %q", message)
+	}
+	if len(entities) != 1 {
+		t.Fatalf("expected only the bare URL entity, got %#v", entities)
+	}
+	if _, ok := entities[0].(*tg.MessageEntityURL); !ok {
+		t.Fatalf("expected messageEntityUrl, got %#v", entities[0])
+	}
+}
+
+func TestTrimBareURL(t *testing.T) {
+	tests := map[string]string{
+		"https://example.com/a.":           "https://example.com/a",
+		"https://example.com/a)":           "https://example.com/a",
+		"https://en.wikipedia.org/w/X_(Y)": "https://en.wikipedia.org/w/X_(Y)",
+		"https://example.com/a»":           "https://example.com/a",
+	}
+	for input, expected := range tests {
+		if actual := trimBareURL(input); actual != expected {
+			t.Fatalf("trimBareURL(%q) = %q, want %q", input, actual, expected)
+		}
+	}
+}
+
+func TestReplyIDFromProviderMessageID(t *testing.T) {
+	if id, err := replyIDFromProviderMessageID("42"); err != nil || id != 42 {
+		t.Fatalf("unexpected id: %d, %v", id, err)
+	}
+	for _, value := range []string{"", "0", "-3", "abc"} {
+		if _, err := replyIDFromProviderMessageID(value); err == nil {
+			t.Fatalf("expected error for %q", value)
+		}
+	}
+}
+
+// utf16Window slices message text by UTF-16 code units, the offsets Telegram
+// entities use, rather than Go's byte offsets.
+func utf16Window(message string, offset, length int) string {
+	units := utf16.Encode([]rune(message))
+	return string(utf16.Decode(units[offset : offset+length]))
 }
 
 func messageEntities() messagepeer.Entities {

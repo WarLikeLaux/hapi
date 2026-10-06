@@ -415,10 +415,15 @@ export class ApiClient {
         })
     }
 
-    async sendExternalMessage(conversationId: string, text: string, clientId?: string): Promise<void> {
+    async sendExternalMessage(
+        conversationId: string,
+        text: string,
+        clientId?: string,
+        replyToProviderMessageId?: string
+    ): Promise<void> {
         await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
             method: 'POST',
-            body: JSON.stringify({ text, clientId })
+            body: JSON.stringify({ text, clientId, replyToProviderMessageId })
         })
     }
 
@@ -433,11 +438,18 @@ export class ApiClient {
         })
     }
 
-    async sendExternalMedia(conversationId: string, file: File, caption: string, clientId?: string): Promise<void> {
+    async sendExternalMedia(
+        conversationId: string,
+        file: File,
+        caption: string,
+        clientId?: string,
+        replyToProviderMessageId?: string
+    ): Promise<void> {
         const form = new FormData()
         form.set('file', file)
         if (caption.trim()) form.set('caption', caption.trim())
         if (clientId) form.set('clientId', clientId)
+        if (replyToProviderMessageId) form.set('replyToProviderMessageId', replyToProviderMessageId)
         await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/media`, {
             method: 'POST',
             body: form

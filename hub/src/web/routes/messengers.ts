@@ -189,7 +189,8 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
                 c.get('namespace'),
                 c.req.param('id'),
                 parsed.data.text,
-                parsed.data.clientId
+                parsed.data.clientId,
+                parsed.data.replyToProviderMessageId
             )
             return c.json({ ok: true })
         } catch (error) {
@@ -247,19 +248,24 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
         const file = form?.get('file')
         const captionValue = form?.get('caption')
         const clientIdValue = form?.get('clientId')
+        const replyToValue = form?.get('replyToProviderMessageId')
         if (!(file instanceof File) || file.size < 1 || file.size > MAX_MESSENGER_MEDIA_BYTES) {
             return c.json({ error: 'Media file must be between 1 byte and 50 MB' }, 400)
         }
         const caption = typeof captionValue === 'string' ? captionValue.trim() : ''
         if (caption.length > 4096) return c.json({ error: 'Caption is too long' }, 400)
         const clientId = typeof clientIdValue === 'string' && clientIdValue.length <= 128 ? clientIdValue : undefined
+        const replyToProviderMessageId = typeof replyToValue === 'string' && replyToValue.length >= 1 && replyToValue.length <= 64
+            ? replyToValue
+            : undefined
         try {
             await manager.sendMedia(c.get('namespace'), c.req.param('id'), {
                 bytes: new Uint8Array(await file.arrayBuffer()),
                 fileName: file.name || 'attachment',
                 mimeType: file.type || 'application/octet-stream',
                 caption,
-                clientId
+                clientId,
+                replyToProviderMessageId
             })
             return c.json({ ok: true })
         } catch (error) {

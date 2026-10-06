@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -137,19 +138,22 @@ type downloadedMedia struct {
 const maxMediaCacheBytes int64 = 1024 * 1024 * 1024
 
 type externalMessage struct {
-	ID                  string             `json:"id"`
-	ConversationID      string             `json:"conversationId"`
-	ProviderMessageID   string             `json:"providerMessageId"`
-	SenderID            *string            `json:"senderId"`
-	SenderName          *string            `json:"senderName"`
-	SenderAvatarDataURL *string            `json:"senderAvatarDataUrl"`
-	Direction           string             `json:"direction"`
-	Text                string             `json:"text"`
-	CreatedAt           int64              `json:"createdAt"`
-	EditedAt            *int64             `json:"editedAt"`
-	DeliveryStatus      *string            `json:"deliveryStatus,omitempty"`
-	Media               []externalMedia    `json:"media"`
-	Reactions           []externalReaction `json:"reactions"`
+	ID                       string             `json:"id"`
+	ConversationID           string             `json:"conversationId"`
+	ProviderMessageID        string             `json:"providerMessageId"`
+	SenderID                 *string            `json:"senderId"`
+	SenderName               *string            `json:"senderName"`
+	SenderAvatarDataURL      *string            `json:"senderAvatarDataUrl"`
+	Direction                string             `json:"direction"`
+	Text                     string             `json:"text"`
+	CreatedAt                int64              `json:"createdAt"`
+	EditedAt                 *int64             `json:"editedAt"`
+	DeliveryStatus           *string            `json:"deliveryStatus,omitempty"`
+	ReplyToProviderMessageID string             `json:"replyToProviderMessageId,omitempty"`
+	ReplyToSenderName        *string            `json:"replyToSenderName,omitempty"`
+	ReplyToText              *string            `json:"replyToText,omitempty"`
+	Media                    []externalMedia    `json:"media"`
+	Reactions                []externalReaction `json:"reactions"`
 }
 
 type senderAvatarCandidate struct {
@@ -531,6 +535,151 @@ func mediaPreview(media []externalMedia) string {
 	}
 }
 
+// replyTargetID reports the Telegram message a given message replies to, if any.
+// Forum topics give every message a reply header pointing at the topic root, so
+// those are only a real reply when the topic-root cursor (ReplyToTopID) is also
+// set alongside the replied-to message ID.
+func replyTargetID(msg *tg.Message) (int, bool) {
+	header, ok := msg.GetReplyTo()
+	if !ok {
+		return 0, false
+	}
+	reply, ok := header.(*tg.MessageReplyHeader)
+	if !ok || reply.ReplyToMsgID <= 0 {
+		return 0, false
+	}
+	if reply.ForumTopic && reply.ReplyToTopID == 0 {
+		return 0, false
+	}
+	return reply.ReplyToMsgID, true
+}
+
+// replyQuote is the snippet the web UI shows for the message being replied to.
+type replyQuote struct {
+	senderName *string
+	text       *string
+}
+
+func replyQuoteForTelegram(msg *tg.Message, entities messagepeer.Entities, self *tg.User) replyQuote {
+	_, senderName := senderData(msg, entities, self)
+	text := strings.TrimSpace(msg.Message)
+	if text == "" {
+		text = mediaPreview(mediaFromTelegram(msg.Media))
+	}
+	if text == "" {
+		text = "Message"
+	}
+	return replyQuote{senderName: senderName, text: &text}
+}
+
+var markdownLinkPattern = regexp.MustCompile(`\[([^\[\]]+)\]\((https?://[^\s)]+)\)`)
+var bareURLPattern = regexp.MustCompile(`https?://[^\s<>"'` + "`" + `]+`)
+
+// linkSegment is a run of message text: plain prose when URL is empty, a bare
+// URL when text equals URL, or a labelled markdown-style link otherwise.
+type linkSegment struct {
+	text string
+	url  string
+}
+
+// trimBareURL strips trailing sentence punctuation and unmatched closing
+// brackets that prose places after a URL while keeping balanced ones.
+func trimBareURL(url string) string {
+	trimmed := strings.TrimRight(url, ".,;:!?…")
+	for len(trimmed) > 0 {
+		runes := []rune(trimmed)
+		switch runes[len(runes)-1] {
+		case ')':
+			if strings.Count(trimmed, ")") <= strings.Count(trimmed, "(") {
+				return trimmed
+			}
+		case ']':
+			if strings.Count(trimmed, "]") <= strings.Count(trimmed, "[") {
+				return trimmed
+			}
+		case '"', '\'', '»', '”':
+		default:
+			return trimmed
+		}
+		trimmed = string(runes[:len(runes)-1])
+	}
+	return trimmed
+}
+
+// linkSegments splits message text into plain runs, bare URLs and
+// markdown-style [label](url) links so they can be sent as real Telegram
+// entities (clickable links) instead of raw markup.
+func linkSegments(text string) []linkSegment {
+	var segments []linkSegment
+	appendPlain := func(value string) {
+		for {
+			match := bareURLPattern.FindStringIndex(value)
+			if match == nil {
+				break
+			}
+			url := trimBareURL(value[match[0]:match[1]])
+			segments = append(segments, linkSegment{text: value[:match[0]]})
+			segments = append(segments, linkSegment{text: url, url: url})
+			value = value[match[0]+len(url):]
+		}
+		if value != "" {
+			segments = append(segments, linkSegment{text: value})
+		}
+	}
+	rest := text
+	for {
+		match := markdownLinkPattern.FindStringSubmatchIndex(rest)
+		if match == nil {
+			break
+		}
+		label, url := rest[match[2]:match[3]], rest[match[4]:match[5]]
+		appendPlain(rest[:match[0]])
+		if strings.TrimSpace(label) == "" {
+			segments = append(segments, linkSegment{text: url, url: url})
+		} else {
+			segments = append(segments, linkSegment{text: label, url: url})
+		}
+		rest = rest[match[1]:]
+	}
+	appendPlain(rest)
+	return segments
+}
+
+// styledTextOptions converts message text into Telegram styling options where
+// markdown links and bare URLs arrive as clickable link entities.
+func styledTextOptions(text string) []message.StyledTextOption {
+	segments := linkSegments(text)
+	options := make([]message.StyledTextOption, 0, len(segments))
+	for _, segment := range segments {
+		switch {
+		case segment.url == "":
+			if segment.text == "" {
+				continue
+			}
+			options = append(options, styling.Plain(segment.text))
+		case segment.text == segment.url:
+			options = append(options, styling.URL(segment.url))
+		default:
+			options = append(options, styling.TextURL(segment.text, segment.url))
+		}
+	}
+	if len(options) == 0 {
+		options = append(options, styling.Plain(text))
+	}
+	return options
+}
+
+func replyIDFromProviderMessageID(value string) (int, error) {
+	if value == "" {
+		return 0, errors.New("empty reply-to message ID")
+	}
+	id, err := strconv.Atoi(value)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("invalid reply-to message ID %q", value)
+	}
+	return id, nil
+}
+
 func lastMessageData(msg tg.NotEmptyMessage) (*int64, *string) {
 	if msg == nil {
 		return nil, nil
@@ -910,19 +1059,24 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 	if value, ok := msg.GetReactions(); ok {
 		reactions = reactionsFromTelegram(value)
 	}
+	replyToProviderMessageID := ""
+	if replyID, ok := replyTargetID(msg); ok {
+		replyToProviderMessageID = strconv.Itoa(replyID)
+	}
 	return externalMessage{
-		ID:                  conversationID(remoteID) + ":" + providerMessageID,
-		ConversationID:      conversationID(remoteID),
-		ProviderMessageID:   providerMessageID,
-		SenderID:            senderID,
-		SenderName:          senderName,
-		SenderAvatarDataURL: senderAvatar,
-		Direction:           direction,
-		Text:                text,
-		CreatedAt:           int64(msg.Date) * 1000,
-		DeliveryStatus:      deliveryStatusForMessage(msg, readOutboxMax),
-		Media:               media,
-		Reactions:           reactions,
+		ID:                       conversationID(remoteID) + ":" + providerMessageID,
+		ConversationID:           conversationID(remoteID),
+		ProviderMessageID:        providerMessageID,
+		SenderID:                 senderID,
+		SenderName:               senderName,
+		SenderAvatarDataURL:      senderAvatar,
+		Direction:                direction,
+		Text:                     text,
+		CreatedAt:                int64(msg.Date) * 1000,
+		DeliveryStatus:           deliveryStatusForMessage(msg, readOutboxMax),
+		ReplyToProviderMessageID: replyToProviderMessageID,
+		Media:                    media,
+		Reactions:                reactions,
 	}, true
 }
 
@@ -949,12 +1103,14 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 	result := make([]externalMessage, 0, limit)
 	avatarMessageIndexes := make(map[string][]int)
 	avatarCandidates := make(map[string]senderAvatarCandidate)
+	batchQuotes := make(map[string]replyQuote)
 	for len(result) < limit && iter.Next(ctx) {
 		elem := iter.Value()
 		msg, ok := elem.Msg.(*tg.Message)
 		if !ok {
 			continue
 		}
+		batchQuotes[strconv.Itoa(msg.ID)] = replyQuoteForTelegram(msg, elem.Entities, self)
 		candidate := senderAvatarCandidateForMessage(msg, elem.Entities, self)
 		var avatar *string
 		if candidate != nil {
@@ -980,6 +1136,32 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 	}
 	if err := iter.Err(); err != nil {
 		return nil, err
+	}
+	// Fill reply quotes: prefer targets already present in the loaded batch,
+	// then fall back to bounded direct lookups so replies to older messages
+	// stay labelled without risking FLOOD_WAIT on reply-heavy history.
+	const maxReplyLookupsPerLoad = 8
+	lookups := 0
+	for i := range result {
+		targetID := result[i].ReplyToProviderMessageID
+		if targetID == "" {
+			continue
+		}
+		if quote, ok := batchQuotes[targetID]; ok {
+			result[i].ReplyToSenderName = quote.senderName
+			result[i].ReplyToText = quote.text
+			continue
+		}
+		if lookups >= maxReplyLookupsPerLoad {
+			continue
+		}
+		lookups++
+		quote, ok := s.resolveReplyQuote(ctx, remoteID, targetID)
+		if !ok {
+			continue
+		}
+		result[i].ReplyToSenderName = quote.senderName
+		result[i].ReplyToText = quote.text
 	}
 	avatarSlots := make(chan struct{}, 6)
 	for remoteID, candidate := range avatarCandidates {
@@ -1022,6 +1204,28 @@ func messageByID(ctx context.Context, raw *tg.Client, peer tg.InputPeerClass, me
 		}
 	}
 	return nil, errors.New("Telegram message not found")
+}
+
+// resolveReplyQuote fetches the replied-to message so outgoing/received replies
+// keep a text snippet even when the target has left the loaded history window.
+func (s *service) resolveReplyQuote(ctx context.Context, remoteID, providerMessageID string) (replyQuote, bool) {
+	messageID, err := strconv.Atoi(providerMessageID)
+	if err != nil || messageID <= 0 {
+		return replyQuote{}, false
+	}
+	raw, err := s.ready()
+	if err != nil {
+		return replyQuote{}, false
+	}
+	peer, err := s.ensurePeer(ctx, remoteID)
+	if err != nil {
+		return replyQuote{}, false
+	}
+	msg, err := messageByID(ctx, raw, peer, messageID)
+	if err != nil {
+		return replyQuote{}, false
+	}
+	return replyQuoteForTelegram(msg, messagepeer.Entities{}, nil), true
 }
 
 func largestPhotoType(sizes []tg.PhotoSizeClass) string {
@@ -1247,7 +1451,7 @@ func telegramPhotoUpload(data []byte, fileName, mimeType string) ([]byte, string
 	return encoded.Bytes(), jpegName, true
 }
 
-func (s *service) sendMedia(ctx context.Context, remoteID, path, fileName, mimeType, caption, clientID string) error {
+func (s *service) sendMedia(ctx context.Context, remoteID, path, fileName, mimeType, caption, clientID, replyToProviderMessageID string) error {
 	raw, err := s.ready()
 	if err != nil {
 		return err
@@ -1294,9 +1498,14 @@ func (s *service) sendMedia(ctx context.Context, remoteID, path, fileName, mimeT
 	}
 	builder := message.NewSender(raw).To(peer)
 	applyClientID(&builder.Builder, clientID)
+	if replyID, err := replyIDFromProviderMessageID(replyToProviderMessageID); err == nil {
+		builder.Builder.Reply(replyID)
+	}
 	captionOptions := []message.StyledTextOption{}
 	if caption = strings.TrimSpace(caption); caption != "" {
-		captionOptions = append(captionOptions, styling.Plain(caption))
+		// Captions never expand into a web preview, so links only need the
+		// clickable entities here.
+		captionOptions = append(captionOptions, styledTextOptions(caption)...)
 	}
 	switch {
 	case asPhoto:
@@ -1311,7 +1520,7 @@ func (s *service) sendMedia(ctx context.Context, remoteID, path, fileName, mimeT
 	return err
 }
 
-func (s *service) sendText(ctx context.Context, remoteID, text, clientID string) error {
+func (s *service) sendText(ctx context.Context, remoteID, text, clientID, replyToProviderMessageID string) error {
 	raw, err := s.ready()
 	if err != nil {
 		return err
@@ -1322,7 +1531,12 @@ func (s *service) sendText(ctx context.Context, remoteID, text, clientID string)
 	}
 	builder := message.NewSender(raw).To(peer)
 	applyClientID(&builder.Builder, clientID)
-	_, err = builder.Text(ctx, text)
+	if replyID, err := replyIDFromProviderMessageID(replyToProviderMessageID); err == nil {
+		builder.Builder.Reply(replyID)
+	}
+	// Links stay clickable as text entities but never expand into a web preview.
+	builder.Builder.NoWebpage()
+	_, err = builder.StyledText(ctx, styledTextOptions(text)...)
 	return err
 }
 
@@ -1377,10 +1591,23 @@ func (s *service) emitNewMessage(ctx context.Context, entities messagepeer.Entit
 		return
 	}
 	s.out.event("message", converted)
-	if !needsFullAvatar || candidate == nil {
+	needsReplyQuote := converted.ReplyToProviderMessageID != "" && raw != nil
+	if !needsFullAvatar && !needsReplyQuote {
 		return
 	}
-	go func(message externalMessage, candidate senderAvatarCandidate) {
+	go func(message externalMessage, candidate *senderAvatarCandidate) {
+		// The quote resolves fast, so emit it before the slower avatar refresh
+		// re-emits the same message with cumulative fields.
+		if message.ReplyToProviderMessageID != "" {
+			if quote, ok := s.resolveReplyQuote(context.WithoutCancel(ctx), remoteID, message.ReplyToProviderMessageID); ok {
+				message.ReplyToSenderName = quote.senderName
+				message.ReplyToText = quote.text
+				s.out.event("message", message)
+			}
+		}
+		if candidate == nil {
+			return
+		}
 		fullAvatar := downloadAvatar(context.WithoutCancel(ctx), raw, candidate.peer, candidate.photoID)
 		if fullAvatar == nil {
 			return
@@ -1390,7 +1617,7 @@ func (s *service) emitNewMessage(ctx context.Context, entities messagepeer.Entit
 		s.mu.Unlock()
 		message.SenderAvatarDataURL = fullAvatar
 		s.out.event("message", message)
-	}(converted, *candidate)
+	}(converted, candidate)
 }
 
 func (s *service) handleNewMessage(ctx context.Context, entities tg.Entities, update *tg.UpdateNewMessage) error {
@@ -1574,9 +1801,10 @@ func (s *service) handle(req rpcRequest) (any, error) {
 		return map[string]bool{"ok": true}, s.markRead(ctx, params.RemoteID, params.MaxProviderMessageID)
 	case "messages.send":
 		var params struct {
-			RemoteID string `json:"remoteId"`
-			Text     string `json:"text"`
-			ClientID string `json:"clientId"`
+			RemoteID                 string `json:"remoteId"`
+			Text                     string `json:"text"`
+			ClientID                 string `json:"clientId"`
+			ReplyToProviderMessageID string `json:"replyToProviderMessageId"`
 		}
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, err
@@ -1584,7 +1812,10 @@ func (s *service) handle(req rpcRequest) (any, error) {
 		if strings.TrimSpace(params.Text) == "" {
 			return nil, errors.New("message is empty")
 		}
-		return map[string]bool{"ok": true}, s.sendText(ctx, params.RemoteID, params.Text, params.ClientID)
+		if _, err := replyIDFromProviderMessageID(params.ReplyToProviderMessageID); params.ReplyToProviderMessageID != "" && err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, s.sendText(ctx, params.RemoteID, params.Text, params.ClientID, params.ReplyToProviderMessageID)
 	case "messages.reactions.set":
 		var params struct {
 			RemoteID          string   `json:"remoteId"`
@@ -1610,17 +1841,21 @@ func (s *service) handle(req rpcRequest) (any, error) {
 		return s.downloadMedia(ctx, params.RemoteID, params.ProviderMessageID, params.MediaIndex)
 	case "media.send":
 		var params struct {
-			RemoteID string `json:"remoteId"`
-			Path     string `json:"path"`
-			FileName string `json:"fileName"`
-			MIMEType string `json:"mimeType"`
-			Caption  string `json:"caption"`
-			ClientID string `json:"clientId"`
+			RemoteID                 string `json:"remoteId"`
+			Path                     string `json:"path"`
+			FileName                 string `json:"fileName"`
+			MIMEType                 string `json:"mimeType"`
+			Caption                  string `json:"caption"`
+			ClientID                 string `json:"clientId"`
+			ReplyToProviderMessageID string `json:"replyToProviderMessageId"`
 		}
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return nil, err
 		}
-		return map[string]bool{"ok": true}, s.sendMedia(ctx, params.RemoteID, params.Path, params.FileName, params.MIMEType, params.Caption, params.ClientID)
+		if _, err := replyIDFromProviderMessageID(params.ReplyToProviderMessageID); params.ReplyToProviderMessageID != "" && err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, s.sendMedia(ctx, params.RemoteID, params.Path, params.FileName, params.MIMEType, params.Caption, params.ClientID, params.ReplyToProviderMessageID)
 	default:
 		return nil, fmt.Errorf("unknown method %q", req.Method)
 	}
