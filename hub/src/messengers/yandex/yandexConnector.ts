@@ -646,6 +646,10 @@ export class YandexConnector implements MessengerConnector {
             if (this.connection.state !== 'ready') return
             this.heartbeatTimer = setTimeout(() => {
                 this.heartbeatTimer = null
+                // Push frames can be dropped across xiva reconnects; piggyback a
+                // debounced chat-list diff on each beat so a missed message still
+                // reaches the conversation rows within a minute.
+                this.scheduleDiffRefresh()
                 this.startHeartbeat()
             }, HEARTBEAT_INTERVAL_MS)
         }

@@ -278,4 +278,48 @@ describe('MessengerStore', () => {
             store.close()
         }
     })
+
+    it('does not rewind the preview when a stale chat-list snapshot arrives', () => {
+        const store = new Store(':memory:')
+        try {
+            store.messengers.upsertConversation('one', {
+                ...conversation('user:1', true),
+                lastMessageAt: 5_000,
+                lastMessagePreview: 'fresh message',
+                lastMessageDirection: 'incoming'
+            })
+
+            // A later chat-list read whose payload trails the history sync must
+            // not roll the row back to the older message.
+            store.messengers.upsertConversation('one', {
+                ...conversation('user:1', true),
+                lastMessageAt: 3_000,
+                lastMessagePreview: 'stale message',
+                lastMessageDirection: 'outgoing',
+                lastMessageDeliveryStatus: 'read'
+            })
+            expect(store.messengers.getConversation('one', 'telegram:user:1')).toEqual(expect.objectContaining({
+                lastMessageAt: 5_000,
+                lastMessagePreview: 'fresh message',
+                lastMessageDirection: 'incoming'
+            }))
+
+            // A genuinely newer snapshot still advances the row.
+            store.messengers.upsertConversation('one', {
+                ...conversation('user:1', true),
+                lastMessageAt: 6_000,
+                lastMessagePreview: 'newer message',
+                lastMessageDirection: 'outgoing',
+                lastMessageDeliveryStatus: 'sent'
+            })
+            expect(store.messengers.getConversation('one', 'telegram:user:1')).toEqual(expect.objectContaining({
+                lastMessageAt: 6_000,
+                lastMessagePreview: 'newer message',
+                lastMessageDirection: 'outgoing',
+                lastMessageDeliveryStatus: 'sent'
+            }))
+        } finally {
+            store.close()
+        }
+    })
 })

@@ -184,8 +184,20 @@ export class MessengerStore {
             ON CONFLICT(namespace, provider, remote_id) DO UPDATE SET
                 title = excluded.title,
                 kind = excluded.kind,
-                last_message_at = COALESCE(excluded.last_message_at, external_conversations.last_message_at),
-                last_message_preview = COALESCE(excluded.last_message_preview, external_conversations.last_message_preview),
+                -- A chat-list read can trail messages already reconciled from a
+                -- per-chat history sync; never move the preview backwards.
+                last_message_at = CASE
+                    WHEN excluded.last_message_at IS NOT NULL
+                         AND (external_conversations.last_message_at IS NULL OR excluded.last_message_at >= external_conversations.last_message_at)
+                        THEN excluded.last_message_at
+                    ELSE external_conversations.last_message_at
+                END,
+                last_message_preview = CASE
+                    WHEN excluded.last_message_at IS NOT NULL
+                         AND (external_conversations.last_message_at IS NULL OR excluded.last_message_at >= external_conversations.last_message_at)
+                        THEN excluded.last_message_preview
+                    ELSE external_conversations.last_message_preview
+                END,
                 last_message_direction = CASE
                     WHEN excluded.last_message_at IS NOT NULL
                          AND (external_conversations.last_message_at IS NULL OR excluded.last_message_at >= external_conversations.last_message_at)
