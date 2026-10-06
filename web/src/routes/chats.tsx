@@ -853,10 +853,10 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     const fileInputRef = useRef<HTMLInputElement>(null)
     const composerRef = useRef<HTMLTextAreaElement>(null)
     const stickToBottomRef = useRef(true)
-    const swipeGestureRef = useRef<{ id: string | null; startX: number; startY: number; horizontal: boolean; dx: number }>({ id: null, startX: 0, startY: 0, horizontal: false, dx: 0 })
+    const swipeGestureRef = useRef<{ id: string | null; startX: number; startY: number; horizontal: boolean; dx: number; bubble: HTMLElement | null }>({ id: null, startX: 0, startY: 0, horizontal: false, dx: 0, bubble: null })
     const handleComposerFocus = useChatKeyboardTail({ viewportRef, composerRef, stickToBottomRef })
-    // Telegram-style reply gestures: double-click or a left swipe on a
-    // message bubble starts a reply to it.
+    // Telegram-style reply gestures: double-click on a message bubble or a
+    // left swipe anywhere across the message row starts a reply to it.
     const startReply = useCallback((message: ExternalMessage) => {
         setReactionPickerFor(null)
         setReactionPickerExpanded(false)
@@ -1123,11 +1123,56 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
                                 key={item.id}
                                 data-provider-message-id={item.providerMessageId}
                                 className={cn(
-                                    'flex w-full items-end gap-2 rounded-2xl transition-colors',
+                                    'flex w-full items-end gap-2 rounded-2xl transition-colors touch-pan-y',
                                     continuesPrevious && '-mt-1.5',
                                     incoming ? 'justify-start' : 'justify-end',
                                     highlightedReplyId === item.providerMessageId && 'bg-[#2AABEE]/10'
                                 )}
+                                onTouchStart={(event) => {
+                                    if (optimistic || event.touches.length !== 1) return
+                                    // Swipes may start on the empty space next to
+                                    // the bubble, but never hijack links, inputs
+                                    // or media players.
+                                    if ((event.target as HTMLElement).closest('a, input, video, audio')) return
+                                    const touch = event.touches[0]
+                                    const bubble = event.currentTarget.querySelector<HTMLElement>('.touch-pan-y')
+                                    swipeGestureRef.current = { id: item.providerMessageId, startX: touch.clientX, startY: touch.clientY, horizontal: false, dx: 0, bubble }
+                                    if (bubble) bubble.style.transition = ''
+                                }}
+                                onTouchMove={(event) => {
+                                    const gesture = swipeGestureRef.current
+                                    if (gesture.id !== item.providerMessageId || event.touches.length !== 1) return
+                                    const dx = event.touches[0].clientX - gesture.startX
+                                    const dy = event.touches[0].clientY - gesture.startY
+                                    if (!gesture.horizontal) {
+                                        if (Math.abs(dx) < Math.abs(dy)) { gesture.id = null; return }
+                                        if (Math.abs(dx) < 8) return
+                                        gesture.horizontal = true
+                                    }
+                                    // Follow the finger leftwards only; the
+                                    // bubble never drags past a short throw.
+                                    gesture.dx = Math.max(dx, -96)
+                                    if (gesture.bubble) gesture.bubble.style.transform = `translateX(${gesture.dx}px)`
+                                }}
+                                onTouchEnd={(event) => {
+                                    const gesture = swipeGestureRef.current
+                                    if (gesture.id !== item.providerMessageId) return
+                                    swipeGestureRef.current = { id: null, startX: 0, startY: 0, horizontal: false, dx: 0, bubble: null }
+                                    if (gesture.bubble) {
+                                        gesture.bubble.style.transition = 'transform 150ms ease'
+                                        gesture.bubble.style.transform = ''
+                                    }
+                                    if (gesture.dx < -48) startReply(item)
+                                }}
+                                onTouchCancel={(event) => {
+                                    const gesture = swipeGestureRef.current
+                                    if (gesture.id !== item.providerMessageId) return
+                                    swipeGestureRef.current = { id: null, startX: 0, startY: 0, horizontal: false, dx: 0, bubble: null }
+                                    if (gesture.bubble) {
+                                        gesture.bubble.style.transition = 'transform 150ms ease'
+                                        gesture.bubble.style.transform = ''
+                                    }
+                                }}
                             >
                                 {incoming ? (
                                     continuesNext
@@ -1149,41 +1194,6 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
                                         if (optimistic || (event.target as HTMLElement).closest('button, a, input, video, audio')) return
                                         event.stopPropagation()
                                         startReply(item)
-                                    }}
-                                    onTouchStart={(event) => {
-                                        if (optimistic || event.touches.length !== 1) return
-                                        const touch = event.touches[0]
-                                        swipeGestureRef.current = { id: item.providerMessageId, startX: touch.clientX, startY: touch.clientY, horizontal: false, dx: 0 }
-                                        event.currentTarget.style.transition = ''
-                                    }}
-                                    onTouchMove={(event) => {
-                                        const gesture = swipeGestureRef.current
-                                        if (gesture.id !== item.providerMessageId || event.touches.length !== 1) return
-                                        const dx = event.touches[0].clientX - gesture.startX
-                                        const dy = event.touches[0].clientY - gesture.startY
-                                        if (!gesture.horizontal) {
-                                            if (Math.abs(dx) < Math.abs(dy)) { gesture.id = null; return }
-                                            if (Math.abs(dx) < 8) return
-                                            gesture.horizontal = true
-                                        }
-                                        // Follow the finger leftwards only; the
-                                        // bubble never drags past a short throw.
-                                        gesture.dx = Math.max(dx, -96)
-                                        event.currentTarget.style.transform = `translateX(${gesture.dx}px)`
-                                    }}
-                                    onTouchEnd={(event) => {
-                                        const gesture = swipeGestureRef.current
-                                        if (gesture.id !== item.providerMessageId) return
-                                        swipeGestureRef.current = { id: null, startX: 0, startY: 0, horizontal: false, dx: 0 }
-                                        event.currentTarget.style.transition = 'transform 150ms ease'
-                                        event.currentTarget.style.transform = ''
-                                        if (gesture.dx < -48) startReply(item)
-                                    }}
-                                    onTouchCancel={(event) => {
-                                        if (swipeGestureRef.current.id !== item.providerMessageId) return
-                                        swipeGestureRef.current = { id: null, startX: 0, startY: 0, horizontal: false, dx: 0 }
-                                        event.currentTarget.style.transition = 'transform 150ms ease'
-                                        event.currentTarget.style.transform = ''
                                     }}
                                 >
                                     {hasMedia && caption ? (

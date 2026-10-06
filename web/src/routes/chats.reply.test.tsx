@@ -78,6 +78,25 @@ describe('messenger reply gestures', () => {
         expect(screen.queryByTestId('chats-reply-bar')).toBeNull()
 
         // The bubble springs back to rest after every gesture.
-        await waitFor(() => expect(bubble).not.toHaveAttribute('style', /transform:/))
+        const wrapper = document.querySelector('.touch-pan-y') as HTMLElement
+        await waitFor(() => expect(wrapper).not.toHaveAttribute('style', /transform:/))
+    })
+
+    it('starts a reply from a swipe on the empty space of the row', async () => {
+        renderChat()
+        const bubble = await screen.findByText('hello bubble')
+        const row = bubble.closest('[data-provider-message-id]') as HTMLElement
+        const wrapper = row.querySelector('.touch-pan-y') as HTMLElement
+        expect(wrapper).not.toBeNull()
+
+        // Mid-gesture the bubble itself follows the finger, not the row.
+        fireEvent.touchStart(row, { touches: [touchAt(300, 400)] })
+        fireEvent.touchMove(row, { touches: [touchAt(250, 400)] })
+        expect(wrapper).toHaveAttribute('style', expect.stringContaining('translateX(-50px)'))
+        expect(row).not.toHaveAttribute('style', /transform:/)
+
+        fireEvent.touchEnd(row, { touches: [], changedTouches: [touchAt(240, 400)] })
+        expect(screen.getByTestId('chats-reply-bar')).toHaveTextContent('Alice')
+        expect(wrapper).not.toHaveAttribute('style', /transform:/)
     })
 })
