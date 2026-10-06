@@ -87,6 +87,20 @@ export const ExternalReactionSchema = z.object({
 })
 export type ExternalReaction = z.infer<typeof ExternalReactionSchema>
 
+/**
+ * A single bot inline-keyboard button. `kind: 'url'` buttons carry an absolute
+ * `url` the client opens directly; `kind: 'callback'` buttons are pressed
+ * through the hub, and the provider resolves the callback payload server-side
+ * (the wire only carries the button's position id).
+ */
+export const ExternalMessageButtonSchema = z.object({
+    id: z.string().min(1).max(64),
+    text: z.string().min(1).max(256),
+    kind: z.enum(['callback', 'url']),
+    url: z.string().max(2048).optional()
+})
+export type ExternalMessageButton = z.infer<typeof ExternalMessageButtonSchema>
+
 export const ExternalMessageSchema = z.object({
     id: z.string().min(1),
     conversationId: z.string().min(1),
@@ -101,6 +115,12 @@ export const ExternalMessageSchema = z.object({
     deliveryStatus: ExternalMessageDeliveryStatusSchema.optional(),
     media: z.array(ExternalMediaSchema).optional(),
     reactions: z.array(ExternalReactionSchema).optional(),
+    /**
+     * Bot inline-keyboard buttons grouped into rows as the provider laid them
+     * out. Present only on messages the provider rendered with an inline
+     * keyboard.
+     */
+    buttons: z.array(z.array(ExternalMessageButtonSchema).max(8)).max(10).optional(),
     /**
      * Provider-specific chat-local sequence number. The chats-web protocol uses this
      * (not a timestamp) for read-receipt ordering — `SeenMarker` requires `SeqNo`
@@ -164,6 +184,13 @@ export const SetExternalReactionsRequestSchema = z.object({
     reactions: z.array(z.string().min(1).max(128)).max(3)
 })
 export type SetExternalReactionsRequest = z.infer<typeof SetExternalReactionsRequestSchema>
+
+export const PressExternalMessageButtonRequestSchema = z.object({
+    buttonId: z.string().min(1).max(64)
+})
+export type PressExternalMessageButtonRequest = z.infer<typeof PressExternalMessageButtonRequestSchema>
+
+export type PressExternalMessageButtonResponse = { ok: true; message: string | null }
 
 export type MessengerConnectionsResponse = { connections: MessengerConnection[] }
 export type ExternalConversationsResponse = { conversations: ExternalConversation[] }

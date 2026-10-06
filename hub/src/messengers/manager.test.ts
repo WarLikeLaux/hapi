@@ -188,6 +188,67 @@ describe('MessengerManager', () => {
         }
     })
 
+    it('presses a callback button through the connector and refreshes the message', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-button-press-'))
+        const store = new Store(':memory:')
+        const conversation: ExternalConversation = {
+            id: 'test:user:1', provider: 'test', remoteId: 'user:1', title: 'Bot', kind: 'direct',
+            selected: false, lastMessageAt: 5, lastMessagePreview: 'choose', unreadCount: 0, avatarDataUrl: null
+        }
+        const presses: Array<[string, string]> = []
+        const buttonMessage: ExternalMessage = {
+            id: 'test:user:1:5', conversationId: conversation.id, providerMessageId: '5',
+            senderId: 'user:1', senderName: 'Bot', direction: 'incoming',
+            text: 'choose', createdAt: 5, editedAt: null, media: [],
+            buttons: [[
+                { id: '0:0', text: 'Next', kind: 'callback' },
+                { id: '0:1', text: 'Open', kind: 'url', url: 'https://example.com' }
+            ]]
+        }
+        const connector: MessengerConnector = {
+            provider: 'test',
+            getConnection: (): MessengerConnection => ({ provider: 'test', state: 'ready', accountLabel: null, detail: null }),
+            configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [conversation],
+            // The post-press refresh reconciles against this snapshot, so it must
+            // still carry the message.
+            loadMessages: async () => [buttonMessage],
+            downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
+            sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {},
+            pressButton: async (remoteId, providerMessageId, buttonId) => {
+                presses.push([providerMessageId, buttonId])
+                return { message: 'Loading…' }
+            }
+        }
+        const manager = new MessengerManager({
+            dataDir,
+            store,
+            sseManager: { broadcast: () => {} } as unknown as SSEManager
+        })
+        manager.registerConnectorFactory('test', () => connector)
+
+        try {
+            await manager.getConnections('default')
+            store.messengers.upsertConversation('default', conversation)
+            store.messengers.replaceSelection('default', 'test', [conversation.remoteId])
+            store.messengers.upsertMessage('default', buttonMessage)
+
+            const result = await manager.pressMessageButton('default', conversation.id, '5', '0:0')
+            expect(result).toEqual({ message: 'Loading…' })
+            expect(presses).toEqual([['5', '0:0']])
+
+            await expect(manager.pressMessageButton('default', conversation.id, '5', '0:1'))
+                .rejects.toThrow('Button not found')
+            await expect(manager.pressMessageButton('default', conversation.id, '5', '9:9'))
+                .rejects.toThrow('Button not found')
+            await expect(manager.pressMessageButton('default', conversation.id, '404', '0:0'))
+                .rejects.toThrow('Message not found')
+        } finally {
+            await manager.stop()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('marks Telegram history read remotely before keeping the local unread count cleared', async () => {
         const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-mark-read-'))
         const store = new Store(':memory:')

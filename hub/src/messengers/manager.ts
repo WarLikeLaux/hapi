@@ -416,6 +416,31 @@ export class MessengerManager {
         await this.refreshMessages(namespace, conversation, 100, true)
     }
 
+    async pressMessageButton(
+        namespace: string,
+        conversationId: string,
+        providerMessageId: string,
+        buttonId: string
+    ): Promise<{ message: string | null }> {
+        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        if (!conversation?.selected) throw new Error('Conversation not found')
+        const message = this.options.store.messengers.listMessages(namespace, conversationId, 200)
+            .find((item) => item.providerMessageId === providerMessageId)
+        if (!message) throw new Error('Message not found')
+        if (!message.buttons?.some((row) => row.some((button) => button.id === buttonId && button.kind === 'callback'))) {
+            throw new Error('Button not found')
+        }
+        const connector = await this.requireConnector(namespace, conversation.provider)
+        if (!connector.pressButton) {
+            throw new Error(`${conversation.provider} does not support pressing message buttons`)
+        }
+        const result = await connector.pressButton(conversation.remoteId, providerMessageId, buttonId)
+        // Bots answer a press by editing their message (new text, new keyboard)
+        // and/or sending follow-up messages; pull both in right away.
+        await this.refreshMessages(namespace, conversation, 100, true)
+        return result
+    }
+
     async downloadMedia(
         namespace: string,
         conversationId: string,

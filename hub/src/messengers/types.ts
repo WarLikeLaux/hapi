@@ -52,6 +52,12 @@ export interface MessengerConnector {
     downloadMedia(remoteId: string, providerMessageId: string, mediaIndex: number): Promise<DownloadedExternalMedia>
     sendText(remoteId: string, text: string, clientId?: string): Promise<void>
     setReactions(remoteId: string, providerMessageId: string, reactions: string[]): Promise<void>
+    /**
+     * Presses a bot inline-keyboard button. `kind: 'url'` buttons never reach
+     * the connector (the web opens those directly); this only handles callback
+     * buttons. Returns the provider's optional alert text shown after the press.
+     */
+    pressButton?(remoteId: string, providerMessageId: string, buttonId: string): Promise<{ message: string | null }>
     sendMedia(remoteId: string, input: SendExternalMediaInput): Promise<void>
     stop(): Promise<void>
 }

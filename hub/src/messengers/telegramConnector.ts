@@ -108,6 +108,14 @@ export class TelegramConnector implements MessengerConnector {
         await this.request('messages.reactions.set', { remoteId, providerMessageId, reactions })
     }
 
+    async pressButton(remoteId: string, providerMessageId: string, buttonId: string): Promise<{ message: string | null }> {
+        const result = await this.request('messages.button.press', { remoteId, providerMessageId, buttonId }) as {
+            ok?: boolean
+            message?: string | null
+        }
+        return { message: result.message ?? null }
+    }
+
     async sendMedia(remoteId: string, input: SendExternalMediaInput): Promise<void> {
         await this.request('media.send', { remoteId, ...input }, 180_000)
     }

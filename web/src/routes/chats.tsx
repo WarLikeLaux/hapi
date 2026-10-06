@@ -921,6 +921,16 @@ export function ChatConversationPage() {
             await queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) })
         }
     })
+    const pressButton = useMutation({
+        mutationFn: async (input: { providerMessageId: string; buttonId: string }) => {
+            return await api!.pressExternalMessageButton(conversationId, input.providerMessageId, input.buttonId)
+        },
+        onSettled: async () => {
+            // The bot answers a press by editing its message (new text, new
+            // keyboard) and/or sending follow-ups; refetch either way.
+            await queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) })
+        }
+    })
     useLayoutEffect(() => {
         stickToBottomRef.current = true
         setReactionPickerFor(null)
@@ -1096,6 +1106,58 @@ export function ChatConversationPage() {
                                             {caption ? <div className={bubbleClassName}>{caption}</div> : null}
                                         </>
                                     )}
+                                    {item.buttons && item.buttons.length > 0 && !optimistic ? (
+                                        <div className={cn('mt-1 flex w-full flex-col gap-1', incoming ? 'items-start' : 'items-end')}>
+                                            {item.buttons.map((row, rowIndex) => (
+                                                <div key={`${item.id}:buttons:${rowIndex}`} className="flex min-w-[14rem] max-w-full flex-row gap-1">
+                                                    {row.map((button) => {
+                                                        const pressingThis = pressButton.isPending
+                                                            && pressButton.variables?.providerMessageId === item.providerMessageId
+                                                            && pressButton.variables?.buttonId === button.id
+                                                        const buttonClassName = cn(
+                                                            'flex-1 overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-2 py-2 text-center text-sm font-medium leading-tight text-[var(--app-link)] transition-colors hover:bg-[var(--app-subtle-bg)]',
+                                                            pressingThis && 'opacity-50'
+                                                        )
+                                                        if (button.kind === 'url' && button.url) {
+                                                            return (
+                                                                <a
+                                                                    key={button.id}
+                                                                    href={button.url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className={buttonClassName}
+                                                                    onClick={(event) => event.stopPropagation()}
+                                                                >
+                                                                    {button.text}
+                                                                </a>
+                                                            )
+                                                        }
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                key={button.id}
+                                                                disabled={pressButton.isPending}
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation()
+                                                                    pressButton.mutate({ providerMessageId: item.providerMessageId, buttonId: button.id })
+                                                                }}
+                                                                className={buttonClassName}
+                                                            >
+                                                                {button.text}
+                                                            </button>
+                                                        )
+                                                    })}
+                                                </div>
+                                            ))}
+                                            {pressButton.variables?.providerMessageId === item.providerMessageId ? (
+                                                pressButton.error
+                                                    ? <div role="alert" className="px-1 text-xs text-red-600">{pressButton.error.message}</div>
+                                                    : pressButton.data?.message
+                                                        ? <div className="px-1 text-xs text-[var(--app-hint)]">{pressButton.data.message}</div>
+                                                        : null
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                     {!item.text && !item.media?.some((media) => ['image', 'sticker', 'video'].includes(media.kind)) ? (
                                         <div className="mt-0.5 flex items-center gap-1 px-2 text-[9px] text-[var(--app-hint)]">
                                             {formatTime(item.createdAt)}

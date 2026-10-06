@@ -90,6 +90,64 @@ describe('MessengerStore', () => {
         }
     })
 
+    it('persists bot inline buttons and replaces them on message edits', () => {
+        const store = new Store(':memory:')
+        try {
+            store.messengers.upsertConversation('one', conversation('user:1', true))
+            const buttons = [[
+                { id: '0:0', text: 'Next', kind: 'callback' as const },
+                { id: '0:1', text: 'Open', kind: 'url' as const, url: 'https://example.com' }
+            ]]
+            store.messengers.upsertMessage('one', {
+                id: 'telegram:user:1:7',
+                conversationId: 'telegram:user:1',
+                providerMessageId: '7',
+                senderId: 'user:1',
+                senderName: 'Bot',
+                direction: 'incoming',
+                text: 'choose',
+                createdAt: 3000,
+                editedAt: null,
+                media: [],
+                buttons
+            })
+            expect(store.messengers.listMessages('one', 'telegram:user:1')[0]?.buttons).toEqual(buttons)
+
+            const edited: typeof buttons = [[{ id: '0:0', text: 'Restart', kind: 'callback' as const }]]
+            store.messengers.upsertMessage('one', {
+                id: 'telegram:user:1:7',
+                conversationId: 'telegram:user:1',
+                providerMessageId: '7',
+                senderId: 'user:1',
+                senderName: 'Bot',
+                direction: 'incoming',
+                text: 'choose again',
+                createdAt: 3000,
+                editedAt: 4000,
+                media: [],
+                buttons: edited
+            })
+            expect(store.messengers.listMessages('one', 'telegram:user:1')[0]?.buttons).toEqual(edited)
+
+            // Messages without a keyboard stay schema-clean.
+            store.messengers.upsertMessage('one', {
+                id: 'telegram:user:1:8',
+                conversationId: 'telegram:user:1',
+                providerMessageId: '8',
+                senderId: 'user:1',
+                senderName: 'Bot',
+                direction: 'incoming',
+                text: 'plain',
+                createdAt: 5000,
+                editedAt: null,
+                media: []
+            })
+            expect(store.messengers.listMessages('one', 'telegram:user:1')[1]?.buttons).toBeUndefined()
+        } finally {
+            store.close()
+        }
+    })
+
     it('preserves an explicit selection while refreshing remote metadata', () => {
         const store = new Store(':memory:')
         try {

@@ -87,6 +87,97 @@ func TestMessageFromTelegramIncludesReactions(t *testing.T) {
 	}
 }
 
+func TestMessageFromTelegramIncludesButtons(t *testing.T) {
+	msg := &tg.Message{
+		ID:      13,
+		PeerID:  &tg.PeerUser{UserID: 42},
+		Message: "choose",
+		Date:    125,
+	}
+	msg.SetReplyMarkup(&tg.ReplyInlineMarkup{Rows: []tg.KeyboardButtonRow{
+		{Buttons: []tg.KeyboardButtonClass{
+			&tg.KeyboardButtonCallback{Text: "Next", Data: []byte("next:1")},
+			&tg.KeyboardButtonURL{Text: "Open", URL: "https://example.com"},
+			&tg.KeyboardButtonRequestPoll{Text: "unsupported"},
+			&tg.KeyboardButtonURL{Text: "Evil", URL: "javascript:alert(1)"},
+		}},
+		{Buttons: []tg.KeyboardButtonClass{
+			&tg.KeyboardButtonRequestPoll{Text: "unsupported"},
+			&tg.KeyboardButtonCallback{Text: "Stop", Data: []byte("stop")},
+		}},
+	}})
+
+	result, ok := messageFromTelegram(msg, messageEntities(), nil, nil, 0)
+	if !ok {
+		t.Fatal("message was not converted")
+	}
+	if len(result.Buttons) != 2 || len(result.Buttons[0]) != 2 || len(result.Buttons[1]) != 1 {
+		t.Fatalf("unexpected button rows: %#v", result.Buttons)
+	}
+	next, open := result.Buttons[0][0], result.Buttons[0][1]
+	if next.Kind != "callback" || next.ID != "0:0" || next.Text != "Next" || next.URL != nil {
+		t.Fatalf("unexpected callback button: %#v", next)
+	}
+	if open.Kind != "url" || open.ID != "0:1" || open.URL == nil || *open.URL != "https://example.com" {
+		t.Fatalf("unexpected url button: %#v", open)
+	}
+	// Skipped buttons keep the raw coordinates: the poll before "Stop" must not
+	// shift its id, or the press would resolve against the wrong markup cell.
+	if result.Buttons[1][0].ID != "1:1" || result.Buttons[1][0].Text != "Stop" {
+		t.Fatalf("unexpected second row: %#v", result.Buttons[1])
+	}
+
+	plain, ok := messageFromTelegram(&tg.Message{
+		ID:      14,
+		PeerID:  &tg.PeerUser{UserID: 42},
+		Message: "no buttons",
+		Date:    126,
+	}, messageEntities(), nil, nil, 0)
+	if !ok || plain.Buttons != nil {
+		t.Fatalf("expected no buttons, got %#v", plain.Buttons)
+	}
+}
+
+func TestButtonByID(t *testing.T) {
+	markup := &tg.ReplyInlineMarkup{Rows: []tg.KeyboardButtonRow{
+		{Buttons: []tg.KeyboardButtonClass{
+			&tg.KeyboardButtonCallback{Text: "Next", Data: []byte("next:1")},
+			&tg.KeyboardButtonURL{Text: "Open", URL: "https://example.com"},
+		}},
+	}}
+	button, err := buttonByID(markup, "0:0")
+	if err != nil || string(button.Data) != "next:1" {
+		t.Fatalf("unexpected callback lookup: %#v, %v", button, err)
+	}
+	if _, err := buttonByID(markup, "0:1"); err == nil {
+		t.Fatal("expected url buttons to be unpressable")
+	}
+	if _, err := buttonByID(markup, "1:0"); err == nil {
+		t.Fatal("expected out-of-range row to fail")
+	}
+	if _, err := buttonByID(markup, "bogus"); err == nil {
+		t.Fatal("expected malformed id to fail")
+	}
+	if _, err := buttonByID(nil, "0:0"); err == nil {
+		t.Fatal("expected missing markup to fail")
+	}
+}
+
+func TestMessageFromTelegramSetsEditedAt(t *testing.T) {
+	msg := &tg.Message{
+		ID:      15,
+		PeerID:  &tg.PeerUser{UserID: 42},
+		Message: "edited",
+		Date:    126,
+	}
+	msg.SetEditDate(200)
+
+	result, ok := messageFromTelegram(msg, messageEntities(), nil, nil, 0)
+	if !ok || result.EditedAt == nil || *result.EditedAt != 200_000 {
+		t.Fatalf("unexpected editedAt: %#v", result.EditedAt)
+	}
+}
+
 func TestReactionFromKey(t *testing.T) {
 	emoji, err := reactionFromKey("emoji:🔥")
 	if err != nil || emoji.(*tg.ReactionEmoji).Emoticon != "🔥" {
