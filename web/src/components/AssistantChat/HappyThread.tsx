@@ -898,6 +898,25 @@ export function HappyThread(props: {
             const hadExplicitUpwardIntent = hasExplicitUpwardIntent(intent)
             const explicitUpwardIntent = needsCoverage && consumeExplicitUpwardIntent(intent)
 
+            // Geometry alone cannot transfer an opened thread from tail to
+            // history. Runtime/media updates can move it all the way to the
+            // preload area without reader input; loading older pages there
+            // would disable tail following and preserve the accidental jump.
+            if (
+                !hadExplicitUpwardIntent
+                && !intent.isNearBottom
+                && autoScrollEnabledRef.current
+                && atBottomRef.current
+                && !pendingScrollRef.current
+                && !tailScrollInProgressRef.current
+            ) {
+                viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'instant' })
+                lastScrollTopRef.current = viewport.scrollTop
+                restoredHistoryAnchorRef.current = null
+                setShowScrollToBottom(false)
+                return
+            }
+
             if (isInitialScrollSettling()) {
                 setShowScrollToBottom(false)
                 if (shouldCancelInitialScrollSettling(intent, hadExplicitUpwardIntent)) {
@@ -926,26 +945,6 @@ export function HappyThread(props: {
             }
 
             if (intent.isScrollingUp && intent.distanceFromBottom > MANUAL_SCROLL_EPSILON_PX) {
-                // Layout/runtime updates and late browser restoration can move
-                // a freshly opened thread upward without any user input. Keep
-                // tail ownership in that case; only an explicit gesture (or a
-                // genuine reach for older history via the preload sentinel)
-                // may switch the thread into history mode. A user on a touch
-                // device that does not surface pointer events still scrolls by
-                // reaching the preload area, so the sentinel is the source of
-                // truth there.
-                if (
-                    !hadExplicitUpwardIntent
-                    && !needsCoverage
-                    && autoScrollEnabledRef.current
-                    && atBottomRef.current
-                    && !pendingScrollRef.current
-                ) {
-                    viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'instant' })
-                    lastScrollTopRef.current = viewport.scrollTop
-                    setShowScrollToBottom(false)
-                    return
-                }
                 tailScrollInProgressRef.current = false
                 setShowScrollToBottom(false)
                 setAutoScrollMode(false)

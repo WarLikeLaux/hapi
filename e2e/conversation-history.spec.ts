@@ -1,5 +1,30 @@
 import { expect, test } from '@playwright/test'
 
+test('late sizing and automatic viewport movement keep an opened agent chat at its newest response', async ({ page }) => {
+    await page.goto('/e2e-fixtures/history-load-fixture.html?conversation=1')
+    const viewport = page.locator('.chat-scroll-y')
+    const gap = () => viewport.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)
+    await expect(page.getByText('Fixture response 1200', { exact: true })).toBeVisible()
+    // Exercise steady tail mode after the bounded opening-settle window.
+    await page.waitForTimeout(2000)
+    await expect.poll(gap).toBeLessThan(2)
+
+    await viewport.evaluate(element => {
+        element.scrollTop -= 10
+        element.scrollTop = element.scrollHeight
+        const message = element.querySelector<HTMLElement>('.happy-thread-messages > [id]:last-child')!
+        message.style.paddingBottom = '320px'
+    })
+    await page.waitForTimeout(100)
+    await expect.poll(gap).toBeLessThan(2)
+
+    const olderRequests = await page.evaluate(() => window.__probe.requests.filter(request => request.direction === 'before').length)
+    await viewport.evaluate(element => { element.scrollTop = 0 })
+    await page.waitForTimeout(100)
+    await expect.poll(gap).toBeLessThan(2)
+    expect(await page.evaluate(() => window.__probe.requests.filter(request => request.direction === 'before').length)).toBe(olderRequests)
+})
+
 test('history loads and late content sizing preserve the current reading position after manual scrolling', async ({ page }) => {
     await page.goto('/e2e-fixtures/history-load-fixture.html?conversation=1')
     const viewport = page.locator('.chat-scroll-y')
