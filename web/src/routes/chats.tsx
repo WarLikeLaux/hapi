@@ -841,11 +841,6 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     const { api } = useAppContext()
     const { t } = useTranslation()
     const navigate = useNavigate()
-    const connections = useQuery({
-        queryKey: queryKeys.messengerConnections,
-        queryFn: async () => (await api!.getMessengerConnections()).connections,
-        enabled: Boolean(api)
-    })
     const conversations = useQuery({
         queryKey: queryKeys.externalConversations,
         queryFn: async () => (await api!.getExternalConversations()).conversations,
@@ -899,9 +894,6 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     // and never retry — a cold open straight into a chat (messages response
     // landing before the list) would stay scrolled to the top.
     const chatReady = Boolean(conversation)
-    const ownAccountAvatarUrl = conversation
-        ? connections.data?.find((item) => item.provider === conversation.provider)?.accountAvatarUrl ?? null
-        : null
     const messages = useExternalMessages(api, conversationId)
     const participantAvatars = useMemo(() => new Map(
         (messages.data?.participants ?? []).map((participant) => [participant.id, participant.avatarDataUrl])
@@ -1173,7 +1165,6 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         const avatarSrc = item.senderAvatarDataUrl
                             ?? (item.senderId ? participantAvatars.get(item.senderId) : null)
                             ?? (incoming && conversation.kind === 'direct' ? conversation.avatarDataUrl : null)
-                            ?? (!incoming ? ownAccountAvatarUrl : null)
                         const groupedCornerClassName = incoming
                             ? cn(continuesPrevious && 'rounded-tl-[5px]', continuesNext && 'rounded-bl-[5px]')
                             : cn(continuesPrevious && 'rounded-tr-[5px]', continuesNext && 'rounded-br-[5px]')
@@ -1501,11 +1492,6 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                         </div>
                                     ) : null}
                                 </div>
-                                {!incoming ? (
-                                    continuesNext
-                                        ? <div aria-hidden="true" className="h-8 w-8 shrink-0" />
-                                        : <ChatParticipantAvatar src={avatarSrc} name={item.senderName} currentUser />
-                                ) : null}
                             </div>
                         )
                     })}
