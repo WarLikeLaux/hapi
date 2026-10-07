@@ -13,6 +13,7 @@ const conversations: ExternalConversation[] = ['short', 'long'].map(id => ({
     id, provider: 'telegram', remoteId: id, title: id, kind: 'direct',
     selected: true, unreadCount: 0, lastMessageAt: null, lastMessagePreview: null,
 }))
+const thumbnail = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"><rect width="640" height="240" fill="#4682b4"/></svg>')}`
 const api = {
     getMessengerConnections: async () => ({ connections: [] }),
     getExternalConversations: async () => ({ conversations }),
@@ -21,10 +22,17 @@ const api = {
             id: `${id}-${index}`, conversationId: id, providerMessageId: `${id}-${index}`,
             senderId: 'peer', senderName: 'Peer', direction: 'incoming',
             text: `${id} message ${index}`, createdAt: index * 60_000,
-            editedAt: null, media: [],
+            editedAt: null, media: index % 8 === 5 ? [{
+                kind: 'image', mimeType: 'image/svg+xml', fileName: 'photo.svg', size: null,
+                thumbnailDataUrl: thumbnail,
+            }] : [],
         })),
         participants: [],
     }),
+    getExternalMediaBlob: async () => {
+        await new Promise(resolve => setTimeout(resolve, 120))
+        return new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="640" height="960"><rect width="640" height="960" fill="#4682b4"/></svg>'], { type: 'image/svg+xml' })
+    },
     setConversationActive: async () => {},
 } as unknown as ApiClient
 
