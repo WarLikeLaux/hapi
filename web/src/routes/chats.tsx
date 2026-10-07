@@ -260,7 +260,9 @@ function MediaAttachment(props: {
         return () => observer.disconnect()
     }, [autoLoadsOriginal, error, fullUrl, loadOriginal, loading])
 
-    const label = mediaLabels[media.kind]
+    // Telegram delivers GIFs as silent animated MP4 with kind "video"; surface
+    // them as GIF everywhere a plain video would say "Video".
+    const label = media.kind === 'video' && media.isAnimated ? 'GIF' : mediaLabels[media.kind]
     if (fullUrl && (media.kind === 'image' || media.kind === 'sticker')) {
         const isSticker = media.kind === 'sticker'
         return (
@@ -299,7 +301,7 @@ function MediaAttachment(props: {
         return (
             <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} disabled={loading} className={cn('group relative flex cursor-pointer items-center justify-center overflow-hidden bg-black/10 disabled:cursor-wait', media.isRound ? 'h-[min(14rem,72vw)] w-[min(14rem,72vw)] rounded-full' : isSticker ? 'w-[min(64vw,15rem)] rounded-xl' : 'w-[min(82vw,24rem)] rounded-xl')}>
                 <img src={media.thumbnailDataUrl!} alt={label} className={cn('w-full transition-opacity', media.isRound ? 'h-full object-cover' : isSticker ? 'max-h-[15rem] object-contain' : 'max-h-80 min-h-36 object-contain', loading && 'opacity-70')} />
-                {loading || error || media.kind === 'video' ? <span className="absolute inset-0 grid place-items-center bg-black/20 text-center text-sm font-medium text-white opacity-100 drop-shadow transition-opacity sm:opacity-0 sm:group-hover:opacity-100 group-disabled:opacity-100">{loading ? 'Loading original…' : error ? 'Tap to retry' : '▶ Play video'}</span> : null}
+                {loading || error || media.kind === 'video' ? <span className="absolute inset-0 grid place-items-center bg-black/20 text-center text-sm font-medium text-white opacity-100 drop-shadow transition-opacity sm:opacity-0 sm:group-hover:opacity-100 group-disabled:opacity-100">{loading ? 'Loading original…' : error ? 'Tap to retry' : media.isAnimated ? 'GIF' : '▶ Play video'}</span> : null}
                 {props.overlay}
             </button>
         )
@@ -764,7 +766,7 @@ function ChatList(props: {
                                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{conversation.title}</span>
                                 {conversation.unreadCount > 0 ? <span className="min-w-5 rounded-full bg-[var(--app-button)] px-1.5 py-0.5 text-center text-[10px] font-semibold text-[var(--app-button-text)]">{conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}</span> : null}
                                 {conversation.lastMessageDirection === 'outgoing' && conversation.lastMessageDeliveryStatus
-                                    ? <ExternalDeliveryStatus status={conversation.lastMessageDeliveryStatus} className="self-center text-[#2AABEE]" />
+                                    ? <ExternalDeliveryStatus status={conversation.lastMessageDeliveryStatus} className="self-center" />
                                     : null}
                                 <span className="shrink-0 text-[10px] text-[var(--app-hint)]">{formatTime(conversation.lastMessageAt)}</span>
                             </span>

@@ -1173,7 +1173,7 @@ function FreshChatItem({ conversation }: { conversation: ExternalConversation })
                         </span>
                     ) : null}
                     {conversation.lastMessageDirection === 'outgoing' && conversation.lastMessageDeliveryStatus
-                        ? <ExternalDeliveryStatus status={conversation.lastMessageDeliveryStatus} className="self-center text-[#2AABEE]" />
+                        ? <ExternalDeliveryStatus status={conversation.lastMessageDeliveryStatus} className="self-center" />
                         : null}
                     {conversation.lastMessageAt ? (
                         <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">

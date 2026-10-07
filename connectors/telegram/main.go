@@ -525,6 +525,11 @@ func mediaPreview(media []externalMedia) string {
 	case "image":
 		return "Photo"
 	case "video":
+		if media[0].IsAnimated {
+			// Telegram delivers GIFs as silent animated MP4 documents; calling
+			// them "Video" in previews and reply quotes reads as a bug.
+			return "GIF"
+		}
 		return "Video"
 	case "audio":
 		return "Audio"
