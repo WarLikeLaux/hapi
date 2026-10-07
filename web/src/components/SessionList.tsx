@@ -25,6 +25,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { useFreshChatsWindow, getFreshChatsWindowMs } from '@/hooks/useFreshChatsWindow'
 import {
+    isNewEmptySession,
     mergeSidebarChatRows,
     selectFreshSidebarConversations,
     type SidebarChatRow,
@@ -304,14 +305,6 @@ export function sortSessionsByNewestAgentActivity(sessions: SessionSummary[]): S
     return [...sessions].sort((a, b) => (
         getSessionUnreadActivityAt(b) - getSessionUnreadActivityAt(a) || a.id.localeCompare(b.id)
     ))
-}
-
-export function isNewEmptySession(session: SessionSummary): boolean {
-    if (!session.active) return false
-    if (session.hasConversationContent) return false
-    if ((session.lastMessageAt ?? 0) > 0) return false
-    if ((session.lastAgentMessageAt ?? 0) > 0) return false
-    return true
 }
 
 export function getEmptySessionTime(session: SessionSummary): number {
@@ -1850,8 +1843,8 @@ export function SessionList(props: {
             ? sortSessionsBySearchRelevancePreservingForkOrder(active, searchScoreIndex)
             : active
     }, [hasTextQuery, machineFilteredSessions, pinInProgressSessions, searchScoreIndex])
-    // Interleave fresh chats between the active sessions by recency; null keeps
-    // the section on its pure-session rendering path.
+    // Keep new empty sessions on top, then interleave fresh chats by recency;
+    // null keeps the section on its pure-session rendering path.
     const activeRows = useMemo(
         () => freshChats.length > 0 ? mergeSidebarChatRows(activeSessions, freshChats) : null,
         [activeSessions, freshChats]

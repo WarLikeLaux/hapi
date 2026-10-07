@@ -15,6 +15,14 @@ export function getChatSortAt(conversation: ExternalConversation): number {
     return conversation.lastMessageAt ?? 0
 }
 
+export function isNewEmptySession(session: SessionSummary): boolean {
+    if (!session.active) return false
+    if (session.hasConversationContent) return false
+    if ((session.lastMessageAt ?? 0) > 0) return false
+    if ((session.lastAgentMessageAt ?? 0) > 0) return false
+    return true
+}
+
 /** Unread chats are always fresh; read ones stay for the grace window only. */
 export function isFreshConversation(
     conversation: ExternalConversation,
@@ -43,19 +51,19 @@ export function selectFreshSidebarConversations(
         .sort((a, b) => getChatSortAt(b) - getChatSortAt(a) || a.id.localeCompare(b.id))
 }
 
-// Two-way merge of two lists that are both newest-first: sessions keep their
-// relative order, chats keep theirs, and rows interleave by timestamp.
+// Active sessions put new empty sessions first, followed by newest activity.
+// Keep that priority and both lists' relative order when interleaving chats.
 export function mergeSidebarChatRows(
     sessions: SessionSummary[],
     conversations: ExternalConversation[]
 ): SidebarChatRow[] {
-    const sessionRows: SidebarChatRow[] = sessions.map(session => ({
+    const sessionRows: Extract<SidebarChatRow, { kind: 'session' }>[] = sessions.map(session => ({
         kind: 'session',
         key: `session:${session.id}`,
         session,
         sortAt: getSessionUnreadActivityAt(session),
     }))
-    const chatRows: SidebarChatRow[] = conversations.map(conversation => ({
+    const chatRows: Extract<SidebarChatRow, { kind: 'chat' }>[] = conversations.map(conversation => ({
         kind: 'chat',
         key: `chat:${conversation.id}`,
         conversation,
@@ -67,7 +75,7 @@ export function mergeSidebarChatRows(
     while (sessionIndex < sessionRows.length && chatIndex < chatRows.length) {
         const nextSession = sessionRows[sessionIndex]
         const nextChat = chatRows[chatIndex]
-        if (nextSession.sortAt >= nextChat.sortAt) {
+        if (isNewEmptySession(nextSession.session) || nextSession.sortAt >= nextChat.sortAt) {
             rows.push(nextSession)
             sessionIndex += 1
         } else {
