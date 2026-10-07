@@ -860,6 +860,13 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     const fileInputRef = useRef<HTMLInputElement>(null)
     const composerRef = useRef<HTMLTextAreaElement>(null)
     const stickToBottomRef = useRef(true)
+    // Reading-position anchor for when the reader has scrolled away from the
+    // bottom: the topmost visible message and its viewport-relative offset.
+    // Media loading into history expands content above them, and without a
+    // compensation the visible text shifts — the reader sees the chat scroll
+    // itself up. Captured on every scroll event, consumed by the content
+    // resize observer below.
+    const scrollAnchorRef = useRef<{ element: HTMLElement; top: number } | null>(null)
     const swipeGestureRef = useRef<{ id: string | null; startX: number; startY: number; horizontal: boolean; dx: number; bubble: HTMLElement | null }>({ id: null, startX: 0, startY: 0, horizontal: false, dx: 0, bubble: null })
     const handleComposerFocus = useChatKeyboardTail({ viewportRef, composerRef, stickToBottomRef, active: !conversations.isLoading })
     // Telegram-style reply gestures: double-click on a message bubble or a
@@ -1003,11 +1010,41 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
         if (!content || typeof ResizeObserver === 'undefined') return
         const observer = new ResizeObserver(() => {
             const viewport = viewportRef.current
-            if (viewport && stickToBottomRef.current) viewport.scrollTop = viewport.scrollHeight
+            if (!viewport) return
+            if (stickToBottomRef.current) {
+                viewport.scrollTop = viewport.scrollHeight
+                return
+            }
+            // The reader is scrolled into history: keep their reading position
+            // pinned to the anchor message while content above it changes size.
+            // The browser's native scroll anchoring loses track when React
+            // replaces message nodes on refetches, so compensate manually.
+            const anchor = scrollAnchorRef.current
+            if (!anchor || !anchor.element.isConnected) return
+            const delta = anchor.element.getBoundingClientRect().top - anchor.top
+            if (Math.abs(delta) > 1) {
+                viewport.scrollTop += delta
+                anchor.top = anchor.element.getBoundingClientRect().top
+            }
         })
         observer.observe(content)
         return () => observer.disconnect()
     }, [conversationId, chatReady])
+
+    // Remember the message at the top of the viewport so content growth above
+    // it can be compensated (see the resize observer above).
+    const captureScrollAnchor = (viewport: HTMLElement) => {
+        const rect = viewport.getBoundingClientRect()
+        for (let offset = 40; offset < rect.height; offset += 40) {
+            const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + offset)
+            const messageNode = hit?.closest<HTMLElement>('[data-provider-message-id]')
+            if (messageNode) {
+                scrollAnchorRef.current = { element: messageNode, top: messageNode.getBoundingClientRect().top }
+                return
+            }
+        }
+        scrollAnchorRef.current = null
+    }
 
     if (!conversation && conversations.isLoading) {
         return <div className="m-auto text-sm text-[var(--app-hint)]">{t('loading')}</div>
@@ -1045,8 +1082,12 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
                 onScroll={(event) => {
                     const viewport = event.currentTarget
                     stickToBottomRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80
+                    captureScrollAnchor(viewport)
                 }}
-                className="min-h-0 flex-1 overflow-y-auto bg-[var(--app-chat-bg,var(--app-bg))] px-3 py-5"
+                // overflow-anchor off: the pane compensates media growth itself
+                // (native anchoring drops its anchor when React swaps message
+                // nodes, and mixing the two would double-adjust).
+                className="min-h-0 flex-1 overflow-y-auto bg-[var(--app-chat-bg,var(--app-bg))] px-3 py-5 [overflow-anchor:none]"
             >
                 <div ref={messageContentRef} className="mx-auto flex w-full max-w-content flex-col gap-2">
                     {messageItems.map((item, index) => {

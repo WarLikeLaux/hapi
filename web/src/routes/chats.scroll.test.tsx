@@ -191,6 +191,71 @@ describe('chats scroll-to-bottom', () => {
         expect(viewport(view.container).scrollTop).toBe(5000)
     })
 
+    it('holds the reading position when media loads into history above it', async () => {
+        stubScrollGeometry()
+        // A manually driven ResizeObserver stand-in: the compensation branch is
+        // what fires from it, so the test triggers it directly.
+        class FakeResizeObserver {
+            static instances: Array<{ callback: ResizeObserverCallback; observed: Element | null }> = []
+            observed: Element | null = null
+            constructor(public callback: ResizeObserverCallback) {
+                FakeResizeObserver.instances.push(this)
+            }
+            observe(target: Element) { this.observed = target }
+            unobserve() {} disconnect() {}
+        }
+        vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+        context.conversationId = 'tg:chat:1'
+        context.api = baseApi({
+            getExternalConversations: async () => ({ conversations: [conversation(context.conversationId)] }),
+            getExternalMessages: async () => ({ messages: [message('m1', 'hello'), message('m2', 'latest')], participants: [] }),
+        })
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        client.setQueryData(queryKeys.externalConversations, [conversation(context.conversationId)])
+        seedMessages(client, context.conversationId, [message('m1', 'hello'), message('m2', 'latest')])
+        const view = renderPane(client)
+        await screen.findByText('latest')
+        await flushFrames()
+        const vp = viewport(view.container)
+        expect(vp.scrollTop).toBe(5000)
+
+        // The reader scrolls up into history: the pin releases and the topmost
+        // visible message becomes the reading-position anchor.
+        vp.scrollTop = 1000
+        const anchorNode = screen.getByText('hello').closest('[data-provider-message-id]')
+        if (!anchorNode) throw new Error('anchor message not mounted')
+        const domRect = (top: number) => ({ top, left: 0, width: 800, height: 800, x: 0, y: top, right: 800, bottom: top + 800, toJSON: () => ({}) }) as DOMRect
+        // jsdom has no elementFromPoint at all, so assign rather than spy.
+        const previousElementFromPoint = document.elementFromPoint
+        document.elementFromPoint = () => anchorNode
+        const viewportRect = vi.spyOn(vp, 'getBoundingClientRect').mockReturnValue(domRect(0))
+        const anchorRect = vi.spyOn(anchorNode as HTMLElement, 'getBoundingClientRect').mockReturnValue(domRect(100))
+        await act(async () => {
+            vp.dispatchEvent(new Event('scroll', { bubbles: true }))
+        })
+        expect(vp.scrollTop).toBe(1000)
+
+        // Media above the anchor finishes loading and pushes it down 192px; the
+        // content resize observer must scroll by exactly that delta.
+        anchorRect.mockReturnValue(domRect(292))
+        const observer = FakeResizeObserver.instances.find((entry) => entry.observed != null && entry.observed.parentElement === vp)
+        if (!observer) throw new Error('content ResizeObserver not registered')
+        await act(async () => {
+            observer.callback([], observer as unknown as ResizeObserver)
+        })
+        expect(vp.scrollTop).toBe(1192)
+
+        // A later fire with no further movement must not keep scrolling.
+        await act(async () => {
+            observer.callback([], observer as unknown as ResizeObserver)
+        })
+        expect(vp.scrollTop).toBe(1192)
+        document.elementFromPoint = previousElementFromPoint
+        viewportRect.mockRestore()
+        anchorRect.mockRestore()
+        vi.unstubAllGlobals()
+    })
+
     it('opens scrolled to the newest message when the conversations list resolves first and messages arrive later', async () => {
         stubScrollGeometry()
         context.conversationId = 'tg:chat:1'
