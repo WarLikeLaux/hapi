@@ -491,3 +491,23 @@ func utf16Window(message string, offset, length int) string {
 func messageEntities() messagepeer.Entities {
 	return messagepeer.NewEntities(map[int64]*tg.User{}, map[int64]*tg.Chat{}, map[int64]*tg.Channel{})
 }
+
+func TestMediaPreviewAnimatedIsGIF(t *testing.T) {
+	tests := []struct {
+		name  string
+		media externalMedia
+		want  string
+	}{
+		{"animated video is a GIF", externalMedia{Kind: "video", IsAnimated: true}, "GIF"},
+		{"plain video stays Video", externalMedia{Kind: "video"}, "Video"},
+		{"round video stays Video", externalMedia{Kind: "video", IsRound: true}, "Video"},
+		{"photo stays Photo", externalMedia{Kind: "image"}, "Photo"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mediaPreview([]externalMedia{tc.media}); got != tc.want {
+				t.Fatalf("mediaPreview = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

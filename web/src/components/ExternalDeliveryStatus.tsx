@@ -12,7 +12,8 @@ export function ExternalDeliveryStatus(props: {
             role="img"
             aria-label={label}
             title={label}
-            className={cn('inline-flex shrink-0 text-[var(--app-hint)]', read && 'text-[#2AABEE]', props.className)}
+            // Telegram-style: both states are blue; one check = sent, two = read.
+            className={cn('inline-flex shrink-0 text-[#2AABEE]', props.className)}
         >
             <svg
                 viewBox="0 0 18 12"
