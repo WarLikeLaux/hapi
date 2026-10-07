@@ -1,0 +1,51 @@
+import { createRoot } from 'react-dom/client'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router'
+import { useState } from 'react'
+import type { ExternalConversation, ExternalMessage } from '@hapi/protocol/messengers'
+import type { ApiClient } from '../src/api/client'
+import { ChatConversationPane } from '../src/routes/chats'
+import { AppContextProvider } from '../src/lib/app-context'
+import { I18nProvider } from '../src/lib/i18n-context'
+import '../src/index.css'
+
+const conversations: ExternalConversation[] = ['short', 'long'].map(id => ({
+    id, provider: 'telegram', remoteId: id, title: id, kind: 'direct',
+    selected: true, unreadCount: 0, lastMessageAt: null, lastMessagePreview: null,
+}))
+const api = {
+    getMessengerConnections: async () => ({ connections: [] }),
+    getExternalConversations: async () => ({ conversations }),
+    getExternalMessages: async (id: string) => ({
+        messages: Array.from({ length: id === 'short' ? 30 : 70 }, (_, index): ExternalMessage => ({
+            id: `${id}-${index}`, conversationId: id, providerMessageId: `${id}-${index}`,
+            senderId: 'peer', senderName: 'Peer', direction: 'incoming',
+            text: `${id} message ${index}`, createdAt: index * 60_000,
+            editedAt: null, media: [],
+        })),
+        participants: [],
+    }),
+    setConversationActive: async () => {},
+} as unknown as ApiClient
+
+function Fixture() {
+    const [id, setId] = useState('short')
+    return <div className="flex h-dvh flex-col">
+        <nav className="flex shrink-0 gap-4">
+            {conversations.map(conversation => <button key={conversation.id}
+                onClick={() => setId(conversation.id)}>Open {conversation.id}</button>)}
+        </nav>
+        <div className="min-h-0 flex-1">
+            <ChatConversationPane conversationId={id} backTo="/chats" />
+        </div>
+    </div>
+}
+
+const router = createRouter({ routeTree: createRootRoute({ component: Fixture }) })
+createRoot(document.getElementById('root')!).render(
+    <QueryClientProvider client={new QueryClient()}>
+        <AppContextProvider value={{ api, token: '', baseUrl: '' }}>
+            <I18nProvider><RouterProvider router={router} /></I18nProvider>
+        </AppContextProvider>
+    </QueryClientProvider>,
+)

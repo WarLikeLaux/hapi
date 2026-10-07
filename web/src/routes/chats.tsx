@@ -860,6 +860,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     const fileInputRef = useRef<HTMLInputElement>(null)
     const composerRef = useRef<HTMLTextAreaElement>(null)
     const stickToBottomRef = useRef(true)
+    const lastScrollTopRef = useRef(0)
     // Reading-position anchor for when the reader has scrolled away from the
     // bottom: the topmost visible message and its viewport-relative offset.
     // Media loading into history expands content above them, and without a
@@ -966,14 +967,18 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     })
     useLayoutEffect(() => {
         stickToBottomRef.current = true
+        scrollAnchorRef.current = null
         setReactionPickerFor(null)
         setReactionPickerExpanded(false)
         setReplyTo(null)
         setHighlightedReplyId(null)
         const viewport = viewportRef.current
         if (!viewport) return
+        viewport.scrollTop = viewport.scrollHeight
+        lastScrollTopRef.current = viewport.scrollTop
         const frame = requestAnimationFrame(() => {
             viewport.scrollTop = viewport.scrollHeight
+            lastScrollTopRef.current = viewport.scrollTop
         })
         return () => cancelAnimationFrame(frame)
     }, [conversationId, chatReady])
@@ -1001,6 +1006,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
         if (!viewport) return
         const frame = requestAnimationFrame(() => {
             viewport.scrollTop = viewport.scrollHeight
+            lastScrollTopRef.current = viewport.scrollTop
         })
         return () => cancelAnimationFrame(frame)
     }, [messages.data, outbox.entries, chatReady])
@@ -1013,6 +1019,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
             if (!viewport) return
             if (stickToBottomRef.current) {
                 viewport.scrollTop = viewport.scrollHeight
+                lastScrollTopRef.current = viewport.scrollTop
                 return
             }
             // The reader is scrolled into history: keep their reading position
@@ -1024,6 +1031,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
             const delta = anchor.element.getBoundingClientRect().top - anchor.top
             if (Math.abs(delta) > 1) {
                 viewport.scrollTop += delta
+                lastScrollTopRef.current = viewport.scrollTop
                 anchor.top = anchor.element.getBoundingClientRect().top
             }
         })
@@ -1059,6 +1067,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
         const viewport = viewportRef.current
         const node = viewport?.querySelector<HTMLElement>(`[data-provider-message-id="${CSS.escape(providerMessageId)}"]`)
         if (!node) return
+        stickToBottomRef.current = false
         node.scrollIntoView({ block: 'center', behavior: 'smooth' })
         setHighlightedReplyId(providerMessageId)
         window.setTimeout(() => {
@@ -1081,7 +1090,13 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
                 onClick={() => setReactionPickerFor(null)}
                 onScroll={(event) => {
                     const viewport = event.currentTarget
-                    stickToBottomRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80
+                    const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80
+                    // A queued scroll event can arrive after media grows. A
+                    // larger bottom gap alone is not an upward reader scroll;
+                    // release the pin only when the position actually moves up.
+                    if (atBottom) stickToBottomRef.current = true
+                    else if (viewport.scrollTop < lastScrollTopRef.current) stickToBottomRef.current = false
+                    lastScrollTopRef.current = viewport.scrollTop
                     captureScrollAnchor(viewport)
                 }}
                 // overflow-anchor off: the pane compensates media growth itself
