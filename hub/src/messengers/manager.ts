@@ -35,6 +35,12 @@ const CANDIDATE_REFRESH_INTERVAL_MS = 60_000
 // interval so a refresh through the candidates UI is not immediately shadowed
 // by a refresh kicked off by the chat list.
 const AVATAR_LAZY_REFRESH_INTERVAL_MS = 5 * 60_000
+// A failed provider start (e.g. an xiva handshake that timed out during a
+// network blip) must not silence the connector until the next hub restart.
+// Re-run `configure` from the error state with exponential backoff so a longer
+// outage does not turn every API call into a fresh 15s handshake attempt.
+const CONFIGURE_RETRY_BASE_MS = 30_000
+const CONFIGURE_RETRY_MAX_MS = 300_000
 
 /**
  * Rewrite yapic avatar URLs that point at dead (`/SMALL48`) or too-small
@@ -76,6 +82,8 @@ export class MessengerManager {
     private readonly mediaPrefetchQueue: MediaPrefetchTask[] = []
     private readonly mediaPrefetchPausedUntil = new Map<string, number>()
     private readonly avatarLazyRefreshAt = new Map<string, number>()
+    private readonly configureBackoff = new Map<string, { lastAt: number; attempts: number }>()
+    private readonly configureInFlight = new Map<string, Promise<void>>()
     private mediaPrefetchRunning = false
     /**
      * Conversations the operator currently has open in the web UI. Keyed by
@@ -711,15 +719,41 @@ export class MessengerManager {
     }
 
     private async startFromSavedConfig(namespace: string, connector: MessengerConnector): Promise<void> {
-        if (connector.getConnection().state !== 'unconfigured') return
+        const state = connector.getConnection().state
+        // `error` covers a failed start (network blip during the handshake, a
+        // temporarily rejected session). Without retrying, a single transient
+        // failure used to leave delivery dead until the next hub restart.
+        if (state !== 'unconfigured' && state !== 'error') return
         if (connector.provider !== 'telegram' && connector.provider !== 'yandex') return
-        const config = await this.readProviderConfig(namespace, connector.provider)
-        if (!config) return
-        try {
-            await connector.configure(config)
-        } catch (error) {
-            console.error(`[Messengers] Failed to start ${connector.provider} connector:`, error)
+        const key = this.key(namespace, connector.provider)
+        const inFlight = this.configureInFlight.get(key)
+        if (inFlight) return inFlight
+        if (state === 'error') {
+            const backoff = this.configureBackoff.get(key)
+            if (backoff) {
+                const wait = Math.min(CONFIGURE_RETRY_BASE_MS * 2 ** (backoff.attempts - 1), CONFIGURE_RETRY_MAX_MS)
+                if (Date.now() - backoff.lastAt < wait) return
+            }
         }
+        const attempt = (async () => {
+            try {
+                const config = await this.readProviderConfig(namespace, connector.provider)
+                if (!config) return
+                await connector.configure(config)
+                this.configureBackoff.delete(key)
+            } catch (error) {
+                const previous = this.configureBackoff.get(key)
+                this.configureBackoff.set(key, {
+                    lastAt: Date.now(),
+                    attempts: (previous?.attempts ?? 0) + 1
+                })
+                console.error(`[Messengers] Failed to start ${connector.provider} connector:`, error)
+            }
+        })().finally(() => {
+            this.configureInFlight.delete(key)
+        })
+        this.configureInFlight.set(key, attempt)
+        return attempt
     }
 
     private async saveProviderConfig(namespace: string, provider: string, config: object): Promise<void> {

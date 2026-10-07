@@ -1,14 +1,97 @@
 import { describe, expect, it } from 'bun:test'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ExternalConversation, ExternalMessage, MessengerConnection } from '@hapi/protocol'
 import { Store } from '../store'
 import type { SSEManager } from '../sse/sseManager'
 import { MessengerManager } from './manager'
-import type { MessengerConnector, MessengerConnectorEvent } from './types'
+import type { MessengerConnector, MessengerConnectorEvent, MessengerConnectorFactory } from './types'
 
 describe('MessengerManager', () => {
+    it('re-runs configure from the error state once backoff has elapsed', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-configure-retry-'))
+        const store = new Store(':memory:')
+        const namespaceHash = createHash('sha256').update('default').digest('hex').slice(0, 24)
+        const providerDir = join(dataDir, 'messengers', namespaceHash, 'telegram')
+        await mkdir(providerDir, { recursive: true })
+        await writeFile(join(providerDir, 'config.json'), JSON.stringify({ apiId: 1, apiHash: 'hash' }))
+
+        let state: MessengerConnection['state'] = 'error'
+        let configureCalls = 0
+        const connector: MessengerConnector = {
+            provider: 'telegram',
+            getConnection: () => ({ provider: 'telegram', state, accountLabel: null, detail: null }),
+            configure: async () => {
+                configureCalls += 1
+                state = 'ready'
+            },
+            submitAuth: async () => {}, listConversations: async () => [], loadMessages: async () => [],
+            downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
+            sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
+        }
+        const manager = new MessengerManager({
+            dataDir, store, sseManager: { broadcast: () => {} } as unknown as SSEManager
+        })
+        const factories = (manager as unknown as { factories: Map<string, MessengerConnectorFactory> }).factories
+        factories.set('telegram', () => connector)
+        const backoff = (manager as unknown as {
+            configureBackoff: Map<string, { lastAt: number; attempts: number }>
+        }).configureBackoff
+        backoff.set('default\0telegram', { lastAt: Date.now() - 300_000, attempts: 3 })
+
+        try {
+            await manager.listCandidates('default', 'telegram', true)
+            expect(configureCalls).toBe(1)
+            expect(connector.getConnection().state).toBe('ready')
+        } finally {
+            await manager.stop()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
+    it('skips the configure retry while the error backoff is still running', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-configure-backoff-'))
+        const store = new Store(':memory:')
+        const namespaceHash = createHash('sha256').update('default').digest('hex').slice(0, 24)
+        const providerDir = join(dataDir, 'messengers', namespaceHash, 'telegram')
+        await mkdir(providerDir, { recursive: true })
+        await writeFile(join(providerDir, 'config.json'), JSON.stringify({ apiId: 1, apiHash: 'hash' }))
+
+        let configureCalls = 0
+        const connector: MessengerConnector = {
+            provider: 'telegram',
+            getConnection: () => ({ provider: 'telegram', state: 'error', accountLabel: null, detail: null }),
+            configure: async () => {
+                configureCalls += 1
+            },
+            submitAuth: async () => {}, listConversations: async () => [], loadMessages: async () => [],
+            downloadMedia: async () => ({ path: '/tmp/media', mimeType: 'image/jpeg', fileName: 'photo.jpg', size: 1 }),
+            sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
+        }
+        const manager = new MessengerManager({
+            dataDir, store, sseManager: { broadcast: () => {} } as unknown as SSEManager
+        })
+        const factories = (manager as unknown as { factories: Map<string, MessengerConnectorFactory> }).factories
+        factories.set('telegram', () => connector)
+        const backoff = (manager as unknown as {
+            configureBackoff: Map<string, { lastAt: number; attempts: number }>
+        }).configureBackoff
+        backoff.set('default\0telegram', { lastAt: Date.now(), attempts: 1 })
+
+        try {
+            await manager.listCandidates('default', 'telegram', true)
+            expect(configureCalls).toBe(0)
+        } finally {
+            await manager.stop()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('returns cached candidates immediately and refreshes them in the background', async () => {
         const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-candidate-cache-'))
         const store = new Store(':memory:')
