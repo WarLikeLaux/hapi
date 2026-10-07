@@ -832,6 +832,11 @@ export function ChatsIndexPage() {
 // Conversation pane shared by the full chats view and the sessions layout:
 // `backTo` decides where the mobile back arrow returns to.
 export function ChatConversationPane(props: { conversationId: string; backTo: '/chats' | '/sessions' }) {
+    // Old viewport refs, observers and local state belong to the previous chat.
+    return <ChatConversationView key={props.conversationId} {...props} />
+}
+
+function ChatConversationView(props: { conversationId: string; backTo: '/chats' | '/sessions' }) {
     const conversationId = props.conversationId
     const { api } = useAppContext()
     const { t } = useTranslation()
@@ -860,7 +865,8 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     const fileInputRef = useRef<HTMLInputElement>(null)
     const composerRef = useRef<HTMLTextAreaElement>(null)
     const stickToBottomRef = useRef(true)
-    const lastScrollTopRef = useRef(0)
+    const readerMovedAwayRef = useRef(false)
+    const scrollTouchRef = useRef<{ x: number; y: number } | null>(null)
     // Reading-position anchor for when the reader has scrolled away from the
     // bottom: the topmost visible message and its viewport-relative offset.
     // Media loading into history expands content above them, and without a
@@ -869,7 +875,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     // resize observer below.
     const scrollAnchorRef = useRef<{ element: HTMLElement; top: number } | null>(null)
     const swipeGestureRef = useRef<{ id: string | null; startX: number; startY: number; horizontal: boolean; dx: number; bubble: HTMLElement | null }>({ id: null, startX: 0, startY: 0, horizontal: false, dx: 0, bubble: null })
-    const handleComposerFocus = useChatKeyboardTail({ viewportRef, composerRef, stickToBottomRef, active: !conversations.isLoading })
+    const handleComposerFocus = useChatKeyboardTail({ viewportRef, stickToBottomRef, active: !conversations.isLoading })
     // Telegram-style reply gestures: double-click on a message bubble or a
     // left swipe anywhere across the message row starts a reply to it.
     const startReply = useCallback((message: ExternalMessage) => {
@@ -968,24 +974,18 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     useLayoutEffect(() => {
         stickToBottomRef.current = true
         scrollAnchorRef.current = null
-        setReactionPickerFor(null)
-        setReactionPickerExpanded(false)
-        setReplyTo(null)
-        setHighlightedReplyId(null)
         const viewport = viewportRef.current
         if (!viewport) return
         viewport.scrollTop = viewport.scrollHeight
-        lastScrollTopRef.current = viewport.scrollTop
         const frame = requestAnimationFrame(() => {
+            if (!stickToBottomRef.current) return
             viewport.scrollTop = viewport.scrollHeight
-            lastScrollTopRef.current = viewport.scrollTop
         })
         return () => cancelAnimationFrame(frame)
     }, [conversationId, chatReady])
 
     useEffect(() => {
-        const frame = requestAnimationFrame(() => composerRef.current?.focus())
-        return () => cancelAnimationFrame(frame)
+        composerRef.current?.focus({ preventScroll: true })
     }, [conversationId, chatReady])
 
     useEffect(() => {
@@ -1005,8 +1005,8 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
         const viewport = viewportRef.current
         if (!viewport) return
         const frame = requestAnimationFrame(() => {
+            if (!stickToBottomRef.current) return
             viewport.scrollTop = viewport.scrollHeight
-            lastScrollTopRef.current = viewport.scrollTop
         })
         return () => cancelAnimationFrame(frame)
     }, [messages.data, outbox.entries, chatReady])
@@ -1019,7 +1019,6 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
             if (!viewport) return
             if (stickToBottomRef.current) {
                 viewport.scrollTop = viewport.scrollHeight
-                lastScrollTopRef.current = viewport.scrollTop
                 return
             }
             // The reader is scrolled into history: keep their reading position
@@ -1031,7 +1030,6 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
             const delta = anchor.element.getBoundingClientRect().top - anchor.top
             if (Math.abs(delta) > 1) {
                 viewport.scrollTop += delta
-                lastScrollTopRef.current = viewport.scrollTop
                 anchor.top = anchor.element.getBoundingClientRect().top
             }
         })
@@ -1043,11 +1041,10 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     // it can be compensated (see the resize observer above).
     const captureScrollAnchor = (viewport: HTMLElement) => {
         const rect = viewport.getBoundingClientRect()
-        for (let offset = 40; offset < rect.height; offset += 40) {
-            const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + offset)
-            const messageNode = hit?.closest<HTMLElement>('[data-provider-message-id]')
-            if (messageNode) {
-                scrollAnchorRef.current = { element: messageNode, top: messageNode.getBoundingClientRect().top }
+        for (const messageNode of viewport.querySelectorAll<HTMLElement>('[data-provider-message-id]')) {
+            const messageRect = messageNode.getBoundingClientRect()
+            if (messageRect.bottom > rect.top && messageRect.top < rect.bottom) {
+                scrollAnchorRef.current = { element: messageNode, top: messageRect.top }
                 return
             }
         }
@@ -1063,11 +1060,18 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     const messageItems = [...(messages.data?.messages ?? []), ...outbox.entries.map((entry) => entry.message)]
     const outboxById = new Map(outbox.entries.map((entry) => [entry.message.id, entry]))
     const messagesByProviderId = new Map(messageItems.map((message) => [message.providerMessageId, message]))
+    const releaseBottomPin = () => {
+        if (stickToBottomRef.current) {
+            readerMovedAwayRef.current = false
+            scrollAnchorRef.current = null
+        }
+        stickToBottomRef.current = false
+    }
     const scrollToMessage = (providerMessageId: string) => {
         const viewport = viewportRef.current
         const node = viewport?.querySelector<HTMLElement>(`[data-provider-message-id="${CSS.escape(providerMessageId)}"]`)
         if (!node) return
-        stickToBottomRef.current = false
+        releaseBottomPin()
         node.scrollIntoView({ block: 'center', behavior: 'smooth' })
         setHighlightedReplyId(providerMessageId)
         window.setTimeout(() => {
@@ -1087,16 +1091,67 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
             </header>
             <div
                 ref={viewportRef}
+                tabIndex={0}
                 onClick={() => setReactionPickerFor(null)}
+                onWheel={(event) => {
+                    if (event.deltaY < 0) releaseBottomPin()
+                }}
+                onTouchStartCapture={(event) => {
+                    const touch = event.touches.length === 1 ? event.touches[0] : null
+                    scrollTouchRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null
+                }}
+                onTouchMoveCapture={(event) => {
+                    const start = scrollTouchRef.current
+                    const touch = event.touches.length === 1 ? event.touches[0] : null
+                    if (!start || !touch) return
+                    const dx = touch.clientX - start.x
+                    const dy = touch.clientY - start.y
+                    if (dy > 2 && dy > Math.abs(dx)) releaseBottomPin()
+                }}
+                onTouchEnd={() => { scrollTouchRef.current = null }}
+                onTouchCancel={() => { scrollTouchRef.current = null }}
+                onPointerDown={(event) => {
+                    if (event.pointerType !== 'mouse') return
+                    const viewport = event.currentTarget
+                    const scrollbar = event.target === viewport
+                        && event.clientX >= viewport.getBoundingClientRect().right - 16
+                    if (scrollbar || event.button === 1) releaseBottomPin()
+                }}
+                onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return
+                    if (event.key === 'End') {
+                        event.preventDefault()
+                        stickToBottomRef.current = true
+                        readerMovedAwayRef.current = false
+                        event.currentTarget.scrollTop = event.currentTarget.scrollHeight
+                    } else if (event.key === 'Home') {
+                        event.preventDefault()
+                        releaseBottomPin()
+                        event.currentTarget.scrollTop = 0
+                    } else if (['ArrowUp', 'PageUp'].includes(event.key) || (event.key === ' ' && event.shiftKey)) {
+                        releaseBottomPin()
+                    }
+                }}
                 onScroll={(event) => {
                     const viewport = event.currentTarget
-                    const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80
-                    // A queued scroll event can arrive after media grows. A
-                    // larger bottom gap alone is not an upward reader scroll;
-                    // release the pin only when the position actually moves up.
-                    if (atBottom) stickToBottomRef.current = true
-                    else if (viewport.scrollTop < lastScrollTopRef.current) stickToBottomRef.current = false
-                    lastScrollTopRef.current = viewport.scrollTop
+                    const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 2
+                    // Layout changes and media decoding can move scrollTop too.
+                    // Only explicit reader input above releases the bottom pin.
+                    if (atBottom) {
+                        // A queued bottom event may precede the first movement
+                        // of a wheel/key/touch gesture. Do not cancel its intent.
+                        if (stickToBottomRef.current || readerMovedAwayRef.current) {
+                            stickToBottomRef.current = true
+                            readerMovedAwayRef.current = false
+                        } else {
+                            return
+                        }
+                    } else if (stickToBottomRef.current) {
+                        viewport.scrollTop = viewport.scrollHeight
+                        return
+                    } else {
+                        readerMovedAwayRef.current = true
+                    }
                     captureScrollAnchor(viewport)
                 }}
                 // overflow-anchor off: the pane compensates media growth itself

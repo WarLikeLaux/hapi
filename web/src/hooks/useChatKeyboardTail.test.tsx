@@ -24,13 +24,12 @@ describe('useChatKeyboardTail', () => {
 
     function Harness() {
         const viewportRef = useRef<HTMLDivElement>(null)
-        const composerRef = useRef<HTMLTextAreaElement>(null)
         const stickToBottomRef = useRef(false)
-        const onFocus = useChatKeyboardTail({ viewportRef, composerRef, stickToBottomRef })
+        const onFocus = useChatKeyboardTail({ viewportRef, stickToBottomRef })
         return (
             <>
                 <div ref={viewportRef} data-testid="viewport" />
-                <textarea ref={composerRef} aria-label="Message" onFocus={onFocus} />
+                <textarea aria-label="Message" onFocus={onFocus} />
             </>
         )
     }

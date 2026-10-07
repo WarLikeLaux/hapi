@@ -225,12 +225,10 @@ describe('chats scroll-to-bottom', () => {
         const anchorNode = screen.getByText('hello').closest('[data-provider-message-id]')
         if (!anchorNode) throw new Error('anchor message not mounted')
         const domRect = (top: number) => ({ top, left: 0, width: 800, height: 800, x: 0, y: top, right: 800, bottom: top + 800, toJSON: () => ({}) }) as DOMRect
-        // jsdom has no elementFromPoint at all, so assign rather than spy.
-        const previousElementFromPoint = document.elementFromPoint
-        document.elementFromPoint = () => anchorNode
         const viewportRect = vi.spyOn(vp, 'getBoundingClientRect').mockReturnValue(domRect(0))
         const anchorRect = vi.spyOn(anchorNode as HTMLElement, 'getBoundingClientRect').mockReturnValue(domRect(100))
         await act(async () => {
+            vp.dispatchEvent(new WheelEvent('wheel', { deltaY: -900, bubbles: true }))
             vp.dispatchEvent(new Event('scroll', { bubbles: true }))
         })
         expect(vp.scrollTop).toBe(1000)
@@ -250,7 +248,6 @@ describe('chats scroll-to-bottom', () => {
             observer.callback([], observer as unknown as ResizeObserver)
         })
         expect(vp.scrollTop).toBe(1192)
-        document.elementFromPoint = previousElementFromPoint
         viewportRect.mockRestore()
         anchorRect.mockRestore()
         vi.unstubAllGlobals()
