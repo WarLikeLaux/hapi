@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { toSessionSummary, type Session } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
+import { isNewEmptySession } from '@/lib/freshSidebarChats'
 import {
     deduplicateSessionsByAgentId,
     expandSelectedSessionCollapseOverrides,
@@ -17,7 +18,6 @@ import {
     getSessionUserActivityAt,
     getWorktreeSessionLabel,
     getVisibleSessionPreview,
-    isNewEmptySession,
     isSidebarEmptySessionStub,
     normalizeSearch,
     prepareSidebarSessions,

@@ -80,6 +80,27 @@ describe('selectFreshSidebarConversations', () => {
 })
 
 describe('mergeSidebarChatRows', () => {
+    it('keeps new empty sessions above messenger chats while interleaving conversations by recency', () => {
+        const now = 10 * HOUR
+        const sessions = [
+            makeSession({ id: 'newest-empty', createdAt: now, hasConversationContent: false }),
+            makeSession({ id: 'older-empty', createdAt: now - HOUR, hasConversationContent: false }),
+            makeSession({ id: 'chatting', lastAgentMessageAt: now - 3 * HOUR }),
+        ]
+        const conversations = [
+            makeConversation({ id: 'recent', lastMessageAt: now - 2 * HOUR }),
+            makeConversation({ id: 'older', unreadCount: 1, lastMessageAt: now - 4 * HOUR }),
+        ]
+
+        expect(mergeSidebarChatRows(sessions, conversations).map(row => row.key)).toEqual([
+            'session:newest-empty',
+            'session:older-empty',
+            'chat:recent',
+            'session:chatting',
+            'chat:older',
+        ])
+    })
+
     it('interleaves chats between sessions by recency', () => {
         const now = 10 * HOUR
         const sessions = [
