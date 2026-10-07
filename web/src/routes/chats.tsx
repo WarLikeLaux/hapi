@@ -839,6 +839,11 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
         queryFn: async () => (await api!.getMessengerConnections()).connections,
         enabled: Boolean(api)
     })
+    const conversations = useQuery({
+        queryKey: queryKeys.externalConversations,
+        queryFn: async () => (await api!.getExternalConversations()).conversations,
+        enabled: Boolean(api)
+    })
     const queryClient = useQueryClient()
     const [text, setText] = useState('')
     const [gifPickerOpen, setGifPickerOpen] = useState(false)
@@ -854,7 +859,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
     const composerRef = useRef<HTMLTextAreaElement>(null)
     const stickToBottomRef = useRef(true)
     const swipeGestureRef = useRef<{ id: string | null; startX: number; startY: number; horizontal: boolean; dx: number; bubble: HTMLElement | null }>({ id: null, startX: 0, startY: 0, horizontal: false, dx: 0, bubble: null })
-    const handleComposerFocus = useChatKeyboardTail({ viewportRef, composerRef, stickToBottomRef })
+    const handleComposerFocus = useChatKeyboardTail({ viewportRef, composerRef, stickToBottomRef, active: !conversations.isLoading })
     // Telegram-style reply gestures: double-click on a message bubble or a
     // left swipe anywhere across the message row starts a reply to it.
     const startReply = useCallback((message: ExternalMessage) => {
@@ -871,12 +876,13 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
         composerRef,
         onInsertCharacter: (character) => setText((current) => current + character),
     })
-    const conversations = useQuery({
-        queryKey: queryKeys.externalConversations,
-        queryFn: async () => (await api!.getExternalConversations()).conversations,
-        enabled: Boolean(api)
-    })
     const conversation = conversations.data?.find((item) => item.id === conversationId)
+    // The pane renders a loading placeholder until the conversations list
+    // delivers this chat, so the message viewport does not exist yet. Scroll
+    // effects keyed only on `conversationId` run once during that placeholder
+    // and never retry — a cold open straight into a chat (messages response
+    // landing before the list) would stay scrolled to the top.
+    const chatReady = Boolean(conversation)
     const ownAccountAvatarUrl = conversation
         ? connections.data?.find((item) => item.provider === conversation.provider)?.accountAvatarUrl ?? null
         : null
@@ -961,12 +967,12 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
             viewport.scrollTop = viewport.scrollHeight
         })
         return () => cancelAnimationFrame(frame)
-    }, [conversationId])
+    }, [conversationId, chatReady])
 
     useEffect(() => {
         const frame = requestAnimationFrame(() => composerRef.current?.focus())
         return () => cancelAnimationFrame(frame)
-    }, [conversationId])
+    }, [conversationId, chatReady])
 
     useEffect(() => {
         if (!api) return
@@ -988,7 +994,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
             viewport.scrollTop = viewport.scrollHeight
         })
         return () => cancelAnimationFrame(frame)
-    }, [messages.data, outbox.entries])
+    }, [messages.data, outbox.entries, chatReady])
 
     useEffect(() => {
         const content = messageContentRef.current
@@ -999,7 +1005,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
         })
         observer.observe(content)
         return () => observer.disconnect()
-    }, [conversationId])
+    }, [conversationId, chatReady])
 
     if (!conversation && conversations.isLoading) {
         return <div className="m-auto text-sm text-[var(--app-hint)]">{t('loading')}</div>
