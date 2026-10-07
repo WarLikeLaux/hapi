@@ -877,7 +877,13 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
         setReactionPickerFor(null)
         setReactionPickerExpanded(false)
         setReplyTo(message)
-        composerRef.current?.focus({ preventScroll: true })
+        const composer = composerRef.current
+        if (!composer) return
+        // Mobile browsers can keep the composer focused with the keyboard
+        // hidden. Renew focus synchronously within the reply gesture so they
+        // can open it again; focusing an already focused field is a no-op.
+        if (document.activeElement === composer) composer.blur()
+        composer.focus({ preventScroll: true })
     }, [])
     // Window-level keydown → focus composer + insert character. Closure
     // captures the latest `setText` on every render so the typed glyph is
