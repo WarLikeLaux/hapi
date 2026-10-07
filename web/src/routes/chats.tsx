@@ -272,7 +272,7 @@ function MediaAttachment(props: {
                 label={label}
                 galleryId={props.galleryId}
                 buttonClassName={cn(
-                    'group relative flex cursor-zoom-in items-center justify-center overflow-hidden rounded-xl bg-black/10',
+                    'group relative flex max-w-full cursor-zoom-in items-center justify-center overflow-hidden rounded-xl bg-black/10',
                     isSticker ? 'w-[min(64vw,15rem)]' : 'w-[min(82vw,30rem)]'
                 )}
                 imageClassName={cn(
@@ -285,12 +285,12 @@ function MediaAttachment(props: {
     }
     if (fullUrl && media.kind === 'video') {
         if (media.isRound) {
-            return <div className="relative w-fit"><RoundVideoPlayer src={fullUrl} label={media.fileName ?? label} />{props.overlay}</div>
+            return <div className="relative w-fit max-w-full"><RoundVideoPlayer src={fullUrl} label={media.fileName ?? label} />{props.overlay}</div>
         }
-        return <div className="relative w-fit"><video src={fullUrl} controls={!media.isAnimated} autoPlay={media.isAnimated} loop={media.isAnimated} muted={media.isAnimated} playsInline preload="metadata" className="max-h-[32rem] max-w-[min(82vw,30rem)] rounded-xl bg-black object-contain" />{props.overlay}</div>
+        return <div className="relative w-fit max-w-full"><video src={fullUrl} controls={!media.isAnimated} autoPlay={media.isAnimated} loop={media.isAnimated} muted={media.isAnimated} playsInline preload="metadata" className="max-h-[32rem] max-w-[min(100%,82vw,30rem)] rounded-xl bg-black object-contain" />{props.overlay}</div>
     }
     if (fullUrl && (media.kind === 'audio' || media.kind === 'voice')) {
-        return <audio src={fullUrl} controls preload="metadata" className="max-w-[82vw]" />
+        return <audio src={fullUrl} controls preload="metadata" className="max-w-full" />
     }
     if (fullUrl && media.kind === 'file') {
         return <a href={fullUrl} download={media.fileName ?? 'attachment'} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-4 py-3 text-sm text-[var(--app-link)]">Download {media.fileName ?? 'file'}</a>
@@ -299,7 +299,7 @@ function MediaAttachment(props: {
     if (hasVisualPreview) {
         const isSticker = media.kind === 'sticker'
         return (
-            <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} disabled={loading} className={cn('group relative flex cursor-pointer items-center justify-center overflow-hidden bg-black/10 disabled:cursor-wait', media.isRound ? 'h-[min(14rem,72vw)] w-[min(14rem,72vw)] rounded-full' : isSticker ? 'w-[min(64vw,15rem)] rounded-xl' : 'w-[min(82vw,24rem)] rounded-xl')}>
+            <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} disabled={loading} className={cn('group relative flex max-w-full cursor-pointer items-center justify-center overflow-hidden bg-black/10 disabled:cursor-wait', media.isRound ? 'aspect-square w-[min(14rem,72vw)] rounded-full' : isSticker ? 'w-[min(64vw,15rem)] rounded-xl' : 'w-[min(82vw,24rem)] rounded-xl')}>
                 <img src={media.thumbnailDataUrl!} alt={label} className={cn('w-full transition-opacity', media.isRound ? 'h-full object-cover' : isSticker ? 'max-h-[15rem] object-contain' : 'max-h-80 min-h-36 object-contain', loading && 'opacity-70')} />
                 {loading || error || media.kind === 'video' ? <span className="absolute inset-0 grid place-items-center bg-black/20 text-center text-sm font-medium text-white opacity-100 drop-shadow transition-opacity sm:opacity-0 sm:group-hover:opacity-100 group-disabled:opacity-100">{loading ? 'Loading original…' : error ? 'Tap to retry' : media.isAnimated ? 'GIF' : '▶ Play video'}</span> : null}
                 {props.overlay}
@@ -317,7 +317,7 @@ function MediaAttachment(props: {
             </span>
         </>
     )
-    const fallbackClassName = 'relative flex min-w-48 items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-3 py-2.5 text-left'
+    const fallbackClassName = 'relative flex w-48 min-w-0 max-w-full items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-3 py-2.5 text-left'
     if (downloadable) {
         return <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} className={fallbackClassName}>{fallbackContent}{props.overlay}</button>
     }
@@ -1244,7 +1244,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                 className={cn(
                                     'flex w-full items-end gap-2 rounded-2xl transition-colors touch-pan-y',
                                     continuesPrevious && '-mt-1.5',
-                                    incoming ? 'justify-start' : 'justify-end',
+                                    incoming ? 'justify-start pr-[15%]' : 'justify-end pl-[15%]',
                                     highlightedReplyId === item.providerMessageId && 'bg-[#2AABEE]/10'
                                 )}
                                 onTouchStart={(event) => {
@@ -1299,7 +1299,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                         : <ChatParticipantAvatar src={avatarSrc} name={item.senderName ?? conversation.title} />
                                 ) : null}
                                 <div
-                                    className={cn('relative flex min-w-0 max-w-[min(42rem,92%)] flex-col touch-pan-y', incoming ? 'items-start' : 'items-end')}
+                                    className={cn('relative flex min-w-0 max-w-[min(42rem,100%)] flex-col touch-pan-y', incoming ? 'items-start' : 'items-end')}
                                     onClick={(event) => {
                                         if (optimistic || (event.target as HTMLElement).closest('button, a, input, video, audio')) return
                                         event.stopPropagation()
@@ -1349,7 +1349,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                     {item.buttons && item.buttons.length > 0 && !optimistic ? (
                                         <div className={cn('mt-1 flex w-full flex-col gap-1', incoming ? 'items-start' : 'items-end')}>
                                             {item.buttons.map((row, rowIndex) => (
-                                                <div key={`${item.id}:buttons:${rowIndex}`} className="flex min-w-[14rem] max-w-full flex-row gap-1">
+                                                <div key={`${item.id}:buttons:${rowIndex}`} className="flex min-w-[min(14rem,100%)] max-w-full flex-row gap-1">
                                                     {row.map((button) => {
                                                         const pressingThis = pressButton.isPending
                                                             && pressButton.variables?.providerMessageId === item.providerMessageId
