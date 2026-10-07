@@ -5,6 +5,9 @@ export function useChatKeyboardTail(options: {
     viewportRef: RefObject<HTMLDivElement | null>
     composerRef: RefObject<HTMLTextAreaElement | null>
     stickToBottomRef: RefObject<boolean>
+    /** False while the pane shows its loading placeholder: the viewport is not
+     * mounted yet, so the resize observer must attach once it appears. */
+    active?: boolean
 }): FocusEventHandler<HTMLTextAreaElement> {
     const scrollToBottom = useCallback(() => {
         const viewport = options.viewportRef.current
@@ -18,6 +21,7 @@ export function useChatKeyboardTail(options: {
     }, [options.stickToBottomRef, scrollToBottom])
 
     useEffect(() => {
+        if (options.active === false) return
         const viewport = options.viewportRef.current
         if (!viewport || typeof ResizeObserver === 'undefined') return
 
@@ -29,7 +33,7 @@ export function useChatKeyboardTail(options: {
         })
         observer.observe(viewport)
         return () => observer.disconnect()
-    }, [options.composerRef, options.stickToBottomRef, options.viewportRef, scrollToBottom])
+    }, [options.active, options.composerRef, options.stickToBottomRef, options.viewportRef, scrollToBottom])
 
     return handleComposerFocus
 }
