@@ -61,6 +61,12 @@ const REACTION_ACTION_REMOVE = 1
  * regardless.
  */
 const HEARTBEAT_INTERVAL_MS = 60_000
+/**
+ * After a failed xiva connect (handshake timeout, socket error) fail fast for
+ * this long before opening a new socket, so a network blackout does not turn
+ * every message request into another 15s handshake wait.
+ */
+const XIVA_RETRY_BACKOFF_MS = 15_000
 /** `HeartbeatType.FOREGROUND=2` in §9.3 — explicitly online. */
 const HEARTBEAT_TYPE_FOREGROUND = 2
 
@@ -138,6 +144,8 @@ export class YandexConnector implements MessengerConnector {
     private cookies: string | null = null
     private registry: RegistryClient | null = null
     private xiva: XivaClient | null = null
+    private xivaConnecting: Promise<void> | null = null
+    private xivaFailedAt = 0
     private myGuid: string | null = null
     private myUid: string | null = null
     private readonly chatSnapshots = new Map<string, ChatSnapshot>()
@@ -568,6 +576,10 @@ export class YandexConnector implements MessengerConnector {
 
     private async ensureXiva(): Promise<void> {
         if (this.xiva) return
+        if (this.xivaConnecting) return this.xivaConnecting
+        if (Date.now() - this.xivaFailedAt < XIVA_RETRY_BACKOFF_MS) {
+            throw new Error('xiva connection is cooling down after a failed attempt')
+        }
         const client = new XivaClient({
             user: this.myUid ?? this.requireGuid(),
             cookieHeader: this.requireCookies(),
@@ -591,9 +603,21 @@ export class YandexConnector implements MessengerConnector {
             }
         })
         this.xiva = client
+        const connecting = client.connect().finally(() => {
+            if (this.xivaConnecting === connecting) this.xivaConnecting = null
+        })
+        this.xivaConnecting = connecting
         try {
-            await client.connect()
+            await connecting
+            this.xivaFailedAt = 0
         } catch (error) {
+            // Dispose of the failed client: its connect() already rejected, so
+            // keeping it around would silence every later call (the socket may
+            // hang half-open with nobody retrying). The next ensureXiva opens
+            // a fresh socket instead.
+            client.close()
+            if (this.xiva === client) this.xiva = null
+            this.xivaFailedAt = Date.now()
             const detail = error instanceof Error ? error.message : 'xiva connection failed'
             this.setConnection({ state: 'error', detail: `Live connection failed: ${detail}` })
             throw error
