@@ -1414,7 +1414,16 @@ export function createAppRouter(history?: RouterHistory) {
     return createRouter({
         routeTree,
         history,
-        scrollRestoration: true,
+        // Chat panes pin their thread to the newest message when a
+        // conversation opens. Router restoration re-applies a saved (or the
+        // previous conversation's) viewport position after those effects, and
+        // the resulting scroll event flips the pane's stick-to-bottom guard
+        // off — stranding the view above the newest message. Chat routes
+        // therefore opt out; the panes manage their own scroll.
+        scrollRestoration: ({ location }) => {
+            const pathname = location.pathname
+            return !pathname.startsWith('/chats/') && !pathname.startsWith('/sessions/chats/')
+        },
         getScrollRestorationKey,
     })
 }
