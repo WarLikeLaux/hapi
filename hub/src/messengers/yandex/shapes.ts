@@ -311,7 +311,7 @@ function extractBodyText(body: Record<string, unknown>): string | undefined {
 }
 
 /**
- * Element-level `ForwardedMessages` sibling (§11.2): `{Payload, ServerMessageInfo}`
+ * `ServerMessage.ForwardedMessages` (§11.2): `{Payload, ServerMessageInfo}`
  * items carrying the original body behind a forward — and chats-web models replies
  * as forwards with a quote, so this is also where a reply's target surfaces.
  * The first item becomes HAPI's reply snapshot; later items (multi-forwards) are
@@ -362,7 +362,7 @@ export function normalizeMessageItem(
     const source = asObject(item['ServerMessage'])
     const info = asObject(source?.['ServerMessageInfo'])
     const clientMessage = asObject(source?.['ClientMessage'])
-    if (!info || !clientMessage) return undefined
+    if (!source || !info || !clientMessage) return undefined
     if (info['Deleted'] === true) return undefined
 
     let micros: bigint
@@ -388,7 +388,7 @@ export function normalizeMessageItem(
     const seqNo = numberOr(info['SeqNo'])
     const version = numberOr(info['Version'])
     const lastEdit = numberOr(info['LastEditTimestamp'])
-    const replySnapshot = extractReplySnapshot(item)
+    const replySnapshot = extractReplySnapshot(source)
 
     const media = attachments.map((ref) => ({
         kind: mediaKindFor(ref.kind),

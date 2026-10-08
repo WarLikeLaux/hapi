@@ -391,10 +391,14 @@ describe('yandex shapes: reply/forward snapshot (§11.2)', () => {
     function replyMessage(input: {
         micros: string
         text: string
+        fromGuid?: string
         forwarded: Record<string, unknown> | unknown[] | undefined
     }): Record<string, unknown> {
-        const element = textMessage({ micros: input.micros, text: input.text })
-        if (input.forwarded !== undefined) element['ForwardedMessages'] = input.forwarded
+        const element = textMessage({ micros: input.micros, text: input.text, fromGuid: input.fromGuid })
+        if (input.forwarded !== undefined) {
+            const serverMessage = element['ServerMessage'] as Record<string, unknown>
+            serverMessage['ForwardedMessages'] = input.forwarded
+        }
         return element
     }
 
@@ -407,9 +411,14 @@ describe('yandex shapes: reply/forward snapshot (§11.2)', () => {
         }
     }
 
-    it('maps the first ForwardedMessages item onto the reply snapshot fields', () => {
+    it.each([PEER_GUID, MY_GUID])('preserves the reply snapshot from ServerMessage for sender %s', (fromGuid) => {
         const shaped = normalizeMessageItem(
-            replyMessage({ micros: '1750000001000000', text: 'принял', forwarded: [forwardedText] }),
+            replyMessage({
+                micros: '1750000001000000',
+                text: 'принял',
+                fromGuid,
+                forwarded: [{ ...forwardedText, Type: 3 }]
+            }),
             MY_GUID,
             'chat-1'
         )
@@ -451,7 +460,7 @@ describe('yandex shapes: reply/forward snapshot (§11.2)', () => {
         expect(shaped!.message.replyToProviderMessageId).toBe('1750000000000000')
     })
 
-    it('keeps messages without the sibling clean and warns on an unusable shape', () => {
+    it('keeps messages without forwarded originals clean and ignores an unusable timestamp', () => {
         const clean = normalizeMessageItem(
             replyMessage({ micros: '1750000001000000', text: 'обычное', forwarded: undefined }),
             MY_GUID,
