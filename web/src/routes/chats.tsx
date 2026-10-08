@@ -13,6 +13,8 @@ import { ChatParticipantAvatar } from '@/components/ChatParticipantAvatar'
 import { getUserBubbleClassName } from '@/components/AssistantChat/messages/user-bubble'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
+import type { AnchoredMenuPoint } from '@/hooks/useAnchoredMenu'
+import { ChatsMessageMenu } from '@/components/ChatsMessageMenu'
 import { useChatKeyboardTail } from '@/hooks/useChatKeyboardTail'
 import { useChatsComposerAutoFocus } from '@/hooks/useChatsComposerAutoFocus'
 import { useChatsPendingMedia } from '@/hooks/useChatsPendingMedia'
@@ -87,14 +89,6 @@ function AttachmentIcon() {
 
 function GifIcon() {
     return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" /><text x="12" y="15" fontFamily="ui-sans-serif, system-ui, sans-serif" fontSize="7" fontWeight="700" fill="currentColor" stroke="none" textAnchor="middle">GIF</text></svg>
-}
-
-function ReplyIcon() {
-    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v4" /></svg>
-}
-
-function ReactionMoreIcon({ expanded }: { expanded: boolean }) {
-    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('h-5 w-5 transition-transform', expanded && 'rotate-180')} aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
 }
 
 const defaultFrequentReactions = ['👍', '❤️', '🔥', '🥰', '👏', '😁'] as const
@@ -850,9 +844,9 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     const [text, setText] = useState('')
     const [gifPickerOpen, setGifPickerOpen] = useState(false)
     const { pendingMedia, previewUrl, clearPendingMedia, handlePaste: handlePendingPaste } = useChatsPendingMedia()
-    const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null)
-    const [reactionPickerExpanded, setReactionPickerExpanded] = useState(false)
     const [replyTo, setReplyTo] = useState<ExternalMessage | null>(null)
+    const [messageMenu, setMessageMenu] = useState<{ providerMessageId: string; anchorPoint: AnchoredMenuPoint } | null>(null)
+    const closeMessageMenu = useCallback(() => setMessageMenu(null), [])
     const [highlightedReplyId, setHighlightedReplyId] = useState<string | null>(null)
     const [reactionUsage, setReactionUsage] = useState<Record<string, number>>(loadReactionUsage)
     const viewportRef = useRef<HTMLDivElement>(null)
@@ -874,8 +868,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     // Telegram-style reply gestures: double-click on a message bubble or a
     // left swipe anywhere across the message row starts a reply to it.
     const startReply = useCallback((message: ExternalMessage) => {
-        setReactionPickerFor(null)
-        setReactionPickerExpanded(false)
+        setMessageMenu(null)
         setReplyTo(message)
         const composer = composerRef.current
         if (!composer) return
@@ -901,6 +894,9 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     // landing before the list) would stay scrolled to the top.
     const chatReady = Boolean(conversation)
     const messages = useExternalMessages(api, conversationId)
+    const menuMessage = messageMenu
+        ? messages.data?.messages.find(message => message.providerMessageId === messageMenu.providerMessageId)
+        : undefined
     const participantAvatars = useMemo(() => new Map(
         (messages.data?.participants ?? []).map((participant) => [participant.id, participant.avatarDataUrl])
     ), [messages.data?.participants])
@@ -1090,7 +1086,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
             <div
                 ref={viewportRef}
                 tabIndex={0}
-                onClick={() => setReactionPickerFor(null)}
+                onClick={closeMessageMenu}
                 onWheel={(event) => {
                     if (event.deltaY < 0) releaseBottomPin()
                 }}
@@ -1297,13 +1293,27 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                 ) : null}
                                 <div
                                     className={cn('relative flex min-w-0 max-w-[min(42rem,100%)] flex-col touch-pan-y', incoming ? 'items-start' : 'items-end')}
+                                    onContextMenu={(event) => {
+                                        if (optimistic) return
+                                        event.preventDefault()
+                                        event.stopPropagation()
+                                        const rect = event.currentTarget.getBoundingClientRect()
+                                        setMessageMenu({
+                                            providerMessageId: item.providerMessageId,
+                                            anchorPoint: event.clientX || event.clientY
+                                                ? { x: event.clientX, y: event.clientY }
+                                                : { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+                                        })
+                                    }}
                                     onClick={(event) => {
                                         if (optimistic || (event.target as HTMLElement).closest('button, a, input, video, audio')) return
                                         event.stopPropagation()
-                                        setReactionPickerFor((current) => {
-                                            const next = current === item.providerMessageId ? null : item.providerMessageId
-                                            if (next) setReactionPickerExpanded(false)
-                                            return next
+                                        const rect = event.currentTarget.getBoundingClientRect()
+                                        setMessageMenu((current) => current?.providerMessageId === item.providerMessageId ? null : {
+                                            providerMessageId: item.providerMessageId,
+                                            anchorPoint: event.clientX || event.clientY
+                                                ? { x: event.clientX, y: event.clientY }
+                                                : { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
                                         })
                                     }}
                                     onDoubleClick={(event) => {
@@ -1411,7 +1421,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                                     disabled={setReactions.isPending || (!reaction.chosen && chosenReactionCount >= 3)}
                                                     onClick={(event) => {
                                                         event.stopPropagation()
-                                                        setReactionPickerFor(null)
+                                                        setMessageMenu(null)
                                                         setReactions.mutate({
                                                             providerMessageId: item.providerMessageId,
                                                             ...updatedReactions(reactions, reaction.reaction, reaction.emoji)
@@ -1432,77 +1442,36 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                             ))}
                                         </div>
                                     ) : null}
-                                    {reactionPickerFor === item.providerMessageId ? (
-                                        <div
-                                            role="menu"
-                                            aria-label="Message reactions"
-                                            onClick={(event) => event.stopPropagation()}
-                                            className={cn(
-                                                'absolute bottom-[calc(100%+0.5rem)] z-30 border border-[var(--app-border)] bg-[var(--app-bg)] shadow-xl',
-                                                reactionPickerExpanded
-                                                    ? 'grid w-[min(18rem,calc(100vw-2rem))] grid-cols-7 gap-1 rounded-2xl p-2'
-                                                    : 'flex items-center gap-1 rounded-full p-1.5',
-                                                incoming ? 'left-0' : 'right-0'
-                                            )}
-                                        >
-                                            <button
-                                                type="button"
-                                                role="menuitem"
-                                                aria-label={t('chats.reply.action')}
-                                                title={t('chats.reply.action')}
-                                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-secondary-bg)] text-[var(--app-hint)] hover:text-[var(--app-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2AABEE]"
-                                                onClick={() => startReply(item)}
-                                            >
-                                                <ReplyIcon />
-                                            </button>
-                                            {(reactionPickerExpanded ? allReactions : frequentReactions).map((emoji) => {
-                                                const reaction = `emoji:${emoji}`
-                                                const alreadyChosen = reactions.some((current) => current.reaction === reaction && current.chosen)
-                                                return (
-                                                    <button
-                                                        type="button"
-                                                        role="menuitem"
-                                                        key={emoji}
-                                                        disabled={setReactions.isPending || (!alreadyChosen && chosenReactionCount >= 3)}
-                                                        className={cn(
-                                                            'flex h-9 min-w-0 shrink-0 items-center justify-center overflow-hidden rounded-xl text-[22px] leading-none hover:bg-[var(--app-secondary-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2AABEE] disabled:opacity-30',
-                                                            reactionPickerExpanded ? 'w-full' : 'w-9',
-                                                            alreadyChosen && 'bg-[#2AABEE]/15'
-                                                        )}
-                                                        style={{ fontFamily: emojiFontFamily }}
-                                                        onClick={() => {
-                                                            if (!alreadyChosen) rememberReaction(emoji)
-                                                            setReactionPickerFor(null)
-                                                            setReactionPickerExpanded(false)
-                                                            setReactions.mutate({
-                                                                providerMessageId: item.providerMessageId,
-                                                                ...updatedReactions(reactions, reaction, emoji)
-                                                            })
-                                                        }}
-                                                    >
-                                                        <span className="block h-7 w-7 overflow-hidden text-center leading-7">{emoji}</span>
-                                                    </button>
-                                                )
-                                            })}
-                                            {!reactionPickerExpanded ? (
-                                                <button
-                                                    type="button"
-                                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-secondary-bg)] text-[var(--app-hint)] hover:text-[var(--app-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2AABEE]"
-                                                    onClick={() => setReactionPickerExpanded(true)}
-                                                    aria-label="Show all reactions"
-                                                    aria-expanded="false"
-                                                >
-                                                    <ReactionMoreIcon expanded={false} />
-                                                </button>
-                                            ) : null}
-                                        </div>
-                                    ) : null}
                                 </div>
                             </div>
                         )
                     })}
                 </div>
             </div>
+            {messageMenu && menuMessage ? (
+                <ChatsMessageMenu
+                    anchorPoint={messageMenu.anchorPoint}
+                    onClose={closeMessageMenu}
+                    onReply={() => startReply(menuMessage)}
+                    text={menuMessage.text}
+                    reactions={menuMessage.reactions ?? []}
+                    frequentReactions={frequentReactions}
+                    allReactions={allReactions}
+                    emojiFontFamily={emojiFontFamily}
+                    reactionsPending={setReactions.isPending}
+                    onReaction={(emoji) => {
+                        const message = menuMessage
+                        const reactions = message.reactions ?? []
+                        const reaction = `emoji:${emoji}`
+                        if (!reactions.some(current => current.reaction === reaction && current.chosen)) rememberReaction(emoji)
+                        closeMessageMenu()
+                        setReactions.mutate({
+                            providerMessageId: message.providerMessageId,
+                            ...updatedReactions(reactions, reaction, emoji),
+                        })
+                    }}
+                />
+            ) : null}
             <form className="shrink-0 border-t border-[var(--app-border)] bg-[var(--app-bg)] p-2 pb-[max(.5rem,env(safe-area-inset-bottom))]" onSubmit={(event) => {
                 event.preventDefault()
                 if (pendingMedia) {
