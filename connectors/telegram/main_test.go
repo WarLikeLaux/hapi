@@ -61,6 +61,53 @@ func TestMessageFromTelegram(t *testing.T) {
 	}
 }
 
+func TestMessageFromTelegramSenderIdentity(t *testing.T) {
+	entities := messagepeer.NewEntities(
+		map[int64]*tg.User{42: {ID: 42, FirstName: "Friend"}},
+		map[int64]*tg.Chat{},
+		map[int64]*tg.Channel{},
+	)
+	tests := []struct {
+		name     string
+		peer     tg.PeerClass
+		from     tg.PeerClass
+		out      bool
+		entities messagepeer.Entities
+		wantID   string
+		wantName string
+	}{
+		{"direct history without from_id", &tg.PeerUser{UserID: 42}, nil, false, entities, "user:42", "Friend"},
+		{"direct update with from_id", &tg.PeerUser{UserID: 42}, &tg.PeerUser{UserID: 42}, false, entities, "user:42", "Friend"},
+		{"direct without user entity", &tg.PeerUser{UserID: 42}, nil, false, messageEntities(), "user:42", ""},
+		{"outgoing without from_id", &tg.PeerUser{UserID: 42}, nil, true, entities, "user:1", "Me"},
+		{"explicit author takes precedence", &tg.PeerUser{UserID: 42}, &tg.PeerUser{UserID: 1}, false, entities, "user:1", "Me"},
+		{"group without author", &tg.PeerChat{ChatID: 7}, nil, false, entities, "", ""},
+		{"channel without author", &tg.PeerChannel{ChannelID: 9}, nil, false, entities, "", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			msg := &tg.Message{ID: 16, PeerID: test.peer, Out: test.out, Message: "hello", Date: 127}
+			if test.from != nil {
+				msg.SetFromID(test.from)
+			}
+			result, ok := messageFromTelegram(msg, test.entities, &tg.User{ID: 1, FirstName: "Me"}, nil, 0)
+			if !ok {
+				t.Fatal("message was not converted")
+			}
+			id, name := "", ""
+			if result.SenderID != nil {
+				id = *result.SenderID
+			}
+			if result.SenderName != nil {
+				name = *result.SenderName
+			}
+			if id != test.wantID || name != test.wantName {
+				t.Fatalf("sender = (%q, %q), want (%q, %q)", id, name, test.wantID, test.wantName)
+			}
+		})
+	}
+}
+
 func TestMessageFromTelegramIncludesReactions(t *testing.T) {
 	chosen := tg.ReactionCount{
 		Reaction: &tg.ReactionEmoji{Emoticon: "👍"},
