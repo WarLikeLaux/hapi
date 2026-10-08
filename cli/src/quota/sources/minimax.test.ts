@@ -9,7 +9,6 @@ import {
     minimaxBaseUrl,
     parseMinimaxQuotaResponse,
     readMinimaxCredentials,
-    resetMinimaxAuthCache,
     type MinimaxAuthPaths
 } from './minimax'
 
@@ -123,7 +122,8 @@ describe('readMinimaxCredentials', () => {
         dirs.push(dir)
         const paths: MinimaxAuthPaths = {
             regionFile: join(dir, 'mcode-region.json'),
-            authFile: (region: string) => join(dir, 'auth', region, 'auth.json')
+            authFile: (region: string) => join(dir, 'auth', region, 'auth.json'),
+            cacheFile: (region: string) => join(dir, `quota-${region}.json`)
         }
         if (files.region !== undefined) {
             writeFileSync(paths.regionFile, JSON.stringify(files.region))
@@ -178,19 +178,19 @@ describe('readMinimaxCredentials', () => {
  * the collector silently replays it on every 401 — the limits panel keeps
  * showing last-known usage with a staleness indicator instead of flashing a
  * red "Authentication expired" banner. Without a cached snapshot there is
- * nothing to replay, so the very first 401 surfaces `auth_expired`.
+ * nothing to replay, so the very first 401 is silently skipped.
  */
 describe('collectMinimaxQuotas replay-on-401', () => {
     const fetchMock = vi.fn<typeof fetch>()
     let paths: MinimaxAuthPaths
 
     beforeEach(() => {
-        resetMinimaxAuthCache()
         fetchMock.mockReset()
         const dir = mkdtempSync(join(tmpdir(), 'minimax-collect-'))
         paths = {
             regionFile: join(dir, 'mcode-region.json'),
-            authFile: () => join(dir, 'auth.json')
+            authFile: () => join(dir, 'auth.json'),
+            cacheFile: () => join(dir, 'quota.json')
         }
         writeFileSync(paths.authFile('en'), JSON.stringify({
             records: { r: { accessToken: 'tok', expiresAtMs: 9_999_999_999 } }
@@ -267,14 +267,36 @@ describe('collectMinimaxQuotas replay-on-401', () => {
         expect(calls[0]!.windows[0]!.measuredAt).toBe(NOW_SEC)
     })
 
-    it('reports auth_expired on the very first poll when no snapshot has been cached yet', async () => {
+    it('silently skips the first 401 when no snapshot has been cached yet', async () => {
         fetchMock.mockResolvedValueOnce(authExpiredResponse())
         const result = await collectMinimaxQuotas(NOW_SEC, paths, fetchMock as unknown as typeof fetch)
-        expect(result.kind).toBe('unavailable')
-        if (result.kind !== 'unavailable') return
-        expect(result.reason).toBe('auth_expired')
-        expect(result.source).toBe(MINIMAX_5H_SOURCE)
-        expect(result.detail).toBe('HTTP 401')
+        expect(result).toEqual({ kind: 'skipped' })
+    })
+
+    it('keeps the original measurements after runner restart and refreshes them on recovery', async () => {
+        fetchMock.mockResolvedValueOnce(okResponse())
+        await collectMinimaxQuotas(NOW_SEC, paths, fetchMock)
+
+        vi.resetModules()
+        const restarted = await import('./minimax')
+        fetchMock.mockResolvedValueOnce(authExpiredResponse())
+        expect(await restarted.collectMinimaxQuotas(NOW_SEC + 86_400, paths, fetchMock)).toEqual({
+            kind: 'ok',
+            windows: [
+                { source: MINIMAX_5H_SOURCE, usedPercent: 1, resetsAt: NOW_SEC + 18_000, measuredAt: NOW_SEC },
+                { source: MINIMAX_WEEKLY_SOURCE, usedPercent: 34, resetsAt: NOW_SEC + 604_800, measuredAt: NOW_SEC }
+            ]
+        })
+
+        fetchMock.mockResolvedValueOnce(okResponse())
+        await restarted.collectMinimaxQuotas(NOW_SEC + 86_401, paths, fetchMock)
+        vi.resetModules()
+        const recovered = await import('./minimax')
+        fetchMock.mockResolvedValueOnce(authExpiredResponse())
+        const replay = await recovered.collectMinimaxQuotas(NOW_SEC + 86_402, paths, fetchMock)
+        expect(replay.kind).toBe('ok')
+        if (replay.kind !== 'ok') throw new Error('Expected persisted quota windows')
+        expect(replay.windows.map(window => window.measuredAt)).toEqual([NOW_SEC + 86_401, NOW_SEC + 86_401])
     })
 
     it('surfaces non-401 transport errors as unavailable without disturbing the cache', async () => {
