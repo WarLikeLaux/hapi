@@ -191,6 +191,29 @@ export const SendExternalMessageRequestSchema = z.object({
 })
 export type SendExternalMessageRequest = z.infer<typeof SendExternalMessageRequestSchema>
 
+// Chats intentionally offers only the owner's «Свинопасный» pack.
+export const YANDEX_STICKER_PACK_ID = '5047'
+const YandexStickerIdSchema = z.string().regex(new RegExp(`^stickers/images/${YANDEX_STICKER_PACK_ID}/[0-9]+\\.png$`))
+
+export const YandexStickerPackSchema = z.object({
+    id: z.literal(YANDEX_STICKER_PACK_ID),
+    title: z.string().min(1).max(256),
+    stickers: z.array(z.object({
+        id: YandexStickerIdSchema,
+        text: z.string().max(128)
+    })).max(500)
+})
+export type YandexStickerPack = z.infer<typeof YandexStickerPackSchema>
+export type YandexStickerPacksResponse = { pack: YandexStickerPack }
+
+export const SendExternalStickerRequestSchema = z.object({
+    stickerId: YandexStickerIdSchema,
+    setId: z.literal(YANDEX_STICKER_PACK_ID),
+    clientId: z.string().min(1).max(128).optional(),
+    replyToProviderMessageId: z.string().min(1).max(64).optional()
+})
+export type SendExternalStickerRequest = z.infer<typeof SendExternalStickerRequestSchema>
+
 export const SetExternalReactionsRequestSchema = z.object({
     reactions: z.array(z.string().min(1).max(128)).max(3)
 })

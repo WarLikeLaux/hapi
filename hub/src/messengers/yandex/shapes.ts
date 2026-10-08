@@ -202,8 +202,8 @@ function extractAttachments(body: Record<string, unknown>): AttachmentRef[] {
 
 /**
  * Find a sticker attachment inside `plain` across the wire shapes observed for
- * Yandex Telemost. The conarti reverse-engineering reference does not capture
- * `Plain.Sticker`, so the live wire was captured in HAPI's own journal:
+ * Yandex Telemost. The conarti reference (§11.1) describes `Plain.Sticker` as
+ * `{ Id, SetId }`; its concrete image path was captured in HAPI's own journal:
  *
  *     Plain.Sticker = { Id: "stickers/images/2509/28331.png", SetId: "2509" }
  *

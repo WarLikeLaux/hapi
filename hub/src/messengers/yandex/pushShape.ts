@@ -5,13 +5,28 @@
  * `docs/protocol-research.md §11.1`. Our `shapes.ts` covers the read side; this
  * file covers the write side so send-time mutations stay symmetric and unit-testable.
  *
- * Only `Image` and `MiscFile` are needed today; text and reactions are inline at
- * their respective call sites. Add new builders here as the connector grows rather
+ * Text and reactions are inline at their respective call sites. Add new builders here rather
  * than open-coding the wire shape in `yandexConnector.ts`.
  */
 
 import { readImageDimensions } from './imageDimensions'
 import { toWireTimestamp } from './registry'
+import type { SendExternalStickerRequest } from '@hapi/protocol'
+
+export function buildStickerClientMessage(input: SendExternalStickerRequest & {
+    chatId: string
+    payloadId: string
+    replyQuoteText?: string
+}): Record<string, unknown> {
+    return {
+        Plain: {
+            ChatId: input.chatId,
+            PayloadId: input.payloadId,
+            ...buildReplyFields(input.chatId, input.replyToProviderMessageId, input.replyQuoteText),
+            Sticker: { Id: input.stickerId, SetId: input.setId }
+        }
+    }
+}
 
 /** `FileInfo.Source = 1` (DISK) — every file we send goes through `upload_to_disk` (§12.1). */
 const FILE_SOURCE_DISK = 1

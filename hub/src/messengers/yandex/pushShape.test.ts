@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { buildFileClientMessage, buildImageClientMessage, buildReplyFields } from './pushShape'
+import { buildFileClientMessage, buildImageClientMessage, buildReplyFields, buildStickerClientMessage } from './pushShape'
 
 const PNG_BYTES = new Uint8Array([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -9,6 +9,27 @@ const PNG_BYTES = new Uint8Array([
     0x00, 0x00, 0x04, 0x38,
     0x08, 0x02, 0x00, 0x00, 0x00
 ])
+
+describe('sticker wire contract (§11.1)', () => {
+    it('sends Id/SetId without uploading a file, keeping the retry id and reply quote', () => {
+        expect(buildStickerClientMessage({
+            chatId: 'chat-1',
+            payloadId: 'retry-id',
+            stickerId: 'stickers/images/5047/50503.png',
+            setId: '5047',
+            replyToProviderMessageId: '1750000000000000',
+            replyQuoteText: 'original'
+        })).toEqual({
+            Plain: {
+                ChatId: 'chat-1',
+                PayloadId: 'retry-id',
+                ForwardedMessageRefs: [{ ChatId: 'chat-1', Timestamp: 1750000000000000 }],
+                ForwardedMessageStyles: [{ Quote: 'original' }],
+                Sticker: { Id: 'stickers/images/5047/50503.png', SetId: '5047' }
+            }
+        })
+    })
+})
 
 describe('buildImageClientMessage', () => {
     it('attaches Width/Height parsed from a PNG header', () => {

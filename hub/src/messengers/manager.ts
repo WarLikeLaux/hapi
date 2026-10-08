@@ -8,6 +8,7 @@ import type {
     ExternalMessage,
     ExternalParticipant,
     MessengerConnection,
+    SendExternalStickerRequest,
     SubmitMessengerAuthRequest
 } from '@hapi/protocol'
 import type { Store } from '../store'
@@ -414,6 +415,19 @@ export class MessengerManager {
         const connector = await this.requireConnector(namespace, conversation.provider)
         await this.waitForMediaPrefetchBackoff(namespace, conversation.provider)
         await connector.sendText(conversation.remoteId, text, clientId, replyToProviderMessageId)
+        await this.refreshMessages(namespace, conversation, 100, true, true)
+    }
+
+    async sendSticker(namespace: string, conversationId: string, input: SendExternalStickerRequest): Promise<void> {
+        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        if (!conversation?.selected) throw new Error('Conversation not found')
+        if (input.replyToProviderMessageId && !this.options.store.messengers.hasMessage(namespace, conversationId, input.replyToProviderMessageId)) {
+            throw new Error('Message not found')
+        }
+        const connector = await this.requireConnector(namespace, conversation.provider)
+        if (!connector.sendSticker) throw new Error('This messenger does not support sending stickers')
+        await this.waitForMediaPrefetchBackoff(namespace, conversation.provider)
+        await connector.sendSticker(conversation.remoteId, input)
         await this.refreshMessages(namespace, conversation, 100, true, true)
     }
 

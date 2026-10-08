@@ -8,6 +8,39 @@ import type { WebAppEnv } from '../middleware/auth'
 import { createMessengerRoutes } from './messengers'
 
 describe('messenger routes', () => {
+    it('only accepts stickers from the chosen pack and passes the namespace and retry id to the sender', async () => {
+        const calls: unknown[][] = []
+        const manager = {
+            sendSticker: async (...args: unknown[]) => { calls.push(args) }
+        } as unknown as MessengerManager
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'owner')
+            await next()
+        })
+        app.route('/', createMessengerRoutes(manager))
+        const payload = {
+            stickerId: 'stickers/images/5047/50503.png', setId: '5047',
+            clientId: 'retry-id', replyToProviderMessageId: '1750000000000000'
+        }
+        for (const invalid of [
+            { ...payload, setId: '532' },
+            { ...payload, stickerId: 'stickers/images/532/9610.png' },
+            { ...payload, stickerId: 'stickers/images/5047/../50503.png' }
+        ]) {
+            const response = await app.request('/conversations/chat/stickers', {
+                method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(invalid)
+            })
+            expect(response.status).toBe(400)
+        }
+        expect(calls).toHaveLength(0)
+        const response = await app.request('/conversations/chat/stickers', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
+        })
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([['owner', 'chat', payload]])
+    })
+
     it('sets the complete chosen reaction list for a message', async () => {
         const calls: unknown[][] = []
         const manager = {

@@ -3,6 +3,7 @@ import type {
     ExternalMessage,
     ExternalReaction,
     MessengerConnection,
+    SendExternalStickerRequest,
     SubmitMessengerAuthRequest
 } from '@hapi/protocol'
 
@@ -67,6 +68,7 @@ export interface MessengerConnector {
      */
     pressButton?(remoteId: string, providerMessageId: string, buttonId: string): Promise<{ message: string | null }>
     sendMedia(remoteId: string, input: SendExternalMediaInput): Promise<void>
+    sendSticker?(remoteId: string, input: SendExternalStickerRequest): Promise<void>
     stop(): Promise<void>
 }
 

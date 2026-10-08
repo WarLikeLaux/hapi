@@ -57,6 +57,33 @@ function submit(text: string) {
 }
 
 describe('messenger background sends', () => {
+    it('sends a selected Yandex sticker with a retryable preview while preserving the text draft', async () => {
+        const send = vi.fn().mockRejectedValueOnce(new Error('Connection lost')).mockResolvedValue(undefined)
+        const { container } = renderChat('yandex', {
+            getYandexStickerPack: async () => ({ pack: {
+                id: '5047', title: 'Свинопасный',
+                stickers: [{ id: 'stickers/images/5047/50503.png', text: '🫠' }]
+            } }),
+            sendExternalSticker: send
+        })
+        await screen.findByRole('textbox')
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'unfinished draft' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Send sticker' }))
+        fireEvent.click(await screen.findByRole('button', { name: 'Send sticker 🫠' }))
+        const retry = await screen.findByRole('button', { name: 'Retry' })
+        expect(screen.queryByRole('dialog')).toBeNull()
+        expect(screen.getByRole('textbox')).toHaveValue('unfinished draft')
+        expect(container.querySelector('img[alt="Sticker"]')).toHaveAttribute('src', 'https://files.messenger.yandex.net/stickers/images/5047/50503.png')
+        expect(send.mock.calls[0]).toEqual([context.conversationId, {
+            stickerId: 'stickers/images/5047/50503.png', setId: '5047',
+            clientId: expect.any(String), replyToProviderMessageId: undefined
+        }])
+        fireEvent.click(retry)
+        await waitFor(() => expect(send).toHaveBeenCalledTimes(2))
+        expect(send.mock.calls[1]).toEqual(send.mock.calls[0])
+        expect(screen.getByRole('textbox')).toHaveValue('unfinished draft')
+    })
+
     it.each(['telegram', 'yandex'])('keeps %s sends ordered and visible through refreshes while the next draft remains editable', async (provider) => {
         const first = deferred()
         const second = deferred()

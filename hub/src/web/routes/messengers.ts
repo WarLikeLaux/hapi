@@ -4,6 +4,7 @@ import {
     PressExternalMessageButtonRequestSchema,
     SelectMessengerConversationsRequestSchema,
     SendExternalMessageRequestSchema,
+    SendExternalStickerRequestSchema,
     SetExternalReactionsRequestSchema,
     SubmitMessengerAuthRequestSchema,
     UpdateExternalAliasRequestSchema
@@ -13,6 +14,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { MessengerManager } from '../../messengers/manager'
 import type { WebAppEnv } from '../middleware/auth'
+import { getYandexStickerPack } from '../../messengers/yandex/stickers'
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Messenger operation failed'
@@ -31,6 +33,14 @@ function inlineContentDisposition(fileName: string): string {
 
 export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
+
+    app.get('/messengers/yandex/stickers', async (c) => {
+        try {
+            return c.json({ pack: await getYandexStickerPack() })
+        } catch (error) {
+            return c.json({ error: errorMessage(error) }, 502)
+        }
+    })
 
     app.get('/messengers/connections', async (c) => {
         const connections = await manager.getConnections(c.get('namespace'))
@@ -193,6 +203,18 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
                 parsed.data.clientId,
                 parsed.data.replyToProviderMessageId
             )
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = errorMessage(error)
+            return c.json({ error: message }, message === 'Conversation not found' ? 404 : 502)
+        }
+    })
+
+    app.post('/conversations/:id/stickers', async (c) => {
+        const parsed = SendExternalStickerRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid sticker' }, 400)
+        try {
+            await manager.sendSticker(c.get('namespace'), c.req.param('id'), parsed.data)
             return c.json({ ok: true })
         } catch (error) {
             const message = errorMessage(error)

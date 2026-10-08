@@ -6,6 +6,7 @@ import { ExternalMessageText } from '@/components/ExternalMessageText'
 import { ExternalDeliveryStatus } from '@/components/ExternalDeliveryStatus'
 import { ImagePreview } from '@/components/ImagePreview'
 import { KlipyGifPicker } from '@/components/KlipyGifPicker'
+import { YandexStickerPicker } from '@/components/YandexStickerPicker'
 import { useKlipyEnabled } from '@/hooks/queries/useKlipy'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { RoundVideoPlayer } from '@/components/RoundVideoPlayer'
@@ -202,6 +203,7 @@ function MediaAttachment(props: {
     conversationId: string
     providerMessageId: string
     mediaIndex: number
+    previewOnly?: boolean
     overlay?: ReactNode
 }) {
     const { api } = useAppContext()
@@ -220,7 +222,7 @@ function MediaAttachment(props: {
     }, [fullUrl])
 
     const loadOriginal = useCallback(async () => {
-        if (!api || loading || fullUrl || !downloadable) return
+        if (!api || loading || fullUrl || !downloadable || props.previewOnly) return
         setLoading(true)
         setError(null)
         try {
@@ -235,10 +237,10 @@ function MediaAttachment(props: {
         } finally {
             setLoading(false)
         }
-    }, [api, downloadable, fullUrl, loading, props.conversationId, props.mediaIndex, props.providerMessageId])
+    }, [api, downloadable, fullUrl, loading, props.conversationId, props.mediaIndex, props.providerMessageId, props.previewOnly])
 
     useEffect(() => {
-        if (error || fullUrl || loading || !autoLoadsOriginal) return
+        if (error || fullUrl || loading || !autoLoadsOriginal || props.previewOnly) return
         const preview = previewRef.current
         if (!preview) return
         if (typeof IntersectionObserver === 'undefined') {
@@ -252,11 +254,14 @@ function MediaAttachment(props: {
         }, { rootMargin: '500px 0px' })
         observer.observe(preview)
         return () => observer.disconnect()
-    }, [autoLoadsOriginal, error, fullUrl, loadOriginal, loading])
+    }, [autoLoadsOriginal, error, fullUrl, loadOriginal, loading, props.previewOnly])
 
     // Telegram delivers GIFs as silent animated MP4 with kind "video"; surface
     // them as GIF everywhere a plain video would say "Video".
     const label = media.kind === 'video' && media.isAnimated ? 'GIF' : mediaLabels[media.kind]
+    if (props.previewOnly && media.thumbnailDataUrl) {
+        return <div className="relative w-[min(64vw,15rem)] max-w-full"><img src={media.thumbnailDataUrl} alt={label} referrerPolicy="no-referrer" className="max-h-[15rem] w-full object-contain" />{props.overlay}</div>
+    }
     if (fullUrl && (media.kind === 'image' || media.kind === 'sticker')) {
         const isSticker = media.kind === 'sticker'
         return (
@@ -919,9 +924,9 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     }, [])
     const outbox = useExternalMessageOutbox(api, conversationId, messages)
     const submitMessage = (payload: Parameters<typeof outbox.send>[0]) => {
-        if (!outbox.send({ ...payload, replyToProviderMessageId: replyTo?.providerMessageId })) return
+        if (!outbox.send({ ...payload, replyToProviderMessageId: replyTo?.providerMessageId })) return false
         stickToBottomRef.current = true
-        setText('')
+        if (payload.kind !== 'sticker') setText('')
         setReplyTo(null)
         if (payload.kind === 'media') {
             clearPendingMedia()
@@ -929,6 +934,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
         }
         if (payload.kind === 'gif') setGifPickerOpen(false)
         composerRef.current?.focus({ preventScroll: true })
+        return true
     }
     const setReactions = useMutation({
         mutationFn: async (input: { providerMessageId: string; selected: string[]; optimistic: ExternalReaction[] }) => {
@@ -1342,6 +1348,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                                     conversationId={conversationId}
                                                     providerMessageId={item.providerMessageId}
                                                     mediaIndex={mediaIndex}
+                                                    previewOnly={optimistic && media.kind === 'sticker'}
                                                     overlay={overlaysTimestamp ? (
                                                         <span className="pointer-events-none absolute bottom-2 right-2 z-10 flex items-center rounded-full bg-black/55 px-2 py-1 text-[10px] leading-none text-white shadow-sm backdrop-blur-sm tabular-nums">
                                                             {formatTime(item.createdAt)}
@@ -1403,6 +1410,12 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                                         ? <div className="px-1 text-xs text-[var(--app-hint)]">{pressButton.data.message}</div>
                                                         : null
                                             ) : null}
+                                        </div>
+                                    ) : null}
+                                    {outgoing && !item.text ? (
+                                        <div className="mt-1 flex items-center gap-2 text-xs text-[var(--app-hint)]">
+                                            {outgoing.error ? <span>{outgoing.error}</span> : null}
+                                            <MessageStatusIndicator status={outgoing.status} onRetry={() => outbox.retry(outgoing.input.clientId)} />
                                         </div>
                                     ) : null}
                                     {!item.text && !item.media?.some((media) => ['image', 'sticker', 'video'].includes(media.kind)) ? (
@@ -1533,6 +1546,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                     />
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Attach media"><AttachmentIcon /></button>
                     <button type="button" onClick={() => setGifPickerOpen(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Send GIF"><GifIcon /></button>
+                    {conversation.provider === 'yandex' ? <YandexStickerPicker key={conversationId} onSelect={(sticker, setId) => submitMessage({ kind: 'sticker', sticker, setId, text: '' })} /> : null}
                     <textarea
                         ref={composerRef}
                         onFocus={handleComposerFocus}
@@ -1564,7 +1578,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         }}
                         rows={1}
                         placeholder={t('chats.messagePlaceholder')}
-                        className="max-h-32 min-h-9 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[var(--app-hint)]"
+                        className="max-h-32 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[var(--app-hint)]"
                     />
                     <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={!api || (!text.trim() && !pendingMedia)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
                 </div>
@@ -1573,7 +1587,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
             <KlipyGifPicker
                 open={gifPickerOpen}
                 onOpenChange={setGifPickerOpen}
-                onSelect={(gif) => submitMessage({ kind: 'gif', gif, text })}
+                onSelect={(gif) => { submitMessage({ kind: 'gif', gif, text }) }}
             />
         </div>
     )
