@@ -6,7 +6,8 @@
  * `ChatId, ChatInfo?, PartnerInfo?, PrivateChatInfo?, LastSeqNo, LastTsMcs,
  * LastSeenByMeSeqNo, ...`, and each message element carries
  * `{ServerMessage: {ClientMessage, ServerMessageInfo}, Reactions?, RecentUserReactions?}`.
- * Unread is `LastSeqNo - LastSeenByMeSeqNo`; a separate counters call is not needed.
+ * The unseen sequence gap includes outgoing messages; exclude known self sends
+ * when deriving the unread count.
  *
  * Avatars live on the wire too, in two places:
  *   - `PartnerInfo.AvatarId` for direct chats (same shape as `UserInfo.AvatarId`,
@@ -158,11 +159,14 @@ function numberOr(value: unknown): number | undefined {
     return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-/** Unread = how many chat sequences I have not seen; clamped below at zero. */
-function countUnread(raw: Record<string, unknown>): number {
+function countUnread(raw: Record<string, unknown>, messages: YandexMessage[]): number {
     const last = numberOr(raw['LastSeqNo']) ?? 0
     const seen = numberOr(raw['LastSeenByMeSeqNo']) ?? 0
-    return Math.max(0, last - seen)
+    const outgoing = new Set(messages
+        .filter(({ message }) => message.direction === 'outgoing'
+            && message.seqNo !== undefined && message.seqNo > seen && message.seqNo <= last)
+        .map(({ message }) => message.seqNo))
+    return Math.max(0, last - seen - outgoing.size)
 }
 
 function attachmentRef(kind: AttachmentKind, fileInfo: unknown): AttachmentRef | undefined {
@@ -536,7 +540,7 @@ export function normalizeChatElement(raw: unknown, myGuid: string): ChatShape | 
             : null,
         lastMessageDirection: last?.message.direction,
         lastMessageDeliveryStatus: last?.message.deliveryStatus,
-        unreadCount: countUnread(element),
+        unreadCount: isSaved ? 0 : countUnread(element, messages),
         avatarDataUrl: resolveChatAvatarUrl(element)
     }
     return { conversation, lastMessage: last, peerLastSeenSeqNo }

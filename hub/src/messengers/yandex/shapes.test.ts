@@ -250,6 +250,23 @@ describe('yandex shapes: message item', () => {
 })
 
 describe('yandex shapes: chat element', () => {
+    it('counts unseen incoming messages without counting my own outgoing messages', () => {
+        const shaped = normalizeChatElement({
+            ChatId: `${MY_GUID}_${PEER_GUID}`,
+            LastSeqNo: 8,
+            LastSeenByMeSeqNo: 4,
+            LastTsMcs: '1750000000000008',
+            Messages: [
+                textMessage({ micros: '1750000000000004', text: 'Already seen', fromGuid: MY_GUID, seqNo: 4 }),
+                textMessage({ micros: '1750000000000005', text: 'Incoming', seqNo: 5 }),
+                textMessage({ micros: '1750000000000006', text: 'My reply', fromGuid: MY_GUID, seqNo: 6 }),
+                textMessage({ micros: '1750000000000007', text: 'Incoming again', seqNo: 7 }),
+                textMessage({ micros: '1750000000000008', text: 'My second reply', fromGuid: MY_GUID, seqNo: 8 })
+            ]
+        }, MY_GUID)
+        expect(shaped!.conversation.unreadCount).toBe(2)
+    })
+
     it('normalizes a private chat with unread and preview', () => {
         const partnerGuid = 'bbbbbbbb-1111-2222-3333-444444444444'
         const shaped = normalizeChatElement({
