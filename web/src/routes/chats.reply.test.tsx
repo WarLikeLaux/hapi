@@ -54,6 +54,23 @@ function swipe(element: Element, points: Array<{ x: number; y: number }>) {
 }
 
 describe('messenger reply gestures', () => {
+    it('renews composer focus on reply when it was already focused without a keyboard', async () => {
+        renderChat()
+        const bubble = await screen.findByText('hello bubble')
+        const composer = screen.getByRole('textbox')
+        // Opening a chat focuses the field outside a touch gesture. Mobile
+        // browsers can leave it focused while the software keyboard is hidden.
+        expect(composer).toHaveFocus()
+        const focus = vi.fn()
+        composer.addEventListener('focus', focus)
+
+        swipe(bubble, [{ x: 300, y: 400 }, { x: 240, y: 401 }])
+
+        expect(screen.getByTestId('chats-reply-bar')).toHaveTextContent('Alice')
+        expect(composer).toHaveFocus()
+        expect(focus).toHaveBeenCalledTimes(1)
+    })
+
     it('starts a reply on double-click and focuses the composer', async () => {
         renderChat()
         const bubble = await screen.findByText('hello bubble')
