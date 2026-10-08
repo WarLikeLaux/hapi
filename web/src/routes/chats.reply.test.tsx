@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ExternalMessage } from '@hapi/protocol/messengers'
 import { I18nProvider } from '@/lib/i18n-context'
+import { ImagePreviewProvider } from '@/components/ImagePreview'
 import { ChatConversationPage } from './chats'
 
 const context = vi.hoisted(() => ({ conversationId: '', api: {} as Record<string, unknown> }))
@@ -22,6 +23,7 @@ const message: ExternalMessage = {
 const clients: QueryClient[] = []
 afterEach(() => {
     for (const client of clients.splice(0)) client.clear()
+    vi.unstubAllGlobals()
 })
 
 function renderChat(api: Record<string, unknown> = {}) {
@@ -38,7 +40,7 @@ function renderChat(api: Record<string, unknown> = {}) {
     }
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     clients.push(client)
-    render(<QueryClientProvider client={client}><I18nProvider><ChatConversationPage /></I18nProvider></QueryClientProvider>)
+    render(<QueryClientProvider client={client}><I18nProvider><ImagePreviewProvider><ChatConversationPage /></ImagePreviewProvider></I18nProvider></QueryClientProvider>)
 }
 
 function touchAt(x: number, y: number) {
@@ -54,6 +56,60 @@ function swipe(element: Element, points: Array<{ x: number; y: number }>) {
 }
 
 describe('messenger reply gestures', () => {
+    it.each(['left', 'right'])('opens reactions and reply/copy actions on a %s click on text', async (button) => {
+        const setExternalMessageReactions = vi.fn(async () => {})
+        renderChat({ setExternalMessageReactions })
+        const bubble = await screen.findByText('hello bubble')
+        const openMenu = () => {
+            if (button === 'left') fireEvent.click(bubble, { clientX: 120, clientY: 200 })
+            else fireEvent.contextMenu(bubble, { clientX: 120, clientY: 200 })
+        }
+        openMenu()
+        expect(screen.getByRole('group', { name: 'Message reactions' })).toBeVisible()
+        expect(screen.getByRole('menuitem', { name: 'Copy Text' })).toBeVisible()
+        fireEvent.click(screen.getByRole('button', { name: 'Show all reactions' }))
+        fireEvent.click(screen.getByRole('button', { name: 'React with 👻' }))
+        await waitFor(() => expect(setExternalMessageReactions).toHaveBeenCalledWith('telegram:chat:1', 'pm1', ['emoji:👻']))
+        expect(screen.queryByRole('menu')).toBeNull()
+        openMenu()
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Reply' }))
+        expect(screen.getByTestId('chats-reply-bar')).toHaveTextContent('hello bubble')
+        expect(screen.getByRole('textbox')).toHaveFocus()
+    })
+
+    it('replies to a captionless image through its context menu and sends the reply reference', async () => {
+        vi.stubGlobal('URL', class extends URL {
+            static createObjectURL() { return 'blob:reply-image' }
+            static revokeObjectURL() {}
+        })
+        const sendExternalMessage = vi.fn(async () => ({ message: { ...message, id: 'sent', providerMessageId: 'sent' } }))
+        renderChat({
+            getExternalMessages: async () => ({ messages: [{ ...message, text: '', media: [{
+                kind: 'image', mimeType: 'image/png', fileName: 'photo.png', size: 100,
+                thumbnailDataUrl: 'data:image/png;base64,aA==',
+            }] }], participants: [] }),
+            getExternalMediaBlob: async () => new Blob(['image'], { type: 'image/png' }),
+            sendExternalMessage,
+        })
+        fireEvent.click((await screen.findByRole('img', { name: 'Photo' })).closest('button')!)
+        const image = await screen.findByRole('button', { name: /Photo.*photo.png/ })
+        const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 200 })
+        fireEvent(image, event)
+        expect(event.defaultPrevented).toBe(true)
+        expect(screen.queryByRole('dialog')).toBeNull()
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Reply' }))
+        expect(screen.queryByRole('menu')).toBeNull()
+        expect(screen.getByTestId('chats-reply-bar')).toHaveTextContent('Alice')
+        expect(screen.getByTestId('chats-reply-bar')).toHaveTextContent('Photo')
+        const composer = screen.getByRole('textbox')
+        expect(composer).toHaveFocus()
+        fireEvent.change(composer, { target: { value: 'reply to photo' } })
+        fireEvent.submit(composer.closest('form')!)
+        await waitFor(() => expect(sendExternalMessage).toHaveBeenCalledWith(
+            'telegram:chat:1', 'reply to photo', expect.any(String), 'pm1',
+        ))
+    })
+
     it('renews composer focus on reply when it was already focused without a keyboard', async () => {
         renderChat()
         const bubble = await screen.findByText('hello bubble')
