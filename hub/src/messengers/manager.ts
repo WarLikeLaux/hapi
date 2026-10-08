@@ -414,7 +414,7 @@ export class MessengerManager {
         const connector = await this.requireConnector(namespace, conversation.provider)
         await this.waitForMediaPrefetchBackoff(namespace, conversation.provider)
         await connector.sendText(conversation.remoteId, text, clientId, replyToProviderMessageId)
-        await this.refreshMessages(namespace, conversation, 100, true)
+        await this.refreshMessages(namespace, conversation, 100, true, true)
     }
 
     async setReactions(
@@ -430,7 +430,7 @@ export class MessengerManager {
         }
         const connector = await this.requireConnector(namespace, conversation.provider)
         await connector.setReactions(conversation.remoteId, providerMessageId, reactions)
-        await this.refreshMessages(namespace, conversation, 100, true)
+        await this.refreshMessages(namespace, conversation, 100, true, true)
     }
 
     async pressMessageButton(
@@ -454,7 +454,7 @@ export class MessengerManager {
         const result = await connector.pressButton(conversation.remoteId, providerMessageId, buttonId)
         // Bots answer a press by editing their message (new text, new keyboard)
         // and/or sending follow-up messages; pull both in right away.
-        await this.refreshMessages(namespace, conversation, 100, true)
+        await this.refreshMessages(namespace, conversation, 100, true, true)
         return result
     }
 
@@ -506,7 +506,7 @@ export class MessengerManager {
         } finally {
             await unlink(path).catch(() => {})
         }
-        await this.refreshMessages(namespace, conversation, 100, true)
+        await this.refreshMessages(namespace, conversation, 100, true, true)
     }
 
     async stop(): Promise<void> {
@@ -526,11 +526,20 @@ export class MessengerManager {
         namespace: string,
         conversation: ExternalConversation,
         limit: number,
-        broadcast: boolean
+        broadcast: boolean,
+        afterCurrent: boolean = false
     ): Promise<void> {
         const syncKey = this.key(namespace, conversation.id)
         const existing = this.messageSyncs.get(syncKey)
-        if (existing) return existing
+        if (existing) {
+            // A read begun before a mutation cannot confirm its result. Wait
+            // for it to finish so it cannot overwrite the subsequent snapshot.
+            if (afterCurrent) {
+                return existing.catch(() => {}).then(() =>
+                    this.refreshMessages(namespace, conversation, limit, broadcast))
+            }
+            return existing
+        }
         const sync = (async () => {
             const connector = await this.requireConnector(namespace, conversation.provider)
             const messages = await connector.loadMessages(conversation.remoteId, limit)

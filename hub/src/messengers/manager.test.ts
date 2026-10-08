@@ -11,6 +11,67 @@ import { MessengerManager } from './manager'
 import type { MessengerConnector, MessengerConnectorEvent, MessengerConnectorFactory } from './types'
 
 describe('MessengerManager', () => {
+    it('refreshes history started after a send before publishing the conversation preview', async () => {
+        const store = new Store(':memory:')
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-send-sync-'))
+        const conversation: ExternalConversation = {
+            id: 'test:user:1', provider: 'test', remoteId: 'user:1', title: 'Friend', kind: 'direct',
+            selected: true, lastMessageAt: 1, lastMessagePreview: 'Old', unreadCount: 0
+        }
+        const oldMessage: ExternalMessage = {
+            id: 'old', conversationId: conversation.id, providerMessageId: '1',
+            senderId: 'peer', senderName: 'Friend', direction: 'incoming',
+            text: 'Old', createdAt: 1, editedAt: null, media: []
+        }
+        const sentMessage: ExternalMessage = {
+            ...oldMessage, id: 'sent', providerMessageId: '2', direction: 'outgoing',
+            text: 'Test', createdAt: 2
+        }
+        const historyStarted = Promise.withResolvers<void>()
+        const finishOldHistory = Promise.withResolvers<ExternalMessage[]>()
+        const sent = Promise.withResolvers<void>()
+        let loadCount = 0
+        const connector: MessengerConnector = {
+            provider: 'test',
+            getConnection: () => ({ provider: 'test', state: 'ready', accountLabel: null, detail: null }),
+            configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [conversation],
+            loadMessages: async () => {
+                if (++loadCount === 1) {
+                    historyStarted.resolve()
+                    return finishOldHistory.promise
+                }
+                return [oldMessage, sentMessage]
+            },
+            sendText: async () => { sent.resolve() },
+            setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {},
+            downloadMedia: async () => { throw new Error('No media') }
+        }
+        const manager = new MessengerManager({
+            dataDir, store, sseManager: { broadcast: () => {} } as unknown as SSEManager
+        })
+        manager.registerConnectorFactory('test', () => connector)
+        store.messengers.upsertConversation('default', conversation)
+        store.messengers.upsertMessage('default', oldMessage)
+        try {
+            await manager.listMessages('default', conversation.id, { markRead: false })
+            await historyStarted.promise
+            const sending = manager.sendText('default', conversation.id, 'Test')
+            await sent.promise
+            finishOldHistory.resolve([oldMessage])
+            await sending
+            expect(manager.listConversations('default')[0]).toEqual(expect.objectContaining({
+                lastMessageAt: 2, lastMessagePreview: 'Test', lastMessageDirection: 'outgoing'
+            }))
+            expect(await manager.listMessages('default', conversation.id, { markRead: false, refresh: false }))
+                .toContainEqual(sentMessage)
+        } finally {
+            finishOldHistory.resolve([oldMessage])
+            await manager.stop()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('re-runs configure from the error state once backoff has elapsed', async () => {
         const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-configure-retry-'))
         const store = new Store(':memory:')
