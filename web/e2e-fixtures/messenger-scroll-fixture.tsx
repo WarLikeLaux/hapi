@@ -9,16 +9,32 @@ import { AppContextProvider } from '../src/lib/app-context'
 import { I18nProvider } from '../src/lib/i18n-context'
 import '../src/index.css'
 
-const conversations: ExternalConversation[] = ['short', 'long'].map(id => ({
-    id, provider: 'telegram', remoteId: id, title: id, kind: 'direct',
+const conversations: ExternalConversation[] = ['short', 'long', 'bubbles-telegram', 'bubbles-telemost'].map(id => ({
+    id, provider: id === 'bubbles-telemost' ? 'yandex' : 'telegram', remoteId: id, title: id, kind: 'direct',
     selected: true, unreadCount: 0, lastMessageAt: null, lastMessagePreview: null,
 }))
 const thumbnail = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"><rect width="640" height="240" fill="#4682b4"/></svg>')}`
+const bubbleTexts = [
+    'Коллеге',
+    'Может терпения на\n"Стальных нервов"\nзаменить',
+    'Пусть все твои маленькие и большие мечты реализуются! Терпения тебе и крепкого здоровья!',
+    'Оченьдлинноесловобезпробеловкотороеобязательнодолжнопереноситьсяинамобильномэкране',
+    'Смотри https://example.com/очень/длинная/ссылка/без/пробелов',
+]
+const bubbleMessages = (id: string): ExternalMessage[] => bubbleTexts.flatMap((text, index) => (
+    (['incoming', 'outgoing'] as const).map(direction => ({
+        id: `${id}-${index}-${direction}`, conversationId: id,
+        providerMessageId: `bubble-${index}-${direction}`,
+        senderId: direction === 'incoming' ? 'peer' : 'self', senderName: 'Peer', direction,
+        text, createdAt: Date.now() - index * 60_000, editedAt: null, media: [],
+        ...(direction === 'outgoing' ? { deliveryStatus: 'read' as const } : {}),
+    }))
+))
 const api = {
     getMessengerConnections: async () => ({ connections: [] }),
     getExternalConversations: async () => ({ conversations }),
     getExternalMessages: async (id: string) => ({
-        messages: Array.from({ length: id === 'short' ? 30 : 70 }, (_, index): ExternalMessage => ({
+        messages: id.startsWith('bubbles-') ? bubbleMessages(id) : Array.from({ length: id === 'short' ? 30 : 70 }, (_, index): ExternalMessage => ({
             id: `${id}-${index}`, conversationId: id, providerMessageId: `${id}-${index}`,
             senderId: 'peer', senderName: 'Peer', direction: 'incoming',
             text: `${id} message ${index}`, createdAt: index * 60_000,
