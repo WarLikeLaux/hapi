@@ -56,6 +56,30 @@ function swipe(element: Element, points: Array<{ x: number; y: number }>) {
 }
 
 describe('messenger reply gestures', () => {
+    it('labels an animated MP4 as GIF in both the reply quote and composer preview', async () => {
+        // Keep the thumbnail visible without fetching the original media.
+        vi.stubGlobal('IntersectionObserver', class {
+            observe() {}
+            disconnect() {}
+        })
+        renderChat({
+            getExternalMessages: async () => ({ messages: [
+                { ...message, text: '', media: [{
+                    kind: 'video', isAnimated: true, mimeType: 'video/mp4', fileName: null,
+                    size: 100, thumbnailDataUrl: 'data:image/png;base64,aA==',
+                }] },
+                { ...message, id: 'm2', providerMessageId: 'pm2', text: 'reply to animation',
+                    createdAt: message.createdAt + 1000, replyToProviderMessageId: 'pm1' }
+            ], participants: [] }),
+        })
+        const quote = await screen.findByRole('button', { name: 'Alice GIF' })
+        expect(quote).toBeVisible()
+        fireEvent.contextMenu(screen.getByRole('img', { name: 'GIF' }), { clientX: 120, clientY: 200 })
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Reply' }))
+        expect(screen.getByTestId('chats-reply-bar')).toHaveTextContent('GIF')
+        expect(screen.getByTestId('chats-reply-bar')).not.toHaveTextContent('Video')
+    })
+
     it.each(['left', 'right'])('opens reactions and reply/copy actions on a %s click on text', async (button) => {
         const setExternalMessageReactions = vi.fn(async () => {})
         renderChat({ setExternalMessageReactions })
