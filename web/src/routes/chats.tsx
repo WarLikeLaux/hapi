@@ -1209,7 +1209,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                             {item.senderName}
                                         </div>
                                     ) : null}
-                                    <ExternalMessageText text={item.text} />
+                                    <ExternalMessageText text={item.text} compact={!hasMedia} />
                                 </div>
                                 <time
                                     dateTime={new Date(item.createdAt).toISOString()}
