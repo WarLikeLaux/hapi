@@ -13,7 +13,7 @@ import { safeCopyToClipboard } from '@/lib/clipboard'
 import { buildSessionReferenceText } from '@/lib/sessionReference'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
-import { CopyIcon } from '@/components/icons'
+import { CodeIcon, CopyIcon } from '@/components/icons'
 import { SESSION_CONTEXTS, type SessionContextId } from '@/lib/sessionContexts'
 
 type SessionActionMenuProps = {
@@ -35,6 +35,7 @@ type SessionActionMenuProps = {
     onSyncPi?: () => void
     externalReviewUrl?: string | null
     difitOpenUrl?: string | null
+    codeOpenUrl?: string | null
     createExternalReviewUrl?: string | null
     onContinueInFolder?: () => void
     onRestart?: () => void
@@ -302,6 +303,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onSyncPi,
         externalReviewUrl,
         difitOpenUrl,
+        codeOpenUrl,
         createExternalReviewUrl,
         onContinueInFolder,
         onRestart,
@@ -616,6 +618,20 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                 aria-labelledby={headingId}
                 className="flex flex-col gap-1"
             >
+                {codeOpenUrl ? (
+                    <a
+                        href={codeOpenUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={onClose}
+                    >
+                        <CodeIcon className="h-[18px] w-[18px] text-[var(--app-hint)]" />
+                        {t('session.action.openCode')}
+                    </a>
+                ) : null}
+
                 {difitOpenUrl ? (
                     <a
                         href={difitOpenUrl}

@@ -11,6 +11,7 @@ import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager'
 import { validatePath } from '../pathSecurity'
 import { rpcError } from '../rpcResponses'
+import { createGitLabMergeRequestLookup } from './gitLabMergeRequest'
 
 const execFileAsync = promisify(execFile)
 const MAX_GIT_OUTPUT_BYTES = 16 * 1024 * 1024
@@ -452,6 +453,7 @@ async function gitComparison(
 }
 
 export function registerGitHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string): void {
+    const findMergeRequest = createGitLabMergeRequestLookup()
     rpcHandlerManager.registerHandler<GitStatusRequest, GitStatusResponse>(RPC_METHODS.GitStatus, async (data) => {
         const resolved = resolveCwd(data.cwd, workingDirectory)
         if (resolved.error) {
@@ -465,7 +467,7 @@ export function registerGitHandlers(rpcHandlerManager: RpcHandlerManager, workin
         if (!status.success) return status
 
         const branch = currentBranchFromStatus(status.stdout ?? '')
-        if (!branch) return status
+        if (!branch) return { ...status, createMergeRequestUrl: null, mergeRequestUrl: null }
 
         const remote = await runGitCommand(['remote', 'get-url', 'origin'], resolved.cwd, data.timeout)
         const createMergeRequestUrl = remote.success
@@ -473,7 +475,10 @@ export function registerGitHandlers(rpcHandlerManager: RpcHandlerManager, workin
             : null
         return {
             ...status,
-            createMergeRequestUrl
+            createMergeRequestUrl,
+            mergeRequestUrl: createMergeRequestUrl
+                ? await findMergeRequest(createMergeRequestUrl, resolved.cwd)
+                : null,
         }
     })
 

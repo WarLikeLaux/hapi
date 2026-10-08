@@ -61,9 +61,9 @@ function renderHeader(session: Session, extra?: { serviceTier?: string | null; t
     )
 }
 
-function renderHeaderWithApi(session: Session, api: ApiClient) {
+function renderHeaderWithApi(session: Session, api: ApiClient, client = new QueryClient()) {
     return render(
-        <QueryClientProvider client={new QueryClient()}>
+        <QueryClientProvider client={client}>
             <ToastProvider>
                 <I18nProvider>
                     <AppContextTestProvider>
@@ -121,13 +121,7 @@ describe('SessionHeader', () => {
         expect(link).toHaveAttribute('target', '_blank')
         expect(link).toHaveAttribute('rel', 'noopener noreferrer')
 
-        const reviewLink = screen.getByRole('link', { name: 'Open PR' })
-        expect(reviewLink).toHaveAttribute(
-            'href',
-            'https://gitlab.example.test/group/project/-/merge_requests/1'
-        )
-        expect(reviewLink).toHaveAttribute('target', '_blank')
-        expect(reviewLink).toHaveAttribute('rel', 'noopener noreferrer')
+        expect(screen.queryByRole('link', { name: 'Open MR' })).not.toBeInTheDocument()
     })
 
     it('keeps the DIFIT button visible when no review is attached', () => {
@@ -135,7 +129,55 @@ describe('SessionHeader', () => {
         expect(screen.getByRole('link', { name: 'Open in DIFIT' })).toHaveAttribute(
             'href', 'https://difit.local/open?repo=%2Frepo&hapiSessionId=session-1'
         )
-        expect(screen.queryByRole('link', { name: 'Open PR' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: 'Open MR' })).not.toBeInTheDocument()
+    })
+
+    it('opens the exact worktree folder in Code from the header and menu', () => {
+        renderHeader(baseSession({ metadata: { path: '/repo worktrees/feature #1', host: 'machine' } }))
+        const href = 'https://code.local/?folder=%2Frepo+worktrees%2Ffeature+%231'
+        const link = screen.getByRole('link', { name: 'Open in Code' })
+        expect(link).toHaveAttribute('href', href)
+        expect(link).toHaveAttribute('target', '_blank')
+        expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+        expect(link).toHaveClass('max-sm:hidden')
+        fireEvent.click(screen.getByRole('button', { name: /More/ }))
+        expect(screen.getByRole('menuitem', { name: 'Open in Code' })).toHaveAttribute('href', href)
+    })
+
+    it('updates the discovered MR with Git data and does not reuse an attached review from another branch', async () => {
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        const getGitStatus = vi.fn().mockResolvedValue({
+            success: true, stdout: '# branch.head first',
+            mergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/7',
+        })
+        const api = {
+            getGitStatus,
+            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
+            getScratchlist: vi.fn().mockResolvedValue({ entries: [] }),
+        } as unknown as ApiClient
+        renderHeaderWithApi(baseSession({ metadata: {
+            path: '/repo', host: 'machine',
+            difitReview: { id: 'old', url: 'https://difit.local/reviews/old/',
+                reviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1', branch: 'old', attachedAt: 1 },
+        } }), api, client)
+        expect(await screen.findByRole('link', { name: 'Open MR' })).toHaveAttribute(
+            'href', 'https://gitlab.example.test/group/project/-/merge_requests/7'
+        )
+        fireEvent.click(screen.getByRole('button', { name: /More/ }))
+        expect(screen.getByRole('menuitem', { name: 'Open MR' })).toHaveAttribute(
+            'href', 'https://gitlab.example.test/group/project/-/merge_requests/7'
+        )
+
+        getGitStatus.mockResolvedValue({
+            success: true, stdout: '# branch.head second', mergeRequestUrl: null,
+            createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new',
+        })
+        await act(async () => { await client.invalidateQueries() })
+        await waitFor(() => expect(screen.queryByRole('link', { name: 'Open MR' })).not.toBeInTheDocument())
+        expect(screen.queryByRole('menuitem', { name: 'Open MR' })).not.toBeInTheDocument()
+        expect(screen.getByRole('menuitem', { name: 'Create MR' })).toHaveAttribute(
+            'href', 'https://gitlab.example.test/group/project/-/merge_requests/new'
+        )
     })
 
     it('shows the same DIFIT action in the menu for a new session', () => {
@@ -209,7 +251,7 @@ describe('SessionHeader', () => {
         )
 
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        const link = await screen.findByRole('menuitem', { name: 'Create PR' })
+        const link = await screen.findByRole('menuitem', { name: 'Create MR' })
         expect(link).toHaveAttribute('href', createMergeRequestUrl)
         expect(link).toHaveAttribute('target', '_blank')
         expect(sendMessage).not.toHaveBeenCalled()
