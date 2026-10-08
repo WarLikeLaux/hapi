@@ -1687,15 +1687,15 @@ export function SessionList(props: {
         if (!freshChatsEnabled || !externalConversations.data) {
             return EMPTY_FRESH_CHATS
         }
-        // Skip chats while searching or date-filtering: those views rank
-        // sessions by relevance/time, and chats do not participate in either.
-        if (hasTextQuery || isFiltering) {
+        // Messenger chats have no session context and do not participate in
+        // session searches or date filters. Show them only in the All view.
+        if (activeContext !== 'all' || hasTextQuery || isFiltering) {
             return EMPTY_FRESH_CHATS
         }
         // freshChatsTick re-evaluates the window every minute so read chats age out.
         void freshChatsTick
         return selectFreshSidebarConversations(externalConversations.data, freshChatsWindowMs!, Date.now())
-    }, [externalConversations.data, freshChatsEnabled, freshChatsWindowMs, freshChatsTick, hasTextQuery, isFiltering])
+    }, [externalConversations.data, freshChatsEnabled, freshChatsWindowMs, freshChatsTick, activeContext, hasTextQuery, isFiltering])
     const timeScopedSessions = useMemo(
         () => timeRange === null
             ? allSessions
