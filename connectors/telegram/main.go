@@ -937,7 +937,12 @@ func senderData(msg *tg.Message, entities messagepeer.Entities, self *tg.User) (
 			name := userName(self)
 			return &id, &name
 		}
-		return nil, nil
+		// Telegram can omit from_id in private-chat history while including
+		// it in live updates. Both forms must identify the same sender.
+		if _, direct := msg.PeerID.(*tg.PeerUser); msg.Out || !direct {
+			return nil, nil
+		}
+		from = msg.PeerID
 	}
 	remoteID, _ := remoteIDFromPeer(from)
 	name := ""
