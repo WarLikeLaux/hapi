@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import type { QuotaWindow } from '@hapi/protocol/quotas'
+import { dirname, join } from 'node:path'
+import { QuotaWindowSchema, type QuotaWindow } from '@hapi/protocol/quotas'
+import { resolveHapiHomeDir } from '@/configuration'
 import { clampPercent, errorMessage, type CollectorResult } from '../types'
 
 export const MINIMAX_5H_SOURCE = 'minimax:5h'
@@ -10,33 +11,35 @@ export const MINIMAX_WEEKLY_SOURCE = 'minimax:weekly'
 const MINIMAX_TIMEOUT_MS = 15_000
 const MINIMAX_DEFAULT_REGION = 'en'
 
-/**
- * The quota collector never reports `auth_expired` once it has ever seen a
- * good response — any 401 silently replays the last valid snapshot so the
- * UI keeps showing usage instead of flashing a red "Authentication expired"
- * banner. mcode refreshes its access token on disk via the stored
- * `refreshCredential` whenever the user actually runs an agent; between
- * agent runs the token can sit stale for hours, but our collector is just a
- * side-channel reader and shouldn't punish that. The staleness indicator in
- * the web panel (`STALE_AFTER_MS = 15 * 60_000`) tells the user how old the
- * numbers are. `auth_expired` is still surfaced on the very first poll when
- * we have nothing to replay — there's nothing else to show.
- */
-interface MinimaxAuthCache {
-    lastValidWindows: QuotaWindow[] | null
+// Keep measurements across runner restarts; the original measuredAt drives
+// the UI's stale indicator. In-memory fallback also works on read-only disks.
+const authCache = new Map<string, QuotaWindow[]>()
+
+function readCachedWindows(cacheFile: string): QuotaWindow[] | null {
+    const inMemory = authCache.get(cacheFile)
+    if (inMemory) return inMemory
+    try {
+        const parsed = QuotaWindowSchema.array().nonempty().safeParse(JSON.parse(readFileSync(cacheFile, 'utf-8')))
+        if (!parsed.success || parsed.data.some(window =>
+            window.source !== MINIMAX_5H_SOURCE && window.source !== MINIMAX_WEEKLY_SOURCE
+        )) return null
+        authCache.set(cacheFile, parsed.data)
+        return parsed.data
+    } catch {
+        return null
+    }
 }
 
-const authCache: MinimaxAuthCache = {
-    lastValidWindows: null
-}
-
-/**
- * Test-only hook: clears the in-memory cache so isolated cases start fresh.
- * Production code never needs to call this — the cache lives for the lifetime
- * of the runner process and resets on every successful poll.
- */
-export function resetMinimaxAuthCache(): void {
-    authCache.lastValidWindows = null
+function cacheWindows(cacheFile: string, windows: QuotaWindow[]): void {
+    authCache.set(cacheFile, windows)
+    try {
+        mkdirSync(dirname(cacheFile), { recursive: true, mode: 0o700 })
+        const temporaryFile = `${cacheFile}.${process.pid}.tmp`
+        writeFileSync(temporaryFile, JSON.stringify(windows), { mode: 0o600 })
+        renameSync(temporaryFile, cacheFile)
+    } catch {
+        // Persistence is best-effort; quota collection must still succeed.
+    }
 }
 
 /** Quota bases mirror mcode's own region table (prod only). */
@@ -49,13 +52,15 @@ const MINIMAX_BASE_URLS: Record<string, string> = {
 export type MinimaxAuthPaths = {
     regionFile: string
     authFile: (region: string) => string
+    cacheFile: (region: string) => string
 }
 
 function defaultAuthPaths(): MinimaxAuthPaths {
     const home = homedir()
     return {
         regionFile: join(home, '.minimax', 'preferences', 'mcode-region.json'),
-        authFile: (region: string) => join(home, '.minimax', 'auth', 'prod', region, 'mcode-public', 'auth.json')
+        authFile: (region: string) => join(home, '.minimax', 'auth', 'prod', region, 'mcode-public', 'auth.json'),
+        cacheFile: (region: string) => join(resolveHapiHomeDir(), 'quotas', `minimax-${region === 'cn' ? 'cn' : 'en'}.json`)
     }
 }
 
@@ -162,13 +167,7 @@ export function parseMinimaxQuotaResponse(payload: unknown, nowSec: number): Quo
     return windows.length > 0 ? windows : null
 }
 
-/**
- * Collects MiniMax coding-plan windows. Once any good snapshot is cached, a
- * 401 silently replays it forever — the UI keeps showing last-known usage
- * with a staleness indicator instead of flipping to "Authentication expired".
- * Without a cached snapshot there is nothing to replay and `auth_expired` is
- * surfaced on the first failed poll.
- */
+/** Collects fresh usage, silently retaining last-known measurements on HTTP 401. */
 export async function collectMinimaxQuotas(
     nowSec: number,
     paths: MinimaxAuthPaths = defaultAuthPaths(),
@@ -176,6 +175,7 @@ export async function collectMinimaxQuotas(
 ): Promise<CollectorResult> {
     const credentials = readMinimaxCredentials(paths)
     if (!credentials) return { kind: 'skipped' }
+    const cacheFile = paths.cacheFile(credentials.region)
 
     try {
         const response = await fetchImpl(`${minimaxBaseUrl(credentials.region)}/v1/api/openplatform/coding_plan/remains`, {
@@ -186,19 +186,8 @@ export async function collectMinimaxQuotas(
             signal: AbortSignal.timeout(MINIMAX_TIMEOUT_MS)
         })
         if (response.status === 401) {
-            if (authCache.lastValidWindows) {
-                // Replay the last good snapshot so the UI keeps showing usage
-                // while mcode's silent refresh lands on the next agent run.
-                // The original measuredAt stays — the UI's staleness
-                // indicator tells the user how old the numbers are.
-                return { kind: 'ok', windows: authCache.lastValidWindows }
-            }
-            return {
-                kind: 'unavailable',
-                source: MINIMAX_5H_SOURCE,
-                reason: 'auth_expired',
-                detail: 'HTTP 401'
-            }
+            const windows = readCachedWindows(cacheFile)
+            return windows ? { kind: 'ok', windows } : { kind: 'skipped' }
         }
         if (!response.ok) {
             return {
@@ -219,7 +208,7 @@ export async function collectMinimaxQuotas(
         if (!windows) {
             return { kind: 'unavailable', source: MINIMAX_5H_SOURCE, reason: 'unavailable', detail: 'model_remains not found' }
         }
-        authCache.lastValidWindows = windows
+        cacheWindows(cacheFile, windows)
         return { kind: 'ok', windows }
     } catch (error) {
         return { kind: 'unavailable', source: MINIMAX_5H_SOURCE, reason: 'unavailable', detail: errorMessage(error) }
