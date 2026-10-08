@@ -1,7 +1,7 @@
 import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import type { KlipyGif } from '@hapi/protocol/klipy'
-import type { ExternalMessage, ExternalMessagesResponse } from '@hapi/protocol/messengers'
+import type { ExternalMessage, ExternalMessagesResponse, YandexStickerPack } from '@hapi/protocol/messengers'
 import type { ApiClient } from '@/api/client'
 import { createOptimisticExternalMessage, getOptimisticExternalSender } from '@/chat/optimisticExternalMessages'
 import { queryKeys } from '@/lib/query-keys'
@@ -14,6 +14,7 @@ type SendPayload = {
     | { kind: 'text' }
     | { kind: 'media'; file: File }
     | { kind: 'gif'; gif: KlipyGif }
+    | { kind: 'sticker'; sticker: YandexStickerPack['stickers'][number]; setId: YandexStickerPack['id'] }
 )
 type SendInput = SendPayload & { conversationId: string; clientId: string }
 
@@ -53,13 +54,22 @@ export function useExternalMessageOutbox(
         queryClient.setQueryData<OutboxEntry[]>(outboxKey(id), (entries) => transform(entries ?? []))
     }
     const mutation = useMutation({
-        // Text, files and GIFs share the same delivery order. onMutate runs
+        // Text, files, GIFs and stickers share the same delivery order. onMutate runs
         // immediately even for sends waiting behind another request.
         scope: { id: `external-send:${conversationId}` },
         mutationFn: async (input: SendInput) => {
             if (!api) throw new Error('API unavailable')
             if (input.kind === 'text') {
                 await api.sendExternalMessage(input.conversationId, input.text, input.clientId, input.replyToProviderMessageId)
+                return
+            }
+            if (input.kind === 'sticker') {
+                await api.sendExternalSticker(input.conversationId, {
+                    stickerId: input.sticker.id,
+                    setId: input.setId,
+                    clientId: input.clientId,
+                    replyToProviderMessageId: input.replyToProviderMessageId
+                })
                 return
             }
             let file: File
@@ -90,6 +100,15 @@ export function useExternalMessageOutbox(
                         queryKeys.externalMessages(input.conversationId),
                     )),
                 })
+                if (input.kind === 'sticker') {
+                    message.media = [{
+                        kind: 'sticker',
+                        mimeType: 'image/png',
+                        fileName: null,
+                        size: null,
+                        thumbnailDataUrl: `https://files.messenger.yandex.net/${input.sticker.id}`
+                    }]
+                }
                 return [...entries, { input, message, status: 'sending' }]
             })
         },

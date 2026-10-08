@@ -79,6 +79,8 @@ import type {
     ExternalConversation,
     ExternalConversationsResponse,
     ExternalMessagesResponse,
+    SendExternalStickerRequest,
+    YandexStickerPacksResponse,
     ExternalParticipant,
     MessengerConnection,
     MessengerConnectionsResponse,
@@ -426,6 +428,17 @@ export class ApiClient {
         await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
             method: 'POST',
             body: JSON.stringify({ text, clientId, replyToProviderMessageId })
+        })
+    }
+
+    async getYandexStickerPack(): Promise<YandexStickerPacksResponse> {
+        return await this.request('/api/messengers/yandex/stickers')
+    }
+
+    async sendExternalSticker(conversationId: string, input: SendExternalStickerRequest): Promise<void> {
+        await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/stickers`, {
+            method: 'POST',
+            body: JSON.stringify(input)
         })
     }
 

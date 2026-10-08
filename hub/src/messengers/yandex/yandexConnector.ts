@@ -14,13 +14,15 @@ import type {
     ExternalConversation,
     ExternalMessage,
     MessengerConnection,
+    SendExternalStickerRequest,
     SubmitMessengerAuthRequest
 } from '@hapi/protocol'
 import type { DownloadedExternalMedia, MessengerConnector, MessengerConnectorEvent, SendExternalMediaInput } from '../types'
 import { createPayloadId, PUSH_METHOD, XivaClient } from './xivaClient'
 import { CookieRejectedError, RegistryClient, toWireTimestamp } from './registry'
 import { reactionTypeForEmoji } from './reactionMap'
-import { buildFileClientMessage, buildImageClientMessage, buildReplyFields } from './pushShape'
+import { buildFileClientMessage, buildImageClientMessage, buildReplyFields, buildStickerClientMessage } from './pushShape'
+import { getYandexStickerPack } from './stickers'
 import {
     buildAvatarUrlFromId,
     buildHistoryParams,
@@ -376,6 +378,21 @@ export class YandexConnector implements MessengerConnector {
                 Text: { MessageText: text }
             }
         })
+    }
+
+    async sendSticker(remoteId: string, input: SendExternalStickerRequest): Promise<void> {
+        const pack = await getYandexStickerPack()
+        if (input.setId !== pack.id || !pack.stickers.some((sticker) => sticker.id === input.stickerId)) {
+            throw new Error('Sticker not found in the supported pack')
+        }
+        await this.pushMutation(buildStickerClientMessage({
+            ...input,
+            chatId: remoteId,
+            payloadId: input.clientId ?? createPayloadId(),
+            replyQuoteText: input.replyToProviderMessageId !== undefined
+                ? this.messageSnapshots.get(remoteId)?.get(input.replyToProviderMessageId)?.text
+                : undefined
+        }))
     }
 
     async setReactions(remoteId: string, providerMessageId: string, reactions: string[]): Promise<void> {
