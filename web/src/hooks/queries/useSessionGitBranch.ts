@@ -20,7 +20,7 @@ function useSessionGitInfo(
     active: boolean,
     enabled = true,
     cacheScope = sessionId
-): { branch: string | null; createMergeRequestUrl: string | null } | null {
+): { branch: string | null; createMergeRequestUrl: string | null; mergeRequestUrl: string | null } | null {
     return useQuery({
         queryKey: queryKeys.gitBranch(cacheScope),
         queryFn: async () => {
@@ -32,6 +32,7 @@ function useSessionGitInfo(
             return {
                 branch: readDisplayGitBranch(result.stdout ?? ''),
                 createMergeRequestUrl: result.createMergeRequestUrl ?? null,
+                mergeRequestUrl: result.mergeRequestUrl ?? null,
             }
         },
         enabled: Boolean(enabled && api && typeof api.getGitStatus === 'function'),
@@ -63,4 +64,14 @@ export function useSessionGitLabCreateMergeRequestUrl(
     const info = useSessionGitInfo(api, sessionId, active, enabled, cacheScope)
 
     return info?.createMergeRequestUrl ?? null
+}
+
+export function useSessionGitLabMergeRequestUrl(
+    api: ApiClient | null,
+    sessionId: string,
+    active: boolean,
+    enabled = true,
+    cacheScope = sessionId
+): string | null {
+    return useSessionGitInfo(api, sessionId, active, enabled, cacheScope)?.mergeRequestUrl ?? null
 }

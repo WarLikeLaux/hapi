@@ -33,7 +33,8 @@ describe('Git status route', () => {
                 return {
                     success: true,
                     stdout: '# branch.head custom',
-                    createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=custom'
+                    createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=custom',
+                    mergeRequestUrl: null
                 }
             },
             getMachineGitStatus: async (...args: unknown[]) => {
@@ -52,7 +53,7 @@ describe('Git status route', () => {
         expect(calls).toEqual([['session', 'session-1', '/project']])
     })
 
-    it('gets a create link from the machine for a session running an older CLI', async () => {
+    it('returns coherent branch and MR data from the current runner when the session CLI lacks discovery', async () => {
         const session = {
             id: 'session-1',
             namespace: 'default',
@@ -70,7 +71,8 @@ describe('Git status route', () => {
                 calls.push(['machine', ...args])
                 return {
                     success: true,
-                    stdout: '# branch.head feature',
+                    stdout: '# branch.head feature-current',
+                    mergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/7',
                     createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature'
                 }
             }
@@ -80,6 +82,8 @@ describe('Git status route', () => {
 
         expect(await response.json()).toMatchObject({
             success: true,
+            stdout: '# branch.head feature-current',
+            mergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/7',
             createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature'
         })
         expect(calls).toEqual([

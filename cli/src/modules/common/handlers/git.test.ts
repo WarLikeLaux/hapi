@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GitComparisonResponse } from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import { buildGitLabCreateMergeRequestUrl, parseGitNameStatus, parseGitNumstat, registerGitHandlers } from './git'
@@ -36,8 +36,32 @@ function comparisonHandler(directory: string) {
 }
 
 afterEach(async () => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
     await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
 })
+
+async function installGitLabFixture(directory: string) {
+    const responsePath = join(directory, 'gitlab-response.json')
+    const callsPath = join(directory, 'gitlab-calls.jsonl')
+    const executablePath = join(directory, 'glab')
+    await writeFile(responsePath, '[]')
+    await writeFile(callsPath, '')
+    await writeFile(executablePath, `#!${process.execPath}
+const fs = require('node:fs');
+fs.appendFileSync(${JSON.stringify(callsPath)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+const body = fs.readFileSync(${JSON.stringify(responsePath)}, 'utf8');
+if (body === 'error') process.exit(1);
+process.stdout.write(body);
+`)
+    await chmod(executablePath, 0o755)
+    vi.stubEnv('PATH', `${directory}:${process.env.PATH}`)
+    return {
+        respond: (body: unknown) => writeFile(responsePath, JSON.stringify(body)),
+        fail: () => writeFile(responsePath, 'error'),
+        calls: async () => (await readFile(callsPath, 'utf8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)),
+    }
+}
 
 describe('Git comparison parsing', () => {
     it('parses null-delimited renames and binary numstat', () => {
@@ -75,14 +99,80 @@ describe('GitLab merge request links', () => {
 
     it('adds the current branch create link to Git status', async () => {
         const directory = await createRepository('feature/review')
+        await installGitLabFixture(directory)
         git(directory, 'remote', 'add', 'origin', 'git@gitlab.example.test:group/project.git')
 
         const result = await gitHandlers(directory).get(RPC_METHODS.GitStatus)!({})
 
         expect(result).toMatchObject({
             success: true,
+            mergeRequestUrl: null,
             createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature%2Freview'
         })
+    })
+
+    it('discovers an open MR, shares cached polls, follows branch changes and refreshes after closure or API failure', async () => {
+        const directory = await createRepository('feature/review')
+        git(directory, 'remote', 'add', 'origin', 'git@gitlab.example.test:group/project.git')
+        const api = await installGitLabFixture(directory)
+        const review = {
+            state: 'opened', source_branch: 'feature/review', project_id: 1, source_project_id: 1,
+            web_url: 'https://gitlab.example.test/group/project/-/merge_requests/7',
+        }
+        await api.respond([
+            { ...review, source_project_id: 2, web_url: 'https://gitlab.example.test/group/project/-/merge_requests/8' },
+            review,
+        ])
+        let now = Date.now()
+        vi.spyOn(Date, 'now').mockImplementation(() => now)
+        const status = gitHandlers(directory).get(RPC_METHODS.GitStatus)!
+        const firstPolls = await Promise.all([status({}), status({})])
+        expect(firstPolls.map((result) => result.mergeRequestUrl)).toEqual([review.web_url, review.web_url])
+        expect(await api.calls()).toEqual([[
+            'api', 'projects/group%2Fproject/merge_requests?state=opened&source_branch=feature%2Freview&scope=all&order_by=updated_at&sort=desc&per_page=100',
+            '--hostname', 'gitlab.example.test',
+        ]])
+
+        git(directory, 'symbolic-ref', 'HEAD', 'refs/heads/second')
+        await api.respond([])
+        expect(await status({})).toMatchObject({ success: true, mergeRequestUrl: null })
+        expect(await api.calls()).toHaveLength(2)
+        await api.respond([{ ...review, source_branch: 'second' }])
+        expect((await status({})).mergeRequestUrl).toBeNull()
+        now += 60_001
+        expect((await status({})).mergeRequestUrl).toBe(review.web_url)
+
+        await api.respond([])
+        now += 60_001
+        expect((await status({})).mergeRequestUrl).toBeNull()
+        await api.fail()
+        now += 60_001
+        expect(await status({})).toMatchObject({ success: true, mergeRequestUrl: null })
+        const callsAfterFailure = (await api.calls()).length
+        await status({})
+        expect(await api.calls()).toHaveLength(callsAfterFailure)
+        await api.respond([{ ...review, source_branch: 'second' }])
+        now += 60_001
+        expect((await status({})).mergeRequestUrl).toBe(review.web_url)
+    })
+
+    it('rejects unsafe or mismatched MR responses and skips discovery for detached HEAD', async () => {
+        const directory = await createRepository('feature')
+        git(directory, 'remote', 'add', 'origin', 'git@gitlab.example.test:group/project.git')
+        const api = await installGitLabFixture(directory)
+        await api.respond([
+            { state: 'opened', source_branch: 'feature', project_id: 1, source_project_id: 1, web_url: 'https://evil.test/group/project/-/merge_requests/1' },
+            { state: 'closed', source_branch: 'feature', project_id: 1, source_project_id: 1, web_url: 'https://gitlab.example.test/group/project/-/merge_requests/2' },
+            { state: 'opened', source_branch: 'other', project_id: 1, source_project_id: 1, web_url: 'https://gitlab.example.test/group/project/-/merge_requests/3' },
+        ])
+        const status = gitHandlers(directory).get(RPC_METHODS.GitStatus)!
+        expect((await status({})).mergeRequestUrl).toBeNull()
+        await writeFile(join(directory, 'file.txt'), 'base')
+        git(directory, 'add', 'file.txt')
+        git(directory, 'commit', '-m', 'Base')
+        git(directory, 'checkout', '--detach')
+        expect(await status({})).toMatchObject({ success: true, mergeRequestUrl: null, createMergeRequestUrl: null })
+        expect(await api.calls()).toHaveLength(1)
     })
 })
 

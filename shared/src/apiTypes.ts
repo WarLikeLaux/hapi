@@ -829,6 +829,8 @@ export type GitCommandResponse = CommandResponse
 export type GitStatusResponse = GitCommandResponse & {
     /** Credential-free GitLab form URL for opening an MR from the current branch, when available. */
     createMergeRequestUrl?: string | null
+    /** Open GitLab MR for the current repository and branch, discovered with local glab credentials. */
+    mergeRequestUrl?: string | null
 }
 
 export type GitComparisonScope = 'last-commit' | 'branch'

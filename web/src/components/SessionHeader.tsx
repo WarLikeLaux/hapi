@@ -34,7 +34,8 @@ import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { markSessionUnread } from '@/lib/sessionLastSeen'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useNavigate } from '@tanstack/react-router'
-import { useSessionGitBranch, useSessionGitLabCreateMergeRequestUrl } from '@/hooks/queries/useSessionGitBranch'
+import { useSessionGitBranch, useSessionGitLabCreateMergeRequestUrl, useSessionGitLabMergeRequestUrl } from '@/hooks/queries/useSessionGitBranch'
+import { CodeIcon } from '@/components/icons'
 
 export function buildDifitOpenUrl(session: Session, branch: string | null): string {
     const url = new URL('/open', import.meta.env.VITE_DIFIT_HUB_URL || 'https://difit.local')
@@ -288,7 +289,13 @@ export function SessionHeader(props: {
         ? liveGitBranch ?? worktreeBranch ?? attachedBranch
         : worktreeBranch ?? attachedBranch ?? liveGitBranch
     const difitOpenUrl = buildDifitOpenUrl(session, gitBranch)
-    const externalReviewUrl = session.metadata?.difitReview?.reviewUrl ?? null
+    const externalReviewUrl = useSessionGitLabMergeRequestUrl(api, session.id, session.active, Boolean(api), gitBranchScope)
+    const codeOpenUrl = useMemo(() => {
+        if (!session.metadata?.path) return null
+        const url = new URL(import.meta.env.VITE_CODE_SERVER_URL || 'https://code.local')
+        url.searchParams.set('folder', session.metadata.path)
+        return url.toString()
+    }, [session.metadata?.path])
     const modelLabel = useSessionModelLabel({ session, api })
     const isModelChanging = useIsMutating({
         mutationKey: sessionModelMutationKey(session.id),
@@ -702,6 +709,20 @@ export function SessionHeader(props: {
                             </button>
                         ) : null}
 
+                        {codeOpenUrl ? (
+                            <a
+                                href={codeOpenUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`${headerToggleClass(false)} max-sm:hidden`}
+                                title={t('session.action.openCode')}
+                                aria-label={t('session.action.openCode')}
+                                data-testid="session-header-open-code"
+                            >
+                                <CodeIcon className="h-[18px] w-[18px]" />
+                            </a>
+                        ) : null}
+
                         <a
                             href={difitOpenUrl}
                             target="_blank"
@@ -784,6 +805,7 @@ export function SessionHeader(props: {
                 onSyncPi={api && piSessionId && !session.active ? handleSyncPi : undefined}
                 externalReviewUrl={externalReviewUrl}
                 difitOpenUrl={difitOpenUrl}
+                codeOpenUrl={codeOpenUrl}
                 createExternalReviewUrl={!externalReviewUrl ? createMergeRequestUrl : null}
                 onContinueInFolder={() => navigate({
                     to: '/browse',
