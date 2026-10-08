@@ -239,6 +239,11 @@ func (a *interactiveAuth) SignUp(context.Context) (auth.UserInfo, error) {
 	return auth.UserInfo{}, errors.New("new Telegram account registration is not supported")
 }
 
+type buttonWatchKey struct {
+	remoteID  string
+	messageID int
+}
+
 type service struct {
 	out           *writer
 	auth          *interactiveAuth
@@ -246,6 +251,8 @@ type service struct {
 	client        *telegram.Client
 	raw           *tg.Client
 	cancel        context.CancelFunc
+	runCtx        context.Context
+	buttonWatches map[buttonWatchKey]context.CancelFunc
 	self          *tg.User
 	peers         map[string]tg.InputPeerClass
 	peerTitles    map[string]string
@@ -263,6 +270,8 @@ func newService(out *writer) *service {
 		peerTitles:    make(map[string]string),
 		avatars:       make(map[string]string),
 		readOutboxMax: make(map[string]int),
+		runCtx:        context.Background(),
+		buttonWatches: make(map[buttonWatchKey]context.CancelFunc),
 	}
 }
 
@@ -726,6 +735,7 @@ func (s *service) configure(apiID int, apiHash, sessionPath string) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
+	s.runCtx = ctx
 	s.client = nil
 	s.raw = nil
 	s.mu.Unlock()
@@ -1290,6 +1300,8 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 	return result, nil
 }
 
+var errTelegramMessageNotFound = errors.New("Telegram message not found")
+
 func messageByID(ctx context.Context, raw *tg.Client, peer tg.InputPeerClass, messageID int) (*tg.Message, error) {
 	// Channel peers (broadcast channels and megagroups) reject
 	// messages.getHistory; only channels.getMessages serves messages by id there.
@@ -1323,7 +1335,7 @@ func messageByID(ctx context.Context, raw *tg.Client, peer tg.InputPeerClass, me
 			return msg, nil
 		}
 	}
-	return nil, errors.New("Telegram message not found")
+	return nil, errTelegramMessageNotFound
 }
 
 // resolveReplyQuote fetches the replied-to message so outgoing/received replies
@@ -1789,6 +1801,7 @@ func providerMessageIDs(ids []int) []string {
 }
 
 func (s *service) handleDeleteMessages(_ context.Context, _ tg.Entities, update *tg.UpdateDeleteMessages) error {
+	s.cancelButtonWatches("", update.Messages)
 	ids := providerMessageIDs(update.Messages)
 	if len(ids) > 0 {
 		s.out.event("messages-deleted", deletedMessages{ProviderMessageIDs: ids})
@@ -1797,6 +1810,7 @@ func (s *service) handleDeleteMessages(_ context.Context, _ tg.Entities, update 
 }
 
 func (s *service) handleDeleteChannelMessages(_ context.Context, _ tg.Entities, update *tg.UpdateDeleteChannelMessages) error {
+	s.cancelButtonWatches(fmt.Sprintf("channel:%d", update.ChannelID), update.Messages)
 	ids := providerMessageIDs(update.Messages)
 	if len(ids) > 0 {
 		remoteID := fmt.Sprintf("channel:%d", update.ChannelID)
@@ -1891,6 +1905,71 @@ func (s *service) setReactions(ctx context.Context, remoteID, providerMessageID 
 	return err
 }
 
+func (s *service) cancelButtonWatches(remoteID string, messageIDs []int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, cancel := range s.buttonWatches {
+		if remoteID != "" && key.remoteID != remoteID {
+			continue
+		}
+		if remoteID == "" && strings.HasPrefix(key.remoteID, "channel:") {
+			continue
+		}
+		for _, id := range messageIDs {
+			if key.messageID == id {
+				cancel()
+				break
+			}
+		}
+	}
+}
+
+// A callback answer is independent of the bot's deletion. Check only the
+// pressed message for a short window in case its delete update is missed.
+func (s *service) watchButtonMessage(raw *tg.Client, peer tg.InputPeerClass, remoteID string, messageID int) {
+	key := buttonWatchKey{remoteID: remoteID, messageID: messageID}
+	s.mu.Lock()
+	if _, watching := s.buttonWatches[key]; watching {
+		s.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.runCtx, 10*time.Second)
+	s.buttonWatches[key] = cancel
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			cancel()
+			s.mu.Lock()
+			delete(s.buttonWatches, key)
+			s.mu.Unlock()
+		}()
+		for _, delay := range []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 3 * time.Second, 3 * time.Second} {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			_, err := messageByID(ctx, raw, peer, messageID)
+			if ctx.Err() != nil {
+				return
+			}
+			if errors.Is(err, errTelegramMessageNotFound) {
+				s.out.event("messages-deleted", deletedMessages{
+					RemoteID: &remoteID, ProviderMessageIDs: []string{strconv.Itoa(messageID)},
+				})
+				return
+			}
+			// Network/RPC errors are not evidence of deletion. Stop rather than
+			// retrying through a flood wait or an unavailable connection.
+			if err != nil {
+				return
+			}
+		}
+	}()
+}
+
 func (s *service) pressButton(ctx context.Context, remoteID, providerMessageID, buttonID string) (*string, error) {
 	messageID, err := strconv.Atoi(providerMessageID)
 	if err != nil || messageID <= 0 {
@@ -1907,6 +1986,14 @@ func (s *service) pressButton(ctx context.Context, remoteID, providerMessageID, 
 	// Re-fetch the message so the callback data matches the markup the bot has
 	// right now — pressing stale data after an edit fails with BUTTON_DATA_INVALID.
 	msg, err := messageByID(ctx, raw, peer, messageID)
+	if errors.Is(err, errTelegramMessageNotFound) {
+		// An already deleted message may still be in the hub cache. Reconcile
+		// it instead of leaving a stale button with a red "not found" error.
+		s.out.event("messages-deleted", deletedMessages{
+			RemoteID: &remoteID, ProviderMessageIDs: []string{providerMessageID},
+		})
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1914,6 +2001,9 @@ func (s *service) pressButton(ctx context.Context, remoteID, providerMessageID, 
 	if err != nil {
 		return nil, err
 	}
+	// Start before waiting for the answer: bots may delete without answering,
+	// in which case Telegram eventually returns BOT_RESPONSE_TIMEOUT.
+	s.watchButtonMessage(raw, peer, remoteID, messageID)
 	answer, err := raw.MessagesGetBotCallbackAnswer(ctx, &tg.MessagesGetBotCallbackAnswerRequest{
 		Peer:  peer,
 		MsgID: messageID,
