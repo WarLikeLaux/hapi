@@ -16,6 +16,30 @@ function conversation(id: string, selected: boolean) {
 }
 
 describe('MessengerStore', () => {
+    it.each([
+        { isAnimated: true, text: '', expected: 'GIF' },
+        { isAnimated: false, text: '', expected: 'Video' },
+        { isAnimated: true, text: 'A caption', expected: 'A caption' }
+    ])('keeps the correct video preview after storage and deletion: $expected', ({ isAnimated, text, expected }) => {
+        const store = new Store(':memory:')
+        try {
+            store.messengers.upsertConversation('one', conversation('user:1', true))
+            const message = {
+                id: 'telegram:user:1:1', conversationId: 'telegram:user:1', providerMessageId: '1',
+                senderId: 'user:1', senderName: 'Friend', direction: 'incoming' as const,
+                text, createdAt: 1000, editedAt: null,
+                media: [{ kind: 'video' as const, isAnimated, mimeType: 'video/mp4', fileName: null, size: 100, thumbnailDataUrl: null }]
+            }
+            store.messengers.upsertMessage('one', message)
+            expect(store.messengers.listConversations('one')[0]?.lastMessagePreview).toBe(expected)
+            store.messengers.upsertMessage('one', { ...message, id: 'telegram:user:1:2', providerMessageId: '2', text: 'newer', createdAt: 2000 })
+            store.messengers.deleteMessages('one', 'telegram', ['2'], 'telegram:user:1')
+            expect(store.messengers.getConversation('one', 'telegram:user:1')?.lastMessagePreview).toBe(expected)
+        } finally {
+            store.close()
+        }
+    })
+
     it('keeps selection and cached messages isolated by namespace', () => {
         const store = new Store(':memory:')
         try {

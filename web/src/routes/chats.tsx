@@ -169,6 +169,10 @@ const mediaLabels: Record<ExternalMedia['kind'], string> = {
     other: 'Attachment'
 }
 
+function mediaLabel(media: ExternalMedia): string {
+    return media.kind === 'video' && media.isAnimated ? 'GIF' : mediaLabels[media.kind]
+}
+
 const mediaIcons: Record<ExternalMedia['kind'], string> = {
     image: '▧',
     video: '▶',
@@ -258,7 +262,7 @@ function MediaAttachment(props: {
 
     // Telegram delivers GIFs as silent animated MP4 with kind "video"; surface
     // them as GIF everywhere a plain video would say "Video".
-    const label = media.kind === 'video' && media.isAnimated ? 'GIF' : mediaLabels[media.kind]
+    const label = mediaLabel(media)
     if (props.previewOnly && media.thumbnailDataUrl) {
         return <div className="relative w-[min(64vw,15rem)] max-w-full"><img src={media.thumbnailDataUrl} alt={label} referrerPolicy="no-referrer" className="max-h-[15rem] w-full object-contain" />{props.overlay}</div>
     }
@@ -286,7 +290,7 @@ function MediaAttachment(props: {
         if (media.isRound) {
             return <div className="relative w-fit max-w-full"><RoundVideoPlayer src={fullUrl} label={media.fileName ?? label} />{props.overlay}</div>
         }
-        return <div className="relative w-fit max-w-full"><video src={fullUrl} controls={!media.isAnimated} autoPlay={media.isAnimated} loop={media.isAnimated} muted={media.isAnimated} playsInline preload="metadata" className="max-h-[32rem] max-w-[min(100%,82vw,30rem)] rounded-xl bg-black object-contain" />{props.overlay}</div>
+        return <div className="relative w-fit max-w-[min(100%,82vw,30rem)]"><video src={fullUrl} controls={!media.isAnimated} autoPlay={media.isAnimated} loop={media.isAnimated} muted={media.isAnimated} playsInline preload="metadata" className="block max-h-[32rem] max-w-full rounded-xl bg-black object-contain" />{props.overlay}</div>
     }
     if (fullUrl && (media.kind === 'audio' || media.kind === 'voice')) {
         return <audio src={fullUrl} controls preload="metadata" className="max-w-full" />
@@ -310,7 +314,7 @@ function MediaAttachment(props: {
         <>
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-bg)] text-base text-[var(--app-link)]">{mediaIcons[media.kind]}</span>
             <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{loading || autoLoadsOriginal ? 'Loading…' : media.fileName ?? mediaLabels[media.kind]}</span>
+                <span className="block truncate text-sm font-medium">{loading || autoLoadsOriginal ? 'Loading…' : media.fileName ?? label}</span>
                 {size || media.mimeType ? <span className="block truncate text-[10px] text-[var(--app-hint)]">{[size, media.mimeType].filter(Boolean).join(' · ')}</span> : null}
                 {error ? <span className="block text-[10px] text-red-600">{error}</span> : null}
             </span>
@@ -1188,7 +1192,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                 ? (replyTarget.direction === 'outgoing' ? t('chats.reply.you') : replyTarget.senderName || null)
                                 : item.replyToSenderName ?? null
                             const quote = replyTarget
-                                ? (replyTarget.text.trim() || (replyTarget.media?.[0] ? mediaLabels[replyTarget.media[0].kind] : ''))
+                                ? (replyTarget.text.trim() || (replyTarget.media?.[0] ? mediaLabel(replyTarget.media[0]) : ''))
                                 : item.replyToText ?? null
                             return (
                                 <button
@@ -1350,7 +1354,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                                     mediaIndex={mediaIndex}
                                                     previewOnly={optimistic && media.kind === 'sticker'}
                                                     overlay={overlaysTimestamp ? (
-                                                        <span className="pointer-events-none absolute bottom-2 right-2 z-10 flex items-center rounded-full bg-black/55 px-2 py-1 text-[10px] leading-none text-white shadow-sm backdrop-blur-sm tabular-nums">
+                                                        <span className="pointer-events-none absolute bottom-2 right-1 z-10 flex items-center rounded-full bg-black/55 px-2 py-1 text-[10px] leading-none text-white shadow-sm backdrop-blur-sm tabular-nums">
                                                             {formatTime(item.createdAt)}
                                                             {!incoming && item.deliveryStatus ? <ExternalDeliveryStatus status={item.deliveryStatus} className="ml-1" /> : null}
                                                         </span>
@@ -1503,7 +1507,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                 {replyTo.direction === 'outgoing' ? t('chats.reply.you') : replyTo.senderName || conversation.title}
                             </div>
                             <div className="truncate text-xs text-[var(--app-hint)]">
-                                {replyTo.text.trim() || (replyTo.media?.[0] ? mediaLabels[replyTo.media[0].kind] : '') || t('chats.reply.unavailable')}
+                                {replyTo.text.trim() || (replyTo.media?.[0] ? mediaLabel(replyTo.media[0]) : '') || t('chats.reply.unavailable')}
                             </div>
                         </div>
                         <button

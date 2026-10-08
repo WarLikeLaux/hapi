@@ -102,8 +102,9 @@ function toMessage(row: MessageRow): ExternalMessage {
 function messagePreview(message: ExternalMessage): string {
     const text = message.text.trim()
     if (text) return text.slice(0, 160)
-    const kind = message.media?.[0]?.kind
-    if (!kind) return ''
+    const media = message.media?.[0]
+    if (!media) return ''
+    if (media.kind === 'video' && media.isAnimated) return 'GIF'
     return ({
         image: 'Photo',
         video: 'Video',
@@ -115,7 +116,7 @@ function messagePreview(message: ExternalMessage): string {
         contact: 'Contact',
         poll: 'Poll',
         other: 'Attachment'
-    } satisfies Record<NonNullable<ExternalMessage['media']>[number]['kind'], string>)[kind]
+    } satisfies Record<NonNullable<ExternalMessage['media']>[number]['kind'], string>)[media.kind]
 }
 
 export class MessengerStore {
