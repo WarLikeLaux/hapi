@@ -1015,6 +1015,7 @@ export default {
   'settings.display.appearance.light': 'Light',
   'settings.display.colorTheme': 'Color theme',
   'settings.display.colorTheme.default': 'Default',
+  'settings.display.colorTheme.telegram': 'Telegram',
   'settings.display.colorTheme.notion': 'Notion',
   'settings.display.colorTheme.one': 'One',
   'settings.display.colorTheme.proof': 'Proof',

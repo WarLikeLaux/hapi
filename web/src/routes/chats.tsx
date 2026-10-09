@@ -1272,7 +1272,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                 // overflow-anchor off: the pane compensates media growth itself
                 // (native anchoring drops its anchor when React swaps message
                 // nodes, and mixing the two would double-adjust).
-                className="min-h-0 flex-1 overflow-y-auto bg-[var(--app-chat-bg,var(--app-bg))] px-3 py-5 [overflow-anchor:none]"
+                className="chat-wallpaper min-h-0 flex-1 overflow-y-auto bg-[var(--app-chat-bg,var(--app-bg))] px-3 py-5 [overflow-anchor:none]"
             >
                 <div ref={messageContentRef} className="mx-auto flex w-full max-w-content flex-col gap-2">
                     {messageItems.map((item, index) => {

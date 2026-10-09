@@ -4,6 +4,7 @@ import type { ThemeColorKeyId } from './useThemeColors'
 export type ColorScheme = 'light' | 'dark' | 'oled'
 export type ColorThemePreset =
     | 'default'
+    | 'telegram'
     | 'notion'
     | 'one'
     | 'proof'
@@ -44,12 +45,15 @@ type ThemePalette = {
     border: string
     subtle: string
     buttonText: string
+    userBubble?: string
+    userForeground?: string
 }
 
 const COLOR_THEME_KEY = 'hapi-color-theme'
 
 const COLOR_THEME_OPTIONS: ReadonlyArray<ColorThemeOption> = [
     { value: 'default', labelKey: 'settings.display.colorTheme.default', preview: { light: '#ffffff', dark: '#1c1c1e', accent: '#111827' } },
+    { value: 'telegram', labelKey: 'settings.display.colorTheme.telegram', preview: { light: '#ffffff', dark: '#1d2935', accent: '#61a2d4' } },
     { value: 'notion', labelKey: 'settings.display.colorTheme.notion', preview: { light: '#fafafa', dark: '#191919', accent: '#3183d8' } },
     { value: 'one', labelKey: 'settings.display.colorTheme.one', preview: { light: '#fbfbff', dark: '#1f2433', accent: '#526fff' } },
     { value: 'proof', labelKey: 'settings.display.colorTheme.proof', preview: { light: '#f8f7f2', dark: '#18231f', accent: '#2f7d5b' } },
@@ -69,6 +73,10 @@ const COLOR_THEME_OPTIONS: ReadonlyArray<ColorThemeOption> = [
 ]
 
 const PALETTES: Record<Exclude<ColorThemePreset, 'default'>, Record<'light' | 'dark', ThemePalette>> = {
+    telegram: {
+        light: { ...palette('#168acd', '#ffffff', '#17212b', '#526775', '#ffffff'), userBubble: '#e3ffc9' },
+        dark: { ...palette('#69b9f0', '#1d2935', '#ffffff', '#98a9b8', '#212f3b'), userBubble: '#3173c9', userForeground: '#ffffff' },
+    },
     notion: {
         light: palette('#3183d8', '#fafafa', '#37352f', '#787774', '#f1f1ef'),
         dark: palette('#3183d8', '#191919', '#d9d9d8', '#9b9a97', '#252525'),
@@ -218,7 +226,7 @@ export function getColorThemePickerValue(theme: ColorThemePreset, scheme: ColorS
         hint: palette.hint,
         accent: palette.accent,
         border: compositeOnBackground(palette.border, palette.background),
-        userBubble: palette.surface,
+        userBubble: palette.userBubble ?? palette.surface,
     }
     return values[id]
 }
@@ -246,8 +254,8 @@ export function applyColorTheme(theme: ColorThemePreset = getStoredColorTheme(),
         '--app-banner-text': values.buttonText,
         '--app-secondary-bg': values.secondary,
         '--app-dialog-bg': values.dialog,
-        '--app-chat-user-bg': values.surface,
-        '--app-chat-user-fg': values.foreground,
+        '--app-chat-user-bg': values.userBubble ?? values.surface,
+        '--app-chat-user-fg': values.userForeground ?? values.foreground,
         '--app-chat-user-chip-bg': withAlpha(values.accent, toPaletteScheme(scheme) === 'dark' ? 0.24 : 0.15),
         '--app-chat-user-chip-fg': values.accent,
         '--app-tool-card-bg': values.surface,

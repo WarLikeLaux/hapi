@@ -123,7 +123,7 @@ export function VoiceMessagePlayer(props: {
                     onClick={toggle}
                     disabled={fetching}
                     aria-label={`${actionLabel}: ${props.label}`}
-                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--app-link)] text-[var(--app-bg)] shadow-sm outline-none transition-transform not-disabled:active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--app-link)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--app-bg)]"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--app-voice-accent,var(--app-link))] text-[var(--app-voice-button-fg,var(--app-bg))] shadow-sm outline-none transition-transform not-disabled:active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--app-link)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--app-bg)]"
                 >
                     {fetching
                         ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -146,14 +146,14 @@ export function VoiceMessagePlayer(props: {
                                 key={index}
                                 className={cn(
                                     'min-w-0 max-w-[5px] flex-1 rounded-full',
-                                    index < Math.round(progress * bars.length) ? 'bg-[var(--app-link)]' : 'bg-[var(--app-fg)] opacity-30'
+                                    index < Math.round(progress * bars.length) ? 'bg-[var(--app-voice-wave-played,var(--app-link))]' : 'bg-[var(--app-voice-wave,var(--app-fg))] opacity-[var(--app-voice-wave-opacity,0.3)]'
                                 )}
                                 style={{ height: `${3 + Math.round((Math.min(value, 31) / 31) * 21)}px` }}
                             />
                         ))}
                     </div>
                     <span className={cn(
-                        'truncate text-[11px] leading-none tabular-nums text-[var(--app-hint)]',
+                        'truncate text-[11px] leading-none tabular-nums text-[var(--app-voice-hint,var(--app-hint))]',
                         (props.error || failed) && 'text-red-600'
                     )}>{timeLabel}</span>
                 </div>
