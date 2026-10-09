@@ -9,6 +9,22 @@ import { formatRoundVideoTime } from '@/components/RoundVideoPlayer'
 // bars with the same silhouette.
 const WAVEFORM_BARS = 40
 
+// Telegram packs voice waveforms as 5-bit amplitudes back-to-back — 8 values
+// in every 5 bytes — and the connector forwards them base64-encoded.
+function decodeWaveform(encoded: string): number[] {
+    const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0))
+    const bars: number[] = []
+    for (let index = 0; index < Math.floor((bytes.length * 8) / 5); index += 1) {
+        const bitOffset = index * 5
+        const byteIndex = Math.floor(bitOffset / 8)
+        const shift = bitOffset % 8
+        let value = bytes[byteIndex]! >> shift
+        if (shift > 3 && byteIndex + 1 < bytes.length) value |= bytes[byteIndex + 1]! << (8 - shift)
+        bars.push(value & 0x1f)
+    }
+    return bars
+}
+
 function resampleWaveform(values: number[]): number[] {
     if (values.length <= WAVEFORM_BARS) return values
     const bars: number[] = []
@@ -65,7 +81,7 @@ export function VoiceMessagePlayer(props: {
     const [currentTime, setCurrentTime] = useState(0)
     const [audioDuration, setAudioDuration] = useState(0)
 
-    const bars = resampleWaveform(props.media.waveform?.length ? props.media.waveform : deterministicWaveform(props.seed))
+    const bars = resampleWaveform(props.media.waveform ? decodeWaveform(props.media.waveform) : deterministicWaveform(props.seed))
     const totalDuration = props.media.duration ?? (audioDuration > 0 ? audioDuration : null)
     const progress = totalDuration ? Math.min(1, currentTime / totalDuration) : 0
     const fetching = !props.src && props.loading

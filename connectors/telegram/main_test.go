@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 	"unicode/utf16"
@@ -357,8 +359,8 @@ func TestMediaFromTelegramCarriesVoicePlaybackMetadata(t *testing.T) {
 	if media[0].Duration == nil || *media[0].Duration != 17 {
 		t.Fatalf("expected voice duration 17, got %#v", media[0].Duration)
 	}
-	if len(media[0].Waveform) != 6 {
-		t.Fatalf("expected 6 unpacked waveform bars, got %#v", media[0].Waveform)
+	if media[0].Waveform != "+AAf/A==" {
+		t.Fatalf("expected base64-packed waveform, got %#v", media[0].Waveform)
 	}
 
 	fileMedia := mediaFromTelegram(&tg.MessageMediaDocument{
@@ -368,7 +370,7 @@ func TestMediaFromTelegramCarriesVoicePlaybackMetadata(t *testing.T) {
 			Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeFilename{FileName: "a.zip"}},
 		},
 	})
-	if len(fileMedia) != 1 || fileMedia[0].Duration != nil || fileMedia[0].Waveform != nil {
+	if len(fileMedia) != 1 || fileMedia[0].Duration != nil || fileMedia[0].Waveform != "" {
 		t.Fatalf("plain files must not carry playback metadata: %#v", fileMedia)
 	}
 }
@@ -380,30 +382,13 @@ func TestProviderMessageIDs(t *testing.T) {
 	}
 }
 
-func TestExpandWaveform(t *testing.T) {
-	pack := func(values []uint8) []byte {
-		packed := make([]byte, (len(values)*5+7)/8)
-		for i, value := range values {
-			bitOffset := i * 5
-			packed[bitOffset/8] |= value << (bitOffset % 8)
-			if shift := bitOffset % 8; shift > 3 {
-				packed[bitOffset/8+1] |= value >> (8 - shift)
-			}
-		}
-		return packed
+func TestWaveformMarshalsAsBase64String(t *testing.T) {
+	encoded, err := json.Marshal(externalMedia{Kind: "voice", Waveform: "+AAf/A=="})
+	if err != nil {
+		t.Fatalf("marshal media: %v", err)
 	}
-	values := []uint8{31, 0, 1, 31, 16, 8, 4, 2}
-	bars := expandWaveform(pack(values))
-	if len(bars) != len(values) {
-		t.Fatalf("expected %d bars, got %d: %#v", len(values), len(bars), bars)
-	}
-	for i, value := range values {
-		if bars[i] != value&0x1F {
-			t.Fatalf("bar %d: expected %d, got %d", i, value&0x1F, bars[i])
-		}
-	}
-	if bars := expandWaveform(nil); len(bars) != 0 {
-		t.Fatalf("expected no bars for empty waveform, got %#v", bars)
+	if !strings.Contains(string(encoded), `"waveform":"+AAf/A=="`) {
+		t.Fatalf("waveform must stay a base64 string on the wire: %s", encoded)
 	}
 }
 

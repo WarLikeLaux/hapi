@@ -34,7 +34,7 @@ describe('VoiceMessagePlayer', () => {
     afterEach(() => vi.restoreAllMocks())
 
     it('shows the provider duration and draws provider waveform bars', () => {
-        renderPlayer({ src: 'blob:voice', media: media({ duration: 67, waveform: [0, 8, 31, 16] }) })
+        renderPlayer({ src: 'blob:voice', media: media({ duration: 67, waveform: 'Aj8A' }) })
 
         expect(screen.getByText('1:07')).toBeInTheDocument()
         expect(screen.getByLabelText('Playback position').childNodes).toHaveLength(4)
@@ -48,7 +48,8 @@ describe('VoiceMessagePlayer', () => {
     })
 
     it('downsamples long provider waveforms to the fixed bar count', () => {
-        renderPlayer({ src: 'blob:voice', media: media({ waveform: Array.from({ length: 100 }, (_, index) => index % 31) }) })
+        // 26 packed bytes decode to 41 bars — one over the fixed bar count.
+        renderPlayer({ src: 'blob:voice', media: media({ waveform: btoa('ÿ'.repeat(26)) }) })
 
         expect(screen.getByLabelText('Playback position').childNodes).toHaveLength(40)
     })
