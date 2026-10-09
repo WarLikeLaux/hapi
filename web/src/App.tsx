@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Outlet, useLocation, useMatchRoute, useRouter } from '@tanstack/react-router'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getTelegramWebApp, isTelegramApp } from '@/hooks/useTelegram'
 import { initializeChatSurfaceColors } from '@/hooks/useChatSurfaceColors'
 import { initializeTheme } from '@/hooks/useTheme'
@@ -29,6 +29,7 @@ import { requireHubUrlForLogin } from '@/lib/runtime-config'
 import { getAppGlobalSseSubscription, getAppSessionSseSubscription } from '@/lib/appSseSubscriptions'
 import { canUseAppBadging, countUnreadSessions, useAppBadge } from '@/hooks/useAppBadge'
 import { useAppBadgePreference } from '@/hooks/useAppBadgePreference'
+import { countUnreadConversations, isWorkingSession } from '@/lib/navigationBadges'
 import { getSessionLastSeenSnapshot, useSessionLastSeenVersion } from '@/lib/sessionLastSeen'
 import { useTabNotification } from '@/hooks/useTabNotification'
 import { reconcileQueuedStateAfterConnect } from '@/lib/queued-state-reconciliation'
@@ -189,12 +190,21 @@ function AppInner() {
         isLoading: appSessionsLoading,
         error: appSessionsError,
     } = useSessions(api, { enabled: Boolean(api && token) })
+    const idleAppSessions = useMemo(
+        () => appSessions.filter((session) => !isWorkingSession(session)),
+        [appSessions]
+    )
     useAppBadge({
         enabled: appBadgeEnabled,
         scope: baseUrl,
-        sessions: appSessions,
+        sessions: idleAppSessions,
         isLoading: appSessionsLoading,
         hasError: Boolean(appSessionsError),
+    })
+    const externalConversationsQuery = useQuery({
+        queryKey: queryKeys.externalConversations,
+        queryFn: async () => (await api!.getExternalConversations()).conversations,
+        enabled: Boolean(api && token),
     })
     const lastSeenVersion = useSessionLastSeenVersion()
     const unreadCount = useMemo(() => {
@@ -202,8 +212,10 @@ function AppInner() {
             return 0
         }
         const lastSeenById = getSessionLastSeenSnapshot()
-        return countUnreadSessions(appSessions, lastSeenById)
-    }, [api, token, appSessions, lastSeenVersion])
+        const unreadSessionsCount = countUnreadSessions(idleAppSessions, lastSeenById)
+        const unreadChatsCount = countUnreadConversations(externalConversationsQuery.data ?? [])
+        return unreadSessionsCount + unreadChatsCount
+    }, [api, token, idleAppSessions, lastSeenVersion, externalConversationsQuery.data])
     useTabNotification(unreadCount)
     const { isSupported: isPushSupported, permission: pushPermission, requestPermission, subscribe } = usePushNotifications(api)
 
