@@ -15,19 +15,34 @@ describe('ApiClient error mapping', () => {
         globalThis.fetch = originalFetch
     })
 
-    it('reuses the browser HTTP cache for external media', async () => {
+    it.each([
+        ['initial load', undefined, 'force-cache'],
+        ['explicit retry', { forceReload: true }, 'reload'],
+    ] as const)('uses the correct browser cache policy for external media on %s', async (_label, options, cache) => {
         fetchMock.mockResolvedValueOnce(new Response('image-bytes', {
             status: 200,
             headers: { 'content-type': 'image/jpeg' }
         }))
         const api = new ApiClient('test-token')
 
-        await api.getExternalMediaBlob('telegram:user:1', '42', 0)
+        await api.getExternalMediaBlob('telegram:user:1', '42', 0, options)
 
         expect(fetchMock).toHaveBeenCalledWith(
             '/api/conversations/telegram%3Auser%3A1/messages/42/media/0',
-            expect.objectContaining({ cache: 'force-cache' })
+            expect.objectContaining({ cache })
         )
+    })
+
+    it('preserves the provider reason when an external media download fails', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Telegram is reconnecting' }), {
+            status: 502,
+        }))
+        const api = new ApiClient('test-token')
+
+        await expect(api.getExternalMediaBlob('telegram:user:1', '42', 0)).rejects.toMatchObject({
+            status: 502,
+            message: 'Telegram is reconnecting',
+        })
     })
 
     it('prefers the stable `code` field over the human-readable `error` message in ApiError.code', async () => {

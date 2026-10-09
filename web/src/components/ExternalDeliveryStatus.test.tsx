@@ -7,12 +7,9 @@ describe('ExternalDeliveryStatus', () => {
         const { rerender } = render(<ExternalDeliveryStatus status="sent" />)
         expect(screen.getByRole('img', { name: 'Sent' }).querySelectorAll('path')).toHaveLength(1)
         expect(screen.getByRole('img', { name: 'Sent' }).querySelector('svg')).toHaveClass('h-2.5', 'w-4')
-        // Both states stay blue (Telegram-style); the check count carries the state.
-        expect(screen.getByRole('img', { name: 'Sent' })).toHaveClass('text-[#2AABEE]')
 
         rerender(<ExternalDeliveryStatus status="read" />)
         expect(screen.getByRole('img', { name: 'Read' }).querySelectorAll('path')).toHaveLength(2)
         expect(screen.getByRole('img', { name: 'Read' }).querySelector('svg')).toHaveClass('h-2.5', 'w-4')
-        expect(screen.getByRole('img', { name: 'Read' })).toHaveClass('text-[#2AABEE]')
     })
 })
