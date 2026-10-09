@@ -228,17 +228,21 @@ describe('messenger reply gestures', () => {
         expect(screen.getByRole('textbox')).toHaveFocus()
     })
 
-    it('starts a reply on a left swipe and ignores vertical scrolling and short drags', async () => {
+    it.each([
+        { direction: 'left', delta: -60 },
+        { direction: 'right', delta: 60 },
+    ])('starts a reply on a $direction swipe and ignores vertical scrolling and short drags', async ({ delta }) => {
         renderChat()
         const bubble = await screen.findByText('hello bubble')
-        swipe(bubble, [{ x: 300, y: 400 }, { x: 240, y: 401 }])
+        swipe(bubble, [{ x: 300, y: 400 }, { x: 300 + delta, y: 401 }])
         expect(screen.getByTestId('chats-reply-bar')).toHaveTextContent('Alice')
+        expect(screen.getByRole('textbox')).toHaveFocus()
         fireEvent.click(screen.getByRole('button', { name: 'Cancel reply' }))
 
-        swipe(bubble, [{ x: 300, y: 400 }, { x: 299, y: 430 }, { x: 260, y: 460 }])
+        swipe(bubble, [{ x: 300, y: 400 }, { x: 300 + Math.sign(delta), y: 430 }, { x: 300 + delta, y: 460 }])
         expect(screen.queryByTestId('chats-reply-bar')).toBeNull()
 
-        swipe(bubble, [{ x: 300, y: 400 }, { x: 285, y: 401 }])
+        swipe(bubble, [{ x: 300, y: 400 }, { x: 300 + Math.sign(delta) * 15, y: 401 }])
         expect(screen.queryByTestId('chats-reply-bar')).toBeNull()
 
         // The bubble springs back to rest after every gesture.

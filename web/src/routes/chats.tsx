@@ -895,7 +895,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     const swipeGestureRef = useRef<{ id: string | null; startX: number; startY: number; horizontal: boolean; dx: number; bubble: HTMLElement | null }>({ id: null, startX: 0, startY: 0, horizontal: false, dx: 0, bubble: null })
     const handleComposerFocus = useChatKeyboardTail({ viewportRef, stickToBottomRef, active: !conversations.isLoading })
     // Telegram-style reply gestures: double-click on a message bubble or a
-    // left swipe anywhere across the message row starts a reply to it.
+    // horizontal swipe in either direction across the message row starts a reply to it.
     const startReply = useCallback((message: ExternalMessage) => {
         if (editPendingRef.current) return
         if (editingMessage) cancelEditing()
@@ -1367,9 +1367,9 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                         if (Math.abs(dx) < 8) return
                                         gesture.horizontal = true
                                     }
-                                    // Follow the finger leftwards only; the
-                                    // bubble never drags past a short throw.
-                                    gesture.dx = Math.max(dx, -96)
+                                    // Follow the finger in either direction;
+                                    // the bubble never drags past a short throw.
+                                    gesture.dx = Math.max(-96, Math.min(dx, 96))
                                     if (gesture.bubble) gesture.bubble.style.transform = `translateX(${gesture.dx}px)`
                                 }}
                                 onTouchEnd={(event) => {
@@ -1380,7 +1380,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                         gesture.bubble.style.transition = 'transform 150ms ease'
                                         gesture.bubble.style.transform = ''
                                     }
-                                    if (gesture.dx < -48) startReply(item)
+                                    if (Math.abs(gesture.dx) > 48) startReply(item)
                                 }}
                                 onTouchCancel={(event) => {
                                     const gesture = swipeGestureRef.current
