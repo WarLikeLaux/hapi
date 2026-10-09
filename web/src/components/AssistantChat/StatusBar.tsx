@@ -20,30 +20,7 @@ import {
 import { isFastServiceTier } from './codexFastMode'
 import { useTranslation } from '@/lib/use-translation'
 import { useSessionHeaderMetadata } from '@/hooks/useSessionHeaderMetadata'
-
-export const WORKING_STATUS_MESSAGES = [
-    'ебусь с этой штукой', 'разъёбываю задачу', 'ищу, где насрали',
-    'делаю, чтоб не стыдно', 'код опять пиздит', 'читаю логи-улики',
-    'ищу подозреваемого', 'пинаю тесты', 'копаю древнее говно',
-    'разгребаю бардак', 'душу баг фактами', 'торгуюсь с компилятором',
-    'всё под контролем', 'нашёл ниточку, тяну', 'копаю, где страшно',
-    'собираю фикс', 'проверяю алиби строк', 'убираю техпиздец',
-    'ищу, что отъебнулось', 'делаю 67 движений', 'сикс севен, почти',
-    'двигаю байты', 'успокаиваю код', 'чиню самопочиняемое',
-    'страдаю над легаси', 'докручиваю до заебись', 'укрепляю костыли',
-    'проверяю план', 'стучу по коду', 'ещё немного страдаю'
-]
-
-export const READY_STATUS_MESSAGES = [
-    'готов ебашить', 'жив и на связи', 'заряжен', 'можно наваливать',
-    'всё, я свободен', 'готов к новой хуйне', 'скучаю без задачи',
-    'бодр и подозрителен', 'жду приколов', 'готов лезть в код',
-    'не потерялся', 'сикс севен, готов'
-]
-
-function pickStatusMessage(messages: readonly string[]): string {
-    return messages[Math.floor(Math.random() * messages.length)] ?? messages[0] ?? ''
-}
+import { AGENT_ACTIVITY_LABELS, type AgentActivity } from '@/lib/agentActivity'
 
 const PERMISSION_TONE_CLASSES: Record<PermissionModeTone, string> = {
     neutral: 'text-[var(--app-hint)]',
@@ -61,6 +38,7 @@ function getConnectionStatus(
     agentState: AgentState | null | undefined,
     voiceStatus: ConversationStatus | undefined,
     backgroundTaskCount: number,
+    activity: AgentActivity | null | undefined,
     t: (key: string) => string
 ): { text: string; color: string; dotColor: string; isPulsing: boolean } {
     const hasPermissions = agentState?.requests && Object.keys(agentState.requests).length > 0
@@ -95,7 +73,7 @@ function getConnectionStatus(
 
     if (thinking) {
         return {
-            text: `${pickStatusMessage(WORKING_STATUS_MESSAGES)}…`,
+            text: activity ? AGENT_ACTIVITY_LABELS[activity] : 'Работает…',
             color: 'text-[#007AFF]',
             dotColor: 'bg-[#007AFF]',
             isPulsing: true
@@ -112,7 +90,7 @@ function getConnectionStatus(
     }
 
     return {
-        text: pickStatusMessage(READY_STATUS_MESSAGES),
+        text: 'Готов',
         color: 'text-[#34C759]',
         dotColor: 'bg-[#34C759]',
         isPulsing: false
@@ -194,6 +172,7 @@ export function StatusBar(props: {
     thinking: boolean
     agentState: AgentState | null | undefined
     backgroundTaskCount?: number
+    activity?: AgentActivity | null
     contextSize?: number
     contextCacheRead?: number
     contextWindow?: number | null
@@ -217,8 +196,8 @@ export function StatusBar(props: {
     const { t } = useTranslation()
     const { preferences: headerMetadata } = useSessionHeaderMetadata()
     const connectionStatus = useMemo(
-        () => getConnectionStatus(props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount ?? 0, t),
-        [props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount, t]
+        () => getConnectionStatus(props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount ?? 0, props.activity, t),
+        [props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount, props.activity, t]
     )
 
     const contextHeuristicModel = props.contextModel ?? props.model

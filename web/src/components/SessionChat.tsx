@@ -92,6 +92,7 @@ import { CursorMigrationBanner } from '@/components/CursorMigrationBanner'
 import { TeamPanel } from '@/components/TeamPanel'
 import { SessionStatusPanel } from '@/components/SessionStatusPanel'
 import { buildSessionStatusData } from '@/chat/sessionStatus'
+import { getAgentActivity } from '@/lib/agentActivity'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
@@ -1477,6 +1478,10 @@ function SessionChatInner(props: SessionChatProps) {
         () => reconcileChatBlocks(reduced.blocks, blocksByIdRef.current),
         [reduced.blocks]
     )
+    const activity = useMemo(
+        () => getAgentActivity(reconciled.blocks, normalizedMessages),
+        [reconciled.blocks, normalizedMessages]
+    )
     const sessionStatus = useMemo(
         () => buildSessionStatusData({
             goal: reduced.latestGoal,
@@ -2171,6 +2176,7 @@ function SessionChatInner(props: SessionChatProps) {
                         thinking={props.session.thinking}
                         agentState={props.session.agentState}
                         backgroundTaskCount={props.session.backgroundTaskCount}
+                        activity={activity}
                         contextSize={reduced.latestUsage?.contextSize}
                         contextCacheRead={reduced.latestUsage?.cacheRead}
                         contextWindow={reduced.latestUsage?.contextWindow ?? piContextWindow}
