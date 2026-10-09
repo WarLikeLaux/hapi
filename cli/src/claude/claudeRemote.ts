@@ -313,6 +313,10 @@ export async function claudeRemote(opts: {
             // Handle messages
             opts.onMessage(message);
 
+            if (message.type === 'assistant') {
+                updateThinking(true);
+            }
+
             // Handle special system messages
             if (
                 message.type === 'system'

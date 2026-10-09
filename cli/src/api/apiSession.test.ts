@@ -207,6 +207,33 @@ describe('ApiSessionClient lazy materialization', () => {
         }
     })
 
+    it('emits session-busy when state becomes active if thinking began before active', () => {
+        socketHarness.sockets.length = 0
+        const client = new ApiSessionClient('token', createSession({ namespace: 'default' }), {
+            materialize: async () => createSession()
+        })
+        const socket = socketHarness.sockets[0]!
+
+        try {
+            socket.emitted.length = 0
+            client.keepAlive(true, 'remote')
+            expect(socket.emitted.filter((entry) => entry.event === 'session-busy')).toHaveLength(0)
+
+            ;(client as unknown as { state: string }).state = 'active'
+            client.keepAlive(true, 'remote')
+            expect(socket.emitted.filter((entry) => entry.event === 'session-busy')).toHaveLength(1)
+
+            client.keepAlive(true, 'remote')
+            expect(socket.emitted.filter((entry) => entry.event === 'session-busy')).toHaveLength(1)
+
+            client.keepAlive(false, 'remote')
+            client.keepAlive(true, 'remote')
+            expect(socket.emitted.filter((entry) => entry.event === 'session-busy')).toHaveLength(2)
+        } finally {
+            client.close()
+        }
+    })
+
     it('paces buffered transcript delivery after reconnect', async () => {
         socketHarness.sockets.length = 0
         const client = new ApiSessionClient('token', createSession({ namespace: 'default' }))
