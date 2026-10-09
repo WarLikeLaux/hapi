@@ -15,6 +15,7 @@ import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { RoundVideoPlayer } from '@/components/RoundVideoPlayer'
 import { VoiceMessagePlayer } from '@/components/VoiceMessagePlayer'
 import { ChatParticipantAvatar } from '@/components/ChatParticipantAvatar'
+import { ConversationAvatar, ProviderMark } from '@/components/ConversationAvatar'
 import { getUserBubbleClassName } from '@/components/AssistantChat/messages/user-bubble'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
@@ -41,20 +42,11 @@ import { isOptimisticExternalMessage } from '@/chat/optimisticExternalMessages'
 import { isVoicePlaybackOwnedUrl, startVoiceQueue, type VoiceQueueItem } from '@/chat/voicePlayback'
 
 function TelegramMark(props: { className?: string }) {
-    return (
-        <svg viewBox="0 0 24 24" className={props.className} fill="currentColor" aria-hidden="true">
-            <path d="M21.7 3.5 18.6 20c-.2 1.2-.9 1.5-1.9.9l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.8 8.8-8c.4-.3-.1-.5-.6-.2L6.3 14 1.6 12.5c-1-.3-1-1 .2-1.5L20.2 3.9c.9-.3 1.7.2 1.5-.4Z" />
-        </svg>
-    )
+    return <ProviderMark provider="telegram" className={props.className} />
 }
 
 function YandexMark(props: { className?: string }) {
-    // Brand glyph approximated with the Cyrillic letter; Yandex renders no official mark here.
-    return (
-        <svg viewBox="0 0 24 24" className={props.className} aria-hidden="true">
-            <text x="12" y="18.5" textAnchor="middle" fontSize="19" fontWeight="700" fill="currentColor">Я</text>
-        </svg>
-    )
+    return <ProviderMark provider="yandex" className={props.className} />
 }
 
 type ChatsProvider = 'telegram' | 'yandex'
@@ -62,17 +54,6 @@ type ChatsProvider = 'telegram' | 'yandex'
 const chatsProviders: ChatsProvider[] = ['telegram', 'yandex']
 
 const PROVIDER_LABELS: Record<ChatsProvider, string> = { telegram: 'Telegram', yandex: 'Yandex' }
-
-const providerAvatarAccents: Record<ChatsProvider, string> = {
-    telegram: 'bg-[#2AABEE]/15 text-[#229ED9]',
-    yandex: 'bg-[#FC3F1D]/15 text-[#FC3F1D]'
-}
-
-function ProviderMark({ provider, className }: { provider: ChatsProvider; className?: string }) {
-    return provider === 'yandex'
-        ? <YandexMark className={className} />
-        : <TelegramMark className={className} />
-}
 
 function SettingsIcon() {
     return (
@@ -149,18 +130,6 @@ function updatedReactions(
 function formatTime(value: number | null): string {
     if (!value) return ''
     return formatMessageTimestamp(new Date(value))
-}
-
-function ConversationAvatar({ conversation }: { conversation: ExternalConversation }) {
-    const accent = providerAvatarAccents[conversation.provider as ChatsProvider] ?? providerAvatarAccents.telegram
-    const initials = conversation.title.trim().slice(0, 2).toUpperCase() || '··'
-    return (
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold ${accent}`}>
-            {conversation.avatarDataUrl
-                ? <img src={conversation.avatarDataUrl} alt="" className="h-full w-full object-cover" />
-                : initials}
-        </div>
-    )
 }
 
 const mediaLabels: Record<ExternalMedia['kind'], string> = {
