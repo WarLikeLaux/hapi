@@ -17,6 +17,8 @@ export function ChatsMessageMenu(props: {
     reactionsPending: boolean
     onClose: () => void
     onReply: () => void
+    onEdit?: () => void
+    onDelete?: () => void
     onReaction: (emoji: string) => void
 }) {
     const { t } = useTranslation()
@@ -112,6 +114,18 @@ export function ChatsMessageMenu(props: {
                     <button type="button" role="menuitem" className={itemClassName} onClick={() => void copyText()}>
                         <span aria-hidden="true"><CopyIcon className="h-5 w-5" /></span>
                         {t('chats.menu.copyText')}
+                    </button>
+                ) : null}
+                {props.onEdit ? (
+                    <button type="button" role="menuitem" className={itemClassName} onClick={props.onEdit}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="m16 3 5 5-12 12H4v-5Z" /><path d="m14 5 5 5" /></svg>
+                        {t('chats.edit.action')}
+                    </button>
+                ) : null}
+                {props.onDelete ? (
+                    <button type="button" role="menuitem" className={cn(itemClassName, 'text-red-600 dark:text-red-400')} onClick={props.onDelete}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></svg>
+                        {t('chats.delete.action')}
                     </button>
                 ) : null}
                 {copyFailed ? <div role="alert" className="px-3 py-2 text-sm text-red-600">{t('chats.menu.copyFailed')}</div> : null}

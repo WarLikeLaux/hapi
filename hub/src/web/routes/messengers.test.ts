@@ -3,11 +3,82 @@ import { Hono } from 'hono'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { MessengerManager } from '../../messengers/manager'
+import { MessengerManager } from '../../messengers/manager'
+import { Store } from '../../store'
+import type { SSEManager } from '../../sse/sseManager'
+import type { ExternalConversation, ExternalMessage } from '@hapi/protocol'
 import type { WebAppEnv } from '../middleware/auth'
 import { createMessengerRoutes } from './messengers'
 
 describe('messenger routes', () => {
+    it('restricts changes to own messages in the authenticated namespace and publishes refreshed history', async () => {
+        const store = new Store(':memory:')
+        const dataDir = await mkdtemp(join(tmpdir(), 'hapi-own-message-'))
+        const conversation: ExternalConversation = {
+            id: 'chat', provider: 'test', remoteId: 'remote', title: 'Chat', kind: 'direct',
+            selected: true, lastMessageAt: 1, lastMessagePreview: 'Original', unreadCount: 0
+        }
+        const own: ExternalMessage = {
+            id: 'own', conversationId: 'chat', providerMessageId: '42', senderId: 'me',
+            senderName: 'Me', direction: 'outgoing', text: 'Original', createdAt: 1, editedAt: null
+        }
+        const incoming = { ...own, id: 'incoming', providerMessageId: '43', direction: 'incoming' as const }
+        let history = [own, incoming]
+        const calls: unknown[][] = []
+        const broadcasts: unknown[] = []
+        const manager = new MessengerManager({ dataDir, store,
+            sseManager: { broadcast: (event: unknown) => broadcasts.push(event) } as unknown as SSEManager })
+        manager.registerConnectorFactory('test', () => ({
+            provider: 'test', getConnection: () => ({ provider: 'test', state: 'ready', accountLabel: null, detail: null }),
+            configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [conversation],
+            loadMessages: async () => history, sendText: async () => {}, setReactions: async () => {},
+            sendMedia: async () => {}, stop: async () => {}, downloadMedia: async () => { throw new Error('No media') },
+            editMessage: async (...args) => {
+                calls.push(['edit', ...args])
+                history = history.map(message => message.providerMessageId === args[1]
+                    ? { ...message, text: args[2], editedAt: 2 } : message)
+            },
+            deleteMessage: async (...args) => {
+                calls.push(['delete', ...args])
+                history = history.filter(message => message.providerMessageId !== args[1])
+            }
+        }))
+        store.messengers.upsertConversation('owner', conversation)
+        for (const message of history) store.messengers.upsertMessage('owner', message)
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => { c.set('namespace', 'owner'); await next() })
+        app.route('/', createMessengerRoutes(manager))
+        const request = (path: string, method: string, text = 'Changed') => app.request(path, {
+            method, headers: { 'content-type': 'application/json' }, body: method === 'PATCH' ? JSON.stringify({ text }) : undefined
+        })
+        try {
+            for (const method of ['PATCH', 'DELETE']) {
+                expect((await request('/conversations/chat/messages/43', method)).status).toBe(403)
+                expect((await request('/conversations/chat/messages/missing', method)).status).toBe(404)
+                expect((await request('/conversations/other/messages/42', method)).status).toBe(404)
+            }
+            store.messengers.upsertConversation('other-owner', { ...conversation, id: 'foreign' })
+            store.messengers.upsertMessage('other-owner', { ...own, id: 'foreign-own', conversationId: 'foreign' })
+            expect((await request('/conversations/foreign/messages/42', 'PATCH')).status).toBe(404)
+            expect((await request('/conversations/foreign/messages/42', 'DELETE')).status).toBe(404)
+            for (const text of ['', '   ', 'a'.repeat(4097)]) {
+                expect((await request('/conversations/chat/messages/42', 'PATCH', text)).status).toBe(400)
+            }
+            expect(calls).toEqual([])
+            expect((await request('/conversations/chat/messages/42', 'PATCH', ' Corrected ')).status).toBe(200)
+            expect(store.messengers.listMessages('owner', 'chat').find(m => m.providerMessageId === '42'))
+                .toMatchObject({ text: 'Corrected', editedAt: 2 })
+            expect((await request('/conversations/chat/messages/42', 'DELETE')).status).toBe(200)
+            expect(store.messengers.listMessages('owner', 'chat').map(m => m.providerMessageId)).toEqual(['43'])
+            expect(calls).toEqual([['edit', 'remote', '42', 'Corrected'], ['delete', 'remote', '42']])
+            expect(broadcasts).toContainEqual({ type: 'external-message-received', namespace: 'owner', conversationId: 'chat' })
+        } finally {
+            await manager.stop()
+            store.close()
+            await rm(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('only accepts stickers from the chosen pack and passes the namespace and retry id to the sender', async () => {
         const calls: unknown[][] = []
         const manager = {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ExternalMessage } from '@hapi/protocol/messengers'
@@ -26,12 +26,12 @@ afterEach(() => {
     vi.unstubAllGlobals()
 })
 
-function renderChat(api: Record<string, unknown> = {}) {
-    context.conversationId = 'telegram:chat:1'
+function renderChat(api: Record<string, unknown> = {}, provider = 'telegram') {
+    context.conversationId = `${provider}:chat:1`
     context.api = {
         getMessengerConnections: async () => ({ connections: [] }),
         getExternalConversations: async () => ({ conversations: [{
-            id: context.conversationId, provider: 'telegram', remoteId: '1', title: 'Test conversation',
+            id: context.conversationId, provider, remoteId: '1', title: 'Test conversation',
             kind: 'direct', selected: true, unreadCount: 0, lastMessageAt: null, lastMessagePreview: null,
         }] }),
         getExternalMessages: async () => ({ messages: [message], participants: [] }),
@@ -56,6 +56,73 @@ function swipe(element: Element, points: Array<{ x: number; y: number }>) {
 }
 
 describe('messenger reply gestures', () => {
+    it('keeps edit and delete out of the menu for incoming messages', async () => {
+        renderChat()
+        fireEvent.click(await screen.findByText('hello bubble'))
+        expect(screen.getByRole('menuitem', { name: 'Reply' })).toBeVisible()
+        expect(screen.queryByRole('menuitem', { name: 'Edit' })).toBeNull()
+        expect(screen.queryByRole('menuitem', { name: 'Delete' })).toBeNull()
+    })
+
+    it.each(['telegram', 'yandex'])('edits an own %s message, keeps failed edits, and restores the unsent draft', async (provider) => {
+        const own = { ...message, direction: 'outgoing' as const }
+        const editExternalMessage = vi.fn()
+            .mockRejectedValueOnce(new Error('Editing is no longer allowed'))
+            .mockResolvedValueOnce(undefined)
+        const sendExternalMessage = vi.fn()
+        renderChat({
+            getExternalMessages: async () => ({ messages: [own], participants: [] }),
+            editExternalMessage, sendExternalMessage,
+        }, provider)
+        const bubble = await screen.findByText('hello bubble')
+        const composer = screen.getByRole('textbox')
+        fireEvent.change(composer, { target: { value: 'unsent draft' } })
+        fireEvent.click(bubble)
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+        expect(composer).toHaveValue('hello bubble')
+        expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled()
+        fireEvent.change(composer, { target: { value: 'corrected message' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+        expect(await screen.findByRole('alert')).toHaveTextContent('Editing is no longer allowed')
+        expect(composer).toHaveValue('corrected message')
+        fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+        await waitFor(() => expect(composer).toHaveValue('unsent draft'))
+        expect(editExternalMessage).toHaveBeenLastCalledWith(`${provider}:chat:1`, 'pm1', 'corrected message')
+        expect(sendExternalMessage).not.toHaveBeenCalled()
+        fireEvent.click(bubble)
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+        fireEvent.change(composer, { target: { value: 'abandoned edit' } })
+        fireEvent.keyDown(composer, { key: 'Escape' })
+        expect(composer).toHaveValue('unsent draft')
+        expect(editExternalMessage).toHaveBeenCalledTimes(2)
+    })
+
+    it.each(['telegram', 'yandex'])('requires confirmation to delete an own %s message and retains a provider error', async (provider) => {
+        const own = { ...message, direction: 'outgoing' as const }
+        let history = [own]
+        const deleteExternalMessage = vi.fn()
+            .mockRejectedValueOnce(new Error('Cannot delete this message'))
+            .mockImplementationOnce(async () => { history = [] })
+        renderChat({
+            getExternalMessages: async () => ({ messages: history, participants: [] }),
+            deleteExternalMessage,
+        }, provider)
+        fireEvent.click(await screen.findByText('hello bubble'))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+        expect(deleteExternalMessage).not.toHaveBeenCalled()
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+        expect(deleteExternalMessage).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByText('hello bubble'))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
+        expect(await screen.findByText('Cannot delete this message')).toBeVisible()
+        expect(screen.getByRole('dialog')).toBeVisible()
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+        await waitFor(() => expect(screen.queryByText('hello bubble')).toBeNull())
+        expect(deleteExternalMessage).toHaveBeenLastCalledWith(`${provider}:chat:1`, 'pm1')
+    })
+
     it('labels an animated MP4 as GIF in both the reply quote and composer preview', async () => {
         // Keep the thumbnail visible without fetching the original media.
         vi.stubGlobal('IntersectionObserver', class {

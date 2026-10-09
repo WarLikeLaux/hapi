@@ -61,6 +61,8 @@ export interface MessengerConnector {
         replyToProviderMessageId?: string
     ): Promise<void>
     setReactions(remoteId: string, providerMessageId: string, reactions: string[]): Promise<void>
+    editMessage?(remoteId: string, providerMessageId: string, text: string): Promise<void>
+    deleteMessage?(remoteId: string, providerMessageId: string): Promise<void>
     /**
      * Presses a bot inline-keyboard button. `kind: 'url'` buttons never reach
      * the connector (the web opens those directly); this only handles callback

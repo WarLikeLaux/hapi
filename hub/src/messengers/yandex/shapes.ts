@@ -123,6 +123,8 @@ export interface AttachmentRef {
 /** Internal message with everything the connector needs beyond the wire type. */
 export interface YandexMessage {
     message: ExternalMessage
+    /** Original client body, retained so text edits preserve quotes and metadata. */
+    plain: Record<string, unknown>
     attachments: AttachmentRef[]
     /** Reaction types this account has personally put on the message. */
     chosenReactionTypes: number[]
@@ -474,6 +476,7 @@ export function normalizeMessageItem(
 
     return {
         message,
+        plain,
         attachments,
         chosenReactionTypes: chosen,
         micros,

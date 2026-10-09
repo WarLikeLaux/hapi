@@ -1,6 +1,7 @@
 import {
     ConfigureTelegramRequestSchema,
     ConfigureYandexRequestSchema,
+    EditExternalMessageRequestSchema,
     PressExternalMessageButtonRequestSchema,
     SelectMessengerConversationsRequestSchema,
     SendExternalMessageRequestSchema,
@@ -207,6 +208,30 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
         } catch (error) {
             const message = errorMessage(error)
             return c.json({ error: message }, message === 'Conversation not found' ? 404 : 502)
+        }
+    })
+
+    app.patch('/conversations/:id/messages/:messageId', async (c) => {
+        const parsed = EditExternalMessageRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid message' }, 400)
+        try {
+            await manager.editMessage(c.get('namespace'), c.req.param('id'), c.req.param('messageId'), parsed.data.text)
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = errorMessage(error)
+            return c.json({ error: message }, message.includes('not found') ? 404
+                : message === 'Only your own messages can be changed' ? 403 : 502)
+        }
+    })
+
+    app.delete('/conversations/:id/messages/:messageId', async (c) => {
+        try {
+            await manager.deleteMessage(c.get('namespace'), c.req.param('id'), c.req.param('messageId'))
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = errorMessage(error)
+            return c.json({ error: message }, message.includes('not found') ? 404
+                : message === 'Only your own messages can be changed' ? 403 : 502)
         }
     })
 
