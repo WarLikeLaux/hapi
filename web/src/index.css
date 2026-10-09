@@ -2,6 +2,40 @@
 @import "katex/dist/katex.min.css";
 @config "../tailwind.config.ts";
 
+/* Telegram's standard pattern is bundled locally, including in the PWA cache. */
+[data-color-theme="telegram"] {
+    --app-chat-bg: #dce6d2;
+    --app-voice-accent: #168acd;
+    --app-voice-button-fg: #ffffff;
+    --app-voice-wave: #168acd;
+    --app-voice-wave-played: #116da5;
+    --app-voice-wave-opacity: 1;
+    --app-voice-hint: #526775;
+}
+
+[data-color-theme="telegram"][data-theme="dark"],
+[data-color-theme="telegram"][data-theme="oled"] {
+    --app-chat-bg: #121d27;
+    --app-voice-accent: #589bcc;
+    --app-voice-wave: #69b9f0;
+    --app-voice-wave-played: #a6dbff;
+    --app-voice-hint: #98a9b8;
+}
+
+[data-color-theme="telegram"] .chat-wallpaper {
+    background-color: var(--app-chat-bg);
+    background-image: url('./assets/telegram/default-pattern.svg');
+    background-size: 480px auto;
+    background-position: center top;
+}
+
+[data-color-theme="telegram"][data-theme="dark"] .happy-user-bubble,
+[data-color-theme="telegram"][data-theme="oled"] .happy-user-bubble {
+    --app-link: #ffffff;
+    --app-link-muted: #d6e8ff;
+    --app-hint: #e2efff;
+}
+
 :root {
     --app-bg: var(--tg-theme-bg-color, #ffffff);
     --app-fg: var(--tg-theme-text-color, #111827);

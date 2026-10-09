@@ -1003,6 +1003,7 @@ export default {
   'settings.display.appearance.light': '浅色',
   'settings.display.colorTheme': '颜色主题',
   'settings.display.colorTheme.default': '默认',
+  'settings.display.colorTheme.telegram': 'Telegram',
   'settings.display.colorTheme.notion': 'Notion',
   'settings.display.colorTheme.one': 'One',
   'settings.display.colorTheme.proof': 'Proof',
