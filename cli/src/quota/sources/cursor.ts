@@ -9,16 +9,6 @@ const CURSOR_USAGE_URL = 'https://api2.cursor.sh/aiserver.v1.DashboardService/Ge
 const CURSOR_TIMEOUT_MS = 20_000
 // Hard-coded backend sentinel for "no limit"; there is no meaningful percent then.
 const UNLIMITED_SENTINEL = 2147483647
-// Cursor does not publish how it weights the Cursor Models pool (Composer,
-// Grok) against the included quota ("we don't officially publish the exact
-// multiplier", forum staff, 2026-07). Every usage event reports requestsCosts
-// = chargedCents / 4: either a pool weight or the legacy $0.04-per-request
-// unit (product id "pro-legacy"). The dashboard's integer percent matches
-// this divisor as of 2026-09 (62c/4 over 2000c rounds to "1%"). Re-derive by
-// fitting requestsCosts against tokenUsage.totalCents from
-// DashboardService/GetFilteredUsageEvents if the meters ever disagree.
-const CURSOR_MODELS_WEIGHT = 4
-
 /** Platform auth.json locations holding the CLI OAuth token (`accessToken`). */
 export function cursorAuthPaths(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string[] {
     switch (process.platform) {
@@ -45,13 +35,12 @@ export async function readCursorAccessToken(paths: string[] = cursorAuthPaths())
 }
 
 /**
- * GetCurrentPeriodUsage response → monthly spent percents. `usedPercent` is
- * the raw cents math (`limit − remaining`); `weightedPercent` applies the
- * Cursor Models pool factor (see CURSOR_MODELS_WEIGHT) so clients can mirror
- * the dashboard's own integer display. Cents math is preferred; the reported
- * `planUsage.totalPercentUsed` fraction (0–1) is the raw fallback and has no
- * weighted variant. Returns null when neither is usable or the account is
- * unlimited.
+ * GetCurrentPeriodUsage response → monthly spent percent. Cursor reports its
+ * Cursor Models pool consumption (Composer & Grok) directly in
+ * `planUsage.autoPercentUsed` (0–100 scale), matching the dashboard's
+ * integer percent. Falls back to `totalPercentUsed`, then raw cents math
+ * (`(limit − remaining) / limit` or `totalSpend / limit`).
+ * Returns null when neither is usable or the account is unlimited.
  */
 export function parseCursorMonthlyUsage(payload: unknown, nowSec: number): QuotaWindow | null {
     if (typeof payload !== 'object' || payload === null) return null
@@ -63,27 +52,56 @@ export function parseCursorMonthlyUsage(payload: unknown, nowSec: number): Quota
 
     const limit = typeof entry.limit === 'number' ? entry.limit : Number.NaN
     const remaining = typeof entry.remaining === 'number' ? entry.remaining : Number.NaN
-    if (Number.isFinite(limit) && limit > 0 && limit !== UNLIMITED_SENTINEL && Number.isFinite(remaining)) {
-        const usedCents = Math.max(0, Math.round(limit - remaining))
+    const spend = typeof entry.totalSpend === 'number'
+        ? entry.totalSpend
+        : typeof entry.includedSpend === 'number'
+            ? entry.includedSpend
+            : Number.NaN
+
+    let usedCents: number | undefined
+    let limitCents: number | undefined
+    if (Number.isFinite(limit) && limit > 0 && limit !== UNLIMITED_SENTINEL) {
+        limitCents = Math.round(limit)
+        if (Number.isFinite(remaining)) {
+            usedCents = Math.max(0, Math.round(limit - remaining))
+        } else if (Number.isFinite(spend)) {
+            usedCents = Math.max(0, Math.round(spend))
+        }
+    }
+
+    // Cursor Models pool percentage reported directly by the backend (0–100 scale).
+    // autoPercentUsed tracks the Composer & Grok pool shown on the Cursor dashboard.
+    const poolPercent = typeof entry.autoPercentUsed === 'number'
+        ? entry.autoPercentUsed
+        : typeof entry.totalPercentUsed === 'number'
+            ? entry.totalPercentUsed
+            : undefined
+
+    if (poolPercent !== undefined && Number.isFinite(poolPercent) && poolPercent >= 0 && poolPercent <= 100) {
+        const percent = clampPercent(Math.round(poolPercent * 100) / 100)
         return {
             source: CURSOR_MONTHLY_SOURCE,
-            usedPercent: clampPercent((usedCents / limit) * 100),
-            weightedPercent: clampPercent((usedCents / CURSOR_MODELS_WEIGHT / limit) * 100),
-            usedCents,
-            limitCents: Math.round(limit),
+            usedPercent: percent,
+            weightedPercent: percent,
+            ...(usedCents !== undefined ? { usedCents } : {}),
+            ...(limitCents !== undefined ? { limitCents } : {}),
             resetsAt,
             measuredAt: nowSec
         }
     }
 
-    if (typeof entry.totalPercentUsed === 'number' && entry.totalPercentUsed >= 0 && entry.totalPercentUsed <= 1) {
+    if (usedCents !== undefined && limitCents !== undefined && limitCents > 0) {
+        const rawPercent = clampPercent(Math.round((usedCents / limitCents) * 10_000) / 100)
         return {
             source: CURSOR_MONTHLY_SOURCE,
-            usedPercent: clampPercent(entry.totalPercentUsed * 100),
+            usedPercent: rawPercent,
+            usedCents,
+            limitCents,
             resetsAt,
             measuredAt: nowSec
         }
     }
+
     return null
 }
 

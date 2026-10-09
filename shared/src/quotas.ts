@@ -32,13 +32,6 @@ export const QuotaWindowSchema = z.object({
      */
     usedCents: z.number().min(0).optional(),
     limitCents: z.number().min(0).optional(),
-    /**
-     * Provider-meter estimate of the same spend, sent when the provider's own
-     * dashboard applies a weighting `usedPercent` does not (`cursor:monthly`
-     * divides raw cents by the Cursor Models pool factor, see the CLI
-     * collector). Clients mirror the provider's dashboard display from it.
-     * Sources without such a weighting omit it.
-     */
     weightedPercent: z.number().min(0).max(100).optional()
 })
 
