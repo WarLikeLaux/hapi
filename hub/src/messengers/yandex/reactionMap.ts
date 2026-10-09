@@ -93,3 +93,19 @@ export function reactionTypeForEmoji(emoji: string): number | null {
     if (codePoint !== undefined && codePoint > 0x1000) return codePoint
     return null
 }
+
+/**
+ * Resolves a wire reaction key — the `ExternalReaction.reaction` string the web
+ * picker echoes back — to a Type. Keys follow the Telegram connector's convention
+ * (`emoji:<emoticon>`); types missing from the map round-trip as `type:<n>`. Bare
+ * emoji from snapshots taken before the prefix convention are still accepted.
+ */
+export function reactionTypeForKey(key: string): number | null {
+    if (key.startsWith('emoji:')) return reactionTypeForEmoji(key.slice('emoji:'.length))
+    const typed = /^type:(\d+)$/.exec(key)
+    if (typed) {
+        const type = Number(typed[1])
+        return Number.isSafeInteger(type) && type > 0 ? type : null
+    }
+    return reactionTypeForEmoji(key)
+}

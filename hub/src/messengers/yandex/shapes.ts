@@ -295,9 +295,10 @@ function buildReactions(item: Record<string, unknown>, myGuid: string): { reacti
     }
     for (const [type, count] of counts) {
         const emoji = REACTION_EMOJI_BY_TYPE[type] ?? null
-        // The reaction string mirrors what the picker sends back (emoji, like Telegram),
-        // with the raw type as fallback for types our map has never seen.
-        const reaction = emoji ?? String(type)
+        // The reaction key must match the Telegram connector's convention —
+        // `emoji:<emoticon>` — because the web picker matches and echoes exactly
+        // that string back. Types the map has never seen round-trip as `type:<n>`.
+        const reaction = emoji !== null ? `emoji:${emoji}` : `type:${type}`
         reactions.push({ reaction, emoji, count: Math.max(1, count), chosen: mineByType.has(type) })
     }
     for (const type of mineByType) chosen.push(type)
