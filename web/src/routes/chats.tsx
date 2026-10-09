@@ -11,6 +11,7 @@ import { YandexStickerPicker } from '@/components/YandexStickerPicker'
 import { useKlipyEnabled } from '@/hooks/queries/useKlipy'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { RoundVideoPlayer } from '@/components/RoundVideoPlayer'
+import { VoiceMessagePlayer } from '@/components/VoiceMessagePlayer'
 import { ChatParticipantAvatar } from '@/components/ChatParticipantAvatar'
 import { getUserBubbleClassName } from '@/components/AssistantChat/messages/user-bubble'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
@@ -304,8 +305,18 @@ function MediaAttachment(props: {
         }
         return <div className="relative w-fit max-w-[min(100%,82vw,30rem)]"><video src={fullUrl} controls={!media.isAnimated} autoPlay={media.isAnimated} loop={media.isAnimated} muted={media.isAnimated} playsInline preload="metadata" className="block max-h-[32rem] max-w-full rounded-xl bg-black object-contain" />{props.overlay}</div>
     }
-    if (fullUrl && (media.kind === 'audio' || media.kind === 'voice')) {
-        return <audio src={fullUrl} controls preload="metadata" className="max-w-full" />
+    if (media.kind === 'voice' || media.kind === 'audio') {
+        return <VoiceMessagePlayer
+            media={media}
+            seed={`${props.conversationId}:${props.providerMessageId}:${props.mediaIndex}`}
+            src={fullUrl}
+            loading={loading}
+            error={error}
+            label={media.fileName ?? label}
+            onLoad={() => void loadOriginal()}
+            observerRef={(node) => { previewRef.current = node }}
+            overlay={props.overlay}
+        />
     }
     if (fullUrl && media.kind === 'file') {
         return <a href={fullUrl} download={media.fileName ?? 'attachment'} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-4 py-3 text-sm text-[var(--app-link)]">Download {media.fileName ?? 'file'}</a>

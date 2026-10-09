@@ -339,10 +339,71 @@ func TestMediaFromTelegramMarksAnimatedDocument(t *testing.T) {
 	}
 }
 
+func TestMediaFromTelegramCarriesVoicePlaybackMetadata(t *testing.T) {
+	media := mediaFromTelegram(&tg.MessageMediaDocument{
+		Voice: true,
+		Document: &tg.Document{
+			MimeType: "audio/ogg",
+			Size:     4096,
+			Attributes: []tg.DocumentAttributeClass{
+				&tg.DocumentAttributeFilename{FileName: "voice.ogg"},
+				&tg.DocumentAttributeAudio{Duration: 17, Waveform: []byte{0xF8, 0x00, 0x1F, 0xFC}},
+			},
+		},
+	})
+	if len(media) != 1 || media[0].Kind != "voice" {
+		t.Fatalf("unexpected voice metadata: %#v", media)
+	}
+	if media[0].Duration == nil || *media[0].Duration != 17 {
+		t.Fatalf("expected voice duration 17, got %#v", media[0].Duration)
+	}
+	if len(media[0].Waveform) != 6 {
+		t.Fatalf("expected 6 unpacked waveform bars, got %#v", media[0].Waveform)
+	}
+
+	fileMedia := mediaFromTelegram(&tg.MessageMediaDocument{
+		Document: &tg.Document{
+			MimeType:   "application/zip",
+			Size:       4096,
+			Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeFilename{FileName: "a.zip"}},
+		},
+	})
+	if len(fileMedia) != 1 || fileMedia[0].Duration != nil || fileMedia[0].Waveform != nil {
+		t.Fatalf("plain files must not carry playback metadata: %#v", fileMedia)
+	}
+}
+
 func TestProviderMessageIDs(t *testing.T) {
 	ids := providerMessageIDs([]int{7, 0, -1, 42})
 	if len(ids) != 2 || ids[0] != "7" || ids[1] != "42" {
 		t.Fatalf("unexpected provider message ids: %#v", ids)
+	}
+}
+
+func TestExpandWaveform(t *testing.T) {
+	pack := func(values []uint8) []byte {
+		packed := make([]byte, (len(values)*5+7)/8)
+		for i, value := range values {
+			bitOffset := i * 5
+			packed[bitOffset/8] |= value << (bitOffset % 8)
+			if shift := bitOffset % 8; shift > 3 {
+				packed[bitOffset/8+1] |= value >> (8 - shift)
+			}
+		}
+		return packed
+	}
+	values := []uint8{31, 0, 1, 31, 16, 8, 4, 2}
+	bars := expandWaveform(pack(values))
+	if len(bars) != len(values) {
+		t.Fatalf("expected %d bars, got %d: %#v", len(values), len(bars), bars)
+	}
+	for i, value := range values {
+		if bars[i] != value&0x1F {
+			t.Fatalf("bar %d: expected %d, got %d", i, value&0x1F, bars[i])
+		}
+	}
+	if bars := expandWaveform(nil); len(bars) != 0 {
+		t.Fatalf("expected no bars for empty waveform, got %#v", bars)
 	}
 }
 

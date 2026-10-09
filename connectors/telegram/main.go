@@ -98,6 +98,8 @@ type externalMedia struct {
 	ThumbnailDataURL *string `json:"thumbnailDataUrl"`
 	IsRound          bool    `json:"isRound,omitempty"`
 	IsAnimated       bool    `json:"isAnimated,omitempty"`
+	Duration         *int64  `json:"duration,omitempty"`
+	Waveform         []uint8 `json:"waveform,omitempty"`
 }
 
 type deletedMessages struct {
@@ -477,6 +479,8 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 		kind := "file"
 		isRound := value.Round
 		isAnimated := false
+		var audioDuration int
+		var audioWaveform []uint8
 		if value.Voice {
 			kind = "voice"
 		} else if value.Video || value.Round {
@@ -497,6 +501,9 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 				isRound = isRound || attribute.RoundMessage
 			case *tg.DocumentAttributeAnimated:
 				isAnimated = true
+			case *tg.DocumentAttributeAudio:
+				audioDuration = attribute.Duration
+				audioWaveform = expandWaveform(attribute.Waveform)
 			}
 		}
 		if isAnimated {
@@ -504,7 +511,7 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 		}
 		mime := document.MimeType
 		size := document.Size
-		return []externalMedia{{
+		media := externalMedia{
 			Kind:             kind,
 			MIMEType:         nullableString(mime),
 			FileName:         nullableString(fileName),
@@ -512,7 +519,13 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 			ThumbnailDataURL: thumbnailDataURL(document.Thumbs),
 			IsRound:          isRound,
 			IsAnimated:       isAnimated,
-		}}
+		}
+		if kind == "voice" || kind == "audio" {
+			duration := int64(audioDuration)
+			media.Duration = &duration
+			media.Waveform = audioWaveform
+		}
+		return []externalMedia{media}
 	case *tg.MessageMediaGeo, *tg.MessageMediaGeoLive, *tg.MessageMediaVenue:
 		return []externalMedia{{Kind: "location"}}
 	case *tg.MessageMediaContact:
@@ -524,6 +537,24 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 	default:
 		return []externalMedia{{Kind: "other"}}
 	}
+}
+
+// expandWaveform unpacks Telegram's voice waveform — 5-bit amplitudes packed
+// back-to-back (8 values per 5 bytes) — into one byte per bar, ready to draw.
+func expandWaveform(waveform []byte) []uint8 {
+	count := len(waveform) * 8 / 5
+	bars := make([]uint8, 0, count)
+	for i := 0; i < count; i++ {
+		bitOffset := i * 5
+		byteIndex := bitOffset / 8
+		shift := bitOffset % 8
+		value := uint16(waveform[byteIndex]) >> shift
+		if shift > 3 && byteIndex+1 < len(waveform) {
+			value |= uint16(waveform[byteIndex+1]) << (8 - shift)
+		}
+		bars = append(bars, uint8(value&0x1F))
+	}
+	return bars
 }
 
 func mediaPreview(media []externalMedia) string {

@@ -75,7 +75,13 @@ export const ExternalMediaSchema = z.object({
     size: z.number().int().nonnegative().nullable(),
     thumbnailDataUrl: z.string().nullable(),
     isRound: z.boolean().optional(),
-    isAnimated: z.boolean().optional()
+    isAnimated: z.boolean().optional(),
+    // Voice notes and audio tracks carry playback metadata straight from the
+    // provider (Telegram `DocumentAttributeAudio`): duration in seconds and
+    // the waveform unpacked into 0–31 amplitude bars so clients can draw a
+    // real waveform before the audio itself is downloaded.
+    duration: z.number().nonnegative().optional(),
+    waveform: z.array(z.number().int().min(0).max(31)).optional()
 })
 export type ExternalMedia = z.infer<typeof ExternalMediaSchema>
 
