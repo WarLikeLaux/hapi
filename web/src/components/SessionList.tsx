@@ -32,6 +32,7 @@ import {
 } from '@/lib/freshSidebarChats'
 import { formatRelativeTime } from '@/lib/relativeTime'
 import { ExternalDeliveryStatus } from '@/components/ExternalDeliveryStatus'
+import { ConversationAvatar } from '@/components/ConversationAvatar'
 
 const EMPTY_FRESH_CHATS: ExternalConversation[] = []
 
@@ -1128,18 +1129,12 @@ export function SessionListSearch(props: {
     )
 }
 
-const freshChatProviderAccents: Record<string, string> = {
-    telegram: 'bg-[#2AABEE]/15 text-[#229ED9]',
-    yandex: 'bg-[#FC3F1D]/15 text-[#FC3F1D]',
-}
-
 // A fresh messenger chat rendered as a peer row inside the session list.
 function FreshChatItem({ conversation }: { conversation: ExternalConversation }) {
     const { t } = useTranslation()
     const navigate = useNavigate()
     const params = useParams({ strict: false })
     const selected = params.conversationId === conversation.id
-    const accent = freshChatProviderAccents[conversation.provider] ?? 'bg-[var(--app-secondary-bg)] text-[var(--app-hint)]'
     const title = conversation.customTitle?.trim() || conversation.sourceTitle?.trim() || conversation.title
     const unread = conversation.unreadCount > 0
     return (
@@ -1149,11 +1144,7 @@ function FreshChatItem({ conversation }: { conversation: ExternalConversation })
             aria-current={selected ? 'page' : undefined}
             className={`session-list-item group/session-row flex w-full select-none items-center gap-2.5 rounded-lg py-2 pl-2.5 pr-2 text-left transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
         >
-            <span className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-semibold ${accent}`}>
-                {conversation.avatarDataUrl
-                    ? <img src={conversation.avatarDataUrl} alt="" className="h-full w-full object-cover" />
-                    : title.trim().slice(0, 2).toUpperCase() || '··'}
-            </span>
+            <ConversationAvatar conversation={conversation} className="h-9 w-9 text-[11px]" />
             <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-2">
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
