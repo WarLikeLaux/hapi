@@ -5,7 +5,7 @@
  * project conarti/yandex-messenger-mcp): a chat element carries
  * `ChatId, ChatInfo?, PartnerInfo?, PrivateChatInfo?, LastSeqNo, LastTsMcs,
  * LastSeenByMeSeqNo, ...`, and each message element carries
- * `{ServerMessage: {ClientMessage, ServerMessageInfo}, Reactions?, RecentUserReactions?}`.
+ * `{ServerMessage: {ClientMessage, ServerMessageInfo, Reactions?, RecentUserReactions?}}`.
  * The unseen sequence gap includes outgoing messages; exclude known self sends
  * when deriving the unread count.
  *
@@ -273,18 +273,30 @@ function mediaKindFor(kind: AttachmentKind): ExternalMediaKind {
     }
 }
 
-function buildReactions(item: Record<string, unknown>, myGuid: string): { reactions: ExternalReaction[]; chosen: number[] } {
+/**
+ * Reactions live on the live `ServerMessage` — `Reactions`, `ReactionsVersion`,
+ * `RecentUserReactions` — not on the wrapping history element (captured live
+ * 2026-10-09). `source` is that `ServerMessage` object; `fallback` checks the
+ * wrapping history element if present.
+ */
+function buildReactions(
+    source: Record<string, unknown>,
+    myGuid: string,
+    fallback?: Record<string, unknown>
+): { reactions: ExternalReaction[]; chosen: number[] } {
     const reactions: ExternalReaction[] = []
     const chosen: number[] = []
     const counts = new Map<number, number>()
-    const aggregates = Array.isArray(item['Reactions']) ? item['Reactions'] as unknown[] : []
+    const rawAggregates = (Array.isArray(source['Reactions']) ? source['Reactions'] : fallback?.['Reactions']) as unknown[] | undefined
+    const aggregates = Array.isArray(rawAggregates) ? rawAggregates : []
     for (const raw of aggregates) {
         const obj = asObject(raw)
         const type = numberOr(obj?.['Type'])
         if (type === undefined || counts.has(type)) continue
         counts.set(type, numberOr(obj?.['Count']) ?? 0)
     }
-    const recent = Array.isArray(item['RecentUserReactions']) ? item['RecentUserReactions'] as unknown[] : []
+    const rawRecent = (Array.isArray(source['RecentUserReactions']) ? source['RecentUserReactions'] : fallback?.['RecentUserReactions']) as unknown[] | undefined
+    const recent = Array.isArray(rawRecent) ? rawRecent : []
     const mineByType = new Set<number>()
     for (const raw of recent) {
         const obj = asObject(raw)
@@ -406,7 +418,7 @@ export function normalizeMessageItem(
         media.push({ kind: plain['Poll'] !== undefined ? 'poll' : 'other', mimeType: null, fileName: null, size: null, thumbnailDataUrl: null })
     }
 
-    const { reactions, chosen } = buildReactions(item, myGuid)
+    const { reactions, chosen } = buildReactions(source, myGuid, item)
     const conversationId = `yandex:${remoteChatId}`
     const providerMessageId = micros.toString()
     const message: ExternalMessage = {
