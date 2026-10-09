@@ -6,6 +6,7 @@ import { ExternalMessageText } from '@/components/ExternalMessageText'
 import { ExternalDeliveryStatus } from '@/components/ExternalDeliveryStatus'
 import { ImagePreview } from '@/components/ImagePreview'
 import { KlipyGifPicker } from '@/components/KlipyGifPicker'
+import { LottieSticker } from '@/components/LottieSticker'
 import { YandexStickerPicker } from '@/components/YandexStickerPicker'
 import { useKlipyEnabled } from '@/hooks/queries/useKlipy'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
@@ -30,7 +31,7 @@ import { useTranslation } from '@/lib/use-translation'
 import { cn } from '@/lib/utils'
 import { formatMessageTimestamp } from '@/chat/presentation'
 import { areExternalMessagesGrouped } from '@/chat/messageGrouping'
-import { shouldAutoLoadExternalMedia } from '@/chat/externalMedia'
+import { shouldAutoLoadExternalMedia, stickerRenderKind } from '@/chat/externalMedia'
 import { isOptimisticExternalMessage } from '@/chat/optimisticExternalMessages'
 
 function TelegramMark(props: { className?: string }) {
@@ -263,8 +264,19 @@ function MediaAttachment(props: {
     // Telegram delivers GIFs as silent animated MP4 with kind "video"; surface
     // them as GIF everywhere a plain video would say "Video".
     const label = mediaLabel(media)
+    const stickerRender = media.kind === 'sticker' ? stickerRenderKind(media.mimeType) : null
     if (props.previewOnly && media.thumbnailDataUrl) {
         return <div className="relative w-[min(64vw,15rem)] max-w-full"><img src={media.thumbnailDataUrl} alt={label} referrerPolicy="no-referrer" className="max-h-[15rem] w-full object-contain" />{props.overlay}</div>
+    }
+    if (fullUrl && media.kind === 'sticker' && stickerRender === 'video') {
+        // Video stickers are transparent looping webm clips, not clickable media.
+        return <div className="relative w-fit max-w-full"><video src={fullUrl} autoPlay loop muted playsInline className="block max-h-[15rem] w-[min(64vw,15rem)] object-contain" />{props.overlay}</div>
+    }
+    if (fullUrl && media.kind === 'sticker' && stickerRender === 'lottie') {
+        return <div className="relative w-fit max-w-full"><LottieSticker src={fullUrl} label={label} className="block aspect-square max-h-[15rem] w-[min(64vw,15rem)]" />{props.overlay}</div>
+    }
+    if (fullUrl && media.kind === 'sticker' && stickerRender === null) {
+        return <a href={fullUrl} download={media.fileName ?? 'sticker'} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-4 py-3 text-sm text-[var(--app-link)]">Download {media.fileName ?? label}</a>
     }
     if (fullUrl && (media.kind === 'image' || media.kind === 'sticker')) {
         const isSticker = media.kind === 'sticker'
