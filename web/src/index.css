@@ -34,6 +34,17 @@
     --app-link: #ffffff;
     --app-link-muted: #d6e8ff;
     --app-hint: #e2efff;
+    --app-delivery-fg: #e2efff;
+}
+
+[data-color-theme="telegram"] .happy-assistant-bubble:not(:empty) {
+    width: fit-content;
+    min-width: 0;
+    max-width: 100%;
+    border-radius: 16px;
+    padding: 10px 16px;
+    background-color: var(--app-secondary-bg);
+    color: var(--app-fg);
 }
 
 :root {

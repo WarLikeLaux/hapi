@@ -499,6 +499,7 @@ export class ApiClient {
         conversationId: string,
         providerMessageId: string,
         mediaIndex: number,
+        options?: { forceReload?: boolean },
         attempt: number = 0,
         overrideToken?: string | null
     ): Promise<Blob> {
@@ -507,16 +508,26 @@ export class ApiClient {
         const headers = new Headers()
         if (authToken) headers.set('authorization', `Bearer ${authToken}`)
         const path = `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(providerMessageId)}/media/${mediaIndex}`
-        const response = await fetch(this.buildUrl(path), { headers, cache: 'force-cache' })
+        const response = await fetch(this.buildUrl(path), { headers, cache: options?.forceReload ? 'reload' : 'force-cache' })
         if (response.status === 401 && attempt === 0 && this.onUnauthorized) {
             const refreshed = await this.onUnauthorized()
             if (refreshed) {
                 this.token = refreshed
-                return await this.getExternalMediaBlob(conversationId, providerMessageId, mediaIndex, attempt + 1, refreshed)
+                return await this.getExternalMediaBlob(conversationId, providerMessageId, mediaIndex, { forceReload: true }, attempt + 1, refreshed)
             }
         }
         if (!response.ok) {
-            throw new ApiError(`HTTP ${response.status}`, response.status, undefined, await response.text().catch(() => undefined))
+            const body = await response.text().catch(() => '')
+            let message = `HTTP ${response.status}`
+            try {
+                const parsed: unknown = JSON.parse(body)
+                if (parsed && typeof parsed === 'object' && 'error' in parsed && typeof parsed.error === 'string') {
+                    message = parsed.error
+                }
+            } catch {
+                // A proxy may return HTML rather than the hub's JSON error.
+            }
+            throw new ApiError(message, response.status, parseErrorCode(body), body || undefined)
         }
         return await response.blob()
     }

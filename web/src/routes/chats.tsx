@@ -244,7 +244,8 @@ function MediaAttachment(props: {
             const blob = await api.getExternalMediaBlob(
                 props.conversationId,
                 props.providerMessageId,
-                props.mediaIndex
+                props.mediaIndex,
+                { forceReload: error !== null }
             )
             setFullUrl(URL.createObjectURL(blob))
         } catch (cause) {
@@ -252,7 +253,7 @@ function MediaAttachment(props: {
         } finally {
             setLoading(false)
         }
-    }, [api, downloadable, fullUrl, loading, props.conversationId, props.mediaIndex, props.providerMessageId, props.previewOnly])
+    }, [api, downloadable, error, fullUrl, loading, props.conversationId, props.mediaIndex, props.providerMessageId, props.previewOnly])
 
     useEffect(() => {
         if (error || fullUrl || loading || !autoLoadsOriginal || props.previewOnly) return
@@ -336,7 +337,16 @@ function MediaAttachment(props: {
         return (
             <button ref={(node) => { previewRef.current = node }} type="button" onClick={() => void loadOriginal()} disabled={loading} className={cn('group relative flex max-w-full cursor-pointer items-center justify-center overflow-hidden bg-black/10 disabled:cursor-wait', media.isRound ? 'aspect-square w-[min(14rem,72vw)] rounded-full' : isSticker ? 'w-[min(64vw,15rem)] rounded-xl' : 'w-[min(82vw,24rem)] rounded-xl')}>
                 <img src={media.thumbnailDataUrl!} alt={label} className={cn('w-full transition-opacity', media.isRound ? 'h-full object-cover' : isSticker ? 'max-h-[15rem] object-contain' : 'max-h-80 min-h-36 object-contain', loading && 'opacity-70')} />
-                {loading || error || media.kind === 'video' ? <span className="absolute inset-0 grid place-items-center bg-black/20 text-center text-sm font-medium text-white opacity-100 drop-shadow transition-opacity sm:opacity-0 sm:group-hover:opacity-100 group-disabled:opacity-100">{loading ? 'Loading original…' : error ? 'Tap to retry' : media.isAnimated ? 'GIF' : '▶ Play video'}</span> : null}
+                {loading || error || media.kind === 'video' ? (
+                    <span className={cn('absolute inset-0 grid place-items-center bg-black/20 px-3 text-center text-sm font-medium text-white drop-shadow transition-opacity', error ? 'opacity-100' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 group-disabled:opacity-100')}>
+                        {loading ? 'Loading original…' : error ? (
+                            <span>
+                                <span className="block">Tap to retry</span>
+                                <span role="alert" className="mt-1 block text-xs">{error}</span>
+                            </span>
+                        ) : media.isAnimated ? 'GIF' : '▶ Play video'}
+                    </span>
+                ) : null}
                 {props.overlay}
             </button>
         )

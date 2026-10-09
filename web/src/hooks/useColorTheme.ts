@@ -75,7 +75,7 @@ const COLOR_THEME_OPTIONS: ReadonlyArray<ColorThemeOption> = [
 const PALETTES: Record<Exclude<ColorThemePreset, 'default'>, Record<'light' | 'dark', ThemePalette>> = {
     telegram: {
         light: { ...palette('#168acd', '#ffffff', '#17212b', '#526775', '#ffffff'), userBubble: '#e3ffc9' },
-        dark: { ...palette('#69b9f0', '#1d2935', '#ffffff', '#98a9b8', '#212f3b'), userBubble: '#3173c9', userForeground: '#ffffff' },
+        dark: { ...palette('#69b9f0', '#1d2935', '#fafafa', '#98a9b8', '#222e3a'), userBubble: '#2c85e3', userForeground: '#ffffff' },
     },
     notion: {
         light: palette('#3183d8', '#fafafa', '#37352f', '#787774', '#f1f1ef'),

@@ -31,7 +31,7 @@ function AnchoredResponseText(props: TextMessagePartProps) {
         ? getExternalStoreMessages<ThreadMessageLike>(part)[0]?.id
         : undefined)
     return (
-        <div id={sourceId ? `hapi-response-part-${sourceId}` : undefined} data-hapi-scroll-anchor="true">
+        <div id={sourceId ? `hapi-response-part-${sourceId}` : undefined} data-hapi-scroll-anchor="true" className="happy-assistant-bubble">
             <NotifySummaryText {...props} />
         </div>
     )
