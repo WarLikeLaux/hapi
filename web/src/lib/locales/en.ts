@@ -79,6 +79,8 @@ export default {
   'chats.notFound': 'Conversation not found.',
   'chats.noMessages': 'No messages yet',
   'chats.messagePlaceholder': 'Message',
+  'chats.forward.from': 'Forwarded from',
+  'chats.forward.unknown': 'Hidden source',
   'chats.reply.action': 'Reply',
   'chats.menu.actions': 'Message actions',
   'chats.menu.copyText': 'Copy Text',

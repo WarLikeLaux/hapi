@@ -47,7 +47,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 37
+const SCHEMA_VERSION: number = 38
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -391,6 +391,7 @@ export class Store {
             34: () => this.migrateFromV34ToV35(),
             35: () => this.migrateFromV35ToV36(),
             36: () => this.migrateFromV36ToV37(),
+            37: () => this.migrateFromV37ToV38(),
         })
 
         if (currentVersion === 0) {
@@ -680,6 +681,7 @@ export class Store {
                 delivery_status TEXT CHECK (delivery_status IN ('sent', 'read')),
                 reactions_json TEXT NOT NULL DEFAULT '[]',
                 buttons_json TEXT NOT NULL DEFAULT '[]',
+                presentation_json TEXT NOT NULL DEFAULT '{}',
                 seq_no INTEGER,
                 version INTEGER,
                 reply_to_provider_message_id TEXT,
@@ -846,6 +848,13 @@ export class Store {
         }
         if (!messageColumns.some((column) => column.name === 'reply_to_text')) {
             this.db.exec('ALTER TABLE external_messages ADD COLUMN reply_to_text TEXT')
+        }
+    }
+
+    private migrateFromV37ToV38(): void {
+        const columns = this.db.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
+        if (!columns.some((column) => column.name === 'presentation_json')) {
+            this.db.exec("ALTER TABLE external_messages ADD COLUMN presentation_json TEXT NOT NULL DEFAULT '{}'")
         }
     }
 

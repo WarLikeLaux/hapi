@@ -25,7 +25,7 @@ describe('schema migration v35 to v36', () => {
             const version = internalDb.prepare('PRAGMA user_version').get() as { user_version: number }
             const messages = internalDb.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
 
-            expect(version.user_version).toBe(37)
+            expect(version.user_version).toBe(38)
             expect(messages.some((column) => column.name === 'buttons_json')).toBe(true)
         } finally {
             store?.close()

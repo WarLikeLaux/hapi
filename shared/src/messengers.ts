@@ -117,6 +117,25 @@ export const ExternalMessageSchema = z.object({
     senderAvatarDataUrl: z.string().nullable().optional(),
     direction: z.enum(['incoming', 'outgoing']),
     text: z.string(),
+    /** Provider text-link offsets use UTF-16 code units, like JavaScript strings. */
+    textLinks: z.array(z.object({
+        offset: z.number().int().nonnegative(),
+        length: z.number().int().positive(),
+        url: z.string().max(2048)
+    })).optional(),
+    forward: z.object({
+        sourceName: z.string().nullable(),
+        sourceUrl: z.string().optional(),
+        author: z.string().optional()
+    }).optional(),
+    linkPreview: z.object({
+        url: z.string(),
+        siteName: z.string().optional(),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        /** Index into media; preview images use the authenticated media cache. */
+        mediaIndex: z.number().int().nonnegative().optional()
+    }).optional(),
     createdAt: z.number().int(),
     editedAt: z.number().int().nullable(),
     deliveryStatus: ExternalMessageDeliveryStatusSchema.optional(),

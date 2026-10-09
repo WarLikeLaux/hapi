@@ -31,6 +31,7 @@ type MessageRow = {
     media_json: string
     reactions_json: string
     buttons_json: string
+    presentation_json: string
     /**
      * chats-web / Yandex Messenger `ServerMessageInfo.SeqNo`. Required for
      * `SeenMarker.SeqNo` on the read-receipt push mutation; the server silently
@@ -78,6 +79,7 @@ function toMessage(row: MessageRow): ExternalMessage {
         senderName: row.sender_name,
         direction: row.direction,
         text: row.text,
+        ...JSON.parse(row.presentation_json) as Pick<ExternalMessage, 'forward' | 'linkPreview' | 'textLinks'>,
         createdAt: row.created_at,
         editedAt: row.edited_at,
         ...(row.delivery_status ? { deliveryStatus: row.delivery_status } : {}),
@@ -125,7 +127,7 @@ export class MessengerStore {
     private refreshConversationPreview(namespace: string, conversationId: string): void {
         const row = this.db.prepare(`
             SELECT id, conversation_id, provider_message_id, sender_id, sender_name,
-                   direction, text, media_json, reactions_json, buttons_json, created_at, edited_at, delivery_status,
+                   direction, text, media_json, reactions_json, buttons_json, presentation_json, created_at, edited_at, delivery_status,
                    seq_no, version, reply_to_provider_message_id, reply_to_sender_name, reply_to_text
             FROM external_messages
             WHERE namespace = ? AND conversation_id = ?
@@ -324,8 +326,8 @@ export class MessengerStore {
                     id, namespace, conversation_id, provider_message_id,
                     sender_id, sender_name, direction, text, media_json, created_at, edited_at,
                     delivery_status, reactions_json, buttons_json, seq_no, version,
-                    reply_to_provider_message_id, reply_to_sender_name, reply_to_text
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    reply_to_provider_message_id, reply_to_sender_name, reply_to_text, presentation_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(namespace, conversation_id, provider_message_id) DO UPDATE SET
                     sender_id = excluded.sender_id,
                     sender_name = excluded.sender_name,
@@ -341,7 +343,8 @@ export class MessengerStore {
                     version = excluded.version,
                     reply_to_provider_message_id = excluded.reply_to_provider_message_id,
                     reply_to_sender_name = excluded.reply_to_sender_name,
-                    reply_to_text = excluded.reply_to_text
+                    reply_to_text = excluded.reply_to_text,
+                    presentation_json = excluded.presentation_json
             `).run(
                 message.id,
                 namespace,
@@ -361,7 +364,8 @@ export class MessengerStore {
                 message.version ?? null,
                 message.replyToProviderMessageId ?? null,
                 message.replyToSenderName ?? null,
-                message.replyToText ?? null
+                message.replyToText ?? null,
+                JSON.stringify({ forward: message.forward, linkPreview: message.linkPreview, textLinks: message.textLinks })
             )
             this.db.prepare(`
                 UPDATE external_conversations
@@ -468,7 +472,7 @@ export class MessengerStore {
                    messages.edited_at, messages.delivery_status, messages.reactions_json,
                    messages.buttons_json, messages.seq_no, messages.version,
                    messages.reply_to_provider_message_id, messages.reply_to_sender_name,
-                   messages.reply_to_text
+                   messages.reply_to_text, messages.presentation_json
             FROM external_messages AS messages
             JOIN external_conversations AS conversations
               ON conversations.namespace = messages.namespace
