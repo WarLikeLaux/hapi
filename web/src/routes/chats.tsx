@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import type { ExternalConversation, ExternalMedia, ExternalMessage, ExternalMessagesResponse, ExternalParticipant, ExternalReaction, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
 import { ExternalMessageText } from '@/components/ExternalMessageText'
+import { ExternalForwardHeader } from '@/components/ExternalForwardHeader'
+import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
 import { ExternalDeliveryStatus } from '@/components/ExternalDeliveryStatus'
 import { ImagePreview } from '@/components/ImagePreview'
 import { KlipyGifPicker } from '@/components/KlipyGifPicker'
@@ -33,6 +35,7 @@ import { useTranslation } from '@/lib/use-translation'
 import { cn } from '@/lib/utils'
 import { formatMessageTimestamp } from '@/chat/presentation'
 import { areExternalMessagesGrouped } from '@/chat/messageGrouping'
+import { externalHttpUrl } from '@/chat/externalMessageLinks'
 import { shouldAutoLoadExternalMedia, stickerRenderKind } from '@/chat/externalMedia'
 import { isOptimisticExternalMessage } from '@/chat/optimisticExternalMessages'
 import { isVoicePlaybackOwnedUrl, startVoiceQueue, type VoiceQueueItem } from '@/chat/voicePlayback'
@@ -1276,7 +1279,11 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         const incoming = item.direction === 'incoming'
                         const optimistic = isOptimisticExternalMessage(item)
                         const outgoing = outboxById.get(item.id)
-                        const hasMedia = Boolean(item.media?.length)
+                        const hasLinkPreview = Boolean(externalHttpUrl(item.linkPreview?.url))
+                        const attachments = (item.media ?? []).map((media, mediaIndex) => ({ media, mediaIndex }))
+                            .filter(({ mediaIndex }) => !hasLinkPreview || mediaIndex !== item.linkPreview?.mediaIndex)
+                        const hasMedia = attachments.length > 0
+                        const richMessage = Boolean(item.forward || hasLinkPreview)
                         const reactions = item.reactions ?? []
                         const chosenReactionCount = reactions.filter((reaction) => reaction.chosen).length
                         const continuesPrevious = areExternalMessagesGrouped(messageItems[index - 1], item)
@@ -1321,20 +1328,22 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                 </button>
                             )
                         })()
-                        const caption = item.text ? (
-                            <div className="flex items-end gap-2">
+                        const caption = item.text || richMessage ? (
+                            <div className={richMessage ? 'flex flex-col gap-1' : 'flex items-end gap-2'}>
                                 <div className="min-w-0 flex-1">
                                     {showSenderName ? (
                                         <div className="mb-0.5 text-[11px] font-semibold leading-tight" style={{ color: senderNameColor(item.senderId) }}>
                                             {item.senderName}
                                         </div>
                                     ) : null}
-                                    <ExternalMessageText text={item.text} compact={!hasMedia} />
+                                    {item.forward && !hasMedia ? <ExternalForwardHeader forward={item.forward} /> : null}
+                                    {item.text ? <ExternalMessageText text={item.text} textLinks={item.textLinks} compact={!hasMedia && !richMessage} /> : null}
+                                    {hasLinkPreview ? <ExternalLinkPreview message={item} /> : null}
                                 </div>
                                 <time
                                     dateTime={new Date(item.createdAt).toISOString()}
                                     title={new Date(item.createdAt).toLocaleString()}
-                                    className="shrink-0 pb-0.5 text-[9px] leading-none opacity-60 tabular-nums"
+                                    className={cn('shrink-0 pb-0.5 text-[9px] leading-none opacity-60 tabular-nums', richMessage && 'self-end')}
                                 >
                                     {formatTime(item.createdAt)}
                                     {outgoing
@@ -1442,16 +1451,17 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                 >
                                     {hasMedia && caption ? (
                                         <div className={cn(bubbleClassName, 'overflow-hidden p-1')}>
+                                            {item.forward ? <div className="px-3 pt-2"><ExternalForwardHeader forward={item.forward} /></div> : null}
                                             <div className="flex max-w-full flex-col gap-1.5">
-                                                {item.media!.map((media, mediaIndex) => <MediaAttachment key={`${item.id}:${mediaIndex}`} media={media} galleryId={`external-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={mediaIndex} onStartVoicePlayback={startVoicePlayback} />)}
+                                                {attachments.map(({ media, mediaIndex }) => <MediaAttachment key={`${item.id}:${mediaIndex}`} media={media} galleryId={`external-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={mediaIndex} onStartVoicePlayback={startVoicePlayback} />)}
                                             </div>
                                             <div className="px-3 pb-1.5 pt-2">{quoteHeader}{caption}</div>
                                         </div>
                                     ) : (
                                         <>
                                             {hasMedia && quoteHeader ? <div className="mb-1 flex max-w-full flex-col">{quoteHeader}</div> : null}
-                                            {hasMedia ? <div className="mb-1 flex max-w-full flex-col gap-1.5">{item.media!.map((media, mediaIndex) => {
-                                                const overlaysTimestamp = mediaIndex === item.media!.length - 1
+                                            {hasMedia ? <div className="mb-1 flex max-w-full flex-col gap-1.5">{attachments.map(({ media, mediaIndex }) => {
+                                                const overlaysTimestamp = mediaIndex === attachments.at(-1)?.mediaIndex
                                                     && ['image', 'sticker', 'video'].includes(media.kind)
                                                 return <MediaAttachment
                                                     key={`${item.id}:${mediaIndex}`}

@@ -2,6 +2,16 @@ export type ExternalMessageSegment =
     | { type: 'text'; text: string }
     | { type: 'link'; text: string; url: string }
 
+export function externalHttpUrl(value: string | undefined): string | null {
+    if (!value) return null
+    try {
+        const url = new URL(value)
+        return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null
+    } catch {
+        return null
+    }
+}
+
 // Markdown-style links first so their label survives as link text; only
 // http(s) targets are accepted, everything else (e.g. `javascript:`)
 // stays literal text.
@@ -59,8 +69,24 @@ function pushPlain(segments: ExternalMessageSegment[], plain: string): void {
  * bare `https://…` URLs link themselves with trailing sentence punctuation
  * excluded. Non-http(s) markdown targets are left as literal text.
  */
-export function parseExternalMessageSegments(text: string): ExternalMessageSegment[] {
+export function parseExternalMessageSegments(
+    text: string,
+    textLinks?: readonly { offset: number; length: number; url: string }[]
+): ExternalMessageSegment[] {
     if (!text) return []
+    if (textLinks?.length) {
+        const segments: ExternalMessageSegment[] = []
+        let cursor = 0
+        for (const link of [...textLinks].sort((a, b) => a.offset - b.offset)) {
+            const url = externalHttpUrl(link.url)
+            if (!url || link.offset < cursor || link.length <= 0 || link.offset + link.length > text.length) continue
+            segments.push(...parseExternalMessageSegments(text.slice(cursor, link.offset)))
+            segments.push({ type: 'link', text: text.slice(link.offset, link.offset + link.length), url })
+            cursor = link.offset + link.length
+        }
+        segments.push(...parseExternalMessageSegments(text.slice(cursor)))
+        return mergeAdjacentText(segments)
+    }
     const markdown = new RegExp(MARKDOWN_LINK_SOURCE, 'g')
     const segments: ExternalMessageSegment[] = []
     let lastIndex = 0

@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
@@ -98,7 +99,7 @@ type externalMedia struct {
 	ThumbnailDataURL *string `json:"thumbnailDataUrl"`
 	IsRound          bool    `json:"isRound,omitempty"`
 	IsAnimated       bool    `json:"isAnimated,omitempty"`
-	Duration *int64 `json:"duration,omitempty"`
+	Duration         *int64  `json:"duration,omitempty"`
 	// Waveform carries Telegram's packed voice waveform — 5-bit amplitudes,
 	// 8 values per 5 bytes — base64-encoded so clients can draw it before the
 	// audio itself downloads.
@@ -152,23 +153,99 @@ type externalButton struct {
 }
 
 type externalMessage struct {
-	ID                       string             `json:"id"`
-	ConversationID           string             `json:"conversationId"`
-	ProviderMessageID        string             `json:"providerMessageId"`
-	SenderID                 *string            `json:"senderId"`
-	SenderName               *string            `json:"senderName"`
-	SenderAvatarDataURL      *string            `json:"senderAvatarDataUrl"`
-	Direction                string             `json:"direction"`
-	Text                     string             `json:"text"`
-	CreatedAt                int64              `json:"createdAt"`
-	EditedAt                 *int64             `json:"editedAt"`
-	DeliveryStatus           *string            `json:"deliveryStatus,omitempty"`
-	ReplyToProviderMessageID string             `json:"replyToProviderMessageId,omitempty"`
-	ReplyToSenderName        *string            `json:"replyToSenderName,omitempty"`
-	ReplyToText              *string            `json:"replyToText,omitempty"`
-	Media                    []externalMedia    `json:"media"`
-	Reactions                []externalReaction `json:"reactions"`
-	Buttons                  [][]externalButton `json:"buttons,omitempty"`
+	ID                       string               `json:"id"`
+	ConversationID           string               `json:"conversationId"`
+	ProviderMessageID        string               `json:"providerMessageId"`
+	SenderID                 *string              `json:"senderId"`
+	SenderName               *string              `json:"senderName"`
+	SenderAvatarDataURL      *string              `json:"senderAvatarDataUrl"`
+	Direction                string               `json:"direction"`
+	Text                     string               `json:"text"`
+	TextLinks                []externalTextLink   `json:"textLinks,omitempty"`
+	Forward                  *externalForward     `json:"forward,omitempty"`
+	LinkPreview              *externalLinkPreview `json:"linkPreview,omitempty"`
+	CreatedAt                int64                `json:"createdAt"`
+	EditedAt                 *int64               `json:"editedAt"`
+	DeliveryStatus           *string              `json:"deliveryStatus,omitempty"`
+	ReplyToProviderMessageID string               `json:"replyToProviderMessageId,omitempty"`
+	ReplyToSenderName        *string              `json:"replyToSenderName,omitempty"`
+	ReplyToText              *string              `json:"replyToText,omitempty"`
+	Media                    []externalMedia      `json:"media"`
+	Reactions                []externalReaction   `json:"reactions"`
+	Buttons                  [][]externalButton   `json:"buttons,omitempty"`
+}
+
+type externalTextLink struct {
+	Offset int    `json:"offset"`
+	Length int    `json:"length"`
+	URL    string `json:"url"`
+}
+
+type externalForward struct {
+	SourceName *string `json:"sourceName"`
+	SourceURL  string  `json:"sourceUrl,omitempty"`
+	Author     string  `json:"author,omitempty"`
+}
+
+type externalLinkPreview struct {
+	URL         string `json:"url"`
+	SiteName    string `json:"siteName,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	MediaIndex  *int   `json:"mediaIndex,omitempty"`
+}
+
+func forwardFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *tg.User) *externalForward {
+	header, ok := msg.GetFwdFrom()
+	if !ok {
+		return nil
+	}
+	result := &externalForward{SourceName: nullableString(header.FromName), Author: header.PostAuthor}
+	if header.FromID != nil {
+		source := &tg.Message{}
+		source.SetFromID(header.FromID)
+		_, name := senderData(source, entities, self)
+		if name != nil {
+			result.SourceName = name
+		}
+		if peer, ok := header.FromID.(*tg.PeerChannel); ok {
+			if channel, found := entities.Channel(peer.ChannelID); found && channel.Username != "" {
+				result.SourceURL = "https://t.me/" + channel.Username
+				if header.ChannelPost > 0 {
+					result.SourceURL += "/" + strconv.Itoa(header.ChannelPost)
+				}
+			}
+		}
+	}
+	return result
+}
+
+func linkPreviewFromTelegram(media tg.MessageMediaClass) *externalLinkPreview {
+	value, ok := media.(*tg.MessageMediaWebPage)
+	if !ok {
+		return nil
+	}
+	page, ok := value.Webpage.(*tg.WebPage)
+	if !ok || page.URL == "" {
+		return nil
+	}
+	result := &externalLinkPreview{URL: page.URL, SiteName: page.SiteName, Title: page.Title, Description: page.Description}
+	if _, ok := page.Photo.(*tg.Photo); ok {
+		index := 0
+		result.MediaIndex = &index
+	}
+	return result
+}
+
+func textLinksFromTelegram(msg *tg.Message) []externalTextLink {
+	var result []externalTextLink
+	units := utf16.Encode([]rune(msg.Message))
+	for _, entity := range msg.Entities {
+		if link, ok := entity.(*tg.MessageEntityTextURL); ok && link.Offset >= 0 && link.Length > 0 && link.Offset <= len(units) && link.Length <= len(units)-link.Offset {
+			result = append(result, externalTextLink{Offset: link.Offset, Length: link.Length, URL: link.URL})
+		}
+	}
+	return result
 }
 
 type senderAvatarCandidate struct {
@@ -535,13 +612,20 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 		return []externalMedia{{Kind: "contact"}}
 	case *tg.MessageMediaPoll:
 		return []externalMedia{{Kind: "poll"}}
-	case *tg.MessageMediaEmpty, *tg.MessageMediaWebPage:
+	case *tg.MessageMediaWebPage:
+		if page, ok := value.Webpage.(*tg.WebPage); ok {
+			if photo, ok := page.Photo.(*tg.Photo); ok {
+				mime := "image/jpeg"
+				return []externalMedia{{Kind: "image", MIMEType: &mime, ThumbnailDataURL: thumbnailDataURL(photo.Sizes)}}
+			}
+		}
+		return nil
+	case *tg.MessageMediaEmpty:
 		return nil
 	default:
 		return []externalMedia{{Kind: "other"}}
 	}
 }
-
 
 func mediaPreview(media []externalMedia) string {
 	if len(media) == 0 {
@@ -1165,7 +1249,7 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 	if !ok {
 		return externalMessage{}, false
 	}
-	text := strings.TrimSpace(msg.Message)
+	text := msg.Message
 	media := mediaFromTelegram(msg.Media)
 	if media == nil {
 		media = []externalMedia{}
@@ -1198,6 +1282,9 @@ func messageFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 		SenderAvatarDataURL:      senderAvatar,
 		Direction:                direction,
 		Text:                     text,
+		TextLinks:                textLinksFromTelegram(msg),
+		Forward:                  forwardFromTelegram(msg, entities, self),
+		LinkPreview:              linkPreviewFromTelegram(msg.Media),
 		CreatedAt:                int64(msg.Date) * 1000,
 		EditedAt:                 editedAt,
 		DeliveryStatus:           deliveryStatusForMessage(msg, readOutboxMax),
@@ -1498,6 +1585,21 @@ func (s *service) downloadMedia(ctx context.Context, remoteID, providerMessageID
 	var location tg.InputFileLocationClass
 	mimeType, fileName := "application/octet-stream", "attachment"
 	switch media := msg.Media.(type) {
+	case *tg.MessageMediaWebPage:
+		page, ok := media.Webpage.(*tg.WebPage)
+		if !ok {
+			return downloadedMedia{}, errors.New("link preview is unavailable")
+		}
+		photo, ok := page.Photo.(*tg.Photo)
+		if !ok {
+			return downloadedMedia{}, errors.New("preview photo is unavailable")
+		}
+		thumbType := largestPhotoType(photo.Sizes)
+		if thumbType == "" {
+			return downloadedMedia{}, errors.New("preview photo size is unavailable")
+		}
+		location = &tg.InputPhotoFileLocation{ID: photo.ID, AccessHash: photo.AccessHash, FileReference: photo.FileReference, ThumbSize: thumbType}
+		mimeType, fileName = "image/jpeg", "preview.jpg"
 	case *tg.MessageMediaPhoto:
 		photo, ok := media.Photo.(*tg.Photo)
 		if !ok {

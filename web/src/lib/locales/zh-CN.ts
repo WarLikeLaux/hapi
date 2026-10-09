@@ -79,6 +79,8 @@ export default {
   'chats.notFound': '找不到会话。',
   'chats.noMessages': '暂无消息',
   'chats.messagePlaceholder': '消息',
+  'chats.forward.from': '转发自',
+  'chats.forward.unknown': '隐藏来源',
   'chats.reply.action': '回复',
   'chats.edit.action': '编辑',
   'chats.edit.title': '编辑消息',

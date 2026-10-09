@@ -1,7 +1,8 @@
 import { Fragment, useLayoutEffect, useRef } from 'react'
 import { parseExternalMessageSegments } from '@/chat/externalMessageLinks'
+import type { ExternalMessage } from '@hapi/protocol/messengers'
 
-export function ExternalMessageText(props: { text: string; compact?: boolean }) {
+export function ExternalMessageText(props: { text: string; textLinks?: ExternalMessage['textLinks']; compact?: boolean }) {
     const ref = useRef<HTMLDivElement>(null)
 
     useLayoutEffect(() => {
@@ -52,17 +53,14 @@ export function ExternalMessageText(props: { text: string; compact?: boolean }) 
             document.fonts?.removeEventListener('loadingdone', schedule)
             element.style.width = ''
         }
-    }, [props.text, props.compact])
+    }, [props.text, props.textLinks, props.compact])
 
-    const segments = parseExternalMessageSegments(props.text)
+    const segments = parseExternalMessageSegments(props.text, props.textLinks)
     return (
         <div ref={ref} className="max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
             {segments.map((segment, index) => segment.type === 'text' ? (
                 <Fragment key={index}>{segment.text}</Fragment>
             ) : (
-                // Messenger texts render links as plain anchors: the provider
-                // (Telegram) never expands a preview for them, and the fork's
-                // default opens external http(s) links in a new tab.
                 <a
                     key={index}
                     href={segment.url}

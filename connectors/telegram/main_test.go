@@ -134,6 +134,40 @@ func TestMessageFromTelegram(t *testing.T) {
 	}
 }
 
+func TestMessageFromTelegramForwardAndLinkPreview(t *testing.T) {
+	entities := messagepeer.NewEntities(map[int64]*tg.User{}, map[int64]*tg.Chat{}, map[int64]*tg.Channel{
+		9: {ID: 9, Title: "Denis Sexy IT", Username: "denis_sexy"},
+	})
+	header := tg.MessageFwdHeader{Date: 120}
+	header.SetFromID(&tg.PeerChannel{ChannelID: 9})
+	header.SetChannelPost(77)
+	header.SetPostAuthor("Denis")
+	page := &tg.WebPage{URL: "https://example.com/story", SiteName: "Axios", Title: "AI companies", Description: "Scenario prep."}
+	page.SetPhoto(&tg.Photo{ID: 4, Sizes: []tg.PhotoSizeClass{&tg.PhotoSize{Type: "x", W: 800, H: 400, Size: 5000}}})
+	msg := &tg.Message{ID: 12, PeerID: &tg.PeerUser{UserID: 42}, Message: "🤖 Отсюда", Date: 123}
+	msg.SetFwdFrom(header)
+	msg.SetMedia(&tg.MessageMediaWebPage{Webpage: page})
+	msg.SetEntities([]tg.MessageEntityClass{&tg.MessageEntityTextURL{Offset: 3, Length: 6, URL: "https://example.com/story"}})
+	result, ok := messageFromTelegram(msg, entities, nil, nil, 0)
+	if !ok || result.Forward == nil || result.Forward.SourceName == nil || *result.Forward.SourceName != "Denis Sexy IT" || result.Forward.Author != "Denis" || result.Forward.SourceURL != "https://t.me/denis_sexy/77" {
+		t.Fatalf("missing forwarded source or signature: %#v", result.Forward)
+	}
+	if result.LinkPreview == nil || result.LinkPreview.Title != "AI companies" || result.LinkPreview.Description != "Scenario prep." || result.LinkPreview.MediaIndex == nil || *result.LinkPreview.MediaIndex != 0 || len(result.Media) != 1 || result.Media[0].Kind != "image" {
+		t.Fatalf("missing preview or downloadable image: %#v", result)
+	}
+	if result.Text != "🤖 Отсюда" || len(result.TextLinks) != 1 || result.TextLinks[0].Offset != 3 || result.TextLinks[0].URL != "https://example.com/story" {
+		t.Fatalf("lost labelled link: %#v", result)
+	}
+	privateHeader := tg.MessageFwdHeader{Date: 120}
+	privateHeader.SetFromName("Private author")
+	msg.SetFwdFrom(privateHeader)
+	msg.SetMedia(&tg.MessageMediaWebPage{Webpage: &tg.WebPagePending{ID: 5}})
+	result, _ = messageFromTelegram(msg, entities, nil, nil, 0)
+	if result.Forward == nil || result.Forward.SourceName == nil || *result.Forward.SourceName != "Private author" || result.Forward.SourceURL != "" || result.LinkPreview != nil || len(result.Media) != 0 {
+		t.Fatalf("private source or pending preview rendered incorrectly: %#v", result)
+	}
+}
+
 func TestMessageFromTelegramSenderIdentity(t *testing.T) {
 	entities := messagepeer.NewEntities(
 		map[int64]*tg.User{42: {ID: 42, FirstName: "Friend"}},
