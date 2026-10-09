@@ -322,6 +322,7 @@ export class ApiSessionClient extends EventEmitter {
     private workspaceChangesPollTimer: ReturnType<typeof setInterval> | null = null
     private workspaceChangesPollInFlight = false
     private currentThinking = false
+    private emittedBusyForCurrentThinking = false
     /**
      * Whether the HAPI change_title MCP tool is exposed for this session's
      * flavor. When true, every fresh remote user prompt gets a hidden title
@@ -415,6 +416,7 @@ export class ApiSessionClient extends EventEmitter {
             this.hasConnectedOnce = true
             this.reconnectHandler?.()
             if (this.currentThinking) {
+                this.emittedBusyForCurrentThinking = true
                 this.socket.emit('session-busy', {
                     sid: this.sessionId,
                     time: Date.now()
@@ -432,6 +434,7 @@ export class ApiSessionClient extends EventEmitter {
         })
 
         this.socket.on('disconnect', (reason) => {
+            this.emittedBusyForCurrentThinking = false
             logger.debug('[API] Socket disconnected:', reason)
             this.rpcHandlerManager.onSocketDisconnect()
             this.terminalManager.closeAll()
@@ -671,6 +674,13 @@ export class ApiSessionClient extends EventEmitter {
                 this.agentState = materialized.agentState
                 this.agentStateVersion = materialized.agentStateVersion
                 this.state = 'active'
+                if (this.currentThinking && !this.emittedBusyForCurrentThinking) {
+                    this.emittedBusyForCurrentThinking = true
+                    this.socket.emit('session-busy', {
+                        sid: this.sessionId,
+                        time: Date.now()
+                    })
+                }
 
                 if (shouldSyncMetadata && latestMetadata) {
                     this.updateMetadata(() => latestMetadata)
@@ -1429,12 +1439,15 @@ export class ApiSessionClient extends EventEmitter {
             copilotAgentMode?: import('@hapi/protocol').CopilotAgentMode
         }
     ): void {
-        const startedThinking = thinking && !this.currentThinking
         this.currentThinking = thinking
+        if (!thinking) {
+            this.emittedBusyForCurrentThinking = false
+        }
         if (this.state !== 'active') {
             return
         }
-        if (startedThinking) {
+        if (thinking && !this.emittedBusyForCurrentThinking) {
+            this.emittedBusyForCurrentThinking = true
             this.socket.emit('session-busy', {
                 sid: this.sessionId,
                 time: Date.now()

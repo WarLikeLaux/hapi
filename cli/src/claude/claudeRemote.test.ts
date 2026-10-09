@@ -230,6 +230,73 @@ describe('claudeRemote async message handling', () => {
         }
     }, 15_000);
 
+    it('sets thinking to true when an autonomous assistant message arrives after result', async () => {
+        const querySpy = vi.spyOn(claudeSdk, 'query').mockImplementation(queryMock as typeof claudeSdk.query);
+        const { claudeRemote } = await import('./claudeRemote');
+        const pendingNext = deferred<{ message: string; mode: { permissionMode: 'default' } } | null>();
+        const thinkingStates: boolean[] = [];
+
+        const sdkMessages: SDKMessage[] = [
+            {
+                type: 'assistant',
+                message: { role: 'assistant', content: [{ type: 'text', text: 'Turn 1' }] }
+            } as unknown as SDKMessage,
+            {
+                type: 'result',
+                subtype: 'success',
+                num_turns: 1,
+                total_cost_usd: 0,
+                duration_ms: 1,
+                duration_api_ms: 1,
+                is_error: false,
+                session_id: 's-1'
+            } as unknown as SDKMessage,
+            {
+                type: 'assistant',
+                message: { role: 'assistant', content: [{ type: 'text', text: 'Autonomous Turn 2' }] }
+            } as unknown as SDKMessage
+        ];
+
+        queryMock.mockReturnValueOnce(createAsyncStream(sdkMessages));
+
+        let nextCallCount = 0;
+        const runPromise = claudeRemote({
+            sessionId: 'session-1',
+            path: process.cwd(),
+            mcpServers: {},
+            claudeEnvVars: {},
+            claudeArgs: [],
+            allowedTools: [],
+            hookSettingsPath: '/tmp/hook.json',
+            canCallTool: async () => ({ behavior: 'allow', updatedInput: {} }),
+            nextMessage: async () => {
+                nextCallCount += 1;
+                if (nextCallCount === 1) {
+                    return { message: 'A', mode: { permissionMode: 'default' } };
+                }
+                return await pendingNext.promise;
+            },
+            onThinkingChange: (thinking) => {
+                thinkingStates.push(thinking);
+            },
+            onReady: () => {},
+            isAborted: () => false,
+            onSessionFound: () => {},
+            onMessage: () => {}
+        });
+
+        await waitFor(() => thinkingStates.length >= 3);
+        expect(thinkingStates.slice(0, 3)).toEqual([true, false, true]);
+
+        try {
+            pendingNext.resolve(null);
+            await runPromise;
+        } finally {
+            queryMock.mockReset();
+            querySpy.mockRestore();
+        }
+    }, 15_000);
+
     it('handles rejected next user message fetch without unhandled rejection', async () => {
         const querySpy = vi.spyOn(claudeSdk, 'query').mockImplementation(queryMock as typeof claudeSdk.query);
         const { claudeRemote } = await import('./claudeRemote');
