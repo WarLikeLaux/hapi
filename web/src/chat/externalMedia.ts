@@ -21,7 +21,11 @@ export function shouldAutoLoadExternalMedia(media: ExternalMedia): boolean {
         // mimes stay user-triggered and render as a download link.
         return stickerRenderKind(media.mimeType) !== null
     }
+    // Voice notes and audio pre-buffer as they scroll into view so pressing
+    // play starts instantly; the hub already keeps them warm in its cache.
     return media.kind === 'image'
+        || media.kind === 'voice'
+        || media.kind === 'audio'
         || media.isAnimated === true
         || media.isRound === true
 }

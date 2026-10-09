@@ -37,6 +37,11 @@ describe('shouldAutoLoadExternalMedia', () => {
         expect(shouldAutoLoadExternalMedia(media({ kind: 'video', isRound: true }))).toBe(true)
     })
 
+    it('pre-buffers voice notes and audio so play starts instantly', () => {
+        expect(shouldAutoLoadExternalMedia(media({ kind: 'voice' }))).toBe(true)
+        expect(shouldAutoLoadExternalMedia(media({ kind: 'audio' }))).toBe(true)
+    })
+
     it('leaves large ordinary files and videos user-triggered', () => {
         expect(shouldAutoLoadExternalMedia(media({ kind: 'file' }))).toBe(false)
         expect(shouldAutoLoadExternalMedia(media({ kind: 'video' }))).toBe(false)
