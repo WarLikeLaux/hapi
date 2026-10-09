@@ -34,6 +34,7 @@ import { formatMessageTimestamp } from '@/chat/presentation'
 import { areExternalMessagesGrouped } from '@/chat/messageGrouping'
 import { shouldAutoLoadExternalMedia, stickerRenderKind } from '@/chat/externalMedia'
 import { isOptimisticExternalMessage } from '@/chat/optimisticExternalMessages'
+import { isVoicePlaybackOwnedUrl, startVoiceQueue, type VoiceQueueItem } from '@/chat/voicePlayback'
 
 function TelegramMark(props: { className?: string }) {
     return (
@@ -211,6 +212,7 @@ function MediaAttachment(props: {
     mediaIndex: number
     previewOnly?: boolean
     overlay?: ReactNode
+    onStartVoicePlayback: (key: string, src: string | null) => void
 }) {
     const { api } = useAppContext()
     const { media } = props
@@ -218,13 +220,16 @@ function MediaAttachment(props: {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const previewRef = useRef<HTMLElement>(null)
+    // Identity used by the shared voice playback queue; matches its `key`.
+    const playbackKey = `${props.conversationId}:${props.providerMessageId}:${props.mediaIndex}`
     const downloadable = ['image', 'video', 'audio', 'voice', 'sticker', 'file'].includes(media.kind)
     const hasVisualPreview = Boolean(media.thumbnailDataUrl)
         && (media.kind === 'image' || media.kind === 'video' || media.kind === 'sticker')
     const autoLoadsOriginal = shouldAutoLoadExternalMedia(media)
 
     useEffect(() => () => {
-        if (fullUrl) URL.revokeObjectURL(fullUrl)
+        // A URL adopted by the voice queue is revoked by the queue itself.
+        if (fullUrl && !isVoicePlaybackOwnedUrl(fullUrl)) URL.revokeObjectURL(fullUrl)
     }, [fullUrl])
 
     const loadOriginal = useCallback(async () => {
@@ -308,13 +313,13 @@ function MediaAttachment(props: {
     if (media.kind === 'voice' || media.kind === 'audio') {
         return <VoiceMessagePlayer
             media={media}
-            seed={`${props.conversationId}:${props.providerMessageId}:${props.mediaIndex}`}
+            seed={playbackKey}
             src={fullUrl}
             loading={loading}
             error={error}
             label={media.fileName ?? label}
-            onLoad={() => void loadOriginal()}
             observerRef={(node) => { previewRef.current = node }}
+            onStartPlayback={(src) => props.onStartVoicePlayback(playbackKey, src)}
             overlay={props.overlay}
         />
     }
@@ -949,6 +954,36 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
             return next
         })
     }, [])
+    // Playable voice/audio messages in display (oldest→newest) order: pressing
+    // play on one starts the Telegram-style queue that continues into the
+    // messages below it.
+    const voiceQueue = useMemo<VoiceQueueItem[]>(() => {
+        const items: VoiceQueueItem[] = []
+        for (const message of messages.data?.messages ?? []) {
+            message.media?.forEach((media, mediaIndex) => {
+                if (media.kind !== 'voice' && media.kind !== 'audio') return
+                items.push({
+                    key: `${conversationId}:${message.providerMessageId}:${mediaIndex}`,
+                    conversationId,
+                    providerMessageId: message.providerMessageId,
+                    mediaIndex,
+                    title: media.fileName ?? mediaLabel(media),
+                    chatTitle: conversation?.title,
+                    duration: media.duration ?? null
+                })
+            })
+        }
+        return items
+    }, [conversationId, conversation?.title, messages.data?.messages])
+    const startVoicePlayback = useCallback((key: string, src: string | null) => {
+        const index = voiceQueue.findIndex((item) => item.key === key)
+        if (index < 0 || !api) return
+        startVoiceQueue(voiceQueue, index, async (item) => await api.getExternalMediaBlob(
+            item.conversationId,
+            item.providerMessageId,
+            item.mediaIndex
+        ), src)
+    }, [api, voiceQueue])
     const outbox = useExternalMessageOutbox(api, conversationId, messages)
     const submitMessage = (payload: Parameters<typeof outbox.send>[0]) => {
         if (!outbox.send({ ...payload, replyToProviderMessageId: replyTo?.providerMessageId })) return false
@@ -1358,7 +1393,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                     {hasMedia && caption ? (
                                         <div className={cn(bubbleClassName, 'overflow-hidden p-1')}>
                                             <div className="flex max-w-full flex-col gap-1.5">
-                                                {item.media!.map((media, mediaIndex) => <MediaAttachment key={`${item.id}:${mediaIndex}`} media={media} galleryId={`external-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={mediaIndex} />)}
+                                                {item.media!.map((media, mediaIndex) => <MediaAttachment key={`${item.id}:${mediaIndex}`} media={media} galleryId={`external-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={mediaIndex} onStartVoicePlayback={startVoicePlayback} />)}
                                             </div>
                                             <div className="px-3 pb-1.5 pt-2">{quoteHeader}{caption}</div>
                                         </div>
@@ -1375,6 +1410,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                                     conversationId={conversationId}
                                                     providerMessageId={item.providerMessageId}
                                                     mediaIndex={mediaIndex}
+                                                    onStartVoicePlayback={startVoicePlayback}
                                                     previewOnly={optimistic && media.kind === 'sticker'}
                                                     overlay={overlaysTimestamp ? (
                                                         <span className="pointer-events-none absolute bottom-2 right-1 z-10 flex items-center rounded-full bg-black/55 px-2 py-1 text-[10px] leading-none text-white shadow-sm backdrop-blur-sm tabular-nums">

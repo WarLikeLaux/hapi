@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ExternalMedia } from '@hapi/protocol/messengers'
+import { getVoicePlaybackState, startVoiceQueue, stopVoicePlayback, type VoiceQueueItem } from '@/chat/voicePlayback'
 import { VoiceMessagePlayer } from './VoiceMessagePlayer'
 
 function media(overrides: Partial<ExternalMedia> = {}): ExternalMedia {
@@ -14,24 +15,49 @@ function media(overrides: Partial<ExternalMedia> = {}): ExternalMedia {
     }
 }
 
+function queueItem(overrides: Partial<VoiceQueueItem> = {}): VoiceQueueItem {
+    return {
+        key: 'conversation:m:0',
+        conversationId: 'conversation',
+        providerMessageId: 'm',
+        mediaIndex: 0,
+        title: 'voice.ogg',
+        duration: null,
+        ...overrides
+    }
+}
+
 function renderPlayer(overrides: Partial<Parameters<typeof VoiceMessagePlayer>[0]> = {}) {
-    return render(
+    const onStartPlayback = vi.fn()
+    const view = render(
         <VoiceMessagePlayer
             media={media()}
-            seed="telegram:user:1:42:0"
+            seed="conversation:m:0"
             src={null}
             loading={false}
             error={null}
             label="voice.ogg"
-            onLoad={() => {}}
             observerRef={() => {}}
+            onStartPlayback={onStartPlayback}
             {...overrides}
         />
     )
+    return { onStartPlayback, ...view }
 }
 
 describe('VoiceMessagePlayer', () => {
-    afterEach(() => vi.restoreAllMocks())
+    beforeEach(() => {
+        vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+        vi.spyOn(HTMLMediaElement.prototype, 'pause').mockReturnValue(undefined)
+        vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+        vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:created')
+        vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        stopVoicePlayback()
+        vi.restoreAllMocks()
+    })
 
     it('shows the provider duration and draws provider waveform bars', () => {
         renderPlayer({ src: 'blob:voice', media: media({ duration: 67, waveform: 'Aj8A' }) })
@@ -54,35 +80,33 @@ describe('VoiceMessagePlayer', () => {
         expect(screen.getByLabelText('Playback position').childNodes).toHaveLength(40)
     })
 
-    it('requests the audio on first play and reports loading', () => {
-        const onLoad = vi.fn()
-        const first = renderPlayer({ onLoad })
+    it('hands a first play to the shared queue, adopting an already-loaded src', () => {
+        const first = renderPlayer({ src: 'blob:voice' })
+
         fireEvent.click(screen.getByRole('button', { name: 'Play: voice.ogg' }))
-        expect(onLoad).toHaveBeenCalledTimes(1)
+        expect(first.onStartPlayback).toHaveBeenCalledWith('blob:voice')
         first.unmount()
 
-        renderPlayer({ onLoad, loading: true })
+        renderPlayer({ loading: true })
         expect(screen.getByRole('button', { name: 'Play: voice.ogg' })).toBeDisabled()
     })
 
-    it('plays a loaded blob and pauses it on the next press', () => {
-        const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
-        const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockReturnValue(undefined)
+    it('mirrors the shared queue while its own message plays and pauses on press', async () => {
+        startVoiceQueue([queueItem()], 0, async () => new Blob(['x']), 'blob:voice')
+        await waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
         renderPlayer({ src: 'blob:voice' })
         const audio = document.querySelector('audio')!
-
-        fireEvent.click(screen.getByRole('button', { name: 'Play: voice.ogg' }))
-        expect(play).toHaveBeenCalledTimes(1)
-
-        fireEvent.play(audio)
         vi.spyOn(audio, 'paused', 'get').mockReturnValue(false)
+
+        expect(screen.getByRole('button', { name: 'Pause: voice.ogg' })).toBeInTheDocument()
         fireEvent.click(screen.getByRole('button', { name: 'Pause: voice.ogg' }))
-        expect(pause).toHaveBeenCalledTimes(1)
+        expect(audio.pause).toHaveBeenCalled()
     })
 
-    it('seeks when the waveform is clicked on a loaded player', () => {
-        vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
-        renderPlayer({ src: 'blob:voice', media: media({ duration: 100 }) })
+    it('seeks through the shared player when the waveform is clicked', async () => {
+        startVoiceQueue([queueItem({ duration: 100 })], 0, async () => new Blob(['x']))
+        await waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
+        renderPlayer()
         const audio = document.querySelector('audio')!
         const track = screen.getByLabelText('Playback position') as HTMLElement
         vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({

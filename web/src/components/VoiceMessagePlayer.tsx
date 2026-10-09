@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import type { ExternalMedia } from '@hapi/protocol/messengers'
 import { cn } from '@/lib/utils'
 import { formatRoundVideoTime } from '@/components/RoundVideoPlayer'
+import { isVoicePlaybackUrlReleased, seekVoicePlayback, toggleVoicePlayback, useVoicePlayback } from '@/chat/voicePlayback'
 
 // Waveforms draw at a fixed bar count so the bubble is always filled edge to
 // edge: provider data (up to ~100 Telegram bars) is peak-downsampled, and chat
@@ -49,12 +50,6 @@ function deterministicWaveform(seed: string): number[] {
     return bars
 }
 
-function pauseOtherAudio(current: HTMLAudioElement | null): void {
-    for (const audio of document.querySelectorAll('audio')) {
-        if (audio !== current) audio.pause()
-    }
-}
-
 function PlayIcon() {
     return <svg viewBox="0 0 24 24" className="h-5 w-5 translate-x-px fill-current" aria-hidden="true"><path d="M8 5v14l11-7Z" /></svg>
 }
@@ -63,6 +58,10 @@ function PauseIcon() {
     return <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden="true"><path d="M6.5 5h4v14h-4zm7 0h4v14h-4z" /></svg>
 }
 
+// Audio itself is owned by the shared queue in @/chat/voicePlayback, so this
+// is a pure view: it mirrors the queue state while its own message plays and
+// hands every press over to the queue otherwise. Unmounting (leaving the
+// chat) therefore never stops playback.
 export function VoiceMessagePlayer(props: {
     media: ExternalMedia
     seed: string
@@ -70,61 +69,38 @@ export function VoiceMessagePlayer(props: {
     loading: boolean
     error: string | null
     label: string
-    onLoad: () => void
     observerRef: (node: HTMLDivElement | null) => void
+    onStartPlayback: (src: string | null) => void
     overlay?: ReactNode
 }) {
-    const audioRef = useRef<HTMLAudioElement>(null)
-    const wantsPlaybackRef = useRef(false)
-    const [playing, setPlaying] = useState(false)
-    const [failed, setFailed] = useState(false)
-    const [currentTime, setCurrentTime] = useState(0)
-    const [audioDuration, setAudioDuration] = useState(0)
+    const playback = useVoicePlayback()
+    const current = playback.index >= 0 ? playback.queue[playback.index] : undefined
+    const isCurrent = current?.key === props.seed
+    const playing = isCurrent && playback.status === 'playing'
+    const failed = isCurrent && playback.status === 'failed'
+    const currentTime = isCurrent ? playback.currentTime : 0
 
     const bars = resampleWaveform(props.media.waveform ? decodeWaveform(props.media.waveform) : deterministicWaveform(props.seed))
-    const totalDuration = props.media.duration ?? (audioDuration > 0 ? audioDuration : null)
+    const totalDuration = props.media.duration ?? (isCurrent && playback.duration > 0 ? playback.duration : null)
     const progress = totalDuration ? Math.min(1, currentTime / totalDuration) : 0
-    const fetching = !props.src && props.loading
-
-    useEffect(() => {
-        const audio = audioRef.current
-        if (!audio || !props.src || !wantsPlaybackRef.current) return
-        wantsPlaybackRef.current = false
-        pauseOtherAudio(audio)
-        void audio.play().catch(() => setFailed(true))
-    }, [props.src])
-
-    useEffect(() => () => {
-        wantsPlaybackRef.current = false
-        audioRef.current?.pause()
-    }, [])
+    const fetching = (isCurrent && playback.status === 'loading') || (!props.src && props.loading)
 
     const toggle = () => {
-        const audio = audioRef.current
-        if (!props.src) {
-            setFailed(false)
-            wantsPlaybackRef.current = true
-            props.onLoad()
+        if (isCurrent) {
+            toggleVoicePlayback()
             return
         }
-        if (!audio) return
-        setFailed(false)
-        if (audio.paused) {
-            pauseOtherAudio(audio)
-            void audio.play().catch(() => setFailed(true))
-        } else {
-            audio.pause()
-        }
+        // A URL the queue has already released is dead; pass null so it
+        // refetches the (HTTP-cached) blob instead.
+        props.onStartPlayback(isVoicePlaybackUrlReleased(props.src) ? null : props.src)
     }
 
     const seek = (event: React.MouseEvent<HTMLDivElement>) => {
-        const audio = audioRef.current
-        if (!audio || !props.src || !totalDuration) return
+        if (!isCurrent || !totalDuration) return
         const bounds = event.currentTarget.getBoundingClientRect()
         if (bounds.width <= 0) return
         const ratio = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width))
-        audio.currentTime = ratio * totalDuration
-        setCurrentTime(audio.currentTime)
+        seekVoicePlayback(ratio)
     }
 
     const actionLabel = failed ? 'Retry' : playing ? 'Pause' : 'Play'
@@ -157,11 +133,11 @@ export function VoiceMessagePlayer(props: {
                 </button>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <div
-                        className={cn('flex h-6 items-center gap-[2px]', props.src && !failed && 'cursor-pointer')}
+                        className={cn('flex h-6 items-center gap-[2px]', isCurrent && 'cursor-pointer')}
                         onClick={seek}
-                        role={props.src && !failed ? 'slider' : undefined}
+                        role={isCurrent ? 'slider' : undefined}
                         aria-label="Playback position"
-                        aria-valuenow={props.src && !failed ? Math.round(progress * 100) : undefined}
+                        aria-valuenow={isCurrent ? Math.round(progress * 100) : undefined}
                         aria-valuemin={0}
                         aria-valuemax={100}
                     >
@@ -182,27 +158,6 @@ export function VoiceMessagePlayer(props: {
                     )}>{timeLabel}</span>
                 </div>
             </div>
-            <audio
-                ref={audioRef}
-                src={props.src ?? undefined}
-                preload="auto"
-                onPlay={() => {
-                    setPlaying(true)
-                    setFailed(false)
-                }}
-                onPause={() => setPlaying(false)}
-                onEnded={(event) => {
-                    setPlaying(false)
-                    setCurrentTime(0)
-                    event.currentTarget.currentTime = 0
-                }}
-                onError={() => {
-                    setFailed(Boolean(props.src))
-                    setPlaying(false)
-                }}
-                onLoadedMetadata={(event) => setAudioDuration(event.currentTarget.duration)}
-                onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-            />
             {props.overlay}
         </div>
     )
