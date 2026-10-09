@@ -27,8 +27,10 @@ import { translateInputRequestTitle } from '@/lib/input-request-toast'
 import { VoiceProvider } from '@/lib/voice-context'
 import { requireHubUrlForLogin } from '@/lib/runtime-config'
 import { getAppGlobalSseSubscription, getAppSessionSseSubscription } from '@/lib/appSseSubscriptions'
-import { canUseAppBadging, useAppBadge } from '@/hooks/useAppBadge'
+import { canUseAppBadging, countUnreadSessions, useAppBadge } from '@/hooks/useAppBadge'
 import { useAppBadgePreference } from '@/hooks/useAppBadgePreference'
+import { getSessionLastSeenSnapshot, useSessionLastSeenVersion } from '@/lib/sessionLastSeen'
+import { useTabNotification } from '@/hooks/useTabNotification'
 import { reconcileQueuedStateAfterConnect } from '@/lib/queued-state-reconciliation'
 import { LoginPrompt } from '@/components/LoginPrompt'
 import { InstallPrompt } from '@/components/InstallPrompt'
@@ -183,17 +185,26 @@ function AppInner() {
     const { appBadgeEnabled: appBadgePreferenceEnabled } = useAppBadgePreference()
     const appBadgeEnabled = Boolean(api && token && appBadgePreferenceEnabled && canUseAppBadging())
     const {
-        sessions: appBadgeSessions,
-        isLoading: appBadgeSessionsLoading,
-        error: appBadgeSessionsError,
-    } = useSessions(api, { enabled: appBadgeEnabled })
+        sessions: appSessions,
+        isLoading: appSessionsLoading,
+        error: appSessionsError,
+    } = useSessions(api, { enabled: Boolean(api && token) })
     useAppBadge({
         enabled: appBadgeEnabled,
         scope: baseUrl,
-        sessions: appBadgeSessions,
-        isLoading: appBadgeSessionsLoading,
-        hasError: Boolean(appBadgeSessionsError),
+        sessions: appSessions,
+        isLoading: appSessionsLoading,
+        hasError: Boolean(appSessionsError),
     })
+    const lastSeenVersion = useSessionLastSeenVersion()
+    const unreadCount = useMemo(() => {
+        if (!api || !token) {
+            return 0
+        }
+        const lastSeenById = getSessionLastSeenSnapshot()
+        return countUnreadSessions(appSessions, lastSeenById)
+    }, [api, token, appSessions, lastSeenVersion])
+    useTabNotification(unreadCount)
     const { isSupported: isPushSupported, permission: pushPermission, requestPermission, subscribe } = usePushNotifications(api)
 
     useEffect(() => {

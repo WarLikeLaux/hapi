@@ -114,7 +114,7 @@ export default defineConfig({
             // autoUpdate would reload the tab on its own and fight the banner
             // path; autoUpdate also fires mid-session with no chance to defer.
             registerType: 'prompt',
-            includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png', 'mask-icon.svg'],
+            includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png', 'mask-icon.svg', 'icon.png'],
             strategies: 'injectManifest',
             srcDir: 'src',
             filename: 'sw.ts',
