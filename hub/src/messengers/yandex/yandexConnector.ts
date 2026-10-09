@@ -20,7 +20,7 @@ import type {
 import type { DownloadedExternalMedia, MessengerConnector, MessengerConnectorEvent, SendExternalMediaInput } from '../types'
 import { createPayloadId, PUSH_METHOD, XivaClient } from './xivaClient'
 import { CookieRejectedError, RegistryClient, toWireTimestamp } from './registry'
-import { reactionTypeForEmoji } from './reactionMap'
+import { reactionTypeForKey } from './reactionMap'
 import { buildFileClientMessage, buildImageClientMessage, buildReplyFields, buildStickerClientMessage } from './pushShape'
 import { getYandexStickerPack } from './stickers'
 import {
@@ -396,11 +396,11 @@ export class YandexConnector implements MessengerConnector {
     }
 
     async setReactions(remoteId: string, providerMessageId: string, reactions: string[]): Promise<void> {
-        // Resolve desired types first so an unknown emoji fails before any irreversible push.
+        // Resolve desired keys first so an unknown reaction fails before any irreversible push.
         const desired = new Set<number>()
-        for (const emoji of reactions) {
-            const type = reactionTypeForEmoji(emoji)
-            if (type === null) throw new Error(`Reaction is not supported by Yandex Messenger: ${emoji}`)
+        for (const key of reactions) {
+            const type = reactionTypeForKey(key)
+            if (type === null) throw new Error(`Reaction is not supported by Yandex Messenger: ${key}`)
             desired.add(type)
         }
         const chosen = this.messageSnapshots.get(remoteId)?.get(providerMessageId)?.chosen

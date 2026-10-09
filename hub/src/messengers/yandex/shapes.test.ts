@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { reactionTypeForEmoji } from './reactionMap'
+import { reactionTypeForKey, reactionTypeForEmoji } from './reactionMap'
 import {
     buildHistoryParams,
     normalizeChatElement,
@@ -243,9 +243,22 @@ describe('yandex shapes: message item', () => {
             RecentUserReactions: [{ Type: 128077, UserInfo: { Guid: MY_GUID } }]
         }, MY_GUID, 'chat-1')
         expect(shaped!.message.reactions).toEqual([
-            { reaction: '👍', emoji: '👍', count: 3, chosen: true }
+            { reaction: 'emoji:👍', emoji: '👍', count: 3, chosen: true }
         ])
         expect(shaped!.chosenReactionTypes).toEqual([128077])
+    })
+
+    it('keys unknown reaction types as type:<n> so they round-trip', () => {
+        const shaped = normalizeMessageItem({
+            ServerMessage: {
+                ClientMessage: { Plain: { Text: { MessageText: 'unknown reaction' } } },
+                ServerMessageInfo: { Timestamp: '51', SeqNo: 6, From: { Guid: PEER_GUID, DisplayName: 'S' } }
+            },
+            Reactions: [{ Type: 424242, Count: 1 }]
+        }, MY_GUID, 'chat-1')
+        expect(shaped!.message.reactions).toEqual([
+            { reaction: 'type:424242', emoji: null, count: 1, chosen: false }
+        ])
     })
 })
 
@@ -401,6 +414,19 @@ describe('yandex reactions: emoji mapping', () => {
         const unicorn = '🦄'.codePointAt(0)!
         expect(reactionTypeForEmoji('🦄')).toBe(unicorn)
         expect(reactionTypeForEmoji('a')).toBeNull()
+    })
+
+    it('resolves the wire keys the web picker echoes back', () => {
+        expect(reactionTypeForKey('emoji:👍')).toBe(100102)
+        expect(reactionTypeForKey('emoji:🔥')).toBe(100104)
+        // Unseen types round-trip through the `type:` key the connector emitted.
+        expect(reactionTypeForKey('type:424242')).toBe(424242)
+        expect(reactionTypeForKey('type:0')).toBeNull()
+        expect(reactionTypeForKey('type:nan')).toBeNull()
+        // Bare emoji from pre-prefix snapshots still resolve.
+        expect(reactionTypeForKey('👍')).toBe(100102)
+        expect(reactionTypeForKey('emoji:')).toBeNull()
+        expect(reactionTypeForKey('a')).toBeNull()
     })
 })
 
