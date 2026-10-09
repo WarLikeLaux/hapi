@@ -18,7 +18,7 @@ describe('input request toast title', () => {
 
     it('leaves approval, ready, task and arbitrary titles on their existing paths', () => {
         const { result } = renderHook(() => useTranslation(), { wrapper: I18nProvider })
-        for (const title of ['Permission Request', 'Ready for input', 'Task completed', 'Task failed', 'Custom title']) {
+        for (const title of ['Permission Request', 'What\'s next?', 'Task completed', 'Task failed', 'Custom title']) {
             expect(translateInputRequestTitle(title, result.current.t)).toBeNull()
         }
     })

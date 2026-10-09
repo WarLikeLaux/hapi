@@ -62,7 +62,7 @@ export class PushNotificationChannel implements NotificationChannel {
         const name = getSessionName(session)
 
         const payload: PushPayload = {
-            title: 'Ready for input',
+            title: 'What\'s next?',
             body: `${agentName} is waiting in ${name}`,
             tag: `ready-${session.id}`,
             data: {

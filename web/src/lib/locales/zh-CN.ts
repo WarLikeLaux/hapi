@@ -928,7 +928,7 @@ export default {
   'send.blocked.title': '无法发送消息',
   'send.blocked.noConnection': '未连接到服务器',
   'resume.failed.title': '恢复会话失败',
-  'toast.ready.title': '等待输入',
+  'toast.ready.title': '接下来做什么？',
   'toast.ready.body': '{agent} 正在 {session} 等待你的输入',
   'toast.permission.title': '权限请求',
   'toast.input.title': '{agent} 需要你回答',

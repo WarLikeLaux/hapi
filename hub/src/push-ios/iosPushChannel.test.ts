@@ -83,7 +83,7 @@ describe('IosPushNotificationChannel', () => {
         expect(payload.url).toBe('/sessions/session-1')
         expect(payload.contractVersion).toBe('1')
         expect(payload.severity).toBe('info')
-        expect(payload.title).toBe('Ready for input')
+        expect(payload.title).toBe('What\'s next?')
         expect(payload.body.length).toBeGreaterThan(0)
     })
 
