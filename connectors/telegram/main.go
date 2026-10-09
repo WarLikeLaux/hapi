@@ -98,8 +98,11 @@ type externalMedia struct {
 	ThumbnailDataURL *string `json:"thumbnailDataUrl"`
 	IsRound          bool    `json:"isRound,omitempty"`
 	IsAnimated       bool    `json:"isAnimated,omitempty"`
-	Duration         *int64  `json:"duration,omitempty"`
-	Waveform         []uint8 `json:"waveform,omitempty"`
+	Duration *int64 `json:"duration,omitempty"`
+	// Waveform carries Telegram's packed voice waveform — 5-bit amplitudes,
+	// 8 values per 5 bytes — base64-encoded so clients can draw it before the
+	// audio itself downloads.
+	Waveform string `json:"waveform,omitempty"`
 }
 
 type deletedMessages struct {
@@ -480,7 +483,7 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 		isRound := value.Round
 		isAnimated := false
 		var audioDuration int
-		var audioWaveform []uint8
+		var audioWaveform []byte
 		if value.Voice {
 			kind = "voice"
 		} else if value.Video || value.Round {
@@ -503,7 +506,7 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 				isAnimated = true
 			case *tg.DocumentAttributeAudio:
 				audioDuration = attribute.Duration
-				audioWaveform = expandWaveform(attribute.Waveform)
+				audioWaveform = attribute.Waveform
 			}
 		}
 		if isAnimated {
@@ -523,7 +526,7 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 		if kind == "voice" || kind == "audio" {
 			duration := int64(audioDuration)
 			media.Duration = &duration
-			media.Waveform = audioWaveform
+			media.Waveform = base64.StdEncoding.EncodeToString(audioWaveform)
 		}
 		return []externalMedia{media}
 	case *tg.MessageMediaGeo, *tg.MessageMediaGeoLive, *tg.MessageMediaVenue:
@@ -539,23 +542,6 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 	}
 }
 
-// expandWaveform unpacks Telegram's voice waveform — 5-bit amplitudes packed
-// back-to-back (8 values per 5 bytes) — into one byte per bar, ready to draw.
-func expandWaveform(waveform []byte) []uint8 {
-	count := len(waveform) * 8 / 5
-	bars := make([]uint8, 0, count)
-	for i := 0; i < count; i++ {
-		bitOffset := i * 5
-		byteIndex := bitOffset / 8
-		shift := bitOffset % 8
-		value := uint16(waveform[byteIndex]) >> shift
-		if shift > 3 && byteIndex+1 < len(waveform) {
-			value |= uint16(waveform[byteIndex+1]) << (8 - shift)
-		}
-		bars = append(bars, uint8(value&0x1F))
-	}
-	return bars
-}
 
 func mediaPreview(media []externalMedia) string {
 	if len(media) == 0 {
