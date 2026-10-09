@@ -1,23 +1,7 @@
 import { useEffect, useState } from 'react'
-import { registerSW } from 'virtual:pwa-register'
 
 export const PWA_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000
 export const PWA_UPDATING_INDICATOR_MS = 800
-
-// Module-level guard — survives React component re-mounts within the same
-// page load. Multiple SW lifecycle events (onNeedRefresh, registration.waiting
-// on first check, install-state transitions, hourly update ticks, visibility
-// resumes) all funnel into the same auto-apply path, and any of them firing
-// twice must not trigger a second page reload while the first is already in
-// flight.
-let autoReloadScheduled = false
-
-// Test-only — production callers must not reset the guard. The guard is a
-// real, cross-reload invariant in the deployed build; exposing the reset
-// hook keeps test isolation honest without making the guard inspectable.
-export function __resetAutoReloadGuardForTests() {
-    autoReloadScheduled = false
-}
 
 // Surface a waiting service worker as a brief "Updating…" indicator before the
 // page reloads. Detection is skipped when no previous controller exists (fresh
@@ -65,6 +49,7 @@ export function setupRegistrationUpdateChecks(
     }
 
     registration.addEventListener('updatefound', observeInstallingWorker)
+    observeInstallingWorker()
 
     // Browsers are allowed to throttle navigation-triggered service-worker
     // checks. Ask explicitly on every app start so a long-lived HAPI tab does
@@ -95,47 +80,59 @@ export function usePwaUpdate() {
     const [updating, setUpdating] = useState(false)
 
     useEffect(() => {
-        const scheduleAutoReload = () => {
-            if (autoReloadScheduled) {
-                return
-            }
-            if (!shouldAutoApplyUpdate()) {
-                return
-            }
-            autoReloadScheduled = true
-            setUpdating(true)
-            // Tell the waiting worker to activate and claim clients. We
-            // post SKIP_WAITING after `updating` is set so the banner has
-            // already been committed for the next paint — otherwise the new
-            // SW's `clients.claim()` could swap our shell mid-frame before
-            // the user ever sees "Updating HAPI…". `updateSW` (returned by
-            // `registerSW`) is a workbox-window-backed function that awaits
-            // its register promise before posting, so it is safe to call
-            // from `onNeedRefresh` even when `onRegistered` has not yet
-            // stored the registration in this hook's closure.
-            void updateSW(true)
-            window.setTimeout(() => {
-                window.location.reload()
-            }, PWA_UPDATING_INDICATOR_MS)
+        if (!('serviceWorker' in navigator)) {
+            return
         }
+        const serviceWorker = navigator.serviceWorker
+        let disposed = false
+        let updateWorker: ServiceWorker | null = null
+        let activationTimer: number | undefined
+        let cleanupChecks: (() => void) | undefined
+        let reloading = false
 
-        const updateSW = registerSW({
-            onNeedRefresh() {
-                scheduleAutoReload()
-            },
-            onOfflineReady() {
-                console.log('App ready for offline use')
-            },
-            onRegistered(registration) {
-                if (!registration) {
+        const handleControllerChange = () => {
+            // First installs and unrelated controller changes do not reload.
+            // Only navigate once the exact worker we are applying owns this
+            // page; a resolved activation request is not proof of that.
+            if (!updateWorker || serviceWorker.controller !== updateWorker || reloading) {
+                return
+            }
+            reloading = true
+            window.location.reload()
+        }
+        serviceWorker.addEventListener('controllerchange', handleControllerChange)
+
+        const workerUrl = `${import.meta.env.BASE_URL}${import.meta.env.DEV ? 'dev-sw.js?dev-sw' : 'sw.js'}`
+        void serviceWorker.register(workerUrl, {
+            type: import.meta.env.DEV ? 'module' : 'classic',
+        }).then((registration) => {
+            if (disposed) {
+                return
+            }
+            cleanupChecks = setupRegistrationUpdateChecks(registration, () => {
+                if (disposed || updateWorker || !shouldAutoApplyUpdate() || !registration.waiting) {
                     return
                 }
-                setupRegistrationUpdateChecks(registration, scheduleAutoReload)
-            },
-            onRegisterError(error) {
-                console.error('SW registration error:', error)
-            },
+                updateWorker = registration.waiting
+                setUpdating(true)
+                // Allow the banner to paint, then request activation. Mobile
+                // activation can take longer than this delay; controllerchange
+                // is the sole reload trigger, so we cannot return to the old
+                // worker and start another update loop.
+                activationTimer = window.setTimeout(() => {
+                    updateWorker?.postMessage({ type: 'SKIP_WAITING' })
+                }, PWA_UPDATING_INDICATOR_MS)
+            })
+        }).catch((error) => {
+            console.error('SW registration error:', error)
         })
+
+        return () => {
+            disposed = true
+            cleanupChecks?.()
+            window.clearTimeout(activationTimer)
+            serviceWorker.removeEventListener('controllerchange', handleControllerChange)
+        }
     }, [])
 
     return { updating }

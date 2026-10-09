@@ -110,10 +110,11 @@ export default defineConfig({
         copyKaTeXFonts(),
         VitePWA({
             // Stay in prompt mode: waiting updates are surfaced as an in-app
-            // banner via usePwaUpdate, and the user clicks Reload to apply.
-            // autoUpdate would reload the tab on its own and fight the banner
-            // path; autoUpdate also fires mid-session with no chance to defer.
+            // banner via usePwaUpdate before requesting activation. The hook
+            // reloads only once the new worker controls the page; autoUpdate
+            // would bypass the indicator.
             registerType: 'prompt',
+            injectRegister: false,
             includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png', 'mask-icon.svg', 'icon.png'],
             strategies: 'injectManifest',
             srcDir: 'src',
