@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { useSidebarResize } from '@/hooks/useSidebarResize'
 import type { AnchoredMenuPoint } from '@/hooks/useAnchoredMenu'
 import { ChatsMessageMenu } from '@/components/ChatsMessageMenu'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useChatKeyboardTail } from '@/hooks/useChatKeyboardTail'
 import { useChatsComposerAutoFocus } from '@/hooks/useChatsComposerAutoFocus'
 import { useChatsPendingMedia } from '@/hooks/useChatsPendingMedia'
@@ -882,6 +883,15 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     const [gifPickerOpen, setGifPickerOpen] = useState(false)
     const { pendingMedia, previewUrl, clearPendingMedia, handlePaste: handlePendingPaste } = useChatsPendingMedia()
     const [replyTo, setReplyTo] = useState<ExternalMessage | null>(null)
+    const [editingMessage, setEditingMessage] = useState<ExternalMessage | null>(null)
+    const [deletingMessage, setDeletingMessage] = useState<ExternalMessage | null>(null)
+    const editPendingRef = useRef(false)
+    const savedDraftRef = useRef<{ text: string; replyTo: ExternalMessage | null }>({ text: '', replyTo: null })
+    const cancelEditing = useCallback(() => {
+        setEditingMessage(null)
+        setText(savedDraftRef.current.text)
+        setReplyTo(savedDraftRef.current.replyTo)
+    }, [])
     const [messageMenu, setMessageMenu] = useState<{ providerMessageId: string; anchorPoint: AnchoredMenuPoint } | null>(null)
     const closeMessageMenu = useCallback(() => setMessageMenu(null), [])
     const [highlightedReplyId, setHighlightedReplyId] = useState<string | null>(null)
@@ -905,6 +915,8 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     // Telegram-style reply gestures: double-click on a message bubble or a
     // left swipe anywhere across the message row starts a reply to it.
     const startReply = useCallback((message: ExternalMessage) => {
+        if (editPendingRef.current) return
+        if (editingMessage) cancelEditing()
         setMessageMenu(null)
         setReplyTo(message)
         const composer = composerRef.current
@@ -914,14 +926,16 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
         // can open it again; focusing an already focused field is a no-op.
         if (document.activeElement === composer) composer.blur()
         composer.focus({ preventScroll: true })
-    }, [])
+    }, [editingMessage, cancelEditing])
     // Window-level keydown → focus composer + insert character. Closure
     // captures the latest `setText` on every render so the typed glyph is
     // appended to the current draft instead of dropping the user's first
     // keystroke.
     useChatsComposerAutoFocus({
         composerRef,
-        onInsertCharacter: (character) => setText((current) => current + character),
+        onInsertCharacter: (character) => {
+            if (!editPendingRef.current) setText((current) => current + character)
+        },
     })
     const conversation = conversations.data?.find((item) => item.id === conversationId)
     // The pane renders a loading placeholder until the conversations list
@@ -985,7 +999,43 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
         ), src)
     }, [api, voiceQueue])
     const outbox = useExternalMessageOutbox(api, conversationId, messages)
+    const refreshChangedMessage = async () => {
+        await Promise.all([
+            queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(conversationId) }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
+        ])
+    }
+    const editMessage = useMutation({
+        mutationFn: async (input: { providerMessageId: string; text: string }) => {
+            await api!.editExternalMessage(conversationId, input.providerMessageId, input.text)
+        },
+        onSuccess: () => cancelEditing(),
+        onSettled: refreshChangedMessage
+    })
+    editPendingRef.current = editMessage.isPending
+    const deleteMessage = useMutation({
+        mutationFn: async (providerMessageId: string) => {
+            await api!.deleteExternalMessage(conversationId, providerMessageId)
+        },
+        onSuccess: (_result, providerMessageId) => {
+            setDeletingMessage(null)
+            if (editingMessage?.providerMessageId === providerMessageId) cancelEditing()
+            if (replyTo?.providerMessageId === providerMessageId) setReplyTo(null)
+        },
+        onSettled: refreshChangedMessage
+    })
+    const startEditing = (message: ExternalMessage) => {
+        if (!editingMessage) savedDraftRef.current = { text, replyTo }
+        setEditingMessage(message)
+        setText(message.text)
+        setReplyTo(null)
+        setMessageMenu(null)
+        setGifPickerOpen(false)
+        editMessage.reset()
+        composerRef.current?.focus({ preventScroll: true })
+    }
     const submitMessage = (payload: Parameters<typeof outbox.send>[0]) => {
+        if (editingMessage) return false
         if (!outbox.send({ ...payload, replyToProviderMessageId: replyTo?.providerMessageId })) return false
         stickToBottomRef.current = true
         if (payload.kind !== 'sticker') setText('')
@@ -1529,6 +1579,17 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                     anchorPoint={messageMenu.anchorPoint}
                     onClose={closeMessageMenu}
                     onReply={() => startReply(menuMessage)}
+                    onEdit={!editMessage.isPending && menuMessage.direction === 'outgoing'
+                        && ['telegram', 'yandex'].includes(conversation.provider)
+                        && menuMessage.text.trim()
+                        && (conversation.provider === 'telegram' || !menuMessage.media?.length)
+                        ? () => startEditing(menuMessage) : undefined}
+                    onDelete={menuMessage.direction === 'outgoing' && ['telegram', 'yandex'].includes(conversation.provider)
+                        ? () => {
+                            closeMessageMenu()
+                            deleteMessage.reset()
+                            setDeletingMessage(menuMessage)
+                        } : undefined}
                     text={menuMessage.text}
                     reactions={menuMessage.reactions ?? []}
                     frequentReactions={frequentReactions}
@@ -1550,12 +1611,30 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
             ) : null}
             <form className="shrink-0 border-t border-[var(--app-border)] bg-[var(--app-bg)] p-2 pb-[max(.5rem,env(safe-area-inset-bottom))]" onSubmit={(event) => {
                 event.preventDefault()
-                if (pendingMedia) {
+                if (editingMessage) {
+                    if (!editMessage.isPending && text.trim() && text.trim() !== editingMessage.text.trim()) {
+                        editMessage.mutate({ providerMessageId: editingMessage.providerMessageId, text: text.trim() })
+                    }
+                } else if (pendingMedia) {
                     submitMessage({ kind: 'media', file: pendingMedia, text })
                 } else if (text.trim()) {
                     submitMessage({ kind: 'text', text: text.trim() })
                 }
             }}>
+                {editingMessage ? (
+                    <div className="mx-auto mb-1 flex max-w-content items-center gap-2 rounded-xl bg-[var(--app-secondary-bg)] px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-[var(--app-link)]">{t('chats.edit.title')}</div>
+                            <div className="truncate text-xs text-[var(--app-hint)]">{editingMessage.text}</div>
+                        </div>
+                        <button type="button" disabled={editMessage.isPending} onClick={() => {
+                            cancelEditing()
+                            editMessage.reset()
+                        }} aria-label={t('chats.edit.cancel')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] hover:bg-[var(--app-bg)] disabled:opacity-35">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
+                        </button>
+                    </div>
+                ) : null}
                 {replyTo ? (
                     <div
                         className="mx-auto mb-1 flex max-w-content items-center gap-2 rounded-xl border-l-4 border-[#2AABEE] bg-[var(--app-secondary-bg)] py-1.5 pl-2 pr-1"
@@ -1577,7 +1656,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         >×</button>
                     </div>
                 ) : null}
-                {pendingMedia ? (
+                {pendingMedia && !editingMessage ? (
                     <div className="mx-auto mb-1 flex max-w-content items-center gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] p-1.5 pl-2" data-testid="chats-pending-media">
                         {previewUrl ? (
                             <img src={previewUrl} alt="" className="h-14 w-14 shrink-0 rounded-md object-cover" />
@@ -1607,22 +1686,32 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                             if (file) submitMessage({ kind: 'media', file, text })
                         }}
                     />
-                    <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Attach media"><AttachmentIcon /></button>
-                    <button type="button" onClick={() => setGifPickerOpen(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Send GIF"><GifIcon /></button>
-                    {conversation.provider === 'yandex' ? <YandexStickerPicker key={conversationId} onSelect={(sticker, setId) => submitMessage({ kind: 'sticker', sticker, setId, text: '' })} /> : null}
+                    <button type="button" disabled={Boolean(editingMessage)} onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Attach media"><AttachmentIcon /></button>
+                    <button type="button" disabled={Boolean(editingMessage)} onClick={() => setGifPickerOpen(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Send GIF"><GifIcon /></button>
+                    {conversation.provider === 'yandex' && !editingMessage ? <YandexStickerPicker key={conversationId} onSelect={(sticker, setId) => submitMessage({ kind: 'sticker', sticker, setId, text: '' })} /> : null}
                     <textarea
                         ref={composerRef}
                         onFocus={handleComposerFocus}
                         value={text}
+                        disabled={editMessage.isPending}
+                        aria-label={editingMessage ? t('chats.edit.title') : t('chats.messagePlaceholder')}
                         onChange={(event) => setText(event.target.value)}
                         onPaste={(event) => {
                             // Stage the image in the composer; do NOT send.
                             // Sending happens on Enter / Send button click
                             // so a paste is no longer a one-step commit.
-                            handlePendingPaste(event)
+                            if (!editingMessage) handlePendingPaste(event)
                         }}
                         onKeyDown={(event) => {
                             if (event.key === 'Escape') {
+                                if (editingMessage) {
+                                    event.preventDefault()
+                                    if (!editMessage.isPending) {
+                                        cancelEditing()
+                                        editMessage.reset()
+                                    }
+                                    return
+                                }
                                 if (pendingMedia) {
                                     event.preventDefault()
                                     clearPendingMedia()
@@ -1643,10 +1732,24 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         placeholder={t('chats.messagePlaceholder')}
                         className="max-h-32 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[var(--app-hint)]"
                     />
-                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={!api || (!text.trim() && !pendingMedia)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t('chats.send')}><SendIcon /></button>
+                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={!api || (editingMessage ? editMessage.isPending || !text.trim() || text.trim() === editingMessage.text.trim() : !text.trim() && !pendingMedia)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t(editingMessage ? 'chats.edit.save' : 'chats.send')}>{editingMessage ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg> : <SendIcon />}</button>
                 </div>
+                {editingMessage && editMessage.error ? <div role="alert" className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{editMessage.error.message}</div> : null}
                 {setReactions.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{setReactions.error.message}</div> : null}
             </form>
+            <ConfirmDialog
+                isOpen={Boolean(deletingMessage)}
+                onClose={() => { if (!deleteMessage.isPending) setDeletingMessage(null) }}
+                title={t('chats.delete.title')}
+                description={t('chats.delete.description')}
+                confirmLabel={t('chats.delete.action')}
+                confirmingLabel={t('chats.delete.deleting')}
+                destructive
+                isPending={deleteMessage.isPending}
+                onConfirm={async () => {
+                    if (deletingMessage) await deleteMessage.mutateAsync(deletingMessage.providerMessageId)
+                }}
+            />
             <KlipyGifPicker
                 open={gifPickerOpen}
                 onOpenChange={setGifPickerOpen}

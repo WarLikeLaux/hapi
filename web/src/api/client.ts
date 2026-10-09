@@ -431,6 +431,19 @@ export class ApiClient {
         })
     }
 
+    async editExternalMessage(conversationId: string, providerMessageId: string, text: string): Promise<void> {
+        await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(providerMessageId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ text })
+        })
+    }
+
+    async deleteExternalMessage(conversationId: string, providerMessageId: string): Promise<void> {
+        await this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(providerMessageId)}`, {
+            method: 'DELETE'
+        })
+    }
+
     async getYandexStickerPack(): Promise<YandexStickerPacksResponse> {
         return await this.request('/api/messengers/yandex/stickers')
     }

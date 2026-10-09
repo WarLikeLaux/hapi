@@ -108,6 +108,14 @@ export class TelegramConnector implements MessengerConnector {
         await this.request('messages.reactions.set', { remoteId, providerMessageId, reactions })
     }
 
+    async editMessage(remoteId: string, providerMessageId: string, text: string): Promise<void> {
+        await this.request('messages.edit', { remoteId, providerMessageId, text })
+    }
+
+    async deleteMessage(remoteId: string, providerMessageId: string): Promise<void> {
+        await this.request('messages.delete', { remoteId, providerMessageId })
+    }
+
     async pressButton(remoteId: string, providerMessageId: string, buttonId: string): Promise<{ message: string | null }> {
         const result = await this.request('messages.button.press', { remoteId, providerMessageId, buttonId }) as {
             ok?: boolean

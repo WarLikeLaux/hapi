@@ -418,6 +418,35 @@ export class MessengerManager {
         await this.refreshMessages(namespace, conversation, 100, true, true)
     }
 
+    private requireOwnMessage(namespace: string, conversationId: string, providerMessageId: string) {
+        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        if (!conversation?.selected) throw new Error('Conversation not found')
+        const message = this.options.store.messengers.listMessages(namespace, conversationId, 200)
+            .find((item) => item.providerMessageId === providerMessageId)
+        if (!message) throw new Error('Message not found')
+        if (message.direction !== 'outgoing') throw new Error('Only your own messages can be changed')
+        return { conversation, message }
+    }
+
+    async editMessage(namespace: string, conversationId: string, providerMessageId: string, text: string): Promise<void> {
+        const { conversation, message } = this.requireOwnMessage(namespace, conversationId, providerMessageId)
+        if (!message.text.trim() || (conversation.provider === 'yandex' && message.media?.length)) {
+            throw new Error('Editing this message is not supported')
+        }
+        const connector = await this.requireConnector(namespace, conversation.provider)
+        if (!connector.editMessage) throw new Error('This messenger does not support editing messages')
+        await connector.editMessage(conversation.remoteId, providerMessageId, text)
+        await this.refreshMessages(namespace, conversation, 100, true, true)
+    }
+
+    async deleteMessage(namespace: string, conversationId: string, providerMessageId: string): Promise<void> {
+        const { conversation } = this.requireOwnMessage(namespace, conversationId, providerMessageId)
+        const connector = await this.requireConnector(namespace, conversation.provider)
+        if (!connector.deleteMessage) throw new Error('This messenger does not support deleting messages')
+        await connector.deleteMessage(conversation.remoteId, providerMessageId)
+        await this.refreshMessages(namespace, conversation, 100, true, true)
+    }
+
     async sendSticker(namespace: string, conversationId: string, input: SendExternalStickerRequest): Promise<void> {
         const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')

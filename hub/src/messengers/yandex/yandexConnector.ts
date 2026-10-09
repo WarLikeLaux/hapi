@@ -151,7 +151,13 @@ export class YandexConnector implements MessengerConnector {
     private myGuid: string | null = null
     private myUid: string | null = null
     private readonly chatSnapshots = new Map<string, ChatSnapshot>()
-    private readonly messageSnapshots = new Map<string, Map<string, { attachments: AttachmentRef[]; chosen: Set<number>; text: string }>>()
+    private readonly messageSnapshots = new Map<string, Map<string, {
+        attachments: AttachmentRef[]
+        chosen: Set<number>
+        text: string
+        plain: Record<string, unknown>
+        direction: ExternalMessage['direction']
+    }>>()
     private refreshTimer: ReturnType<typeof setTimeout> | null = null
     private heartbeatTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -393,6 +399,34 @@ export class YandexConnector implements MessengerConnector {
                 ? this.messageSnapshots.get(remoteId)?.get(input.replyToProviderMessageId)?.text
                 : undefined
         }))
+    }
+
+    async editMessage(remoteId: string, providerMessageId: string, text: string): Promise<void> {
+        if (!this.messageSnapshots.get(remoteId)?.has(providerMessageId)) await this.loadMessages(remoteId, 200)
+        const original = this.messageSnapshots.get(remoteId)?.get(providerMessageId)
+        if (!original) throw new Error('Message not found')
+        if (original.direction !== 'outgoing') throw new Error('Only your own messages can be changed')
+        // A Plain with the original Timestamp replaces that message. Keep media
+        // out of this text-only path so an edit cannot discard attachments.
+        if (original.attachments.length) {
+            throw new Error('Editing media messages is not supported by Yandex Messenger')
+        }
+        await this.pushMutation({
+            Plain: {
+                ...original.plain,
+                ChatId: remoteId,
+                PayloadId: createPayloadId(),
+                Timestamp: toWireTimestamp(BigInt(providerMessageId)),
+                Text: { ...(original.plain['Text'] as Record<string, unknown> | undefined), MessageText: text }
+            }
+        })
+    }
+
+    async deleteMessage(remoteId: string, providerMessageId: string): Promise<void> {
+        // A Plain addressed by Timestamp without a content field is a deletion.
+        await this.pushMutation({
+            Plain: { ChatId: remoteId, Timestamp: toWireTimestamp(BigInt(providerMessageId)) }
+        })
     }
 
     async setReactions(remoteId: string, providerMessageId: string, reactions: string[]): Promise<void> {
@@ -724,7 +758,9 @@ export class YandexConnector implements MessengerConnector {
         bucket.set(message.message.providerMessageId, {
             attachments: message.attachments,
             chosen: new Set(message.chosenReactionTypes),
-            text: message.message.text
+            text: message.message.text,
+            plain: message.plain,
+            direction: message.message.direction
         })
         // The snapshot only backs downloads and reaction diffs; keep it bounded.
         if (bucket.size > 400) {

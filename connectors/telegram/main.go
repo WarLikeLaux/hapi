@@ -1691,6 +1691,36 @@ func (s *service) sendText(ctx context.Context, remoteID, text, clientID, replyT
 	return err
 }
 
+func (s *service) changeOwnMessage(ctx context.Context, remoteID, providerMessageID, text string, deleteMessage bool) error {
+	raw, err := s.ready()
+	if err != nil {
+		return err
+	}
+	messageID, err := strconv.Atoi(providerMessageID)
+	if err != nil || messageID <= 0 {
+		return errors.New("invalid provider message ID")
+	}
+	peer, err := s.ensurePeer(ctx, remoteID)
+	if err != nil {
+		return err
+	}
+	msg, err := messageByID(ctx, raw, peer, messageID)
+	if err != nil {
+		return err
+	}
+	if !msg.Out {
+		return errors.New("only your own messages can be changed")
+	}
+	builder := message.NewSender(raw).To(peer)
+	if deleteMessage {
+		_, err = builder.Revoke().Messages(ctx, messageID)
+	} else {
+		builder.Builder.NoWebpage()
+		_, err = builder.Edit(messageID).StyledText(ctx, styledTextOptions(text)...)
+	}
+	return err
+}
+
 func (s *service) markRead(ctx context.Context, remoteID string, maxID int) error {
 	raw, err := s.ready()
 	if err != nil {
@@ -2099,6 +2129,19 @@ func (s *service) handle(req rpcRequest) (any, error) {
 			return nil, err
 		}
 		return map[string]bool{"ok": true}, s.sendText(ctx, params.RemoteID, params.Text, params.ClientID, params.ReplyToProviderMessageID)
+	case "messages.edit", "messages.delete":
+		var params struct {
+			RemoteID          string `json:"remoteId"`
+			ProviderMessageID string `json:"providerMessageId"`
+			Text              string `json:"text"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, err
+		}
+		if req.Method == "messages.edit" && strings.TrimSpace(params.Text) == "" {
+			return nil, errors.New("message is empty")
+		}
+		return map[string]bool{"ok": true}, s.changeOwnMessage(ctx, params.RemoteID, params.ProviderMessageID, params.Text, req.Method == "messages.delete")
 	case "messages.reactions.set":
 		var params struct {
 			RemoteID          string   `json:"remoteId"`
