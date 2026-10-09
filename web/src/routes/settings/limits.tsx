@@ -139,7 +139,9 @@ export function QuotaRow(props: { quotaWindow: QuotaWindow }) {
             </div>
             <div className="mt-1 text-xs text-[var(--app-hint)]">
                 {formatReset(props.quotaWindow.resetsAt, t)}
-                {staleForMs > STALE_AFTER_MS ? ` · ${t('settings.limits.stale', { ago: formatAge(staleForMs, t) })}` : ''}
+                {quotaSourceParts(props.quotaWindow.source).window === '5h' && staleForMs > STALE_AFTER_MS
+                    ? ` · ${t('settings.limits.stale', { ago: formatAge(staleForMs, t) })}`
+                    : ''}
             </div>
         </div>
     )
