@@ -1,17 +1,18 @@
 import { useEffect } from 'react'
 import type { Session } from '@/types/api'
-import { getSessionTitle } from '@/lib/sessionTitle'
 
-const APP_TITLE = 'HAPI'
+export const APP_TITLE = 'HAPI'
 
-export function useSessionBrowserTitle(session: Session | null): void {
-    const sessionTitle = session ? getSessionTitle(session) : null
-
+/**
+ * Ensures the browser tab title stays clean and pinned to HAPI
+ * without cluttering it with session names.
+ */
+export function useSessionBrowserTitle(_session?: Session | null): void {
     useEffect(() => {
-        document.title = sessionTitle ? `${sessionTitle} - ${APP_TITLE}` : APP_TITLE
+        document.title = APP_TITLE
 
         return () => {
             document.title = APP_TITLE
         }
-    }, [sessionTitle])
+    }, [])
 }

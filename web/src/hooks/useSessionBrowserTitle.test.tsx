@@ -1,7 +1,7 @@
 import { renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { Session } from '@/types/api'
-import { useSessionBrowserTitle } from './useSessionBrowserTitle'
+import { APP_TITLE, useSessionBrowserTitle } from './useSessionBrowserTitle'
 
 function makeSession(metadata: Session['metadata']): Session {
     return {
@@ -15,8 +15,8 @@ function makeSession(metadata: Session['metadata']): Session {
 }
 
 describe('useSessionBrowserTitle', () => {
-    it('tracks session title updates and restores the app title on unmount', () => {
-        document.title = 'HAPI'
+    it('keeps the browser tab title pinned to HAPI and does not append session names', () => {
+        document.title = 'Other Title'
         const initialSession = makeSession({
             path: '/work/hapi',
             host: 'localhost',
@@ -28,7 +28,7 @@ describe('useSessionBrowserTitle', () => {
             { initialProps: { session: initialSession } },
         )
 
-        expect(document.title).toBe('Initial summary - HAPI')
+        expect(document.title).toBe(APP_TITLE)
 
         rerender({
             session: makeSession({
@@ -37,28 +37,9 @@ describe('useSessionBrowserTitle', () => {
             }),
         })
 
-        expect(document.title).toBe('Renamed session - HAPI')
+        expect(document.title).toBe(APP_TITLE)
 
         unmount()
-        expect(document.title).toBe('HAPI')
-    })
-
-    it('uses the app title while loading and the shared session fallbacks when titles are missing', () => {
-        document.title = 'Stale session - HAPI'
-
-        const { rerender } = renderHook(
-            ({ session }: { session: Session | null }) => useSessionBrowserTitle(session),
-            { initialProps: { session: null as Session | null } },
-        )
-
-        expect(document.title).toBe('HAPI')
-
-        rerender({
-            session: makeSession({ path: '/work/hapi', host: 'localhost' }),
-        })
-        expect(document.title).toBe('hapi - HAPI')
-
-        rerender({ session: makeSession(null) })
-        expect(document.title).toBe('12345678 - HAPI')
+        expect(document.title).toBe(APP_TITLE)
     })
 })
