@@ -43,6 +43,7 @@ import { VoiceErrorBanner } from '@/components/VoiceErrorBanner'
 import { RunnerVersionSkewBanner } from '@/components/RunnerVersionSkewBanner'
 import { LoadingState } from '@/components/LoadingState'
 import { ToastContainer } from '@/components/ToastContainer'
+import { VoiceMiniPlayer } from '@/components/VoiceMiniPlayer'
 import { PwaUpdateProvider } from '@/lib/pwa-update-context'
 import { ToastProvider, useToast } from '@/lib/toast-context'
 import type { SyncEvent } from '@/types/api'
@@ -586,6 +587,7 @@ function AppInner() {
                     <Outlet />
                 </div>
                 <ToastContainer />
+                <VoiceMiniPlayer />
                 <InstallPrompt />
             </VoiceProvider>
         </AppContextProvider>
