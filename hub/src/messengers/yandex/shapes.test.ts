@@ -233,14 +233,14 @@ describe('yandex shapes: message item', () => {
         }
     })
 
-    it('maps aggregate reactions and marks my own as chosen', () => {
+    it('maps aggregate reactions and marks my own as chosen from ServerMessage', () => {
         const shaped = normalizeMessageItem({
             ServerMessage: {
                 ClientMessage: { Plain: { Text: { MessageText: 'with reactions' } } },
-                ServerMessageInfo: { Timestamp: '50', SeqNo: 5, From: { Guid: PEER_GUID, DisplayName: 'S' } }
-            },
-            Reactions: [{ Type: 128077, Count: 3 }],
-            RecentUserReactions: [{ Type: 128077, UserInfo: { Guid: MY_GUID } }]
+                ServerMessageInfo: { Timestamp: '50', SeqNo: 5, From: { Guid: PEER_GUID, DisplayName: 'S' } },
+                Reactions: [{ Type: 128077, Count: 3 }],
+                RecentUserReactions: [{ Type: 128077, UserInfo: { Guid: MY_GUID } }]
+            }
         }, MY_GUID, 'chat-1')
         expect(shaped!.message.reactions).toEqual([
             { reaction: 'emoji:👍', emoji: '👍', count: 3, chosen: true }
@@ -248,13 +248,43 @@ describe('yandex shapes: message item', () => {
         expect(shaped!.chosenReactionTypes).toEqual([128077])
     })
 
+    it('maps heart reaction from ServerMessage on live Telemost payload', () => {
+        const shaped = normalizeMessageItem({
+            ServerMessage: {
+                ClientMessage: { Plain: { Text: { MessageText: 'loved this' } } },
+                ServerMessageInfo: { Timestamp: '55', SeqNo: 7, From: { Guid: PEER_GUID, DisplayName: 'S' } },
+                Reactions: [{ Type: 100109, Count: 1 }],
+                RecentUserReactions: [{ Type: 100109, UserInfo: { Guid: MY_GUID } }]
+            }
+        }, MY_GUID, 'chat-1')
+        expect(shaped!.message.reactions).toEqual([
+            { reaction: 'emoji:❤️', emoji: '❤️', count: 1, chosen: true }
+        ])
+        expect(shaped!.chosenReactionTypes).toEqual([100109])
+    })
+
+    it('accepts reactions on the wrapping element as a fallback', () => {
+        const shaped = normalizeMessageItem({
+            ServerMessage: {
+                ClientMessage: { Plain: { Text: { MessageText: 'fallback reactions' } } },
+                ServerMessageInfo: { Timestamp: '56', SeqNo: 8, From: { Guid: PEER_GUID, DisplayName: 'S' } }
+            },
+            Reactions: [{ Type: 100104, Count: 2 }],
+            RecentUserReactions: [{ Type: 100104, UserInfo: { Guid: MY_GUID } }]
+        }, MY_GUID, 'chat-1')
+        expect(shaped!.message.reactions).toEqual([
+            { reaction: 'emoji:🔥', emoji: '🔥', count: 2, chosen: true }
+        ])
+        expect(shaped!.chosenReactionTypes).toEqual([100104])
+    })
+
     it('keys unknown reaction types as type:<n> so they round-trip', () => {
         const shaped = normalizeMessageItem({
             ServerMessage: {
                 ClientMessage: { Plain: { Text: { MessageText: 'unknown reaction' } } },
-                ServerMessageInfo: { Timestamp: '51', SeqNo: 6, From: { Guid: PEER_GUID, DisplayName: 'S' } }
-            },
-            Reactions: [{ Type: 424242, Count: 1 }]
+                ServerMessageInfo: { Timestamp: '51', SeqNo: 6, From: { Guid: PEER_GUID, DisplayName: 'S' } },
+                Reactions: [{ Type: 424242, Count: 1 }]
+            }
         }, MY_GUID, 'chat-1')
         expect(shaped!.message.reactions).toEqual([
             { reaction: 'type:424242', emoji: null, count: 1, chosen: false }
