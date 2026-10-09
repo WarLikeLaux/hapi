@@ -117,17 +117,15 @@ export function QuotaRow(props: { quotaWindow: QuotaWindow }) {
     const { t } = useTranslation()
     const light = quotaLight(props.quotaWindow.usedPercent)
     const staleForMs = Date.now() - props.quotaWindow.measuredAt * 1000
-    // Providers whose dashboard applies its own weighting (Cursor rounds the
-    // pool-weighted spend to a whole percent) send that meter separately;
-    // mirror the dashboard integer and keep the unrounded estimate alongside
-    // so divergence from the assumed weighting stays visible.
     const weightedPercent = props.quotaWindow.weightedPercent
-    const usedLabel = weightedPercent === undefined
-        ? t('settings.limits.used', { percent: Math.round(props.quotaWindow.usedPercent * 10) / 10 })
-        : t('settings.limits.usedApprox', {
-            percent: Math.round(weightedPercent),
-            approx: Math.round(weightedPercent * 10) / 10
-        })
+    let usedLabel = t('settings.limits.used', { percent: Math.round(props.quotaWindow.usedPercent * 10) / 10 })
+    if (weightedPercent !== undefined) {
+        const approx = Math.round(weightedPercent * 10) / 10
+        const integer = Math.round(weightedPercent)
+        usedLabel = approx !== integer
+            ? t('settings.limits.usedApprox', { percent: integer, approx })
+            : t('settings.limits.used', { percent: integer })
+    }
     return (
         <div className="px-3 py-3">
             <div className="flex items-center justify-between gap-3 text-sm">
