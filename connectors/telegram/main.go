@@ -1659,6 +1659,8 @@ func (s *service) sendMedia(ctx context.Context, remoteID, path, fileName, mimeT
 	switch {
 	case asPhoto:
 		_, err = builder.UploadedPhoto(ctx, uploaded, captionOptions...)
+	case mimeType == "image/gif":
+		_, err = builder.Media(ctx, message.GIF(uploaded, captionOptions...).Filename(fileName))
 	case strings.HasPrefix(mimeType, "video/"):
 		_, err = builder.Video(ctx, uploaded, captionOptions...)
 	case strings.HasPrefix(mimeType, "audio/"):

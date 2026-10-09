@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"os"
@@ -14,11 +17,79 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/gotd/td/bin"
 	"github.com/gotd/td/telegram/message/entity"
 	messagepeer "github.com/gotd/td/telegram/message/peer"
 	"github.com/gotd/td/telegram/message/styling"
 	"github.com/gotd/td/tg"
 )
+
+type telegramInvokerFunc func(context.Context, bin.Encoder, bin.Decoder) error
+
+func (f telegramInvokerFunc) Invoke(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
+	return f(ctx, input, output)
+}
+
+func TestSendMediaGIF(t *testing.T) {
+	frame := image.NewPaletted(image.Rect(0, 0, 2, 2), color.Palette{color.Black, color.White})
+	var data bytes.Buffer
+	if err := gif.EncodeAll(&data, &gif.GIF{
+		Image: []*image.Paletted{frame, frame},
+		Delay: []int{10, 10},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "animation.gif")
+	if err := os.WriteFile(path, data.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var sent *tg.MessagesSendMediaRequest
+	raw := tg.NewClient(telegramInvokerFunc(func(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
+		switch request := input.(type) {
+		case *tg.UploadSaveFilePartRequest:
+			if !bytes.Equal(request.Bytes, data.Bytes()) {
+				return fmt.Errorf("uploaded GIF bytes were changed")
+			}
+			output.(*tg.BoolBox).Bool = &tg.BoolTrue{}
+		case *tg.MessagesSendMediaRequest:
+			sent = request
+			output.(*tg.UpdatesBox).Updates = &tg.Updates{}
+		default:
+			return fmt.Errorf("unexpected Telegram RPC: %T", input)
+		}
+		return nil
+	}))
+	s := &service{raw: raw, peers: map[string]tg.InputPeerClass{"self": &tg.InputPeerSelf{}}}
+	if err := s.sendMedia(context.Background(), "self", path, "animation.gif", "image/gif", "A GIF", "gif-send", "42"); err != nil {
+		t.Fatal(err)
+	}
+	if sent == nil {
+		t.Fatal("GIF was not sent")
+	}
+	document, ok := sent.Media.(*tg.InputMediaUploadedDocument)
+	if !ok {
+		t.Fatalf("expected an animated document, got %T", sent.Media)
+	}
+	if document.ForceFile || document.MimeType != "image/gif" {
+		t.Fatalf("GIF was sent as a plain file: force_file=%v, MIME=%q", document.ForceFile, document.MimeType)
+	}
+	animated, filename := false, ""
+	for _, attribute := range document.Attributes {
+		switch attribute := attribute.(type) {
+		case *tg.DocumentAttributeAnimated:
+			animated = true
+		case *tg.DocumentAttributeFilename:
+			filename = attribute.FileName
+		}
+	}
+	if !animated || filename != "animation.gif" {
+		t.Fatalf("missing GIF attributes: animated=%v, filename=%q", animated, filename)
+	}
+	reply, ok := sent.ReplyTo.(*tg.InputReplyToMessage)
+	if sent.Message != "A GIF" || !ok || reply.ReplyToMsgID != 42 {
+		t.Fatalf("GIF lost its caption or reply: caption=%q, reply=%#v", sent.Message, sent.ReplyTo)
+	}
+}
 
 func TestRemoteIDFromInput(t *testing.T) {
 	tests := []struct {
