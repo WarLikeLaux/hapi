@@ -1,22 +1,15 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
-import { READY_STATUS_MESSAGES, StatusBar, WORKING_STATUS_MESSAGES } from './StatusBar'
+import { StatusBar } from './StatusBar'
 
 describe('StatusBar context details popover', () => {
     beforeEach(() => {
         localStorage.clear()
         vi.restoreAllMocks()
-        vi.spyOn(Math, 'random').mockReturnValue(0)
     })
 
-    it('keeps every randomized status short enough for the mobile footer', () => {
-        for (const message of [...READY_STATUS_MESSAGES, ...WORKING_STATUS_MESSAGES]) {
-            expect(message.length).toBeLessThanOrEqual(24)
-        }
-    })
-
-    it('uses varied Russian ready and working labels and offsets the whole left status', () => {
+    it('uses stable ready and working labels and offsets the whole left status', () => {
         localStorage.setItem('hapi-lang', 'zh-CN')
         const { rerender } = render(
             <I18nProvider>
@@ -24,7 +17,7 @@ describe('StatusBar context details popover', () => {
             </I18nProvider>
         )
 
-        const onlineLabel = screen.getByText(READY_STATUS_MESSAGES[0]!)
+        const onlineLabel = screen.getByText('Готов')
         expect(onlineLabel.className.split(' ')).not.toContain('top-px')
         expect(onlineLabel.previousElementSibling?.className.split(' ')).not.toContain('top-px')
         expect(onlineLabel.parentElement?.className.split(' ')).toContain('top-px')
@@ -50,11 +43,27 @@ describe('StatusBar context details popover', () => {
             </I18nProvider>
         )
 
-        const thinkingLabel = screen.getByText(`${WORKING_STATUS_MESSAGES[0]}…`)
+        const thinkingLabel = screen.getByText('Работает…')
         expect(thinkingLabel.className.split(' ')).not.toContain('top-px')
         expect(thinkingLabel.previousElementSibling?.className.split(' ')).not.toContain('top-px')
         expect(thinkingLabel.parentElement?.className.split(' ')).toContain('top-px')
         expect(thinkingLabel.parentElement?.className.split(' ')).toContain('sm:top-0.5')
+    })
+
+    it('shows live activity only while working and preserves connection and permission priority', () => {
+        const view = (active: boolean, thinking: boolean, agentState: Parameters<typeof StatusBar>[0]['agentState'] = null) => (
+            <I18nProvider>
+                <StatusBar active={active} thinking={thinking} activity="test" agentState={agentState} />
+            </I18nProvider>
+        )
+        const { rerender } = render(view(true, true))
+        expect(screen.getByText('Запускает тесты…')).toBeVisible()
+        rerender(view(true, false))
+        expect(screen.getByText('Готов')).toBeVisible()
+        rerender(view(false, true))
+        expect(screen.getByText('offline')).toBeVisible()
+        rerender(view(true, true, { requests: { approval: { tool: 'Bash', arguments: {} } } }))
+        expect(screen.getByText('permission required')).toBeVisible()
     })
 
     it('uses an effort-only reasoning label on mobile and the full label on desktop', () => {
@@ -191,7 +200,7 @@ describe('StatusBar context details popover', () => {
             </I18nProvider>
         )
 
-        const connectionLabel = screen.getByText(READY_STATUS_MESSAGES[0]!)
+        const connectionLabel = screen.getByText('Готов')
         const leftStatusGroup = connectionLabel.parentElement?.parentElement
         const statusBar = leftStatusGroup?.parentElement
         const rightStatusGroup = statusBar?.lastElementChild

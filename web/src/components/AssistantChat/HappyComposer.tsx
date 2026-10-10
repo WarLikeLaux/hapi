@@ -48,6 +48,7 @@ import { persistInactiveComposerAttachments, setComposerDraftSnapshot, updateCom
 import { getEffectiveComposerEnterBehavior, useComposerEnterBehavior } from '@/hooks/useComposerEnterBehavior'
 import { FloatingOverlay } from '@/components/ChatInput/FloatingOverlay'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
+import type { AgentActivity } from '@/lib/agentActivity'
 import { StatusBar } from '@/components/AssistantChat/StatusBar'
 import { ComposerButtons } from '@/components/AssistantChat/ComposerButtons'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
@@ -300,6 +301,7 @@ export function HappyComposer(props: {
     thinking?: boolean
     agentState?: AgentState | null
     backgroundTaskCount?: number
+    activity?: AgentActivity | null
     contextSize?: number
     contextCacheRead?: number
     contextWindow?: number | null
@@ -2271,6 +2273,7 @@ export function HappyComposer(props: {
                         thinking={thinking}
                         agentState={agentState}
                         backgroundTaskCount={backgroundTaskCount}
+                        activity={props.activity}
                         contextSize={contextSize}
                         contextCacheRead={contextCacheRead}
                         contextWindow={contextWindow}
