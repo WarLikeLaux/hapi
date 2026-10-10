@@ -1,6 +1,7 @@
 import {
     ConfigureTelegramRequestSchema,
     ConfigureYandexRequestSchema,
+    ConfigureMaxRequestSchema,
     EditExternalMessageRequestSchema,
     PressExternalMessageButtonRequestSchema,
     SelectMessengerConversationsRequestSchema,
@@ -75,6 +76,17 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
         if (!parsed.success) return c.json({ error: 'Invalid authentication response' }, 400)
         try {
             const connection = await manager.submitAuth(c.get('namespace'), c.req.param('provider'), parsed.data)
+            return c.json({ connection })
+        } catch (error) {
+            return c.json({ error: errorMessage(error) }, 502)
+        }
+    })
+
+    app.post('/messengers/max/configure', async (c) => {
+        const parsed = ConfigureMaxRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Enter a MAX token and a valid device ID' }, 400)
+        try {
+            const connection = await manager.configureMax(c.get('namespace'), parsed.data)
             return c.json({ connection })
         } catch (error) {
             return c.json({ error: errorMessage(error) }, 502)

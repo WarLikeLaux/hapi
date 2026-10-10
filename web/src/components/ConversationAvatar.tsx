@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 const providers: Record<string, { label: string; accent: string; badge: string }> = {
     telegram: { label: 'Telegram', accent: 'bg-[#2AABEE]/15 text-[#229ED9]', badge: 'bg-[#229ED9]' },
     yandex: { label: 'Yandex', accent: 'bg-[#FC3F1D]/15 text-[#FC3F1D]', badge: 'bg-[#FC3F1D]' },
+    max: { label: 'MAX', accent: 'bg-[#6654D9]/15 text-[#6654D9]', badge: 'bg-[#6654D9]' },
 }
 
 export function ProviderMark({ provider, className }: { provider: string; className?: string }) {
@@ -13,6 +14,8 @@ export function ProviderMark({ provider, className }: { provider: string; classN
                 <path d="M21.7 3.5 18.6 20c-.2 1.2-.9 1.5-1.9.9l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.8 8.8-8c.4-.3-.1-.5-.6-.2L6.3 14 1.6 12.5c-1-.3-1-1 .2-1.5L20.2 3.9c.9-.3 1.7.2 1.5-.4Z" />
             ) : provider === 'yandex' ? (
                 <path d="M18 3h-6.1C7.9 3 5.5 5.2 5.5 8.7c0 2.6 1.3 4.3 3.7 5.4L5 21h3.8l4.7-8H12c-2 0-3.2-1.5-3.2-4.3 0-2.1 1.1-3.2 3.2-3.2h2.7V21H18Z" />
+            ) : provider === 'max' ? (
+                <path d="M12 2a10 10 0 0 0-8.7 15l-1 4.5 4.5-1A10 10 0 1 0 12 2Zm0 4a6 6 0 1 1-4.7 9.7l-.3 1.1-.1-1.4A6 6 0 0 1 12 6Z" />
             ) : null}
         </svg>
     )

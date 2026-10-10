@@ -194,6 +194,13 @@ export const ConfigureYandexRequestSchema = z.object({
 })
 export type ConfigureYandexRequest = z.infer<typeof ConfigureYandexRequestSchema>
 
+// Credentials of an existing web.max.ru personal-account session.
+export const ConfigureMaxRequestSchema = z.object({
+    token: z.string().trim().min(1).max(16384),
+    deviceId: z.uuid(),
+})
+export type ConfigureMaxRequest = z.infer<typeof ConfigureMaxRequestSchema>
+
 export const SubmitMessengerAuthRequestSchema = z.object({
     kind: z.enum(['phone', 'code', 'password']),
     value: z.string().min(1)

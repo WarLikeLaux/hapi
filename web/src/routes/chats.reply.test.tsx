@@ -147,6 +147,19 @@ describe('messenger reply gestures', () => {
         expect(screen.getByTestId('chats-reply-bar')).not.toHaveTextContent('Video')
     })
 
+    it('replaces the previous MAX reaction when another emoji is clicked', async () => {
+        const setExternalMessageReactions = vi.fn(async () => {})
+        renderChat({
+            setExternalMessageReactions,
+            getExternalMessages: async () => ({ messages: [{ ...message,
+                reactions: [{ reaction: 'emoji:👍', emoji: '👍', count: 2, chosen: true }]
+            }], participants: [] }),
+        }, 'max')
+        fireEvent.click(await screen.findByText('hello bubble'))
+        fireEvent.click(screen.getByRole('button', { name: 'React with ❤️' }))
+        await waitFor(() => expect(setExternalMessageReactions).toHaveBeenCalledWith('max:chat:1', 'pm1', ['emoji:❤️']))
+    })
+
     it.each(['left', 'right'])('opens reactions and reply/copy actions on a %s click on text', async (button) => {
         const setExternalMessageReactions = vi.fn(async () => {})
         renderChat({ setExternalMessageReactions })

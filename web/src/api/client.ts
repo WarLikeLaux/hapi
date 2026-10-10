@@ -76,6 +76,7 @@ import type { KlipyCategoriesResponse, KlipySearchResponse } from '@hapi/protoco
 import type {
     ConfigureTelegramRequest,
     ConfigureYandexRequest,
+    ConfigureMaxRequest,
     ExternalConversation,
     ExternalConversationsResponse,
     ExternalMessagesResponse,
@@ -299,6 +300,12 @@ export class ApiClient {
         return await this.request('/api/messengers/yandex/configure', {
             method: 'POST',
             body: JSON.stringify(payload)
+        })
+    }
+
+    async configureMax(payload: ConfigureMaxRequest): Promise<{ connection: MessengerConnection }> {
+        return await this.request('/api/messengers/max/configure', {
+            method: 'POST', body: JSON.stringify(payload)
         })
     }
 
