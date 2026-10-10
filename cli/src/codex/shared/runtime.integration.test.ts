@@ -112,10 +112,13 @@ describe.skipIf(process.env.HAPI_RUN_SHARED_CODEX_TESTS !== '1')('installed Code
             request.on('data', chunk => chunks.push(Buffer.from(chunk)));
             request.on('end', () => {
                 if (!request.url?.endsWith('/responses')) { response.writeHead(404).end(); return; }
-                modelRequests.push(JSON.parse(Buffer.concat(chunks).toString()));
+                const body = JSON.parse(Buffer.concat(chunks).toString());
+                modelRequests.push(body);
+                const answer = record(record(record(body.text).format).schema).type === 'object'
+                    ? JSON.stringify({ summary: 'Native recap of the web task.', next_action: 'Verify the result.' }) : 'MOCK ANSWER';
                 const id = randomUUID();
                 const events = [{ type: 'response.created', response: { id } },
-                    { type: 'response.output_item.done', item: { type: 'message', role: 'assistant', id: `msg_${id}`, content: [{ type: 'output_text', text: 'MOCK ANSWER' }] } },
+                    { type: 'response.output_item.done', item: { type: 'message', role: 'assistant', id: `msg_${id}`, content: [{ type: 'output_text', text: answer }] } },
                     { type: 'response.completed', response: { id, usage: { input_tokens: 12, output_tokens: 3, total_tokens: 15 } } }];
                 response.writeHead(200, { 'Content-Type': 'text/event-stream' });
                 response.end(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''));
@@ -149,10 +152,24 @@ describe.skipIf(process.env.HAPI_RUN_SHARED_CODEX_TESTS !== '1')('installed Code
             await vi.waitFor(() => expect(web.consumed).toContain('web-1'), { timeout: 15_000 });
             await vi.waitFor(() => expect(web.messages).toContainEqual(expect.objectContaining({ type: 'message', message: 'MOCK ANSWER' })), { timeout: 15_000 });
             expect(web.indeterminate).not.toContain('web-1');
+            await vi.waitFor(() => expect(web.messages.map(record)).toContainEqual(expect.objectContaining({ type: 'ready' })), { timeout: 15_000 });
+            // The native TUI starts a parentless temporary thread for recap.
+            // Switching /new must not redirect its result to the new HAPI chat.
+            const temporary = record(await first.request('thread/start', { cwd, ephemeral: true, threadSource: 'system' }));
+            const temporaryId = String(record(temporary.thread).id);
+            expect(state.sessions.size).toBe(1);
             const newResponse = record(await first.request('thread/start', { cwd }));
             const next = String(record(newResponse.thread).id); roots.push(next);
             expect(next).not.toBe(initial); expect(state.sessions.size).toBe(2);
             const nextSession = [...state.sessions.values()].find(session => session.metadata.codexSessionId === next)!;
+            await first.request('turn/start', { threadId: temporaryId,
+                input: [{ type: 'text', text: 'Write a brief catch-up for a user returning to this task.', text_elements: [] }],
+                outputSchema: { type: 'object', properties: { summary: { type: 'string', maxLength: 700 },
+                    next_action: { type: ['string', 'null'], maxLength: 200 } }, required: ['summary', 'next_action'], additionalProperties: false } });
+            await vi.waitFor(() => expect(web.messages).toContainEqual({ type: 'recap', text: 'Native recap of the web task.\nVerify the result.', flavor: 'codex' }), { timeout: 15_000 });
+            expect(web.messages.map(record).filter(body => body.type === 'recap')).toHaveLength(1);
+            expect(nextSession.messages.map(record).some(body => body.type === 'recap')).toBe(false);
+            await first.request('thread/unsubscribe', { threadId: temporaryId });
             expect(web.metadata.codexSessionId).toBe(initial);
             expect(process.env.HAPI_SESSION_ID).toBe('parent-must-not-leak');
             await first.request('thread/archive', { threadId: next }); roots = [initial];

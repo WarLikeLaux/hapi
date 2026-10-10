@@ -7,6 +7,19 @@ import { T0, wireMessage } from './support'
  * stream snapshots keyed by data.id.
  */
 export const codexCases: FixtureCase[] = [
+    {
+        name: 'codex-native-recap',
+        description: 'Native Codex recap belongs to the preceding answer, survives ready, and does not join the next user turn.',
+        messages: [
+            { role: 'user', content: { type: 'text', text: 'Check the protocol.' } },
+            { role: 'agent', content: { type: 'codex', data: { type: 'reasoning', message: 'Inspecting the protocol.', id: 'recap-work' } } },
+            { role: 'agent', content: { type: 'codex', data: { type: 'message', message: 'Protocol checked.', id: 'recap-answer' } } },
+            { role: 'agent', content: { type: 'event', data: { type: 'ready' } } },
+            { role: 'agent', content: { type: 'event', data: { type: 'recap', flavor: 'codex', text: 'Checked the protocol.\nNext: verify the UI.' } } },
+            { role: 'user', content: { type: 'text', text: 'Continue with the UI.' } },
+            { role: 'agent', content: { type: 'codex', data: { type: 'message', message: 'UI checked.', id: 'recap-next-answer' } } }
+        ].map((content, index) => wireMessage({ id: `recap-${index}`, seq: index + 1, createdAt: T0 + index * 1000, content }))
+    },
     ...([true, false] as const).map((available): FixtureCase => {
         const callId = 'codex-proposed-plan:root:turn:plan-item'
         const data = [

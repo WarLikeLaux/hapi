@@ -20,7 +20,7 @@ export interface PlanCommandResult {
 }
 
 export interface SpecialCommandResult {
-    type: 'compact' | 'clear' | 'plan' | null;
+    type: 'compact' | 'clear' | 'plan' | 'recap' | null;
     originalMessage?: string;
     mode?: 'plan' | 'default';
     prompt?: string;
@@ -128,6 +128,10 @@ export function parsePlan(message: string): PlanCommandResult {
  * so slash-commands typed by the user always win over injected reminders.
  */
 export function parseSpecialCommand(message: string): SpecialCommandResult {
+    const nativeCommand = stripHapiTitleReminder(message).trim();
+    if (nativeCommand === '/recap') {
+        return { type: 'recap', originalMessage: nativeCommand };
+    }
     const compactResult = parseCompact(message);
     if (compactResult.isCompact) {
         return {

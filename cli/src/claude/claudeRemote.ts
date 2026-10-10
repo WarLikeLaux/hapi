@@ -154,7 +154,7 @@ export async function claudeRemote(opts: {
             type: 'user',
             message: {
                 role: 'user',
-                content: next.message,
+                content: specialCommand.type === 'recap' ? specialCommand.originalMessage! : next.message,
             },
         });
         return next;
@@ -262,7 +262,8 @@ export async function claudeRemote(opts: {
                 }
                 mode = next.mode;
                 updateThinking(true);
-                messages.push({ type: 'user', message: { role: 'user', content: next.message } });
+                const command = parseSpecialCommand(next.message);
+                messages.push({ type: 'user', message: { role: 'user', content: command.type === 'recap' ? command.originalMessage! : next.message } });
                 logger.debug(
                     `${debugPrefix} nextMessage resolved fetchId=${fetchId} elapsedMs=${Date.now() - startedAt} ` +
                     `messageLength=${next.message.length} permissionMode=${next.mode.permissionMode}`

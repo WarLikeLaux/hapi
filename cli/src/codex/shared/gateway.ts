@@ -21,6 +21,7 @@ export function socketUrl(endpoint: string): string {
 export type GatewayHooks = {
     before(request: Envelope, connectionId: string): Promise<Envelope>;
     after(request: Envelope, response: Envelope, connectionId: string): Promise<void | Envelope[]>;
+    observe?(message: Envelope, connectionId: string): void;
     disconnected?(connectionId: string): void;
     control(method: string, params: unknown): Promise<unknown>;
 };
@@ -96,6 +97,7 @@ export async function startCodexGateway(options: {
         upstream.on('message', raw => {
             outgoing = outgoing.then(async () => {
                 const message = EnvelopeSchema.parse(JSON.parse(raw.toString()));
+                options.hooks.observe?.(message, connectionId);
                 const request = message.method === undefined && message.id !== undefined ? pending.get(message.id) : undefined;
                 let replay: void | Envelope[] = undefined;
                 if (request) {

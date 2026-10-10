@@ -396,8 +396,8 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
             ? expandedText
             : formatMessageWithAttachments(message.content.text, message.content.attachments);
 
-        if (specialCommand.type === 'compact') {
-            logger.debug('[start] Detected /compact command');
+        if (specialCommand.type === 'compact' || specialCommand.type === 'recap') {
+            logger.debug(`[start] Detected /${specialCommand.type} command`);
             const enhancedMode: EnhancedMode = {
                 permissionMode: messagePermissionMode ?? 'default',
                 model: messageModel,
@@ -410,8 +410,12 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
             };
             // Use raw text only, ignore attachments for special commands
             const commandText = specialCommand.originalMessage || message.content.text;
-            messageQueue.pushIsolateAndClear(commandText, enhancedMode, localId);
-            logger.debugLargeJson('[start] /compact command pushed to queue:', message);
+            if (specialCommand.type === 'recap') {
+                messageQueue.pushIsolated(commandText, enhancedMode, localId);
+            } else {
+                messageQueue.pushIsolateAndClear(commandText, enhancedMode, localId);
+            }
+            logger.debugLargeJson(`[start] /${specialCommand.type} command pushed to queue:`, message);
             return;
         }
 

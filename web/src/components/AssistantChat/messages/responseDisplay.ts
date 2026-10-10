@@ -37,7 +37,8 @@ export function shouldCompactResponse(
 }
 
 function isResultArtifact(part: ThreadAssistantMessagePart): boolean {
-    return part.type === 'tool-call' && part.toolName === 'GeneratedImage'
+    return (part.type === 'tool-call' && part.toolName === 'GeneratedImage')
+        || (part.type === 'data' && part.name === 'recap')
 }
 
 /**
