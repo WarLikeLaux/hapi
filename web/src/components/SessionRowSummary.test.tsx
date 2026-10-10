@@ -90,9 +90,10 @@ describe('SessionRowSummary background status', () => {
             </I18nProvider>
         )
 
-        expect(screen.getByTitle('hapi — /workspace/hapi · custom')).toHaveTextContent(
-            'hapi · custom'
-        )
+        const metadata = screen.getByTitle('hapi — /workspace/hapi · custom')
+        expect(metadata).toHaveTextContent('hapi')
+        expect(metadata).toHaveTextContent('custom')
+        expect(metadata).not.toHaveTextContent('·')
         const projectLabel = screen.getByTestId('session-project-label')
         expect(projectLabel).toHaveTextContent('hapi')
         expect(projectLabel.style.getPropertyValue('--session-project-bg')).toContain(
