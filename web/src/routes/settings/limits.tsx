@@ -22,8 +22,8 @@ export function quotaLight(usedPercent: number): 'green' | 'yellow' | 'red' {
     return usedPercent < 50 ? 'green' : usedPercent < 85 ? 'yellow' : 'red'
 }
 
-/** Display order across providers: codex → GLM (z.ai) → MiniMax → Antigravity → Cursor. */
-const PROVIDER_ORDER: Record<string, number> = { codex: 0, zai: 1, minimax: 2, agy: 3, cursor: 4 }
+/** Display order across providers: codex → GLM (z.ai) → MiniMax → Antigravity → Cursor → OpenCode. */
+const PROVIDER_ORDER: Record<string, number> = { codex: 0, zai: 1, minimax: 2, agy: 3, cursor: 4, opencode: 5 }
 
 export function sortQuotaWindows<T extends { source: string }>(windows: T[]): T[] {
     return [...windows].sort((a, b) => {
@@ -42,6 +42,7 @@ const PROVIDER_LABEL_KEYS: Record<string, string> = {
     cursor: 'settings.limits.source.cursor',
     agy: 'settings.limits.source.agy',
     minimax: 'settings.limits.source.minimax',
+    opencode: 'settings.limits.source.opencode',
 }
 
 const WINDOW_LABEL_KEYS: Record<string, string> = {
@@ -59,7 +60,7 @@ function sourceLabel(source: string, t: (key: string) => string): string {
     return [providerLabel, windowLabel].filter(Boolean).join(' · ')
 }
 
-export function formatReset(resetsAt: number | null, t: (key: string, params?: Record<string, string | number>) => string): string {
+export function formatReset(resetsAt: number | null, t: (key: string, params?: Record<string, string | number>) => string, alwaysShowDate = false): string {
     if (!resetsAt) return t('settings.limits.resetsUnknown')
     const target = new Date(resetsAt * 1000)
     const diffMs = target.getTime() - Date.now()
@@ -68,7 +69,7 @@ export function formatReset(resetsAt: number | null, t: (key: string, params?: R
     // closely enough, and the date is usually "today" anyway — drop the date
     // from the absolute parenthetical even when the reset lands on tomorrow,
     // leaving just the 24-hour clock so the user can plan against it.
-    const showAbsolute = diffMs >= 5 * 3_600_000
+    const showAbsolute = alwaysShowDate || diffMs >= 5 * 3_600_000
     // Beyond a day out the weekday matters more than the countdown, so the
     // absolute gains a full English weekday ("Sunday, Oct 4, 21:16"). Pinned to
     // en-US with a 24-hour clock so the label reads consistently regardless of
@@ -138,7 +139,7 @@ export function QuotaRow(props: { quotaWindow: QuotaWindow }) {
                 <div className={`h-full rounded-full ${LIGHT_BAR[light]}`} style={{ width: `${Math.max(2, props.quotaWindow.usedPercent)}%` }} />
             </div>
             <div className="mt-1 text-xs text-[var(--app-hint)]">
-                {formatReset(props.quotaWindow.resetsAt, t)}
+                {formatReset(props.quotaWindow.resetsAt, t, quotaSourceParts(props.quotaWindow.source).window === 'monthly')}
                 {quotaSourceParts(props.quotaWindow.source).window === '5h' && staleForMs > STALE_AFTER_MS
                     ? ` · ${t('settings.limits.stale', { ago: formatAge(staleForMs, t) })}`
                     : ''}

@@ -86,6 +86,11 @@ describe('formatReset', () => {
         expect(out).toContain(')')
     })
 
+    it('keeps the monthly period end date even in the last hour of the period', () => {
+        const resetSec = Math.floor((NOW_MS + 3600_000) / 1000)
+        expect(formatReset(resetSec, t, true)).toMatch(/^Resets in 1h \([A-Z][a-z]{2} \d{1,2}, \d{2}:\d{2}\)$/)
+    })
+
     it('drops the weekday name once remaining time is below one day', () => {
         // 12h away — date form, no weekday prefix.
         const resetSec = Math.floor((NOW_MS + 12 * 3600 * 1000) / 1000)
