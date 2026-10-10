@@ -7,6 +7,7 @@ import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePic
 import {
     computeCanCancel,
     computeEditPendingSchedule,
+    findFirstSteerableQueuedMessage,
     getQueuedMessageEditText,
     getQueuedMessagePreview,
     QueuedMessagesBar,
@@ -604,6 +605,29 @@ describe('computeCanCancel', () => {
     })
 })
 
+describe('findFirstSteerableQueuedMessage', () => {
+    it('skips scheduled rows and picks the first immediate message with a server echo', () => {
+        const scheduled = makeQueuedMessage(Date.now() + 60_000, 'scheduled-id')
+        const immediate = makeQueuedMessage(null, 'immediate-id')
+        expect(findFirstSteerableQueuedMessage(
+            [scheduled, immediate],
+            { canSteer: true, isPending: false },
+        )?.id).toBe('immediate-id')
+    })
+
+    it('returns null when steering is unavailable or the row is still optimistic', () => {
+        const optimistic = makeQueuedMessage(null, 'local-only', { localId: 'local-only' })
+        expect(findFirstSteerableQueuedMessage(
+            [optimistic],
+            { canSteer: true, isPending: false },
+        )).toBeNull()
+        expect(findFirstSteerableQueuedMessage(
+            [makeQueuedMessage(null)],
+            { canSteer: false, isPending: false },
+        )).toBeNull()
+    })
+})
+
 // ---------------------------------------------------------------------------
 // #4 computeEditPendingSchedule — edit restores scheduledAt as absolute pending
 // ---------------------------------------------------------------------------
@@ -804,6 +828,32 @@ describe('QueuedMessagesBar steer action', () => {
         const api = { steerMessage: mocks.steerMessage } as unknown as ApiClient
         renderQueuedMessage(Date.now() + 60_000, null, 0, true, api)
         expect(screen.queryByRole('button', { name: 'Steer queued message' })).toBeNull()
+    })
+
+    it('steers through steerHeadRef (empty-composer Ctrl/Cmd+Enter bridge)', async () => {
+        const steerHeadRef = { current: null as (() => boolean) | null }
+        mocks.steerMessage.mockResolvedValue({ status: 'steered', localId: 'local-server-message-id' })
+        const api = { steerMessage: mocks.steerMessage } as unknown as ApiClient
+        const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+        mocks.messageWindowState = { messages: [makeQueuedMessage(null)] }
+        render(
+            <QueryClientProvider client={queryClient}>
+                <QueuedMessagesBar
+                    sessionId="session-1"
+                    api={api}
+                    pendingSchedule={null}
+                    pendingScheduleRevision={0}
+                    canSteer
+                    steerHeadRef={steerHeadRef}
+                />
+            </QueryClientProvider>,
+        )
+
+        expect(steerHeadRef.current).toBeTypeOf('function')
+        act(() => {
+            expect(steerHeadRef.current!()).toBe(true)
+        })
+        await waitFor(() => expect(mocks.steerMessage).toHaveBeenCalledWith('session-1', 'server-message-id'))
     })
 
     it('calls the steer api with the session and message id', async () => {

@@ -402,6 +402,11 @@ export function HappyComposer(props: {
      * queue request after a scratchlist/scheduled/failed early path.
      */
     pendingSendIntentRef?: MutableRefObject<ComposerSendIntent>
+    /**
+     * When the composer draft is empty, Ctrl/Cmd+Enter can steer the first
+     * eligible queued message (same as the Queued bar lightning button).
+     */
+    steerQueuedHeadRef?: MutableRefObject<(() => boolean) | null>
     /** Shared order ref consumed by useHappyRuntime when the message is sent. */
     attachmentOrderRef?: MutableRefObject<string[]>
     /** Chip hover / aria-label resolver (SessionChat → useSessions). */
@@ -466,6 +471,7 @@ export function HappyComposer(props: {
         onClearSendError,
         onSuppressSendErrorRestore,
         pendingSendIntentRef,
+        steerQueuedHeadRef,
         attachmentOrderRef: externalAttachmentOrderRef,
         resolveSessionMentionTooltip,
     } = props
@@ -1326,6 +1332,21 @@ export function HappyComposer(props: {
             return
         }
 
+        // Ctrl/Cmd+Enter on an empty composer steers the first eligible queued
+        // row (Queued bar lightning). When the draft has text, newline mode
+        // still uses this chord to send.
+        if (
+            key === 'Enter'
+            && (e.ctrlKey || e.metaKey)
+            && !e.altKey
+            && !e.shiftKey
+            && !canSend
+            && steerQueuedHeadRef?.current?.()
+        ) {
+            e.preventDefault()
+            return
+        }
+
         // Only plain Enter (no modifiers) sends; other modifier combos are ignored
         if (key === 'Enter') {
             if (effectiveComposerEnterBehavior === 'newline') {
@@ -1407,7 +1428,7 @@ export function HappyComposer(props: {
         permissionMode,
         permissionModes,
         canSend,
-        handleSend,
+        steerQueuedHeadRef,
         haptic,
         effectiveComposerEnterBehavior,
         richMentionsEnabled,

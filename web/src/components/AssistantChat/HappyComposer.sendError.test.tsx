@@ -163,6 +163,7 @@ function ComposerHarness(props: {
     initialSchedule?: PendingSchedule | null
     piRunning?: boolean
     controls: { current: HarnessControls | null }
+    steerQueuedHeadRef?: { current: (() => boolean) | null }
 }) {
     const [snapshot, setSnapshot] = useState<FakeRuntimeState>(() => ({
         composer: { text: props.initialText, attachments: [] },
@@ -251,6 +252,7 @@ function ComposerHarness(props: {
                 piModels={[{ provider: 'pi', modelId: 'pi-model', name: 'Pi model' }]}
                 onModelChange={(model) => runtime.modelChanges.push(model)}
                 pendingSendIntentRef={pendingSendIntentRef}
+                steerQueuedHeadRef={props.steerQueuedHeadRef}
             />
         </I18nProvider>
     )
@@ -260,11 +262,20 @@ function renderComposer(
     initialText = 'failed text',
     initialSchedule: PendingSchedule | null = { type: 'absolute', ms: 1234 },
     piRunning = false,
+    options?: { steerQueuedHeadRef?: { current: (() => boolean) | null } },
 ) {
     const controls: { current: HarnessControls | null } = { current: null }
     runtime.sentIntents = []
     runtime.modelChanges = []
-    render(<ComposerHarness initialText={initialText} initialSchedule={initialSchedule} piRunning={piRunning} controls={controls} />)
+    render(
+        <ComposerHarness
+            initialText={initialText}
+            initialSchedule={initialSchedule}
+            piRunning={piRunning}
+            controls={controls}
+            steerQueuedHeadRef={options?.steerQueuedHeadRef}
+        />,
+    )
     return controls
 }
 
@@ -563,13 +574,11 @@ describe('HappyComposer send intent gestures', () => {
         runtime.sentIntents = []
     })
 
-    it('ignores Alt/Option+Enter (the old explicit-queue gesture) entirely', () => {
+    it('ignores Alt/Option+Enter (no explicit queue gesture)', () => {
         renderComposer('follow-up', null, true)
 
         fireEvent.keyDown(input(), { key: 'Enter', altKey: true })
 
-        // Every send now queues by default (issue #1466); the Alt+Enter
-        // gesture was removed with the Pi automatic steer.
         expect(runtime.sentIntents).toEqual([])
         expect(runtime.pendingSendIntentRef?.current).toBe('default')
     })
@@ -604,5 +613,25 @@ describe('HappyComposer send intent gestures', () => {
         fireEvent.keyDown(input(), { key: 'Enter', altKey: true })
         expect(runtime.sentIntents).toEqual([])
         expect(runtime.pendingSendIntentRef?.current).toBe('default')
+    })
+
+    it('steers the queued head on Ctrl/Cmd+Enter when the composer is empty', () => {
+        const steerQueuedHeadRef = { current: vi.fn(() => true) }
+        renderComposer('', null, true, { steerQueuedHeadRef })
+
+        fireEvent.keyDown(input(), { key: 'Enter', ctrlKey: true })
+
+        expect(steerQueuedHeadRef.current).toHaveBeenCalled()
+        expect(runtime.sentIntents).toEqual([])
+    })
+
+    it('does not steer on Ctrl/Cmd+Enter when the composer has text', () => {
+        const steerQueuedHeadRef = { current: vi.fn(() => true) }
+        renderComposer('draft', null, true, { steerQueuedHeadRef })
+
+        fireEvent.keyDown(input(), { key: 'Enter', ctrlKey: true })
+
+        expect(steerQueuedHeadRef.current).not.toHaveBeenCalled()
+        expect(runtime.sentIntents).toEqual([])
     })
 })

@@ -1786,6 +1786,7 @@ function SessionChatInner(props: SessionChatProps) {
     // ordinary sends.
     const pendingSendIntentRef = useRef<ComposerSendIntent>('default')
     const attachmentOrderRef = useRef<string[]>([])
+    const steerQueuedHeadRef = useRef<(() => boolean) | null>(null)
     const restoredSendErrorIdRef = useRef<number | null>(null)
 
     useEffect(() => {
@@ -2083,6 +2084,7 @@ function SessionChatInner(props: SessionChatProps) {
                             <QueuedMessagesBar
                                 sessionId={props.session.id}
                                 api={props.api}
+                                steerHeadRef={steerQueuedHeadRef}
                                 pendingSchedule={pendingSchedule}
                                 pendingScheduleRevision={pendingScheduleRevision}
                                 onEdit={({ pendingSchedule: restored }) => {
@@ -2107,6 +2109,7 @@ function SessionChatInner(props: SessionChatProps) {
                             uploadDraftSnapshotRef.current = { text, attachments }
                         }}
                         attachmentOrderRef={attachmentOrderRef}
+                        steerQueuedHeadRef={steerQueuedHeadRef}
                         resolveSessionMentionTooltip={resolveSessionMentionTooltip}
                         disabled={props.isSending}
                         pendingSchedule={pendingSchedule}

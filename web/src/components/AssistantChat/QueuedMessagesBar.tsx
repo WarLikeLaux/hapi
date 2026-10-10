@@ -1,5 +1,12 @@
 import { useAui, useAuiState } from '@assistant-ui/react'
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import {
+    type MutableRefObject,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useSyncExternalStore,
+} from 'react'
 import type { ApiClient } from '@/api/client'
 import { getMessageWindowState, subscribeMessageWindow } from '@/lib/message-window-store'
 import { isQueuedForInvocation } from '@/lib/messages'
@@ -195,6 +202,32 @@ export function computeCanCancel({
     return hasServerEcho && !isPending
 }
 
+/** @internal Exported for unit testing. */
+export function findFirstSteerableQueuedMessage(
+    queued: DecryptedMessage[],
+    input: {
+        canSteer: boolean
+        isPending: boolean
+    },
+): DecryptedMessage | null {
+    if (!input.canSteer) return null
+    for (const msg of sortQueuedMessages(queued)) {
+        const canCancel = computeCanCancel({
+            id: msg.id,
+            localId: msg.localId,
+            isPending: input.isPending,
+        })
+        if (
+            msg.deliveryState !== 'indeterminate'
+            && msg.scheduledAt == null
+            && canCancel
+        ) {
+            return msg
+        }
+    }
+    return null
+}
+
 /**
  * Floating bar above the composer showing queued (pending invocation) messages.
  * Each item has an edit button (✎) and a cancel button (✕).
@@ -210,6 +243,7 @@ export function QueuedMessagesBar({
     onEdit,
     canSteer,
     canInterrupt,
+    steerHeadRef,
 }: {
     sessionId: string
     api: ApiClient | null
@@ -230,6 +264,12 @@ export function QueuedMessagesBar({
     canSteer?: boolean
     /** Stop the current Antigravity turn and prioritize this saved prompt. */
     canInterrupt?: boolean
+    /**
+     * Optional bridge for composer shortcuts (Ctrl/Cmd+Enter on an empty
+     * draft steers the first eligible queued row). Returns whether a steer
+     * was started.
+     */
+    steerHeadRef?: MutableRefObject<(() => boolean) | null>
 }) {
     const queued = useQueuedMessages(sessionId)
     const assistantApi = useAui()
@@ -258,6 +298,41 @@ export function QueuedMessagesBar({
         useCallback(() => isQueuedOperationPending(sessionId), [sessionId]),
         () => false,
     )
+
+    const steerHeadQueued = useCallback((): boolean => {
+        const isPending = cancelMutation.isPending || queuedOperationPending
+        const target = findFirstSteerableQueuedMessage(queued, {
+            canSteer: Boolean(canSteer),
+            isPending,
+        })
+        if (!target) return false
+        const token = beginQueuedOperation(sessionId)
+        if (!token) return false
+        void steerMutation.mutateAsync({
+            sessionId,
+            messageId: target.id,
+        }).catch(() => {
+            // useSteerQueuedMessage already toasts the failure.
+        }).finally(() => {
+            endQueuedOperation(sessionId, token)
+        })
+        return true
+    }, [
+        canSteer,
+        cancelMutation.isPending,
+        queued,
+        queuedOperationPending,
+        sessionId,
+        steerMutation,
+    ])
+
+    useEffect(() => {
+        if (!steerHeadRef) return
+        steerHeadRef.current = steerHeadQueued
+        return () => {
+            steerHeadRef.current = null
+        }
+    }, [steerHeadQueued, steerHeadRef])
 
     useEffect(() => {
         mountedRef.current = true
