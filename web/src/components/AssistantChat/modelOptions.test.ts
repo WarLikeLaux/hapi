@@ -17,12 +17,14 @@ describe('getModelOptionsForFlavor', () => {
     it('offers the machine catalog in an AGY session instead of the built-in mirror', () => {
         const live = [
             { value: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)' },
-            { value: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' }
+            { value: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' },
+            { value: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)' }
         ]
 
         const options = getModelOptionsForFlavor('agy', 'gemini-3.8-flash-high', live)
 
-        expect(options).toEqual(live)
+        expect(options).toEqual(live.slice(0, 2))
+        expect(getModelOptionsForFlavor('agy', 'claude-opus-4-6-thinking', live)).toEqual(live.slice(0, 2))
         expect(options.some((option) => option.value === null)).toBe(false)
     })
 

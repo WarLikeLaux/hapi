@@ -32,7 +32,8 @@ export function useCursorModelsForMachine(args: {
             return await api.getMachineCursorModels(machineId)
         },
         enabled,
-        staleTime: 60_000,
+        staleTime: 30 * 60_000,
+        gcTime: 24 * 60 * 60_000,
         retry: false,
     })
 
@@ -40,8 +41,8 @@ export function useCursorModelsForMachine(args: {
         availableModels: query.data?.availableModels ?? [],
         cliModelSkus: query.data?.cliModelSkus ?? [],
         currentModelId: query.data?.currentModelId ?? null,
-        isLoading: query.isLoading,
-        error: query.data?.success === false
+        isLoading: enabled && query.isLoading,
+        error: !enabled ? null : query.data?.success === false
             ? (query.data.error ?? 'Failed to load Cursor models')
             : query.error instanceof Error
                 ? query.error.message

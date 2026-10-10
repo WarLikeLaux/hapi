@@ -1,4 +1,4 @@
-import { DEFAULT_AGY_MODEL, getAgyModelLabel } from '@hapi/protocol'
+import { getAgyModelLabel, isRemovedAgyModel } from '@hapi/protocol'
 import { useTranslation } from '@/lib/use-translation'
 import type { ReactNode } from 'react'
 import type { AgyModelSummary } from '@/types/api'
@@ -12,6 +12,7 @@ export type AgyModelSelectorProps = {
     /** A probe is in flight — asking the machine again can take a while. */
     isFetching?: boolean
     availableModels: AgyModelSummary[]
+    defaultModelName?: string
     selectedModel: string | null
     onModelChange: (modelId: string | null) => void
     onRetry?: () => void
@@ -63,14 +64,11 @@ function RetryButton(props: { onRetry?: () => void; isFetching?: boolean }) {
 
 export function AgyModelSelector(props: AgyModelSelectorProps) {
     const { t } = useTranslation()
-    // With no model picked, a session starts on the fork's pinned agy default
-    // (runAgy falls back to DEFAULT_AGY_MODEL). The first option is named after
-    // that model itself — plainer than a "Default — X" prefix — and the catalog
-    // row for the same model is skipped so it is not listed twice.
-    const defaultModelLabel = getAgyModelLabel(DEFAULT_AGY_MODEL) ?? DEFAULT_AGY_MODEL
-    // An explicit pick of the default model launches the same thing, so it is
-    // displayed as the default option rather than a separate row.
-    const selectedValue = props.selectedModel === DEFAULT_AGY_MODEL ? '' : props.selectedModel
+    const defaultModel = props.defaultModelName
+        ? props.availableModels.find((model) => model.modelId === props.defaultModelName || model.name === props.defaultModelName)
+        : undefined
+    const defaultModelLabel = defaultModel?.name ?? props.defaultModelName ?? t('newSession.model.default')
+    const selectedValue = props.selectedModel === defaultModel?.modelId || isRemovedAgyModel(props.selectedModel) ? '' : props.selectedModel
 
     if (!props.machineId) {
         return null
@@ -123,7 +121,7 @@ export function AgyModelSelector(props: AgyModelSelectorProps) {
                     >
                         <option value="">{defaultModelLabel}</option>
                         {withSelectedModel(
-                            props.availableModels.filter((model) => model.modelId !== DEFAULT_AGY_MODEL),
+                            props.availableModels.filter((model) => model.modelId !== defaultModel?.modelId && !isRemovedAgyModel(model.modelId)),
                             selectedValue,
                             t('newSession.agyModel.notListed')
                         ).map((model) => (

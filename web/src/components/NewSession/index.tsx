@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary, Session } from '@/types/api'
-import { isKnownFlavor, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
+import { isKnownFlavor, isRemovedAgyModel, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
 import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
@@ -41,7 +41,7 @@ import {
     resolveWireIdForBaseChange,
     shouldShowCursorModelsUnavailable
 } from './newSessionCursorModels'
-import { buildCursorEffortPickerOptions, resolveCursorVariantOptions, resolveDefaultCursorVariantWire } from '@/lib/cursorModelOptions'
+import { buildCursorEffortPickerOptions, resolveCursorVariantOptions } from '@/lib/cursorModelOptions'
 import {
     clearNewSessionFormDraft,
     loadNewSessionFormDraft,
@@ -49,7 +49,7 @@ import {
     saveNewSessionFormDraft,
     shouldRestoreNewSessionFormDraft
 } from './newSessionFormDraft'
-import { isOpencodeReasoningEffortValid } from './types'
+import { isOpencodeReasoningEffortValid, MODEL_OPTIONS } from './types'
 import type { AgentType, LaunchEffort, CodexReasoningEffort, NewSessionServiceTier, SessionType } from './types'
 import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
@@ -95,7 +95,6 @@ import { makeClientSideId } from '@/lib/messages'
 // renders while the machine actually advertises the model.
 const QUICK_PICK_MODEL_IDS: Partial<Record<AgentType, readonly string[]>> = {
     codex: ['gpt-6-luna'],
-    agy: ['claude-opus-4-6-thinking'],
 }
 
 // One-tap shortcut for the quick-pick models: tap to launch with one,
@@ -171,7 +170,10 @@ export function NewSession(props: {
     const pendingCursorBaseRef = useRef<string | null>(null)
     const [effort, setEffort] = useState<LaunchEffort>(() => continueFrom?.effort ?? 'auto')
     const [modelReasoningEffort, setModelReasoningEffort] = useState<CodexReasoningEffort>(() => continueFrom?.modelReasoningEffort ?? 'default')
-    const [opencodeSelectedModel, setOpencodeSelectedModel] = useState<string | null | undefined>(undefined)
+    const [opencodeSelectedModel, setOpencodeSelectedModel] = useState<string | null | undefined>(null)
+    const [requestedModelCatalog, setRequestedModelCatalog] = useState<string | null>(null)
+    const modelCatalogTarget = JSON.stringify([agent, machineId, agent === 'opencode' ? directory.trim() : null])
+    const modelCatalogRequested = requestedModelCatalog === modelCatalogTarget
     const [serviceTier, setServiceTier] = useState<NewSessionServiceTier>(() => continueFrom?.serviceTier === 'fast' ? 'fast' : 'standard')
     // Fork: the collaboration-mode selector is dormant; a hidden field must
     // not carry a non-default mode into the spawn, so it stays at 'default'.
@@ -371,6 +373,8 @@ export function NewSession(props: {
         api: props.api,
         machineId,
     })
+    const cursorDefaultModelName = agentAvailability.agents.find((entry) => entry.agent === 'cursor')?.defaultModelName
+    const configuredDefaultModelName = agentAvailability.agents.find((entry) => entry.agent === agent)?.defaultModelName
     const availableAgents = useMemo(
         () => orderCreateSessionAgents(agentAvailability.agents
             .filter((entry) => entry.available && entry.agent !== 'gemini')
@@ -397,7 +401,6 @@ export function NewSession(props: {
     // this machine); one the user just picked is kept, because the catalog can
     // change under an open form while they are looking at it.
     const agyModelPickedByUserRef = useRef(false)
-    const cursorModelPickedByUserRef = useRef(false)
     const runnerSpawnError = useMemo(
         () => formatRunnerSpawnError(selectedMachine),
         [selectedMachine]
@@ -492,6 +495,9 @@ export function NewSession(props: {
         api: props.api,
         machineId,
         enabled: agent === 'cursor' && Boolean(machineId)
+            && (modelCatalogRequested
+                || (model !== 'auto' && model !== 'default[]')
+                || (cursorSelectedBase !== 'auto' && cursorSelectedBase !== 'default[]'))
     })
     const cursorPicker = useMemo(
         () => buildNewSessionCursorPickerState(
@@ -518,13 +524,14 @@ export function NewSession(props: {
         ) {
             return
         }
-        if (model !== 'auto' && !availableCursorCatalog.wireToBase.has(model)) {
+        if (model !== 'auto' && model !== 'default[]' && !availableCursorCatalog.wireToBase.has(model)) {
             setModel('auto')
             setCursorSelectedBase('auto')
             return
         }
         if (
             cursorSelectedBase !== 'auto'
+            && cursorSelectedBase !== 'default[]'
             && !availableCursorCatalog.variantsByBase.has(cursorSelectedBase)
         ) {
             setCursorSelectedBase('auto')
@@ -538,9 +545,6 @@ export function NewSession(props: {
         model
     ])
 
-    // Fork: a fresh Cursor launch defaults to Compose 2.5 instead of leaving
-    // Cursor's own Auto pick; once the user explicitly chooses (including
-    // Auto), the default never applies again for this mount.
     const cursorBaseSelectValue = useMemo(
         () => resolveNewSessionCursorBaseSelectValue(cursorPicker, cursorSelectedBase),
         [cursorPicker, cursorSelectedBase]
@@ -550,7 +554,7 @@ export function NewSession(props: {
         if (cursorPicker.mode !== 'dual') {
             return cursorPicker.effortOptions
         }
-        const baseKey = cursorBaseSelectValue !== 'auto'
+        const baseKey = cursorBaseSelectValue !== 'auto' && cursorBaseSelectValue !== 'default[]'
             ? cursorBaseSelectValue
             : cursorPicker.baseKey
         return buildCursorEffortPickerOptions(resolveCursorVariantOptions(baseKey ?? null, cursorPicker.catalog))
@@ -578,7 +582,7 @@ export function NewSession(props: {
         if (model === 'auto' && cursorSelectedBase !== 'auto') {
             return
         }
-        if (model === 'auto') {
+        if (model === 'auto' || model === 'default[]') {
             return
         }
         const base = resolveCursorBaseFromWire(model, cursorPicker.catalog)
@@ -594,7 +598,7 @@ export function NewSession(props: {
         cursorSelectedBase
     ])
 
-    const showCursorVariantPicker = cursorPicker.mode === 'dual' && cursorVariantOptions.length > 1
+    const showCursorVariantPicker = model !== 'auto' && model !== 'default[]' && cursorPicker.mode === 'dual' && cursorVariantOptions.length > 1
 
     useEffect(() => {
         if (agent !== 'cursor' || cursorModelsState.isLoading) {
@@ -619,11 +623,8 @@ export function NewSession(props: {
         cursorPicker.catalog,
         model
     ])
-    const cursorModelPickersDisabled = isFormDisabled
-        || Boolean(cursorModelsState.error)
-        || cursorModelsState.isLoading
-        || !machineId
-    const cursorModelsUnavailable = shouldShowCursorModelsUnavailable({
+    const cursorModelPickersDisabled = isFormDisabled || !machineId
+    const cursorModelsUnavailable = modelCatalogRequested && shouldShowCursorModelsUnavailable({
         agent,
         isLoading: cursorModelsState.isLoading,
         error: cursorModelsState.error,
@@ -687,23 +688,27 @@ export function NewSession(props: {
         // Gate on positive existence: typing partial paths must not spawn an
         // expensive `opencode acp` probe for a non-existent cwd while the
         // existence check is in flight.
-        enabled: shouldEnableOpencodeModelDiscovery({
-            agent,
-            machineId,
-            cwd: deferredDirectory,
-            cwdExists: deferredDirectoryExists,
-        })
+        enabled: (modelCatalogRequested || Boolean(opencodeSelectedModel) || modelReasoningEffort !== 'default')
+            && shouldEnableOpencodeModelDiscovery({
+                agent,
+                machineId,
+                cwd: deferredDirectory,
+                cwdExists: deferredDirectoryExists,
+            })
     })
     const opencodeVariantsState = useOpencodeModelVariants({
         api: props.api,
         machineId,
         cwd: deferredDirectory || null,
-        enabled: shouldEnableOpencodeModelDiscovery({
-            agent,
-            machineId,
-            cwd: deferredDirectory,
-            cwdExists: deferredDirectoryExists,
-        })
+        enabled: (Boolean(opencodeSelectedModel) || modelReasoningEffort !== 'default')
+            && !opencodeModelsState.isLoading
+            && opencodeModelsState.availableModels.length > 0
+            && shouldEnableOpencodeModelDiscovery({
+                agent,
+                machineId,
+                cwd: deferredDirectory,
+                cwdExists: deferredDirectoryExists,
+            })
     })
     // OpenCode model option values are provider-qualified (`provider/model`),
     // matching the variant catalog keys from the OpenCode server `/provider`
@@ -728,6 +733,7 @@ export function NewSession(props: {
         // and a per-render options array would retrigger the reset effect below.
     }, [agent, machineId, opencodeSelectedModel, opencodeModelsState.currentModelId, opencodeVariantsState.variants, opencodeVariantsState.isLoading, opencodeVariantsState.error])
     const opencodeCatalogPending = agent === 'opencode'
+        && (modelCatalogRequested || Boolean(opencodeSelectedModel) || modelReasoningEffort !== 'default')
         && deferredDirectory !== ''
         && (
             deferredDirectoryExists === undefined
@@ -818,11 +824,6 @@ export function NewSession(props: {
         machineId,
         enabled: agent === 'agy' && Boolean(machineId)
     })
-    const agyQuickPickOptions = useMemo(() => (
-        agyModelsState.availableModels
-            .filter((model) => (QUICK_PICK_MODEL_IDS.agy ?? []).includes(model.modelId.toLowerCase()))
-            .map((model) => ({ value: model.modelId, label: model.name ?? model.modelId }))
-    ), [agyModelsState.availableModels])
     const piModelsState = usePiModelsForMachine({
         api: props.api,
         machineId,
@@ -918,6 +919,10 @@ export function NewSession(props: {
     }, [agent, machineId])
 
     useEffect(() => {
+        if (agent === 'agy' && isRemovedAgyModel(agySelectedModel)) {
+            setAgySelectedModel(null)
+            return
+        }
         if (
             agent !== 'agy'
             || agyModelsState.isLoading
@@ -944,6 +949,7 @@ export function NewSession(props: {
         if (
             agent !== 'opencode'
             || deferredDirectoryExists !== true
+            || !opencodeModelsState.availableModels.length
             || opencodeModelsState.isLoading
             || opencodeModelsState.error
         ) {
@@ -987,12 +993,11 @@ export function NewSession(props: {
         machineId
     ])
     useEffect(() => {
-        // Reset selection when agent / machine / directory changes; new probe = new defaults.
-        // `undefined` = uninitialized (probe again); `null` = explicit Default choice.
+        // A different launch target starts at its own configured default.
         if (preserveRestoredDraftRef.current) {
             return
         }
-        setOpencodeSelectedModel(undefined)
+        setOpencodeSelectedModel(null)
     }, [agent, machineId, deferredDirectory])
 
     const usesNativeSelect = usesNativePermissionSelect(agent)
@@ -1014,7 +1019,7 @@ export function NewSession(props: {
         // concrete model is picked per launch. The per-machine preference only
         // carries effort/permission touches.
         setModel('auto')
-        setCursorSelectedBase(preferred.cursorSelectedBase)
+        setCursorSelectedBase('auto')
         // A GLM-branded claude hides the effort field; the remembered value
         // must not silently survive where the user cannot see or change it.
         setEffort(agent === 'claude' && getClaudeGlmBranded() ? 'auto' : preferred.effort)
@@ -1032,38 +1037,6 @@ export function NewSession(props: {
         agyModelPickedByUserRef.current = false
         setAgySelectedModel(null)
     }, [agent, legacyYoloAgent, machineId, usesSharedPermissionMode])
-
-    // Fork: a fresh Cursor launch defaults to Compose 2.5 instead of leaving
-    // Cursor's own Auto pick; once the user explicitly chooses (including
-    // Auto), the default never applies again for this mount. Declared after
-    // the mount restore so the restore's `setModel('auto')` cannot win the
-    // same commit and silently cancel the default.
-    useEffect(() => {
-        if (agent !== 'cursor' || cursorModelsState.isLoading || cursorModelsState.error) {
-            return
-        }
-        if (model !== 'auto' || cursorModelPickedByUserRef.current) {
-            return
-        }
-        const composerBaseKey = [...availableCursorCatalog.variantsByBase.keys()]
-            .find((candidate) => /^composer[-_ ]?2\.5$/i.test(candidate))
-        if (!composerBaseKey) {
-            return
-        }
-        const composerWire = resolveDefaultCursorVariantWire(composerBaseKey, availableCursorCatalog)
-        if (!composerWire) {
-            return
-        }
-        setModel(composerWire)
-        setCursorSelectedBase(composerBaseKey)
-    }, [
-        agent,
-        availableCursorCatalog,
-        cursorModelsState.error,
-        cursorModelsState.isLoading,
-        cursorSelectedBase,
-        model
-    ])
 
     useEffect(() => {
         if (
@@ -1549,6 +1522,20 @@ export function NewSession(props: {
     // Pi history import reopens the native session as-is; the launch-only
     // model/effort controls would silently not apply, so hide them.
     const showPiLaunchConfig = agent !== 'pi' || !selectedPiImportSession
+    const catalogDefaultModelId = agent === 'grok' ? grokModelsState.currentModelId
+        : agent === 'kimi' ? kimiModelsState.currentModelId
+            : agent === 'pi' ? piModelsState.currentModelId : null
+    const launchModelOptions = agent === 'codex' ? codexModelOptions
+        : agent === 'grok' ? grokModelOptions
+            : agent === 'copilot' ? copilotModelOptions
+                : agent === 'kimi' ? kimiModelOptions
+                    : agent === 'pi' && showPiLaunchConfig ? piModelOptions : MODEL_OPTIONS[agent]
+    const nativeDefaultModelName = configuredDefaultModelName
+        ?? launchModelOptions.find((option) => option.value === catalogDefaultModelId)?.label
+        ?? catalogDefaultModelId
+    const namedLaunchModelOptions = launchModelOptions
+        .filter((option) => option.value === 'auto' || option.value !== catalogDefaultModelId || model === option.value)
+        .map((option) => option.value === 'auto' && nativeDefaultModelName ? { ...option, label: nativeDefaultModelName } : option)
 
     const handleAgentChange = useCallback((newAgent: AgentType) => {
         preserveRestoredDraftRef.current = false
@@ -1573,10 +1560,10 @@ export function NewSession(props: {
     }, [sessions, props.machines])
 
     const handleCursorBaseChange = useCallback((baseKey: string) => {
-        if (baseKey === 'auto') {
+        if (baseKey === 'auto' || baseKey === 'default[]') {
             pendingCursorBaseRef.current = null
-            setCursorSelectedBase('auto')
-            setModel('auto')
+            setCursorSelectedBase(baseKey)
+            setModel(baseKey)
             return
         }
         setCursorSelectedBase(baseKey)
@@ -1747,6 +1734,7 @@ export function NewSession(props: {
                 agent === 'cursor'
                 && cursorPicker.mode === 'dual'
                 && cursorBaseSelectValue !== 'auto'
+                && cursorBaseSelectValue !== 'default[]'
                 && cursorVariantOptions.length > 1
                 && !cursorVariantOptions.some((option) => option.value === model)
             ) {
@@ -1760,7 +1748,7 @@ export function NewSession(props: {
                 : agent === 'agy'
                     ? (agySelectedModel ?? undefined)
                     : agent === 'cursor'
-                        ? (model === 'auto' || !model ? 'auto' : model)
+                        ? (model === 'auto' || !model ? undefined : model)
                         : (model !== 'auto' ? model : undefined)
             // GLM has no effort levels: a branded claude never passes one,
             // even if a remembered value was restored before the flag arrived.
@@ -1918,6 +1906,7 @@ export function NewSession(props: {
             && agySelectedModel !== null
             && agyModelsState.isLoading)
         || (agent === 'cursor'
+            && model !== 'default[]'
             && (model !== 'auto' || cursorSelectedBase !== 'auto')
             && cursorModelsState.isLoading)
         || (agent === 'grok'
@@ -1929,7 +1918,7 @@ export function NewSession(props: {
             ))
         || (agent === 'opencode'
             && deferredDirectory !== ''
-            && opencodeSelectedModel !== null
+            && Boolean(opencodeSelectedModel)
             && (
                 deferredDirectoryExists === undefined
                 || (deferredDirectoryExists === true && opencodeModelsState.isLoading)
@@ -2059,26 +2048,14 @@ export function NewSession(props: {
                     warning={agyModelsState.warning}
                     isFetching={agyModelsState.isFetching}
                     availableModels={agyModelsState.availableModels}
+                    defaultModelName={configuredDefaultModelName}
                     selectedModel={agySelectedModel}
                     onModelChange={(modelId) => {
                         agyModelPickedByUserRef.current = modelId !== null
                         setAgySelectedModel(modelId)
                     }}
                     onRetry={agyModelsState.refetch}
-                >
-                    {agyQuickPickOptions.length > 0 ? (
-                        <QuickPickChips
-                            options={agyQuickPickOptions}
-                            activeValue={agySelectedModel}
-                            isDisabled={isFormDisabled || Boolean(agyModelsState.error)}
-                            onToggle={(value) => {
-                                const next = agySelectedModel === value ? null : value
-                                agyModelPickedByUserRef.current = next !== null
-                                setAgySelectedModel(next)
-                            }}
-                        />
-                    ) : null}
-                </AgyModelSelector>
+                />
             ) : agent === 'opencode' ? (
                 <OpencodeModelSelector
                     cwd={deferredDirectory}
@@ -2090,6 +2067,8 @@ export function NewSession(props: {
                     selectedModel={opencodeSelectedModel}
                     onModelChange={setOpencodeSelectedModel}
                     onRetry={opencodeModelsState.refetch}
+                    onLoadModels={!modelCatalogRequested ? () => setRequestedModelCatalog(modelCatalogTarget) : undefined}
+                    canLoadModels={deferredDirectoryExists === true}
                 />
             ) : (
                 agent === 'cursor' ? (
@@ -2097,21 +2076,24 @@ export function NewSession(props: {
                         <ModelSelector
                             agent={agent}
                             model={cursorPicker.mode === 'dual' ? cursorBaseSelectValue : model}
-                            options={cursorPicker.modelOptions}
+                            options={[
+                                ...cursorPicker.modelOptions.map((option) => option.value === 'auto'
+                                    ? { ...option, label: cursorDefaultModelName ?? t('newSession.model.default') } : option),
+                                { value: 'default[]', label: 'Auto' }
+                            ]}
                             isDisabled={cursorModelPickersDisabled}
-                            isLoading={cursorModelsState.isLoading}
+                            isLoading={false}
                             error={cursorModelsState.error
                                 ? `${t('newSession.model.loadFailed')}: ${cursorModelsState.error}`
                                 : null}
                             onModelChange={(value) => {
-                                cursorModelPickedByUserRef.current = true
                                 if (cursorPicker.mode === 'dual') {
                                     handleCursorBaseChange(value)
                                     return
                                 }
                                 setModel(value)
                                 setCursorSelectedBase(
-                                    value === 'auto' ? 'auto' : resolveCursorBaseFromWire(value, cursorPicker.catalog)
+                                    value === 'auto' || value === 'default[]' ? value : resolveCursorBaseFromWire(value, cursorPicker.catalog)
                                 )
                             }}
                         />
@@ -2126,6 +2108,26 @@ export function NewSession(props: {
                                 onModelChange={handleCursorEffortChange}
                             />
                         ) : null}
+                        {cursorModelsState.isLoading ? (
+                            <div role="status" className="px-3 text-xs text-[var(--app-hint)]">
+                                {t('newSession.model.loading')}
+                            </div>
+                        ) : null}
+                        {!modelCatalogRequested ? (
+                            <button
+                                type="button"
+                                onClick={() => setRequestedModelCatalog(modelCatalogTarget)}
+                                disabled={isFormDisabled || !machineId}
+                                className="self-start mx-3 rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
+                            >
+                                {t('newSession.model.loadOptions')}
+                            </button>
+                        ) : null}
+                        {cursorModelsState.error ? (
+                            <button type="button" onClick={cursorModelsState.refetch} className="self-start mx-3 rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)]">
+                                {t('newSession.opencodeModel.retry')}
+                            </button>
+                        ) : null}
                         {cursorModelsUnavailable ? (
                             <div className="px-3 pb-3 text-xs text-[var(--app-hint)]">
                                 {t('newSession.model.cursorUnavailable')}
@@ -2136,19 +2138,7 @@ export function NewSession(props: {
                     <ModelSelector
                         agent={agent}
                         model={model}
-                        options={
-                            agent === 'codex'
-                                ? codexModelOptions
-                                : agent === 'grok'
-                                    ? grokModelOptions
-                                    : agent === 'copilot'
-                                        ? copilotModelOptions
-                                        : agent === 'kimi'
-                                            ? kimiModelOptions
-                                            : agent === 'pi'
-                                                ? (showPiLaunchConfig ? piModelOptions : undefined)
-                                        : undefined
-                        }
+                        options={namedLaunchModelOptions}
                         isDisabled={
                             isFormDisabled
                             || (agent === 'codex' && Boolean(codexModelsState.error))

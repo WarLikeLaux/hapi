@@ -800,6 +800,8 @@ export type AgentAvailabilityReason = z.infer<typeof AgentAvailabilityReasonSche
 export const AgentAvailabilityEntrySchema = z.object({
     agent: AgentFlavorSchema,
     available: z.boolean(),
+    /** Configured native default display name, when it can be read without starting the agent. */
+    defaultModelName: z.string().optional(),
     reason: AgentAvailabilityReasonSchema.optional()
 })
 export type AgentAvailabilityEntry = z.infer<typeof AgentAvailabilityEntrySchema>

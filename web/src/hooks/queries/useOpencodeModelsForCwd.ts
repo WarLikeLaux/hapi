@@ -33,15 +33,16 @@ export function useOpencodeModelsForCwd(args: {
             return await api.getMachineOpencodeModelsForCwd(machineId, trimmedCwd)
         },
         enabled,
-        staleTime: 60_000,
+        staleTime: 30 * 60_000,
+        gcTime: 24 * 60 * 60_000,
         retry: false,
     })
 
     return {
         availableModels: query.data?.availableModels ?? [],
         currentModelId: query.data?.currentModelId ?? null,
-        isLoading: query.isLoading,
-        error: query.data?.success === false
+        isLoading: enabled && query.isLoading,
+        error: !enabled ? null : query.data?.success === false
             ? (query.data.error ?? 'Failed to load OpenCode models')
             : query.error instanceof Error
                 ? query.error.message

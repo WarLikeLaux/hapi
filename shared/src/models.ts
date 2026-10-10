@@ -43,14 +43,16 @@ export const AGY_MODEL_LABELS = {
     'gemini-3.5-flash-low': 'Gemini 3.5 Flash (Low)',
     'gemini-3.1-pro-low': 'Gemini 3.1 Pro (Low)',
     'gemini-3.1-pro-high': 'Gemini 3.1 Pro (High)',
-    'claude-sonnet-4-6': 'Claude Sonnet 4.6 (Thinking)',
-    'claude-opus-4-6-thinking': 'Claude Opus 4.6 (Thinking)',
     'gpt-oss-120b-medium': 'GPT-OSS 120B (Medium)',
 } as const
 
 export type AgyModelPreset = keyof typeof AGY_MODEL_LABELS
 export const AGY_MODEL_PRESETS = Object.keys(AGY_MODEL_LABELS) as AgyModelPreset[]
-export const DEFAULT_AGY_MODEL: AgyModelPreset = 'gemini-3.8-flash-medium'
+
+/** Claude was removed from Antigravity; stale catalogs must not offer it again. */
+export function isRemovedAgyModel(model: string | null | undefined): boolean {
+    return typeof model === 'string' && /^(?:anthropic\/)?claude(?:[-_ ]|$)/i.test(model.trim())
+}
 
 export function getAgyModelLabel(model: string): string | null {
     const trimmedModel = model.trim()

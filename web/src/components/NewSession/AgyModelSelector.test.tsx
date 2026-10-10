@@ -72,27 +72,27 @@ describe('AgyModelSelector', () => {
         expect(screen.getByRole('option', { name: 'gemini-9.9-experimental (no longer listed)' })).toBeInTheDocument()
     })
 
-    it('shows the pinned default model as the first option, named after itself and listed once', () => {
-        // With no model picked, a session starts on DEFAULT_AGY_MODEL (runAgy's
-        // fallback). The option is the model's own name — no "Default —" prefix —
-        // and the catalog row for the same model is not repeated.
+    it('names the native config default without a duplicate row or removed Claude choices', () => {
         renderSelector({
+            defaultModelName: 'Gemini 3.7 Flash (Medium)',
             availableModels: [
-                { modelId: 'gemini-3.8-flash-medium', name: 'Gemini 3.8 Flash (Medium)' },
-                { modelId: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' }
+                { modelId: 'gemini-3.7-flash-medium', name: 'Gemini 3.7 Flash (Medium)' },
+                { modelId: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' },
+                { modelId: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Thinking)' }
             ]
         })
 
         const select = screen.getByTestId('agy-model-list') as HTMLSelectElement
         expect(select.value).toBe('')
         expect([...select.options].map((option) => option.textContent)).toEqual([
-            'Gemini 3.8 Flash (Medium)',
+            'Gemini 3.7 Flash (Medium)',
             'Gemini 3.8 Flash (High)'
         ])
     })
 
     it('displays an explicit pick of the default model as the default option', () => {
         renderSelector({
+            defaultModelName: 'Gemini 3.8 Flash (Medium)',
             availableModels: [{ modelId: 'gemini-3.8-flash-medium', name: 'Gemini 3.8 Flash (Medium)' }],
             selectedModel: 'gemini-3.8-flash-medium'
         })

@@ -15,7 +15,7 @@ import { createNativeSessionTitleMetadataSync } from '@/agent/nativeSessionTitle
 import { readAgyConversationTitle } from '../utils/agySessionTitle';
 import { resolveAgyTurnModels } from '../utils/agyConversationModel';
 import { killProcessByChildProcess } from '@/utils/process';
-import { AGY_MODEL_LABELS, DEFAULT_AGY_MODEL } from '@hapi/protocol';
+import { AGY_MODEL_LABELS } from '@hapi/protocol';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import { getAgentLaunchCommand } from '@/agent/agentLaunchCommand';
 
@@ -434,7 +434,7 @@ export class AgyHeadlessDriver extends RemoteLauncherBase {
         };
         signal.addEventListener('abort', onAbort, { once: true });
 
-        const sessionModel = mode.model ?? DEFAULT_AGY_MODEL;
+        const sessionModel = mode.model ?? undefined;
         const sessionEffort = mode.effort ?? undefined;
         // Snapshot the model at turn start: a mid-response switch must not change
         // attribution within one turn.

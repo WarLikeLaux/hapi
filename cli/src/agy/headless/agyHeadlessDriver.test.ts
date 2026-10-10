@@ -139,9 +139,10 @@ describe('buildAgyHeadlessArgs', () => {
 describe('AgyHeadlessDriver', () => {
     it('maps a full NDJSON turn onto the transcript-entry channel and adopts the conversation id', async () => {
         const { session, queue, client, sent } = createSession();
+        const spawnAgy = vi.fn((_args: string[]) => fakeAgyProcess(FULL_TURN));
         const driver = new AgyHeadlessDriver({
             session,
-            spawnAgy: () => fakeAgyProcess(FULL_TURN),
+            spawnAgy,
         });
 
         queue.push('hello', { permissionMode: 'request-review' }, 'local-1');
@@ -175,6 +176,7 @@ describe('AgyHeadlessDriver', () => {
         const [, conversationId, toolCall] = tool as unknown[];
         expect(conversationId).toBe('conv-1');
         expect(toolCall).toMatchObject({ name: 'run_command', args: { CommandLine: 'echo hi' } });
+        expect(spawnAgy.mock.calls[0]?.[0]).not.toContain('--model');
     });
 
     it('reports a non-zero exit as an error session event', async () => {

@@ -4,7 +4,6 @@ import {
     AGY_MODEL_PRESETS,
     CLAUDE_MODEL_PRESETS,
     CLAUDE_MODEL_LABELS,
-    DEFAULT_AGY_MODEL,
     DEFAULT_GEMINI_MODEL,
     GEMINI_MODEL_LABELS,
     GEMINI_MODEL_PRESETS,
@@ -73,8 +72,4 @@ describe('model constants consistency', () => {
         }
     })
 
-    test('DEFAULT_AGY_MODEL is a valid preset', () => {
-        expect(AGY_MODEL_PRESETS).toContain(DEFAULT_AGY_MODEL)
-        expect(DEFAULT_AGY_MODEL).toBe('gemini-3.8-flash-medium')
-    })
 })
