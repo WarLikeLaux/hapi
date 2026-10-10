@@ -167,7 +167,9 @@ describe('listAgyModels live probe', () => {
         expect(options.env.PATH).toBe(process.env.PATH)
         expect(Object.keys(options.env).some((key) => key.startsWith('SSH_'))).toBe(false)
 
-        child.stdout.emit('data', Buffer.from(`${JSON_LISTING}\n`))
+        const staleListing = JSON.parse(JSON_LISTING)
+        staleListing.command.data.models.push({ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)' })
+        child.stdout.emit('data', Buffer.from(`${JSON.stringify(staleListing)}\n`))
         child.stderr.emit('data', Buffer.from('Fetching available models...\n'))
         child.emit('exit', 0)
         const result = await resultPromise

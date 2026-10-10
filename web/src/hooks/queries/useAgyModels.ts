@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useRef } from 'react'
+import { isRemovedAgyModel } from '@hapi/protocol'
 import type { ApiClient } from '@/api/client'
 import type { AgyModelSummary } from '@/types/api'
 import { queryKeys } from '@/lib/query-keys'
@@ -55,7 +56,7 @@ export function useAgyModels(args: {
     })
 
     return {
-        availableModels: query.data?.availableModels ?? [],
+        availableModels: (query.data?.availableModels ?? []).filter((model) => !isRemovedAgyModel(model.modelId)),
         currentModelId: query.data?.currentModelId ?? null,
         isLoading: query.isLoading,
         error: query.data?.success === false

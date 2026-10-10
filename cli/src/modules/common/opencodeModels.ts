@@ -1,3 +1,7 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { resolveHapiHomeDir } from '@/configuration';
 import { asString, isObject } from '@hapi/protocol';
 import type { OpencodeModelsResponse, OpencodeModelSummary } from '@hapi/protocol/apiTypes';
 import { AcpStdioTransport } from '@/agent/backends/acp/AcpStdioTransport';
@@ -16,10 +20,53 @@ interface CacheEntry {
     response: ListOpencodeModelsForCwdResponse;
 }
 
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = 30 * 60_000;
 const PROBE_TIMEOUT_MS = 30_000;
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<ListOpencodeModelsForCwdResponse>>();
+
+function cachePath(cwd: string): string {
+    const key = createHash('sha256').update(cwd).digest('hex');
+    return join(resolveHapiHomeDir(), 'cache', 'opencode-models', `${key}.json`);
+}
+
+function readPersistedCache(cwd: string): CacheEntry | null {
+    try {
+        const stored: unknown = JSON.parse(readFileSync(cachePath(cwd), 'utf8'));
+        if (!isObject(stored) || stored.version !== 1 || stored.cwd !== cwd
+            || typeof stored.expiresAt !== 'number' || stored.expiresAt <= Date.now()
+            || !isObject(stored.response) || stored.response.success !== true) {
+            return null;
+        }
+        const availableModels = normalizeAvailableModels(stored.response.availableModels);
+        if (!availableModels.length) return null;
+        return {
+            expiresAt: stored.expiresAt,
+            response: { success: true, availableModels, currentModelId: asString(stored.response.currentModelId) }
+        };
+    } catch {
+        return null;
+    }
+}
+
+/** Live session catalogs also fill the runner's cache without a discovery subprocess. */
+export function seedOpencodeModelsCache(cwd: string, response: ListOpencodeModelsForCwdResponse): void {
+    const trimmed = cwd.trim();
+    if (!trimmed || !response.success || !response.availableModels?.length) return;
+    const entry = { expiresAt: Date.now() + CACHE_TTL_MS, response };
+    cache.set(trimmed, entry);
+    const path = cachePath(trimmed);
+    const temporaryPath = `${path}.${randomUUID()}.tmp`;
+    try {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(temporaryPath, JSON.stringify({ version: 1, cwd: trimmed, ...entry }), { mode: 0o600 });
+        renameSync(temporaryPath, path);
+    } catch {
+        // Persisting is best effort; the current process can still use its catalog.
+    } finally {
+        try { rmSync(temporaryPath, { force: true }); } catch { /* Best effort. */ }
+    }
+}
 
 function normalizeAvailableModels(rawModels: unknown): OpencodeModelSummary[] {
     if (!Array.isArray(rawModels)) return [];
@@ -130,7 +177,7 @@ async function runOpencodeProbe(cwd: string): Promise<ListOpencodeModelsForCwdRe
  * and capturing the `availableModels` / `currentModelId` snapshot from the
  * response. The subprocess is torn down immediately afterwards.
  *
- * Results are cached per cwd for 60 seconds; concurrent requests for the same
+ * Results are cached per cwd in memory and on disk for 30 minutes; concurrent requests for the same
  * cwd are coalesced via a single-flight promise so we never spawn more than
  * one probe at a time per cwd.
  */
@@ -142,7 +189,7 @@ export async function listOpencodeModelsForCwd(
         return { success: false, error: 'cwd is required' };
     }
 
-    const cached = cache.get(trimmed);
+    const cached = readPersistedCache(trimmed) ?? cache.get(trimmed);
     if (cached && cached.expiresAt > Date.now()) {
         return cached.response;
     }
@@ -156,10 +203,7 @@ export async function listOpencodeModelsForCwd(
         try {
             const response = await runOpencodeProbe(trimmed);
             if (response.success) {
-                cache.set(trimmed, {
-                    expiresAt: Date.now() + CACHE_TTL_MS,
-                    response
-                });
+                seedOpencodeModelsCache(trimmed, response);
             }
             return response;
         } catch (error) {

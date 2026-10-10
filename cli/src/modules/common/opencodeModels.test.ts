@@ -1,4 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const previousHapiHome = process.env.HAPI_HOME
+const testHapiHome = mkdtempSync(join(tmpdir(), 'hapi-opencode-models-'))
+process.env.HAPI_HOME = testHapiHome
+
+afterAll(() => {
+    if (previousHapiHome === undefined) delete process.env.HAPI_HOME
+    else process.env.HAPI_HOME = previousHapiHome
+    rmSync(testHapiHome, { recursive: true, force: true })
+})
 
 const sendRequestMock = vi.fn()
 const closeMock = vi.fn().mockResolvedValue(undefined)
@@ -21,6 +34,7 @@ import { listOpencodeModelsForCwd, _resetOpencodeModelsCacheForTests } from './o
 describe('listOpencodeModelsForCwd', () => {
     beforeEach(() => {
         _resetOpencodeModelsCacheForTests()
+        rmSync(join(testHapiHome, 'cache'), { recursive: true, force: true })
         sendRequestMock.mockReset()
         closeMock.mockClear()
         transportCreate.mockClear()
@@ -135,6 +149,20 @@ describe('listOpencodeModelsForCwd', () => {
 
         expect(transportCreate).toHaveBeenCalledTimes(1)
         expect(sendRequestMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('reuses the project catalog after the runner loses its in-memory cache', async () => {
+        sendRequestMock
+            .mockResolvedValueOnce({ protocolVersion: 1 })
+            .mockResolvedValueOnce({ models: { availableModels: [{ modelId: 'a/b' }], currentModelId: 'a/b' } })
+        const first = await listOpencodeModelsForCwd('/persist/cwd')
+        _resetOpencodeModelsCacheForTests()
+        sendRequestMock.mockRejectedValue(new Error('database is locked'))
+
+        expect(await listOpencodeModelsForCwd('/persist/cwd')).toEqual(first)
+        expect(transportCreate.mock.calls.length).toBe(1)
+        // Another project's configuration must not reuse this catalog.
+        expect((await listOpencodeModelsForCwd('/different/cwd')).success).toBe(false)
     })
 
     it('coalesces concurrent probes for the same cwd into a single transport spawn', async () => {

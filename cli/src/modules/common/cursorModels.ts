@@ -289,8 +289,11 @@ async function runCursorModelProbe(): Promise<ListCursorModelsResponse> {
     });
 }
 
-async function applyInMemoryCache(response: ListCursorModelsResponse): Promise<ListCursorModelsResponse> {
-    const enriched = await enrichCursorModelsWithCliSkus(response);
+function applyInMemoryCache(response: ListCursorModelsResponse): ListCursorModelsResponse {
+    // Cache reads and live snapshots must never spawn a CLI just to fill SKU labels.
+    // Only a cold discovery enriches the catalog; live sessions also seed it.
+    const shared = readSharedCursorModelsCache();
+    const enriched = attachCliSkusToResponse(response, shared?.cliModelSkus ?? []);
     if ((enriched.availableModels?.length ?? 0) > 0) {
         cache.expiresAt = Date.now() + CACHE_TTL_MS;
         cache.response = enriched;
@@ -332,7 +335,7 @@ export async function listCursorModels(): Promise<ListCursorModelsResponse> {
     }
 
     if (cache.expiresAt > Date.now() && (cache.response.availableModels?.length ?? 0) > 0) {
-        return enrichCursorModelsWithCliSkus(cache.response);
+        return applyInMemoryCache(cache.response);
     }
 
     const shared = readSharedCursorModelsCache();
@@ -348,7 +351,7 @@ export async function listCursorModels(): Promise<ListCursorModelsResponse> {
         try {
             const acpResponse = await runCursorAcpModelProbe();
             if (cursorProbeResponseHasWireCatalog(acpResponse)) {
-                return applyInMemoryCache(acpResponse);
+                return applyInMemoryCache(await enrichCursorModelsWithCliSkus(acpResponse));
             }
 
             let probeResponse: ListCursorModelsResponse | null = null;
@@ -356,7 +359,7 @@ export async function listCursorModels(): Promise<ListCursorModelsResponse> {
                 probeResponse = await runCursorModelProbe();
                 // Never promote CLI `--list-models` slug catalogs into the ACP wire cache.
                 if (responseHasParameterizedWireIds(probeResponse)) {
-                    return applyInMemoryCache(probeResponse);
+                    return applyInMemoryCache(await enrichCursorModelsWithCliSkus(probeResponse));
                 }
             }
 
@@ -383,10 +386,7 @@ export async function listCursorModels(): Promise<ListCursorModelsResponse> {
 }
 
 export function seedCursorModelsCache(response: ListCursorModelsResponse): void {
-    if ((response.availableModels?.length ?? 0) > 0) {
-        writeSharedCursorModelsCache(response);
-    }
-    void applyInMemoryCache(response);
+    applyInMemoryCache(response);
 }
 
 export function _resetCursorModelsCacheForTests(): void {

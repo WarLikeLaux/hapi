@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { getAgentLaunchCommand } from '@/agent/agentLaunchCommand'
-import { AGY_MODEL_LABELS, AGY_MODEL_PRESETS } from '@hapi/protocol'
+import { AGY_MODEL_LABELS, AGY_MODEL_PRESETS, isRemovedAgyModel } from '@hapi/protocol'
 import type { AgyModelsResponse } from '@hapi/protocol/apiTypes'
 
 export type ListAgyModelsResponse = AgyModelsResponse
@@ -373,7 +373,7 @@ function servableCatalog(): ListAgyModelsResponse | null {
         return null
     }
 
-    const response: ListAgyModelsResponse = { success: true, availableModels: cachedCatalog.models }
+    const response: ListAgyModelsResponse = { success: true, availableModels: cachedCatalog.models.filter((model) => !isRemovedAgyModel(model.modelId)) }
     // A sign-in failure rides along with the listing: a picker that looked
     // healthy would let the user start a session agy cannot run.
     if (lastFailedProbe?.result.kind === 'auth-error') {
@@ -384,7 +384,7 @@ function servableCatalog(): ListAgyModelsResponse | null {
 
 function toResponse(fetched: AgyCatalogFetch): ListAgyModelsResponse {
     if (fetched.kind === 'live') {
-        return { success: true, availableModels: fetched.models }
+        return { success: true, availableModels: fetched.models.filter((model) => !isRemovedAgyModel(model.modelId)) }
     }
 
     // A failed probe is not evidence that the catalog changed.

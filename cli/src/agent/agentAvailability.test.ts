@@ -1,10 +1,11 @@
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import * as codexExecutable from '@/codex/utils/codexExecutable'
 import { executableCandidates, getAgentLaunchCommand, resolveExecutable } from './agentLaunchCommand'
-import { getAgentAvailability } from './agentAvailability'
+import { getAgentAvailability, getAgentAvailabilityResponse } from './agentAvailability'
 
 async function makeExecutable(directory: string, name: string): Promise<string> {
     const path = join(directory, name)
@@ -24,6 +25,38 @@ describe('agent executable resolution', () => {
             COPILOT_CLI_PATH: copilot,
             PATH: directory,
         })).toEqual({ agent: 'copilot', available: true })
+    })
+
+    it.each([
+        { agent: 'cursor' as const, command: 'agent', path: 'cli-config.json',
+            first: '{"model":{"modelId":"composer-2.5","displayName":"Composer 2.5"}}', name: 'Composer 2.5',
+            second: '{"model":{"modelId":"grok-4.7","displayName":"Grok 4.7"}}', nextName: 'Grok 4.7' },
+        { agent: 'agy' as const, command: 'agy', path: '.gemini/antigravity-cli/settings.json',
+            first: '{"model":"Gemini 3.7 Flash (Medium)"}', name: 'Gemini 3.7 Flash (Medium)',
+            second: '{"model":"gemini-3.8-flash-low"}', nextName: 'Gemini 3.8 Flash (Low)' },
+        { agent: 'minimax' as const, command: 'mcode', path: 'config.yaml',
+            first: 'defaultModel: minimax/MiniMax-M3.1-Flash-Preview\nprovider:\n  minimax:\n    name: MiniMax\n    models:\n      MiniMax-M3.1-Flash-Preview:\n        name: M3.1-Flash-Preview', name: 'MiniMax M3.1-Flash-Preview',
+            second: 'defaultModel: minimax/MiniMax-M3', nextName: 'minimax/MiniMax-M3' }
+    ])('reports the configured $agent default without a subprocess and rereads config changes', async (entry) => {
+        const directory = await mkdtemp(join(tmpdir(), 'hapi-native-default-'))
+        try {
+            const executable = join(directory, entry.command)
+            await writeFile(executable, '#!/bin/sh\n: > "$0.spawned"\nexit 1\n')
+            await chmod(executable, 0o755)
+            const env = { PATH: directory, HOME: directory, USERPROFILE: directory, CURSOR_CONFIG_DIR: directory, MINIMAX_DATA_DIR: directory }
+            const config = join(directory, entry.path)
+            await mkdir(dirname(config), { recursive: true })
+            await writeFile(config, entry.first)
+            const available = () => getAgentAvailabilityResponse(env).agents.find((agent) => agent.agent === entry.agent)
+            expect(available()).toEqual({ agent: entry.agent, available: true, defaultModelName: entry.name })
+            await writeFile(config, entry.second)
+            expect(available()?.defaultModelName).toBe(entry.nextName)
+            await writeFile(config, '{broken json')
+            expect(available()).toEqual({ agent: entry.agent, available: true })
+            expect(existsSync(`${executable}.spawned`)).toBe(false)
+        } finally {
+            await rm(directory, { recursive: true, force: true })
+        }
     })
 
     it('uses PATHEXT when resolving Windows commands', () => {

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -13,6 +14,7 @@ import {
 } from './preferences'
 
 const mocks = vi.hoisted(() => ({
+    useRealCatalogHooks: false,
     spawnSession: vi.fn(),
     sendMessage: vi.fn(),
     onSuccess: vi.fn(),
@@ -20,7 +22,7 @@ const mocks = vi.hoisted(() => ({
     checkPathsExists: vi.fn(),
     availableAgents: [
         'agy', 'claude', 'codex', 'dsh', 'copilot', 'cursor', 'grok', 'kimi', 'opencode', 'pi'
-    ].map((agent) => ({ agent, available: true })),
+    ].map((agent) => ({ agent, available: true, defaultModelName: undefined as string | undefined })),
     codexModelsLoading: false,
     agyModelsLoading: false,
     agyModels: [{ modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' }],
@@ -30,6 +32,9 @@ const mocks = vi.hoisted(() => ({
     kimiModels: [] as Array<{ modelId: string; name?: string; provider?: string }>,
     kimiModelsLoading: false,
     kimiModelsError: null as string | null,
+    kimiCurrentModelId: null as string | null,
+    grokModels: [] as Array<{ modelId: string; name?: string }>,
+    grokCurrentModelId: null as string | null,
     opencodeModels: [] as Array<{ modelId: string; name?: string }>,
     opencodeCurrentModelId: null as string | null,
     opencodeModelsLoading: false,
@@ -43,6 +48,7 @@ const mocks = vi.hoisted(() => ({
     piModels: [] as PiModelSummary[],
     piModelsLoading: false,
     piModelsError: null as string | null,
+    piCurrentModelId: null as string | null,
     nextModelValue: 'gpt-5.6-terra',
     refetchSessions: vi.fn(),
     addToast: vi.fn()
@@ -124,39 +130,49 @@ vi.mock('@/hooks/queries/useAgyModels', () => ({
         refetch: vi.fn()
     })
 }))
-vi.mock('@/hooks/queries/useCursorModelsForMachine', () => ({
-    useCursorModelsForMachine: () => ({
-        availableModels: mocks.cursorModels,
-        cliModelSkus: mocks.cursorSkus,
-        currentModelId: null,
-        isLoading: mocks.cursorModelsLoading,
-        error: null,
-        refetch: vi.fn()
-    })
-}))
-vi.mock('@/hooks/queries/useOpencodeModelsForCwd', () => ({
-    useOpencodeModelsForCwd: () => ({
-        availableModels: mocks.opencodeModels,
-        currentModelId: mocks.opencodeCurrentModelId,
-        isLoading: mocks.opencodeModelsLoading,
-        error: null,
-        refetch: vi.fn()
-    })
-}))
-vi.mock('@/hooks/queries/useOpencodeModelVariants', () => ({
-    useOpencodeModelVariants: (args: { enabled: boolean }) => {
-        mocks.opencodeVariantsEnabled = args.enabled
-        return {
-            variants: mocks.opencodeVariants,
-            isLoading: mocks.opencodeVariantsLoading,
-            error: null
+vi.mock('@/hooks/queries/useCursorModelsForMachine', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/hooks/queries/useCursorModelsForMachine')>()
+    return {
+        useCursorModelsForMachine: (args: Parameters<typeof actual.useCursorModelsForMachine>[0]) => mocks.useRealCatalogHooks ? actual.useCursorModelsForMachine(args) : ({
+            availableModels: mocks.cursorModels,
+            cliModelSkus: mocks.cursorSkus,
+            currentModelId: null,
+            isLoading: mocks.cursorModelsLoading,
+            error: null,
+            refetch: vi.fn()
+        })
+    }
+})
+vi.mock('@/hooks/queries/useOpencodeModelsForCwd', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/hooks/queries/useOpencodeModelsForCwd')>()
+    return {
+        useOpencodeModelsForCwd: (args: Parameters<typeof actual.useOpencodeModelsForCwd>[0]) => mocks.useRealCatalogHooks ? actual.useOpencodeModelsForCwd(args) : ({
+            availableModels: mocks.opencodeModels,
+            currentModelId: mocks.opencodeCurrentModelId,
+            isLoading: mocks.opencodeModelsLoading,
+            error: null,
+            refetch: vi.fn()
+        })
+    }
+})
+vi.mock('@/hooks/queries/useOpencodeModelVariants', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/hooks/queries/useOpencodeModelVariants')>()
+    return {
+        useOpencodeModelVariants: (args: Parameters<typeof actual.useOpencodeModelVariants>[0]) => {
+            if (mocks.useRealCatalogHooks) return actual.useOpencodeModelVariants(args)
+            mocks.opencodeVariantsEnabled = Boolean(args.enabled)
+            return {
+                variants: mocks.opencodeVariants,
+                isLoading: mocks.opencodeVariantsLoading,
+                error: null
+            }
         }
     }
-}))
+})
 vi.mock('@/hooks/queries/useGrokModelsForCwd', () => ({
     useGrokModelsForCwd: () => ({
-        availableModels: [],
-        currentModelId: null,
+        availableModels: mocks.grokModels,
+        currentModelId: mocks.grokCurrentModelId,
         autoPermissionModeSupported: null,
         isLoading: false,
         error: null
@@ -173,7 +189,7 @@ vi.mock('@/hooks/queries/useCopilotModelsForCwd', () => ({
 vi.mock('@/hooks/queries/useKimiModelsForCwd', () => ({
     useKimiModelsForCwd: () => ({
         availableModels: mocks.kimiModels,
-        currentModelId: null,
+        currentModelId: mocks.kimiCurrentModelId,
         isLoading: mocks.kimiModelsLoading,
         error: mocks.kimiModelsError
     })
@@ -181,7 +197,7 @@ vi.mock('@/hooks/queries/useKimiModelsForCwd', () => ({
 vi.mock('@/hooks/queries/usePiModelsForMachine', () => ({
     usePiModelsForMachine: () => ({
         availableModels: mocks.piModels,
-        currentModelId: null,
+        currentModelId: mocks.piCurrentModelId,
         isLoading: mocks.piModelsLoading,
         error: mocks.piModelsError
     })
@@ -255,8 +271,9 @@ vi.mock('./PermissionField', () => ({
 }))
 vi.mock('./CopilotAgentModeSelector', () => ({ CopilotAgentModeSelector: () => null }))
 vi.mock('./OpencodeModelSelector', () => ({
-    OpencodeModelSelector: (props: { selectedModel: string | null | undefined; onModelChange: (model: string | null) => void }) => (
+    OpencodeModelSelector: (props: { selectedModel: string | null | undefined; onModelChange: (model: string | null) => void; onLoadModels?: () => void }) => (
         <>
+            {props.onLoadModels ? <button type="button" onClick={props.onLoadModels}>newSession.model.loadOptions</button> : null}
             <button type="button" data-testid="opencode-model-default" onClick={() => props.onModelChange(null)}>default</button>
             <button type="button" data-testid="opencode-model-pick" onClick={() => props.onModelChange('provider/model')}>pick</button>
             <div data-testid="opencode-model">{props.selectedModel ?? 'default'}</div>
@@ -314,6 +331,7 @@ const api = { sendMessage: mocks.sendMessage } as unknown as ApiClient
 
 describe('NewSession launch preferences', () => {
     beforeEach(() => {
+        mocks.useRealCatalogHooks = false
         localStorage.clear()
         sessionStorage.clear()
         mocks.spawnSession.mockReset()
@@ -329,7 +347,7 @@ describe('NewSession launch preferences', () => {
             0,
             mocks.availableAgents.length,
             ...['agy', 'claude', 'codex', 'dsh', 'copilot', 'cursor', 'grok', 'kimi', 'opencode', 'pi']
-                .map((agent) => ({ agent, available: true }))
+                .map((agent) => ({ agent, available: true, defaultModelName: undefined }))
         )
         mocks.codexModelsLoading = false
         mocks.agyModelsLoading = false
@@ -340,6 +358,10 @@ describe('NewSession launch preferences', () => {
         mocks.kimiModels = []
         mocks.kimiModelsLoading = false
         mocks.kimiModelsError = null
+        mocks.kimiCurrentModelId = null
+        mocks.grokModels = []
+        mocks.grokCurrentModelId = null
+        mocks.piCurrentModelId = null
         mocks.opencodeModels = [{ modelId: 'provider/current', name: 'Current' }]
         mocks.opencodeCurrentModelId = 'provider/current'
         mocks.opencodeModelsLoading = false
@@ -362,7 +384,7 @@ describe('NewSession launch preferences', () => {
         mocks.availableAgents.splice(
             0,
             mocks.availableAgents.length,
-            { agent: 'codex', available: true }
+            { agent: 'codex', available: true, defaultModelName: undefined }
         )
 
         render(
@@ -432,6 +454,27 @@ describe('NewSession launch preferences', () => {
             expect(screen.getByTestId('model')).toHaveTextContent('auto')
             expect(screen.getByTestId('reasoning')).toHaveTextContent('default')
         })
+    })
+
+    it.each(['grok', 'kimi', 'pi', 'minimax'] as const)('names the %s native default without pinning it at launch', async (agent) => {
+        savePreferredAgent(agent)
+        if (agent === 'grok') {
+            mocks.grokModels = [{ modelId: 'native-default', name: 'Native model' }]
+            mocks.grokCurrentModelId = 'native-default'
+        } else if (agent === 'kimi') {
+            mocks.kimiModels = [{ modelId: 'native-default', name: 'Native model' }]
+            mocks.kimiCurrentModelId = 'native-default'
+        } else if (agent === 'pi') {
+            mocks.piModels = [{ modelId: 'native-default', name: 'Native model', provider: 'local' }]
+            mocks.piCurrentModelId = 'local/native-default'
+        } else {
+            mocks.availableAgents.push({ agent, available: true, defaultModelName: 'Native model' })
+        }
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'native-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.getByTestId('model-options').textContent).toBe('Native model')
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent, model: undefined })))
     })
 
     it('names the codex Default option after the config default model, without a duplicate row', () => {
@@ -722,22 +765,20 @@ describe('NewSession launch preferences', () => {
         })
     })
 
-    it('offers the quick-pick chip for a fork-pinned AGY model and toggles it back to Default', async () => {
+    it('drops a removed AGY Claude choice from a restored draft and the quick picks', async () => {
         savePreferredAgent('agy')
         mocks.agyModels = [
             { modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' },
             { modelId: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 (Thinking)' }
         ]
+        saveNewSessionFormDraft({
+            agent: 'agy', model: 'claude-opus-4-6-thinking', cursorSelectedBase: 'auto', machineId: 'machine-1',
+            effort: 'auto', modelReasoningEffort: 'default', serviceTier: 'standard', collaborationMode: 'default',
+            copilotAgentMode: 'interactive', yoloMode: false, nativePermissionMode: 'default',
+            grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
+        })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
-
-        const chip = screen.getByRole('button', { name: 'Claude Opus 4.6 (Thinking)' })
-        expect(chip).toHaveAttribute('aria-pressed', 'false')
-        fireEvent.click(chip)
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('claude-opus-4-6-thinking'))
-        expect(screen.getByRole('button', { name: 'Claude Opus 4.6 (Thinking)' })).toHaveAttribute('aria-pressed', 'true')
-
-        fireEvent.click(screen.getByRole('button', { name: 'Claude Opus 4.6 (Thinking)' }))
+        expect(screen.queryByRole('button', { name: 'Claude Opus 4.6 (Thinking)' })).not.toBeInTheDocument()
         await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
     })
 
@@ -903,6 +944,41 @@ describe('NewSession launch preferences', () => {
         }))
     })
 
+    it.each(['cursor', 'opencode'] as const)('launches %s Default without a catalog request, even while an explicit catalog load is pending', async (agent) => {
+        mocks.useRealCatalogHooks = true
+        savePreferredAgent(agent)
+        if (agent === 'cursor') mocks.availableAgents.find((entry) => entry.agent === 'cursor')!.defaultModelName = 'Composer 2.5'
+        savePreferredLaunchSettings('machine-1', agent, { model: 'composer-2.5', cursorSelectedBase: 'composer-2.5', effort: 'auto', modelReasoningEffort: 'default' })
+        const getMachineCursorModels = vi.fn(() => new Promise(() => {}))
+        const getMachineOpencodeModelsForCwd = vi.fn(() => new Promise(() => {}))
+        const getMachineOpencodeModelVariants = vi.fn()
+        const catalogApi = { ...api, getMachineCursorModels, getMachineOpencodeModelsForCwd, getMachineOpencodeModelVariants } as unknown as ApiClient
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'default-session' })
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        const view = render(<QueryClientProvider client={client}>
+            <NewSession api={catalogApi} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />
+        </QueryClientProvider>)
+
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        if (agent === 'cursor') expect(screen.getByTestId('model-options').textContent).toBe('Composer 2.5,Auto')
+        expect(getMachineCursorModels.mock.calls.length + getMachineOpencodeModelsForCwd.mock.calls.length).toBe(0)
+        if (agent === 'cursor') {
+            mocks.nextModelValue = 'default[]'
+            fireEvent.click(screen.getByTestId('model'))
+            expect(getMachineCursorModels.mock.calls.length).toBe(0)
+            mocks.nextModelValue = 'auto'
+            fireEvent.click(screen.getByTestId('model'))
+        }
+        fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
+        await waitFor(() => expect(agent === 'cursor' ? getMachineCursorModels : getMachineOpencodeModelsForCwd).toHaveBeenCalledTimes(1))
+        expect(getMachineOpencodeModelVariants.mock.calls.length).toBe(0)
+        expect(screen.getByTestId('create')).toBeEnabled()
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent, model: undefined })))
+        view.unmount()
+        client.clear()
+    })
+
     it('keeps an explicit OpenCode Default selection instead of restoring a concrete model', async () => {
         savePreferredAgent('opencode')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'opencode-session' })
@@ -920,11 +996,12 @@ describe('NewSession launch preferences', () => {
 
     it('uses the probed current model variants for an explicit OpenCode Default selection', async () => {
         savePreferredAgent('opencode')
-        mocks.opencodeVariants = { 'provider/current': ['low', 'high'] }
+        mocks.opencodeVariants = { 'provider/current': ['low', 'high', 'max'] }
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
         fireEvent.click(screen.getByTestId('opencode-model-default'))
-        await waitFor(() => expect(screen.getByTestId('opencode-variants')).toHaveTextContent('low,high'))
+        fireEvent.click(screen.getByTestId('reasoning'))
+        await waitFor(() => expect(screen.getByTestId('opencode-variants')).toHaveTextContent('low,high,max'))
         expect(mocks.opencodeVariantsEnabled).toBe(true)
     })
 
@@ -1485,6 +1562,7 @@ describe('NewSession launch preferences', () => {
 
 describe('NewSession GLM-branded claude', () => {
     beforeEach(() => {
+        mocks.useRealCatalogHooks = false
         localStorage.clear()
         sessionStorage.clear()
         mocks.spawnSession.mockReset()
@@ -1527,6 +1605,7 @@ describe('NewSession GLM-branded claude', () => {
 
 describe('NewSession fork launch defaults', () => {
     beforeEach(() => {
+        mocks.useRealCatalogHooks = false
         localStorage.clear()
         sessionStorage.clear()
         mocks.spawnSession.mockReset()
@@ -1541,7 +1620,7 @@ describe('NewSession fork launch defaults', () => {
             0,
             mocks.availableAgents.length,
             ...['agy', 'claude', 'codex', 'dsh', 'copilot', 'cursor', 'grok', 'kimi', 'opencode', 'pi']
-                .map((agent) => ({ agent, available: true }))
+                .map((agent) => ({ agent, available: true, defaultModelName: undefined }))
         )
         mocks.cursorModels = []
         mocks.cursorSkus = []
@@ -1579,29 +1658,35 @@ describe('NewSession fork launch defaults', () => {
         expect(screen.queryByText('newSession.fastMode')).toBeNull()
     })
 
-    it('defaults a fresh Cursor launch to Compose 2.5 with the YOLO toggle on', async () => {
+    it('leaves a fresh Cursor launch at its configured default even when Compose 2.5 is available', async () => {
         savePreferredAgent('cursor')
         mocks.cursorModels = [{ modelId: 'composer-2.5', name: 'Compose 2.5' }, { modelId: 'grep-5', name: 'Grep 5' }]
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
 
-        await waitFor(() => expect(screen.getByTestId('model')).toHaveTextContent('composer-2.5'))
+        await waitFor(() => expect(screen.getByTestId('model')).toHaveTextContent('auto'))
         expect(screen.getByTestId('yolo-toggle')).toHaveTextContent('on')
 
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('fork-session'))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'cursor',
-            model: 'composer-2.5',
+            model: undefined,
             yolo: true
         }))
     })
 
-    it('keeps Cursor on Auto when the catalog has no Compose 2.5', async () => {
+    it('allows explicit Cursor Auto separately from the configured default', async () => {
         savePreferredAgent('cursor')
         mocks.cursorModels = [{ modelId: 'grep-5', name: 'Grep 5' }]
-        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+        const view = render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
 
         await waitFor(() => expect(screen.getByTestId('model')).toBeInTheDocument())
-        expect(screen.getByTestId('model')).toHaveTextContent('auto')
+        mocks.nextModelValue = 'default[]'
+        fireEvent.click(screen.getByTestId('model'))
+        mocks.cursorModels = [{ modelId: 'composer-2.5[fast=true]' }, { modelId: 'composer-2.5[fast=false]' }]
+        view.rerender(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.getByTestId('model')).toHaveTextContent('default[]')
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model: 'default[]' })))
     })
 })

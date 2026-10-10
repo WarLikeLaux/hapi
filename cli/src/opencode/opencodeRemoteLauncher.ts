@@ -1,3 +1,4 @@
+import { seedOpencodeModelsCache } from '@/modules/common/opencodeModels';
 import React from 'react';
 import { randomUUID } from 'node:crypto';
 import { registerAcpSessionTitleSync } from '@/agent/acpSessionTitle';
@@ -247,6 +248,14 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
         const initialMetadata = backend.getSessionModelsMetadata?.(acpSessionId);
         this.currentBackendModel = initialMetadata?.currentModelId ?? null;
         this.defaultBackendModel = this.currentBackendModel;
+        if (initialMetadata) {
+            seedOpencodeModelsCache(session.path, {
+                success: true,
+                availableModels: initialMetadata.availableModels,
+                // A resumed session's selection is not this project's configured default.
+                currentModelId: resumeSessionId ? null : initialMetadata.currentModelId
+            });
+        }
         const thoughtLevelOption = backend.getThoughtLevelConfigOption?.(acpSessionId);
         this.currentBackendEffort = thoughtLevelOption?.currentValue ?? null;
         this.defaultBackendEffort = this.currentBackendEffort;

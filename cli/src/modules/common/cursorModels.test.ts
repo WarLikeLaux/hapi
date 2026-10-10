@@ -346,43 +346,21 @@ describe('listCursorModels', () => {
         expect(spawnMock).not.toHaveBeenCalled()
     })
 
-    test('unions shared partial cliModelSkus with probe results when lock is inactive', async () => {
-        writeSharedCursorModelsCache({
+    test('serves persisted and memory catalogs without spawning another CLI probe', async () => {
+        const catalog = {
             success: true,
-            availableModels: [{ modelId: 'gpt-5.5[context=272k,reasoning=medium,fast=false]', name: 'gpt-5.5' }],
-            currentModelId: 'gpt-5.5[context=272k,reasoning=medium,fast=false]',
-            cliModelSkus: [
-                { modelId: 'gpt-5.5-medium', name: 'GPT-5.5 1M' }
-            ]
-        })
-        spawnMock.mockImplementation(() => ({
-            stdout: {
-                on: vi.fn((event: string, handler: (chunk: Buffer) => void) => {
-                    if (event === 'data') {
-                        handler(Buffer.from(
-                            'gpt-5.5-high-fast - GPT-5.5 High Fast\n'
-                            + 'gpt-5.5-high - GPT-5.5 High\n'
-                        ));
-                    }
-                })
-            },
-            stderr: { on: vi.fn() },
-            on: vi.fn((event: string, handler: (code: number) => void) => {
-                if (event === 'exit') {
-                    setTimeout(() => handler(0), 0);
-                }
-            }),
-            kill: vi.fn()
-        }));
+            availableModels: [{ modelId: 'gpt-5.5[reasoning=medium,fast=false]', name: 'GPT-5.5' }],
+            currentModelId: 'gpt-5.5[reasoning=medium,fast=false]',
+            cliModelSkus: [{ modelId: 'gpt-5.5-medium', name: 'GPT-5.5 Medium' }]
+        };
+        writeSharedCursorModelsCache(catalog);
+        // A cached response must not depend on a slow or unavailable agent binary.
+        spawnMock.mockImplementation(() => { throw new Error('agent unavailable'); });
 
-        const result = await listCursorModels();
-
-        expect(result.cliModelSkus?.map((row) => row.modelId)).toEqual([
-            'gpt-5.5-medium',
-            'gpt-5.5-high-fast',
-            'gpt-5.5-high'
-        ]);
-        expect(spawnMock).toHaveBeenCalled();
+        expect(await listCursorModels()).toEqual(catalog);
+        expect(await listCursorModels()).toEqual(catalog);
+        expect(spawnMock.mock.calls.length).toBe(0);
+        expect(acpProbeMock.runCursorAcpModelProbe.mock.calls.length).toBe(0);
     });
 
     test('prefers ACP wire probe over CLI slug probe when cache is empty', async () => {

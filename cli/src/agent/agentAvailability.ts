@@ -10,6 +10,7 @@ import { getDefaultClaudeCodePath } from '@/claude/sdk/utils'
 import { resolveCodexCommand } from '@/codex/utils/codexExecutable'
 import { resolveDshAcpCommand } from '@/dsh/utils/dshBackend'
 import { getAgentLaunchCommand, resolveExecutable } from './agentLaunchCommand'
+import { readAgentDefaultModelName } from './defaultModel'
 
 type LaunchEnvironment = Record<string, string | undefined>
 type LaunchContext = 'runner' | 'terminal'
@@ -111,7 +112,14 @@ export function getAgentAvailabilityResponse(
     env: LaunchEnvironment = process.env,
 ): AgentAvailabilityResponse {
     return {
-        agents: CREATABLE_AGENT_FLAVORS.map((agent) => getAgentAvailability(agent, env)),
+        agents: CREATABLE_AGENT_FLAVORS.map((agent) => {
+            const entry = getAgentAvailability(agent, env)
+            if (entry.available) {
+                const defaultModelName = readAgentDefaultModelName(agent, env)
+                if (defaultModelName) return { ...entry, defaultModelName }
+            }
+            return entry
+        }),
     }
 }
 
