@@ -36,7 +36,10 @@ describe('agent executable resolution', () => {
             second: '{"model":"gemini-3.8-flash-low"}', nextName: 'Gemini 3.8 Flash (Low)' },
         { agent: 'minimax' as const, command: 'mcode', path: 'config.yaml',
             first: 'defaultModel: minimax/MiniMax-M3.1-Flash-Preview\nprovider:\n  minimax:\n    name: MiniMax\n    models:\n      MiniMax-M3.1-Flash-Preview:\n        name: M3.1-Flash-Preview', name: 'MiniMax M3.1-Flash-Preview',
-            second: 'defaultModel: minimax/MiniMax-M3', nextName: 'minimax/MiniMax-M3' }
+            second: 'defaultModel: minimax/MiniMax-M3', nextName: 'minimax/MiniMax-M3' },
+        { agent: 'opencode' as const, command: 'opencode', path: '.config/opencode/opencode.jsonc',
+            first: '{ // Native default\n"model": "opencode-go/muse-spark-1.3-contributor",\n}', name: 'opencode-go/muse-spark-1.3-contributor',
+            second: '{"model":"openai/gpt-5.4"}', nextName: 'openai/gpt-5.4' }
     ])('reports the configured $agent default without a subprocess and rereads config changes', async (entry) => {
         const directory = await mkdtemp(join(tmpdir(), 'hapi-native-default-'))
         try {
@@ -54,6 +57,34 @@ describe('agent executable resolution', () => {
             await writeFile(config, '{broken json')
             expect(available()).toEqual({ agent: entry.agent, available: true })
             expect(existsSync(`${executable}.spawned`)).toBe(false)
+        } finally {
+            await rm(directory, { recursive: true, force: true })
+        }
+    })
+
+    it('resolves OpenCode config overrides without losing the XDG default for configs without a model', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'hapi-opencode-default-'))
+        try {
+            await makeExecutable(directory, 'opencode')
+            const xdgHome = join(directory, 'xdg')
+            await mkdir(join(xdgHome, 'opencode'), { recursive: true })
+            await writeFile(join(xdgHome, 'opencode', 'opencode.json'), '{"model":"provider/global"}')
+            await writeFile(join(xdgHome, 'opencode', 'opencode.jsonc'), '{"model":"provider/jsonc"}')
+            const override = join(directory, 'override.json')
+            await writeFile(override, '{"model":"provider/custom"}')
+            const customDirectory = join(directory, 'custom')
+            await mkdir(customDirectory)
+            await writeFile(join(customDirectory, 'opencode.json'), '{"model":"provider/directory"}')
+            const env = { PATH: directory, HOME: directory, USERPROFILE: directory, XDG_CONFIG_HOME: xdgHome }
+            const modelName = (overrides = {}) => getAgentAvailabilityResponse({ ...env, ...overrides })
+                .agents.find((entry) => entry.agent === 'opencode')?.defaultModelName
+            expect(modelName()).toBe('provider/jsonc')
+            expect(modelName({ OPENCODE_CONFIG: override })).toBe('provider/custom')
+            expect(modelName({ OPENCODE_CONFIG: override, OPENCODE_CONFIG_DIR: customDirectory })).toBe('provider/directory')
+            expect(modelName({ OPENCODE_CONFIG: override, OPENCODE_CONFIG_DIR: customDirectory,
+                OPENCODE_CONFIG_CONTENT: '{"model":"provider/inline"}' })).toBe('provider/inline')
+            await writeFile(override, '{"mcp":{}}')
+            expect(modelName({ OPENCODE_CONFIG: override })).toBe('provider/jsonc')
         } finally {
             await rm(directory, { recursive: true, force: true })
         }

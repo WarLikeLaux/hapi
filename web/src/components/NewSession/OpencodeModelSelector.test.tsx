@@ -4,6 +4,21 @@ import { I18nProvider } from '@/lib/i18n-context'
 import { OpencodeModelSelector } from './OpencodeModelSelector'
 
 describe('OpencodeModelSelector', () => {
+    it('shows the configured default before discovery and the project default after discovery', () => {
+        const props = {
+            cwd: '/project', machineId: 'machine-1', isLoading: false, error: null,
+            availableModels: [], currentModelId: null, selectedModel: null,
+            defaultModelName: 'opencode-go/muse-spark-1.3-contributor', onModelChange: vi.fn(),
+        }
+        const view = render(<I18nProvider><OpencodeModelSelector {...props} /></I18nProvider>)
+        expect(screen.getByRole('combobox')).toHaveDisplayValue('opencode-go/muse-spark-1.3-contributor')
+        view.rerender(<I18nProvider><OpencodeModelSelector {...props}
+            availableModels={[{ modelId: 'openai/gpt-5.4', name: 'GPT-5.4' }]}
+            currentModelId="openai/gpt-5.4"
+        /></I18nProvider>)
+        expect(screen.getByRole('combobox')).toHaveDisplayValue('GPT-5.4')
+    })
+
     it('uses the shared combobox interaction for discovered models', () => {
         const onModelChange = vi.fn()
         render(<I18nProvider>
