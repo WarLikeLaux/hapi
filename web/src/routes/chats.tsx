@@ -1308,33 +1308,39 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                 </button>
                             )
                         })()
+                        const timestamp = (
+                            <time
+                                dateTime={new Date(item.createdAt).toISOString()}
+                                title={new Date(item.createdAt).toLocaleString()}
+                                className="messenger-time inline-flex items-center pb-0.5 text-[11px] leading-none tabular-nums"
+                            >
+                                {formatTime(item.createdAt)}
+                                {outgoing
+                                    ? <span className="ml-1 inline-flex align-middle"><MessageStatusIndicator
+                                        status={outgoing.status}
+                                        onRetry={() => outbox.retry(outgoing.input.clientId)}
+                                    /></span>
+                                    : !incoming && item.deliveryStatus
+                                        ? <ExternalDeliveryStatus status={item.deliveryStatus} className="ml-1 align-middle" />
+                                        : null}
+                            </time>
+                        )
                         const caption = item.text || richMessage ? (
-                            <div className={richMessage ? 'flex flex-col gap-1' : 'flex items-end gap-2'}>
-                                <div className="min-w-0 flex-1">
-                                    {showSenderName ? (
-                                        <div className="mb-0.5 text-[11px] font-semibold leading-tight" style={{ color: senderNameColor(item.senderId) }}>
-                                            {item.senderName}
-                                        </div>
-                                    ) : null}
-                                    {item.forward && !hasMedia ? <ExternalForwardHeader forward={item.forward} /> : null}
-                                    {item.text ? <ExternalMessageText text={item.text} textLinks={item.textLinks} compact={!hasMedia && !richMessage} /> : null}
-                                    {hasLinkPreview ? <ExternalLinkPreview message={item} /> : null}
-                                </div>
-                                <time
-                                    dateTime={new Date(item.createdAt).toISOString()}
-                                    title={new Date(item.createdAt).toLocaleString()}
-                                    className={cn('messenger-time shrink-0 pb-0.5 text-[11px] leading-none tabular-nums', richMessage && 'self-end')}
-                                >
-                                    {formatTime(item.createdAt)}
-                                    {outgoing
-                                        ? <span className="ml-1 inline-flex align-middle"><MessageStatusIndicator
-                                            status={outgoing.status}
-                                            onRetry={() => outbox.retry(outgoing.input.clientId)}
-                                        /></span>
-                                        : !incoming && item.deliveryStatus
-                                            ? <ExternalDeliveryStatus status={item.deliveryStatus} className="ml-1 align-middle" />
-                                            : null}
-                                </time>
+                            <div className="flex min-w-0 flex-col gap-1">
+                                {showSenderName ? (
+                                    <div className="text-[11px] font-semibold leading-tight" style={{ color: senderNameColor(item.senderId) }}>
+                                        {item.senderName}
+                                    </div>
+                                ) : null}
+                                {item.forward && !hasMedia ? <ExternalForwardHeader forward={item.forward} /> : null}
+                                {item.text ? <ExternalMessageText
+                                    text={item.text}
+                                    textLinks={item.textLinks}
+                                    compact={!hasMedia && !richMessage}
+                                    footer={!hasLinkPreview ? timestamp : undefined}
+                                /> : null}
+                                {hasLinkPreview ? <ExternalLinkPreview message={item} /> : null}
+                                {hasLinkPreview || !item.text ? <div className="self-end">{timestamp}</div> : null}
                             </div>
                         ) : null
                         return (
