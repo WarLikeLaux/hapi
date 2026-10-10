@@ -19,14 +19,14 @@ function machine(metadata: Machine['metadata']): Machine {
 }
 
 describe('new session defaults', () => {
-    it('orders Create Session agents as codex, minimax, GLM (claude), antigravity, cursor, opencode', () => {
+    it('orders Create Session agents as codex, GLM (claude), antigravity, opencode, cursor, minimax', () => {
         expect(orderCreateSessionAgents(['agy', 'claude', 'codex', 'cursor', 'minimax', 'opencode']))
-            .toEqual(['codex', 'minimax', 'claude', 'agy', 'cursor', 'opencode'])
+            .toEqual(['codex', 'claude', 'agy', 'opencode', 'cursor', 'minimax'])
     })
 
-    it('keeps unlisted agents after the curated order, preserving their incoming order', () => {
+    it('keeps unlisted agents in their incoming order before MiniMax at the end', () => {
         expect(orderCreateSessionAgents(['grok', 'agy', 'claude', 'codex', 'pi', 'cursor', 'minimax', 'opencode']))
-            .toEqual(['codex', 'minimax', 'claude', 'agy', 'cursor', 'opencode', 'grok', 'pi'])
+            .toEqual(['codex', 'claude', 'agy', 'opencode', 'cursor', 'grok', 'pi', 'minimax'])
     })
 
     it('prefers the runner workspace root over recent paths and home', () => {
