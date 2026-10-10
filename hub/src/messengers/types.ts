@@ -40,6 +40,8 @@ export interface MessengerConnector {
     submitAuth(input: SubmitMessengerAuthRequest): Promise<void>
     listConversations(): Promise<ExternalConversation[]>
     loadMessages(remoteId: string, limit?: number): Promise<ExternalMessage[]>
+    /** Read cursor for providers whose message ids cannot fit in a JavaScript number. */
+    markReadMessage?(remoteId: string, message: ExternalMessage): Promise<void>
     markRead?(
         remoteId: string,
         maxProviderMessageId: number,

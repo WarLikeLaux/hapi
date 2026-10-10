@@ -4,6 +4,7 @@ import { extname, join } from 'node:path'
 import type {
     ConfigureTelegramRequest,
     ConfigureYandexRequest,
+    ConfigureMaxRequest,
     ExternalConversation,
     ExternalMessage,
     ExternalParticipant,
@@ -15,6 +16,8 @@ import type { Store } from '../store'
 import type { SSEManager } from '../sse/sseManager'
 import { TelegramConnector } from './telegramConnector'
 import { YandexConnector } from './yandex/yandexConnector'
+import { MaxConnector } from './max/maxConnector'
+import { ConfigureMaxRequestSchema } from '@hapi/protocol'
 import type { DownloadedExternalMedia, MessengerConnector, MessengerConnectorEvent, MessengerConnectorFactory } from './types'
 
 type MediaPrefetchTask = {
@@ -103,6 +106,7 @@ export class MessengerManager {
     }) {
         this.factories.set('telegram', (connectorOptions) => new TelegramConnector(connectorOptions))
         this.factories.set('yandex', (connectorOptions) => new YandexConnector(connectorOptions))
+        this.factories.set('max', (connectorOptions) => new MaxConnector(connectorOptions))
     }
 
     registerConnectorFactory(provider: string, factory: MessengerConnectorFactory): void {
@@ -138,6 +142,13 @@ export class MessengerManager {
     async submitAuth(namespace: string, provider: string, input: SubmitMessengerAuthRequest): Promise<MessengerConnection> {
         const connector = await this.requireConnector(namespace, provider)
         await connector.submitAuth(input)
+        return connector.getConnection()
+    }
+
+    async configureMax(namespace: string, config: ConfigureMaxRequest): Promise<MessengerConnection> {
+        const connector = await this.getOrCreate(namespace, 'max')
+        await connector.configure(config)
+        await this.saveProviderConfig(namespace, 'max', config)
         return connector.getConnection()
     }
 
@@ -364,13 +375,18 @@ export class MessengerManager {
                     }
                 }
             }
-            if (maxProviderMessageId > 0) {
+            if (cached.length > 0) {
                 const connector = await this.requireConnector(namespace, conversation.provider)
                 try {
                     const cursor = maxSeqNo !== undefined && maxVersion !== undefined
                         ? { seqNo: maxSeqNo, version: maxVersion }
                         : undefined
-                    await connector.markRead?.(conversation.remoteId, maxProviderMessageId, cursor)
+                    if (connector.markReadMessage) {
+                        const latest = cached.reduce((a, b) => b.createdAt > a.createdAt ? b : a)
+                        await connector.markReadMessage(conversation.remoteId, latest)
+                    } else if (maxProviderMessageId > 0) {
+                        await connector.markRead?.(conversation.remoteId, maxProviderMessageId, cursor)
+                    }
                 } catch (error) {
                     console.error(`[Messengers] Failed to mark ${conversation.id} read:`, error)
                 }
@@ -776,7 +792,7 @@ export class MessengerManager {
         // temporarily rejected session). Without retrying, a single transient
         // failure used to leave delivery dead until the next hub restart.
         if (state !== 'unconfigured' && state !== 'error') return
-        if (connector.provider !== 'telegram' && connector.provider !== 'yandex') return
+        if (!['telegram', 'yandex', 'max'].includes(connector.provider)) return
         const key = this.key(namespace, connector.provider)
         const inFlight = this.configureInFlight.get(key)
         if (inFlight) return inFlight
@@ -829,6 +845,10 @@ export class MessengerManager {
             if (provider === 'yandex') {
                 if (typeof value.cookies !== 'string' || value.cookies.trim().length === 0) return null
                 return { cookies: value.cookies }
+            }
+            if (provider === 'max') {
+                const parsed = ConfigureMaxRequestSchema.safeParse(value)
+                return parsed.success ? parsed.data : null
             }
             return null
         } catch {
@@ -885,8 +905,17 @@ export class MessengerManager {
  }
  }
  }
- if (maxProviderMessageId <= 0) return
  const connector = await this.requireConnector(namespace, conversation.provider)
+ if (connector.markReadMessage) {
+ try {
+ const latest = cached.reduce((a, b) => b.createdAt > a.createdAt ? b : a)
+ await connector.markReadMessage(conversation.remoteId, latest)
+ } catch (error) {
+ console.error(`[Messengers] Failed to mark ${conversation.id} read (real-time):`, error)
+ }
+ return
+ }
+ if (maxProviderMessageId <= 0) return
  const cursor = maxSeqNo !== undefined && maxVersion !== undefined
  ? { seqNo: maxSeqNo, version: maxVersion }
  : undefined

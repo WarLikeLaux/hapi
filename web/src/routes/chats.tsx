@@ -30,6 +30,7 @@ import { useExternalMessages } from '@/hooks/queries/useExternalMessages'
 import { useExternalMessageOutbox } from '@/hooks/mutations/useExternalMessageOutbox'
 import { MessageStatusIndicator } from '@/components/AssistantChat/messages/MessageStatusIndicator'
 import { useAppContext } from '@/lib/app-context'
+import { ApiError } from '@/api/client'
 import { upsertMessengerConnection } from '@/lib/messengerConnections'
 import { queryKeys } from '@/lib/query-keys'
 import { useTranslation } from '@/lib/use-translation'
@@ -49,11 +50,12 @@ function YandexMark(props: { className?: string }) {
     return <ProviderMark provider="yandex" className={props.className} />
 }
 
-type ChatsProvider = 'telegram' | 'yandex'
+type ChatsProvider = 'telegram' | 'yandex' | 'max'
 
-const chatsProviders: ChatsProvider[] = ['telegram', 'yandex']
+const chatsProviders: ChatsProvider[] = ['telegram', 'yandex', 'max']
 
-const PROVIDER_LABELS: Record<ChatsProvider, string> = { telegram: 'Telegram', yandex: 'Yandex' }
+const PROVIDER_LABELS: Record<ChatsProvider, string> = { telegram: 'Telegram', yandex: 'Yandex', max: 'MAX' }
+const PROVIDER_BACKGROUNDS: Record<ChatsProvider, string> = { telegram: 'bg-[#2AABEE]', yandex: 'bg-[#FC3F1D]', max: 'bg-[#6654D9]' }
 
 function SettingsIcon() {
     return (
@@ -112,19 +114,23 @@ function loadReactionUsage(): Record<string, number> {
 function updatedReactions(
     current: ExternalReaction[],
     reaction: string,
-    emoji: string | null
+    emoji: string | null,
+    limit = 3
 ): { selected: string[]; optimistic: ExternalReaction[] } {
     const existing = current.find((item) => item.reaction === reaction)
     const activating = !existing?.chosen
-    const selected = current.filter((item) => item.chosen && item.reaction !== reaction).map((item) => item.reaction)
+    const selected = current.filter((item) => item.chosen && item.reaction !== reaction && !(activating && limit === 1)).map((item) => item.reaction)
     if (activating) selected.push(reaction)
     const optimistic = current.flatMap((item) => {
-        if (item.reaction !== reaction) return [item]
+        if (item.reaction !== reaction) {
+            if (activating && limit === 1 && item.chosen) return item.count > 1 ? [{ ...item, count: item.count - 1, chosen: false }] : []
+            return [item]
+        }
         const count = item.count + (activating ? 1 : -1)
         return count > 0 ? [{ ...item, count, chosen: activating }] : []
     })
     if (!existing && activating) optimistic.push({ reaction, emoji, count: 1, chosen: true })
-    return { selected: selected.slice(-3), optimistic }
+    return { selected: selected.slice(-limit), optimistic }
 }
 
 function formatTime(value: number | null): string {
@@ -486,6 +492,8 @@ function ProviderSection(props: { provider: ChatsProvider; connection: Messenger
     const [apiId, setApiId] = useState('')
     const [apiHash, setApiHash] = useState('')
     const [cookies, setCookies] = useState('')
+    const [maxToken, setMaxToken] = useState('')
+    const [maxDeviceId, setMaxDeviceId] = useState('')
     const [authValue, setAuthValue] = useState('')
     const [selected, setSelected] = useState<Set<string>>(new Set())
     const selectionInitialized = useRef(false)
@@ -502,12 +510,13 @@ function ProviderSection(props: { provider: ChatsProvider; connection: Messenger
     // slam the messenger backend. The first time `fetchNow` flips true we
     // either reuse whatever is already in cache (refreshing in the background
     // once 60 s have passed since the previous explicit refresh) or pull a
-    // fresh list with `?refresh=true`.
+    // fresh list through the explicit refresh mutation. SSE invalidations read
+    // the local snapshot, so the refresh event does not start another refresh.
     const [candidatesLoaded, setCandidatesLoaded] = useState(false)
     const fetchCandidatesNow = () => setCandidatesLoaded(true)
     const candidates = useQuery({
         queryKey: queryKeys.messengerCandidates(provider),
-        queryFn: async () => (await api!.getMessengerCandidates(provider, { refresh: true })).conversations,
+        queryFn: async () => (await api!.getMessengerCandidates(provider)).conversations,
         enabled: Boolean(api && ready && candidatesLoaded)
     })
     const visibleCandidates = useMemo(() => {
@@ -533,12 +542,24 @@ function ProviderSection(props: { provider: ChatsProvider; connection: Messenger
     const configure = useMutation({
         mutationFn: async () => provider === 'telegram'
             ? api!.configureTelegram({ apiId: Number(apiId), apiHash })
-            : api!.configureYandex({ cookies }),
+            : provider === 'max'
+                ? api!.configureMax({ token: maxToken, deviceId: maxDeviceId.trim() })
+                : api!.configureYandex({ cookies }),
         onSuccess: ({ connection }) => {
             cacheConnection(connection)
             setError(null)
+            if (provider === 'max') setMaxToken('')
         },
-        onError: (cause) => setError(cause instanceof Error ? cause.message : t('dialog.error.default'))
+        onError: (cause) => {
+            let detail = cause instanceof Error ? cause.message : t('dialog.error.default')
+            if (provider === 'max' && cause instanceof ApiError && cause.body) {
+                try {
+                    const body: unknown = JSON.parse(cause.body)
+                    if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') detail = body.error
+                } catch { /* Keep the connection error when the response is not JSON. */ }
+            }
+            setError(detail)
+        }
     })
     const submitAuth = useMutation({
         mutationFn: async (input: SubmitMessengerAuthRequest) => api!.submitMessengerAuth(provider, input),
@@ -570,13 +591,15 @@ function ProviderSection(props: { provider: ChatsProvider; connection: Messenger
         : authKind === 'code'
             ? t('chats.telegram.code')
             : t('chats.telegram.password')
-    const connectDisabled = provider === 'telegram' ? (!apiId || !apiHash) : cookies.trim().length === 0
-    const connectLabel = provider === 'telegram' ? t('chats.connectTelegram') : t('chats.connectYandex')
+    const connectDisabled = provider === 'telegram' ? (!apiId || !apiHash)
+        : provider === 'max' ? (!maxToken.trim() || !maxDeviceId.trim()) : cookies.trim().length === 0
+    const connectLabel = provider === 'telegram' ? t('chats.connectTelegram')
+        : provider === 'max' ? t('chats.connectMax') : t('chats.connectYandex')
 
     return (
         <section>
             <div className="mb-3 flex items-center gap-3">
-                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${provider === 'yandex' ? 'bg-[#FC3F1D]' : 'bg-[#2AABEE]'}`}>
+                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${PROVIDER_BACKGROUNDS[provider]}`}>
                     <ProviderMark provider={provider} className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -671,6 +694,30 @@ function ProviderSection(props: { provider: ChatsProvider; connection: Messenger
                 </form>
             ) : props.connection.state === 'starting' ? (
                 <div className="py-10 text-center text-sm text-[var(--app-hint)]">{t('chats.connecting')}</div>
+            ) : provider === 'max' ? (
+                <form onSubmit={(event) => {
+                    event.preventDefault()
+                    configure.mutate()
+                }}>
+                    <p id="max-credentials-hint" className="mb-4 text-sm text-[var(--app-hint)]">{t('chats.max.credentialsHint')}</p>
+                    <label htmlFor="max-token" className="mb-1 block text-sm font-medium">{t('chats.max.token')}</label>
+                    <input
+                        id="max-token" type="password" autoComplete="off" spellCheck={false}
+                        value={maxToken} onChange={(event) => setMaxToken(event.target.value)}
+                        aria-describedby="max-credentials-hint"
+                        className="mb-3 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]"
+                    />
+                    <label htmlFor="max-device-id" className="mb-1 block text-sm font-medium">{t('chats.max.deviceId')}</label>
+                    <input
+                        id="max-device-id" autoComplete="off" spellCheck={false}
+                        value={maxDeviceId} onChange={(event) => setMaxDeviceId(event.target.value)}
+                        aria-describedby="max-credentials-hint"
+                        className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-3 py-2.5 outline-none focus:border-[var(--app-link)]"
+                    />
+                    <button type="submit" disabled={connectDisabled || configure.isPending} className="mt-3 w-full rounded-xl bg-[var(--app-button)] px-4 py-2.5 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50">
+                        {configure.isPending ? t('chats.connecting') : connectLabel}
+                    </button>
+                </form>
             ) : provider === 'telegram' ? (
                 <form onSubmit={(event) => {
                     event.preventDefault()
@@ -705,7 +752,7 @@ function ProviderSection(props: { provider: ChatsProvider; connection: Messenger
                 </form>
             )}
             {props.connection.detail ? <div className="mt-3 rounded-xl bg-[var(--app-subtle-bg)] p-3 text-xs text-[var(--app-hint)]">{props.connection.detail}</div> : null}
-            {error ? <div className="mt-3 text-sm text-red-600">{error}</div> : null}
+            {error ? <div role="alert" className="mt-3 text-sm text-red-600">{error}</div> : null}
         </section>
     )
 }
@@ -760,6 +807,7 @@ function ChatList(props: {
                         <span className="mx-auto mb-3 flex items-center justify-center gap-2">
                             <TelegramMark className="h-8 w-8 text-[#229ED9]" />
                             <YandexMark className="h-8 w-8 text-[#FC3F1D]" />
+                            <ProviderMark provider="max" className="h-8 w-8 text-[#6654D9]" />
                         </span>
                         <span className="block text-sm font-medium">{t('chats.empty.title')}</span>
                         <span className="mt-1 block text-xs text-[var(--app-hint)]">{t('chats.empty.hint')}</span>
@@ -1540,7 +1588,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                                         setMessageMenu(null)
                                                         setReactions.mutate({
                                                             providerMessageId: item.providerMessageId,
-                                                            ...updatedReactions(reactions, reaction.reaction, reaction.emoji)
+                                                            ...updatedReactions(reactions, reaction.reaction, reaction.emoji, conversation.provider === 'max' ? 1 : 3)
                                                         })
                                                     }}
                                                     className={cn(
@@ -1594,7 +1642,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         closeMessageMenu()
                         setReactions.mutate({
                             providerMessageId: message.providerMessageId,
-                            ...updatedReactions(reactions, reaction, emoji),
+                            ...updatedReactions(reactions, reaction, emoji, conversation.provider === 'max' ? 1 : 3),
                         })
                     }}
                 />
