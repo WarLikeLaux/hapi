@@ -923,6 +923,9 @@ export default {
   'reconnecting.reason.transportError': '流连接错误',
   'pwa.updating.title': '正在更新 HAPI…',
   'pwa.updating.body': '检测到新版本已部署，HAPI 正在重新加载以应用更新。',
+  'pwa.updateFailed.title': 'HAPI 更新未完成',
+  'pwa.updateFailed.body': '你可以继续使用 HAPI，或重新加载以获取最新版本。已保存的设置和草稿会保留。',
+  'pwa.updateFailed.reload': '重新加载 HAPI',
 
   // Send blocked
   'send.blocked.title': '无法发送消息',

@@ -925,6 +925,9 @@ export default {
   'reconnecting.reason.transportError': 'stream error',
   'pwa.updating.title': 'Updating HAPI…',
   'pwa.updating.body': 'A new version was just deployed and HAPI is reloading to apply it.',
+  'pwa.updateFailed.title': 'HAPI update did not finish',
+  'pwa.updateFailed.body': 'You can keep using HAPI, or reload to get the latest version. Your saved settings and drafts will stay.',
+  'pwa.updateFailed.reload': 'Reload HAPI',
 
   // Send blocked
   'send.blocked.title': 'Cannot send message',
