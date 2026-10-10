@@ -65,7 +65,7 @@ function serveMax() {
                     else reply({ profile: { contact: { id: 7, names: [{ name: 'Owner' }], baseUrl: 'https://i.oneme.ru/owner' } }, chats, contacts: [] })
                 } else if (packet.opcode === 53) reply({ chats, marker: null })
                 else if (packet.opcode === 32) reply({ contacts: [{ id: 8, names: [{ firstName: 'Peer', lastName: 'Name' }], baseUrl: 'https://i.oneme.ru/peer' }] })
-                else if (packet.opcode === 80) reply({ url: 'https://iu.oneme.ru/upload-photo?photoIds=123' })
+                else if (packet.opcode === 80) reply({ url: 'https://iu.oneme.ru/upload-photo?r=opaque-upload-ticket' })
                 else if (packet.opcode === 87) reply({ info: [{ fileId: 123, url: 'https://file-ms.oneme.ru/upload-file', token: 'file-token' }] })
                 else if (packet.opcode === 49) reply({ messages })
                 else if (packet.opcode === 64) {
@@ -219,7 +219,7 @@ describe('MAX personal-account connector', () => {
         } finally { await connector.stop(); server.stop(true) }
     })
 
-    it('uploads photos and processed files, downloads private media, and validates redirect destinations', async () => {
+    it('uploads photos, GIFs and processed files, downloads private media, and validates redirect destinations', async () => {
         const { server, sockets, packets, uploaded } = serveMax()
         const dataDir = await mkdtemp(join(tmpdir(), 'hapi-max-media-'))
         const events: MessengerConnectorEvent[] = []
@@ -238,10 +238,26 @@ describe('MAX personal-account connector', () => {
             for (const mimeType of ['image/png', 'text/plain']) await connector.sendMedia('42', {
                 path, mimeType, fileName: 'test.bin', caption: 'Caption', clientId: mimeType
             })
-            expect(uploaded.map(file => Buffer.from(file.bytes).toString())).toEqual(['upload-bytes', 'upload-bytes'])
+            const gif = Buffer.from(
+                '47494638396101000100800000000000ffffff21ff0b4e45545343415045322e300301000000'
+                + '21f904000a0000002c0000000001000100000202440100'
+                + '21f904000a0000002c00000000010001000002024c01003b', 'hex'
+            )
+            await writeFile(path, gif)
+            await connector.sendMedia('42', {
+                path, mimeType: 'image/gif', fileName: 'animation.gif', caption: 'GIF caption',
+                clientId: 'gif-send', replyToProviderMessageId: messageId
+            })
+            expect(uploaded.slice(0, 2).map(file => Buffer.from(file.bytes).toString())).toEqual(['upload-bytes', 'upload-bytes'])
+            expect(uploaded[2].name).toBe('animation.gif')
+            expect(Buffer.from(uploaded[2].bytes)).toEqual(gif)
             const sends = packets.filter(packet => packet.opcode === 64)
             expect(sends[0].payload).toMatchObject({ message: { attaches: [{ _type: 'PHOTO', photoToken: 'uploaded-photo' }] } })
             expect(sends[1].payload).toMatchObject({ message: { attaches: [{ _type: 'FILE', fileId: 123, token: 'file-token' }] } })
+            expect(sends[2].payload).toMatchObject({ message: {
+                text: 'GIF caption', attaches: [{ _type: 'PHOTO', photoToken: 'uploaded-photo' }],
+                link: { type: 'REPLY', messageId }
+            } })
             for (const socket of sockets) socket.send(JSON.stringify({ cmd: 0, opcode: 128, seq: 2, payload: {
                 chatId: 42, message: { id: '66', sender: 8, text: '', time: Date.now(), attaches: [
                     { _type: 'INLINE_KEYBOARD', keyboard: { buttons: [[{ text: 'Open', url: 'https://example.com' }]] } },
