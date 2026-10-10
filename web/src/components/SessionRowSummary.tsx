@@ -230,8 +230,8 @@ export function SessionRowSummary(props: {
 
     return (
         <div className={`flex w-full min-w-0 items-center gap-2.5 ${className ?? ''}`}>
-            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-secondary-bg)] text-[var(--app-fg)] ${!s.active ? 'opacity-50' : ''}`} aria-hidden="true">
-                <AgentFlavorIcon flavor={s.metadata?.flavor} className="h-6 w-6" />
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center text-[var(--app-fg)] ${!s.active ? 'opacity-50' : ''}`} aria-hidden="true">
+                <AgentFlavorIcon flavor={s.metadata?.flavor} className="h-full w-full" avatar />
             </span>
             <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <div className={`grid grid-cols-[minmax(0,1fr)_minmax(0,max-content)] items-center gap-2 ${!s.active ? 'opacity-50' : ''}`}>
