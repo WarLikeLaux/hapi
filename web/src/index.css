@@ -38,7 +38,11 @@
     --app-delivery-fg: #e2efff;
 }
 
-[data-color-theme="telegram"] .happy-assistant-bubble:not(:empty) {
+.happy-assistant-bubble > [data-hapi-scroll-anchor]:empty {
+    display: none;
+}
+
+[data-color-theme="telegram"] .happy-assistant-bubble:has(> [data-hapi-scroll-anchor]:not(:empty)) {
     width: fit-content;
     min-width: 0;
     max-width: 100%;
@@ -619,6 +623,11 @@ html:has(.chat-scroll-y) #root {
     margin-top: max(0px, calc((var(--app-chat-line-height) - var(--app-message-action-size)) / 2));
 }
 
+/* Keep the next user bubble close to the compact response footer. */
+.happy-thread-messages > .happy-message:has(> .happy-response-work) + [data-hapi-message-role="user"] {
+    margin-top: -8px;
+}
+
 @media (hover: hover) and (pointer: fine) {
     .happy-message-actions {
         opacity: 0;
@@ -630,6 +639,31 @@ html:has(.chat-scroll-y) #root {
     .happy-message:focus-within .happy-message-actions {
         opacity: 1;
         pointer-events: auto;
+    }
+
+    /* Hover controls must not reserve an empty row between chat messages. */
+    .happy-thread-messages > [data-hapi-message-role="assistant"] {
+        position: relative;
+        overflow: visible;
+    }
+
+    .happy-thread-messages > [data-hapi-message-role="assistant"] > .happy-message-actions {
+        position: absolute;
+        top: 0;
+        right: 4px;
+        z-index: 2;
+        margin-top: 0;
+        padding-inline: 4px;
+        border-radius: 6px;
+        background-color: var(--app-secondary-bg);
+        transform: translateY(-50%);
+    }
+
+    .happy-thread-messages > .happy-message:has(> .happy-response-work) > .happy-message-actions {
+        top: auto;
+        bottom: 2px;
+        background-color: transparent;
+        transform: none;
     }
 }
 

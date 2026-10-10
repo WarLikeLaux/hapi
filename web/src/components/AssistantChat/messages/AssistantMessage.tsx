@@ -31,17 +31,29 @@ function AnchoredResponseText(props: TextMessagePartProps) {
         ? getExternalStoreMessages<ThreadMessageLike>(part)[0]?.id
         : undefined)
     return (
-        <div id={sourceId ? `hapi-response-part-${sourceId}` : undefined} data-hapi-scroll-anchor="true" className="happy-assistant-bubble">
+        <div id={sourceId ? `hapi-response-part-${sourceId}` : undefined} data-hapi-scroll-anchor="true">
             <NotifySummaryText {...props} />
         </div>
     )
+}
+
+function ResponsePartsGroup({ groupKey, children }: PropsWithChildren<{ groupKey: string | undefined }>) {
+    return groupKey === 'response-text'
+        ? <div className="happy-assistant-bubble flex min-w-0 max-w-full flex-col gap-2">{children}</div>
+        : <>{children}</>
 }
 
 const MESSAGE_PART_COMPONENTS = {
     Text: AnchoredResponseText,
     Reasoning: Reasoning,
     ReasoningGroup: ReasoningGroup,
-    tools: TOOL_COMPONENTS
+    tools: TOOL_COMPONENTS,
+    Group: ResponsePartsGroup,
+} as const
+
+const LIVE_WORK_COMPONENTS = {
+    ...MESSAGE_PART_COMPONENTS,
+    Text: () => null,
 } as const
 
 function DetailPartsGroup({ children }: PropsWithChildren) {
@@ -93,10 +105,19 @@ export function HappyAssistantMessage() {
         [isLastMessage, messageParts, messageStatus?.type, threadIsRunning]
     )
     const visiblePartsGrouping = useMemo(
-        () => () => compactParts
-            ? [{ groupKey: 'visible-response', indices: compactParts.visibleIndices }]
-            : [],
-        [compactParts]
+        () => () => {
+            const visibleIndices = compactParts?.visibleIndices ?? messageParts.map((_, index) => index)
+            const textIndices = visibleIndices.filter((index) => messageParts[index].type === 'text')
+            // Keep streaming prose in one stable bubble, with work and media
+            // below it. Individual text parts retain their source anchors.
+            return [
+                ...(textIndices.length > 0 ? [{ groupKey: 'response-text', indices: textIndices }] : []),
+                ...(compactParts ? visibleIndices : [])
+                    .filter((index) => messageParts[index].type !== 'text')
+                    .map((index) => ({ groupKey: undefined, indices: [index] })),
+            ]
+        },
+        [compactParts, messageParts]
     )
     const detailPartsGrouping = useMemo(
         () => () => compactParts
@@ -169,32 +190,33 @@ export function HappyAssistantMessage() {
                 ? <CliOutputBlock text={cliText} />
                 : codexReview
                     ? <CodexReviewCard review={codexReview} />
-                    : compactParts
-                        ? (
+                    : (
+                        <>
                             <MessagePrimitive.Unstable_PartsGrouped
                                 groupingFunction={visiblePartsGrouping}
                                 components={MESSAGE_PART_COMPONENTS}
                             />
-                        )
-                        : <MessagePrimitive.Content components={MESSAGE_PART_COMPONENTS} />}
+                            {!compactParts ? <MessagePrimitive.Content components={LIVE_WORK_COMPONENTS} /> : null}
+                        </>
+                    )}
             {compactParts || workspaceChanges ? (
                 <>
-                    <div className="mt-2 flex flex-wrap items-center gap-1" data-hapi-share-exclude="true">
+                    <div className="happy-response-work mt-1 flex flex-wrap items-center gap-1" data-hapi-share-exclude="true">
                         {compactParts ? (
                             <button
                                 type="button"
                                 onClick={() => setWorkOpen(true)}
                                 aria-haspopup="dialog"
                                 className={cn(
-                                    'inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium',
+                                    'inline-flex h-6 items-center gap-1.5 rounded-lg px-2 text-xs font-medium',
                                     'text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]',
                                     'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
                                 )}
                             >
                                 <WorkIcon className="h-4 w-4" />
                                 <span>{t('session.responseWork.open')}</span>
-                                <span aria-hidden="true" className="hidden tabular-nums opacity-70 sm:inline">
-                                    · {compactParts.detailIndices.length}
+                                <span className="tabular-nums opacity-70">
+                                    ({compactParts.detailIndices.length})
                                 </span>
                             </button>
                         ) : null}
