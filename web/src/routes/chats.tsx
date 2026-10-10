@@ -1174,7 +1174,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     }
 
     return (
-        <div className="flex h-full min-h-0 flex-col pt-[env(safe-area-inset-top)]">
+        <div className="messenger-chat flex h-full min-h-0 flex-col pt-[env(safe-area-inset-top)]">
             <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-3">
                 <button type="button" onClick={() => navigate({ to: props.backTo })} className="rounded-full p-2 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] split:hidden"><BackIcon /></button>
                 <ConversationAvatar conversation={conversation} />
@@ -1271,19 +1271,20 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         const avatarSrc = item.senderAvatarDataUrl
                             ?? (item.senderId ? participantAvatars.get(item.senderId) : null)
                             ?? (incoming && conversation.kind === 'direct' ? conversation.avatarDataUrl : null)
-                        const groupedCornerClassName = incoming
-                            ? cn(continuesPrevious && 'rounded-tl-[5px]', continuesNext && 'rounded-bl-[5px]')
-                            : cn(continuesPrevious && 'rounded-tr-[5px]', continuesNext && 'rounded-br-[5px]')
+                        const groupedCornerClassName = cn(
+                            continuesPrevious && 'messenger-bubble-joined-top',
+                            continuesNext && 'messenger-bubble-joined-bottom'
+                        )
                         const bubbleClassName = incoming
-                            ? cn('happy-chat-text w-fit max-w-full rounded-2xl bg-[var(--app-secondary-bg)] px-4 py-2.5 text-[var(--app-fg)]', groupedCornerClassName)
-                            : cn(getUserBubbleClassName(), 'max-w-full', groupedCornerClassName)
+                            ? cn('messenger-bubble messenger-bubble-incoming happy-chat-text w-fit max-w-full bg-[var(--app-secondary-bg)] text-[var(--app-fg)]', groupedCornerClassName, !continuesNext && 'messenger-bubble-tail-incoming')
+                            : cn(getUserBubbleClassName(), 'messenger-bubble messenger-bubble-outgoing max-w-full', groupedCornerClassName, !continuesNext && 'messenger-bubble-tail-outgoing')
                         const replyTarget = item.replyToProviderMessageId
                             ? messagesByProviderId.get(item.replyToProviderMessageId)
                             : undefined
                         const quoteHeader = (() => {
                             if (!item.replyToProviderMessageId) return null
                             const name = replyTarget
-                                ? (replyTarget.direction === 'outgoing' ? t('chats.reply.you') : replyTarget.senderName || null)
+                                ? (replyTarget.senderName || (replyTarget.direction === 'outgoing' ? t('chats.reply.you') : null))
                                 : item.replyToSenderName ?? null
                             const quote = replyTarget
                                 ? (replyTarget.text.trim() || (replyTarget.media?.[0] ? mediaLabel(replyTarget.media[0]) : ''))
@@ -1296,12 +1297,12 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                         scrollToMessage(item.replyToProviderMessageId!)
                                     }}
                                     title={t('chats.reply.action')}
-                                    className="mb-1 flex max-w-full flex-col overflow-hidden rounded-lg bg-black/10 px-2 py-1 text-left dark:bg-white/15"
+                                    className="messenger-reply mb-1 flex max-w-full flex-col overflow-hidden rounded-md py-1 pl-2 pr-2 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--messenger-accent)]"
                                 >
-                                    <span className="truncate text-xs font-semibold text-[#168AC4] dark:text-[#2AABEE]">
+                                    <span className="truncate text-sm font-medium leading-[1.25] text-[var(--messenger-accent)]">
                                         {name ?? t('chats.reply.unavailable')}
                                     </span>
-                                    <span className="truncate text-xs text-[var(--app-hint)]">
+                                    <span className="truncate text-sm leading-[1.25]">
                                         {quote || t('chats.reply.unavailable')}
                                     </span>
                                 </button>
@@ -1322,7 +1323,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                 <time
                                     dateTime={new Date(item.createdAt).toISOString()}
                                     title={new Date(item.createdAt).toLocaleString()}
-                                    className={cn('shrink-0 pb-0.5 text-[9px] leading-none opacity-60 tabular-nums', richMessage && 'self-end')}
+                                    className={cn('messenger-time shrink-0 pb-0.5 text-[11px] leading-none tabular-nums', richMessage && 'self-end')}
                                 >
                                     {formatTime(item.createdAt)}
                                     {outgoing
@@ -1392,7 +1393,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                     }
                                 }}
                             >
-                                {incoming ? (
+                                {incoming && conversation.kind !== 'direct' ? (
                                     continuesNext
                                         ? <div aria-hidden="true" className="h-8 w-8 shrink-0" />
                                         : <ChatParticipantAvatar src={avatarSrc} name={item.senderName ?? conversation.title} />
@@ -1429,12 +1430,12 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                     }}
                                 >
                                     {hasMedia && caption ? (
-                                        <div className={cn(bubbleClassName, 'overflow-hidden p-1')}>
-                                            {item.forward ? <div className="px-3 pt-2"><ExternalForwardHeader forward={item.forward} /></div> : null}
+                                        <div className={cn(bubbleClassName, 'messenger-bubble-media')}>
+                                            {item.forward ? <div className="px-2 pt-1"><ExternalForwardHeader forward={item.forward} /></div> : null}
                                             <div className="flex max-w-full flex-col gap-1.5">
                                                 {attachments.map(({ media, mediaIndex }) => <MediaAttachment key={`${item.id}:${mediaIndex}`} media={media} galleryId={`external-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={mediaIndex} onStartVoicePlayback={startVoicePlayback} />)}
                                             </div>
-                                            <div className="px-3 pb-1.5 pt-2">{quoteHeader}{caption}</div>
+                                            <div className="px-2 pb-0.5 pt-1.5">{quoteHeader}{caption}</div>
                                         </div>
                                     ) : (
                                         <>

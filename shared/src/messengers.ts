@@ -126,6 +126,7 @@ export const ExternalMessageSchema = z.object({
     forward: z.object({
         sourceName: z.string().nullable(),
         sourceUrl: z.string().optional(),
+        sourceAvatarDataUrl: z.string().nullable().optional(),
         author: z.string().optional()
     }).optional(),
     linkPreview: z.object({

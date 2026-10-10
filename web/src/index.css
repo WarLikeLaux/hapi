@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "katex/dist/katex.min.css";
+@import "./messenger.css";
 @config "../tailwind.config.ts";
 
 /* Telegram's standard pattern is bundled locally, including in the PWA cache. */
@@ -25,7 +26,7 @@
 [data-color-theme="telegram"] .chat-wallpaper {
     background-color: var(--app-chat-bg);
     background-image: url('./assets/telegram/default-pattern.svg');
-    background-size: 480px auto;
+    background-size: 320px auto;
     background-position: center top;
 }
 
@@ -42,7 +43,7 @@
     min-width: 0;
     max-width: 100%;
     border-radius: 16px;
-    padding: 10px 16px;
+    padding: 6px 11px;
     background-color: var(--app-secondary-bg);
     color: var(--app-fg);
 }

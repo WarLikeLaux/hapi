@@ -66,7 +66,7 @@ export function ExternalMessageText(props: { text: string; textLinks?: ExternalM
                     href={segment.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-medium text-[var(--app-link)] underline decoration-[color:var(--app-link-muted)] underline-offset-3"
+                    className="text-[var(--app-link)] underline decoration-[color:var(--app-link-muted)] underline-offset-3"
                 >
                     {segment.text}
                 </a>

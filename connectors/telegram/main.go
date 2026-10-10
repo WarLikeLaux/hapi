@@ -182,9 +182,10 @@ type externalTextLink struct {
 }
 
 type externalForward struct {
-	SourceName *string `json:"sourceName"`
-	SourceURL  string  `json:"sourceUrl,omitempty"`
-	Author     string  `json:"author,omitempty"`
+	SourceName          *string `json:"sourceName"`
+	SourceURL           string  `json:"sourceUrl,omitempty"`
+	SourceAvatarDataURL *string `json:"sourceAvatarDataUrl,omitempty"`
+	Author              string  `json:"author,omitempty"`
 }
 
 type externalLinkPreview struct {
@@ -201,6 +202,9 @@ func forwardFromTelegram(msg *tg.Message, entities messagepeer.Entities, self *t
 		return nil
 	}
 	result := &externalForward{SourceName: nullableString(header.FromName), Author: header.PostAuthor}
+	if candidate := forwardAvatarCandidateForMessage(msg, entities, self); candidate != nil {
+		result.SourceAvatarDataURL = candidate.placeholder
+	}
 	if header.FromID != nil {
 		source := &tg.Message{}
 		source.SetFromID(header.FromID)
@@ -1111,6 +1115,39 @@ func senderAvatarCandidateForMessage(msg *tg.Message, entities messagepeer.Entit
 	}
 }
 
+func forwardAvatarCandidateForMessage(msg *tg.Message, entities messagepeer.Entities, self *tg.User) *senderAvatarCandidate {
+	header, ok := msg.GetFwdFrom()
+	if !ok || header.FromID == nil {
+		return nil
+	}
+	var peer tg.InputPeerClass
+	switch from := header.FromID.(type) {
+	case *tg.PeerUser:
+		source := &tg.Message{}
+		source.SetFromID(from)
+		return senderAvatarCandidateForMessage(source, entities, self)
+	case *tg.PeerChat:
+		peer = &tg.InputPeerChat{ChatID: from.ChatID}
+	case *tg.PeerChannel:
+		channel, found := entities.Channel(from.ChannelID)
+		if !found {
+			return nil
+		}
+		peer = &tg.InputPeerChannel{ChannelID: from.ChannelID, AccessHash: channel.AccessHash}
+	default:
+		return nil
+	}
+	elem := dialogs.Elem{Peer: peer, Entities: entities}
+	photoID := avatarPhotoID(elem)
+	if photoID == 0 {
+		return nil
+	}
+	remoteID, _ := remoteIDFromPeer(header.FromID)
+	return &senderAvatarCandidate{
+		remoteID: remoteID, peer: peer, photoID: photoID, placeholder: avatarForDialog(elem),
+	}
+}
+
 func deliveryStatusForMessage(msg *tg.Message, readOutboxMax int) *string {
 	if !msg.Out {
 		return nil
@@ -1316,7 +1353,11 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 	readOutboxMax := s.readOutboxMax[remoteID]
 	s.mu.RUnlock()
 	result := make([]externalMessage, 0, limit)
-	avatarMessageIndexes := make(map[string][]int)
+	type avatarMessageReference struct {
+		index  int
+		source bool
+	}
+	avatarMessageIndexes := make(map[string][]avatarMessageReference)
 	avatarCandidates := make(map[string]senderAvatarCandidate)
 	batchQuotes := make(map[string]replyQuote)
 	for len(result) < limit && iter.Next(ctx) {
@@ -1343,9 +1384,21 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 		}
 		converted, ok := messageFromTelegram(msg, elem.Entities, self, avatar, readOutboxMax)
 		if ok {
+			forwardCandidate := forwardAvatarCandidateForMessage(msg, elem.Entities, self)
+			if forwardCandidate != nil {
+				s.mu.RLock()
+				cached := s.avatars[forwardCandidate.remoteID]
+				s.mu.RUnlock()
+				if cached != "" {
+					converted.Forward.SourceAvatarDataURL = &cached
+				} else if len(avatarCandidates) < 16 {
+					avatarCandidates[forwardCandidate.remoteID] = *forwardCandidate
+				}
+				avatarMessageIndexes[forwardCandidate.remoteID] = append(avatarMessageIndexes[forwardCandidate.remoteID], avatarMessageReference{index: len(result), source: true})
+			}
 			result = append(result, converted)
 			if candidate != nil {
-				avatarMessageIndexes[candidate.remoteID] = append(avatarMessageIndexes[candidate.remoteID], len(result)-1)
+				avatarMessageIndexes[candidate.remoteID] = append(avatarMessageIndexes[candidate.remoteID], avatarMessageReference{index: len(result) - 1})
 			}
 		}
 	}
@@ -1379,13 +1432,15 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 		result[i].ReplyToText = quote.text
 	}
 	avatarSlots := make(chan struct{}, 6)
+	// Keep cumulative snapshots separate from the returned history: sender and
+	// source photos can finish concurrently without overwriting each other or
+	// mutating a response while it is being encoded.
+	enriched := append([]externalMessage(nil), result...)
+	var enrichMu sync.Mutex
 	for remoteID, candidate := range avatarCandidates {
 		remoteID, candidate := remoteID, candidate
-		messages := make([]externalMessage, 0, len(avatarMessageIndexes[remoteID]))
-		for _, index := range avatarMessageIndexes[remoteID] {
-			messages = append(messages, result[index])
-		}
-		go func(messages []externalMessage) {
+		references := avatarMessageIndexes[remoteID]
+		go func() {
 			avatarSlots <- struct{}{}
 			defer func() { <-avatarSlots }()
 			avatar := downloadAvatar(context.WithoutCancel(ctx), raw, candidate.peer, candidate.photoID)
@@ -1395,11 +1450,20 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 			s.mu.Lock()
 			s.avatars[remoteID] = *avatar
 			s.mu.Unlock()
-			for _, message := range messages {
-				message.SenderAvatarDataURL = avatar
-				s.out.event("message", message)
+			enrichMu.Lock()
+			defer enrichMu.Unlock()
+			for _, reference := range references {
+				message := &enriched[reference.index]
+				if reference.source {
+					forward := *message.Forward
+					forward.SourceAvatarDataURL = avatar
+					message.Forward = &forward
+				} else {
+					message.SenderAvatarDataURL = avatar
+				}
+				s.out.event("message", *message)
 			}
-		}(messages)
+		}()
 	}
 	return result, nil
 }
@@ -1873,9 +1937,21 @@ func (s *service) emitNewMessage(ctx context.Context, entities messagepeer.Entit
 	if !ok {
 		return
 	}
+	forwardCandidate := forwardAvatarCandidateForMessage(msg, entities, self)
+	needsForwardAvatar := false
+	if forwardCandidate != nil {
+		s.mu.RLock()
+		cached := s.avatars[forwardCandidate.remoteID]
+		s.mu.RUnlock()
+		if cached != "" {
+			converted.Forward.SourceAvatarDataURL = &cached
+		} else {
+			needsForwardAvatar = raw != nil
+		}
+	}
 	s.out.event("message", converted)
 	needsReplyQuote := converted.ReplyToProviderMessageID != "" && raw != nil
-	if !needsFullAvatar && !needsReplyQuote {
+	if !needsFullAvatar && !needsForwardAvatar && !needsReplyQuote {
 		return
 	}
 	go func(message externalMessage, candidate *senderAvatarCandidate) {
@@ -1888,18 +1964,26 @@ func (s *service) emitNewMessage(ctx context.Context, entities messagepeer.Entit
 				s.out.event("message", message)
 			}
 		}
-		if candidate == nil {
-			return
+		if needsFullAvatar {
+			if fullAvatar := downloadAvatar(context.WithoutCancel(ctx), raw, candidate.peer, candidate.photoID); fullAvatar != nil {
+				s.mu.Lock()
+				s.avatars[candidate.remoteID] = *fullAvatar
+				s.mu.Unlock()
+				message.SenderAvatarDataURL = fullAvatar
+				s.out.event("message", message)
+			}
 		}
-		fullAvatar := downloadAvatar(context.WithoutCancel(ctx), raw, candidate.peer, candidate.photoID)
-		if fullAvatar == nil {
-			return
+		if needsForwardAvatar {
+			if fullAvatar := downloadAvatar(context.WithoutCancel(ctx), raw, forwardCandidate.peer, forwardCandidate.photoID); fullAvatar != nil {
+				s.mu.Lock()
+				s.avatars[forwardCandidate.remoteID] = *fullAvatar
+				s.mu.Unlock()
+				forward := *message.Forward
+				forward.SourceAvatarDataURL = fullAvatar
+				message.Forward = &forward
+				s.out.event("message", message)
+			}
 		}
-		s.mu.Lock()
-		s.avatars[candidate.remoteID] = *fullAvatar
-		s.mu.Unlock()
-		message.SenderAvatarDataURL = fullAvatar
-		s.out.event("message", message)
 	}(converted, candidate)
 }
 
