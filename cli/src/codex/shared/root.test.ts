@@ -27,6 +27,11 @@ vi.mock('../codexAppServerClient', () => ({
         async request(method: string, params: Record<string, unknown> = {}) {
             if (method === 'thread/read' || method === 'thread/resume') return { ...this.settings, thread: structuredClone(this.thread) };
             if (method === 'thread/list') return { data: [] };
+            if (method === 'thread/turns/list') {
+                const turns = params.sortDirection === 'asc' ? this.thread.turns : [...this.thread.turns].reverse();
+                return { data: turns.slice(0, typeof params.limit === 'number' ? params.limit : turns.length)
+                    .map(turn => ({ ...turn, items: params.itemsView === 'notLoaded' ? [] : turn.items })), nextCursor: null };
+            }
             if (method === 'thread/queue/list') return { data: this.queue };
             if (method === 'thread/inject_items') return {};
             if (method === 'thread/settings/update') {
@@ -38,6 +43,17 @@ vi.mock('../codexAppServerClient', () => ({
                 const entry = { id: `queued-${this.queue.length}`, clientUserMessageId: params.clientUserMessageId, input: params.input };
                 this.queue.push(entry);
                 return { queuedSubmission: entry };
+            }
+            if (method === 'thread/queue/start') {
+                if (this.thread.turns.at(-1)?.status === 'inProgress') throw new Error('Turn is already active');
+                const entry = this.queue.shift();
+                if (!entry) throw new Error('Queue is empty');
+                const item = { id: entry.id, type: 'userMessage', clientId: entry.clientUserMessageId, content: entry.input };
+                const turn = { id: 'resumed-turn', status: 'inProgress', items: [item] };
+                this.thread.turns.push(turn);
+                this.notify?.('turn/started', { threadId: 'thread', turn });
+                this.notify?.('item/completed', { threadId: 'thread', turnId: turn.id, item });
+                return { turn };
             }
             if (method === 'turn/steer') {
                 const turn = this.thread.turns.find(turn => turn.id === params.expectedTurnId);
@@ -62,7 +78,7 @@ afterEach(async () => {
     finally { vi.useRealTimers(); }
 });
 
-async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; initialState?: AgentState; publishInitialHistory?: boolean }) {
+async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; initialState?: AgentState; publishInitialHistory?: boolean; nativeTurns?: NativeTurn[] }) {
     const directory = await mkdtemp('/tmp/hapi-shared-root-');
     let state: AgentState = opts?.initialState ?? { steeringActive: true };
     let metadata: Metadata = { path: directory, host: 'test', flavor: 'codex' };
@@ -97,7 +113,6 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; in
     } satisfies RootHost, opts?.publishInitialHistory);
     cleanups.push(async () => { await root.close(false); await rm(directory, { recursive: true, force: true }); });
     await root.prepare();
-    await root.bind('thread', { model: 'mock', thread: { turns: [] } }, false);
     const native = root.client as unknown as {
         initialized: boolean;
         thread: { id: string; turns: NativeTurn[] };
@@ -105,6 +120,8 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; in
         notify(method: string, params: unknown): void;
         abandoned(): void;
     };
+    native.thread.turns = opts?.nativeTurns ?? [];
+    await root.bind('thread', { model: 'mock', thread: { turns: [] } }, false);
     return {
         root, native, rpc, send, events, metadata: () => metadata, state: () => state, updateState,
         postUser: (message: UserMessage, localId?: string) => userMessage?.(message, localId),
@@ -114,6 +131,25 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; in
         end,
     };
 }
+
+describe('cold resume delivery', () => {
+    it('starts fresh input after an interrupted turn without replaying old history', async () => {
+        const f = await fixture({ publishInitialHistory: false, nativeTurns: [
+            { id: 'older-turn', status: 'inProgress', items: [{ id: 'old-output', type: 'agentMessage', text: 'Old history' }] },
+            { id: 'paused-turn', status: 'interrupted', items: [] }
+        ] });
+        await f.root.activate();
+        const consumed = vi.spyOn(f.root.session, 'emitMessagesConsumed');
+        f.postUser({ role: 'user', content: { type: 'text', text: 'Continue the chapter' } }, 'fresh-input');
+        await vi.waitFor(() => expect(consumed.mock.calls.map(([ids]) => ids)).toContainEqual(['fresh-input']));
+        expect(f.native.queue).toEqual([]);
+        expect(f.native.thread.turns.at(-1)).toMatchObject({ status: 'inProgress', items: [
+            { type: 'userMessage', clientId: 'fresh-input', content: [{ type: 'text', text: 'Continue the chapter' }] }
+        ] });
+        expect(f.state().steeringActive).toBe(true);
+        expect(f.send).not.toHaveBeenCalledWith(expect.objectContaining({ message: 'Old history' }), expect.any(String));
+    });
+});
 
 async function completePlan(f: Awaited<ReturnType<typeof fixture>>, status = 'completed') {
     await f.root.applySettings({ collaborationMode: 'plan' });
