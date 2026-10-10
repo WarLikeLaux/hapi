@@ -402,6 +402,11 @@ export function HappyComposer(props: {
      * queue request after a scratchlist/scheduled/failed early path.
      */
     pendingSendIntentRef?: MutableRefObject<ComposerSendIntent>
+    /**
+     * When the composer draft is empty, Ctrl/Cmd+Enter can steer the first
+     * eligible queued message (same as the Queued bar lightning button).
+     */
+    steerQueuedHeadRef?: MutableRefObject<(() => boolean) | null>
     /** Shared order ref consumed by useHappyRuntime when the message is sent. */
     attachmentOrderRef?: MutableRefObject<string[]>
     /** Chip hover / aria-label resolver (SessionChat → useSessions). */
@@ -466,6 +471,7 @@ export function HappyComposer(props: {
         onClearSendError,
         onSuppressSendErrorRestore,
         pendingSendIntentRef,
+        steerQueuedHeadRef,
         attachmentOrderRef: externalAttachmentOrderRef,
         resolveSessionMentionTooltip,
     } = props
@@ -1305,12 +1311,6 @@ export function HappyComposer(props: {
         void handleSend(intent)
     }, [handleSend])
 
-    const canQueueSend = agentFlavor === 'pi'
-        && thinking
-        && threadIsRunning
-        && pendingSchedule == null
-        && !props.scratchlistMode
-
     const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLTextAreaElement | HTMLDivElement>) => {
         const key = e.key
 
@@ -1332,28 +1332,25 @@ export function HappyComposer(props: {
             return
         }
 
-        // Alt/Option+Enter is an explicit Pi follow-up request. It is
-        // orthogonal to the normal Enter preference but never overrides IME,
-        // Shift+Enter, autocomplete, scheduling, or scratchlist routing.
+        // Ctrl/Cmd+Enter on an empty composer steers the first eligible queued
+        // row (Queued bar lightning). When the draft has text, newline mode
+        // still uses this chord to send.
         if (
             key === 'Enter'
-            && e.altKey
-            && !e.ctrlKey
-            && !e.metaKey
-            && canQueueSend
+            && (e.ctrlKey || e.metaKey)
+            && !e.altKey
+            && !e.shiftKey
+            && !canSend
+            && steerQueuedHeadRef?.current?.()
         ) {
             e.preventDefault()
-            flushAndSend('queue')
-            setShowContinueHint(false)
             return
         }
 
-        // Plain Enter and Ctrl/Cmd+Enter send; Ctrl/Cmd+Enter must work in
-        // send-on-enter mode too (newline mode already used it to submit).
+        // Only plain Enter (no modifiers) sends; other modifier combos are ignored
         if (key === 'Enter') {
-            const modSend = (e.ctrlKey || e.metaKey) && !e.altKey
             if (effectiveComposerEnterBehavior === 'newline') {
-                if (modSend && canSend) {
+                if ((e.ctrlKey || e.metaKey) && !e.altKey && canSend) {
                     e.preventDefault()
                     flushAndSend()
                     setShowContinueHint(false)
@@ -1361,7 +1358,7 @@ export function HappyComposer(props: {
                 return
             }
             e.preventDefault()
-            if (canSend && (modSend || (!e.ctrlKey && !e.altKey && !e.metaKey))) {
+            if (!e.ctrlKey && !e.altKey && !e.metaKey && canSend) {
                 flushAndSend()
                 setShowContinueHint(false)
             }
@@ -1431,7 +1428,7 @@ export function HappyComposer(props: {
         permissionMode,
         permissionModes,
         canSend,
-        canQueueSend,
+        steerQueuedHeadRef,
         haptic,
         effectiveComposerEnterBehavior,
         richMentionsEnabled,
