@@ -2064,6 +2064,7 @@ export function NewSession(props: {
                     error={opencodeModelsState.error}
                     availableModels={opencodeModelsState.availableModels}
                     currentModelId={opencodeModelsState.currentModelId}
+                    defaultModelName={configuredDefaultModelName}
                     selectedModel={opencodeSelectedModel}
                     onModelChange={setOpencodeSelectedModel}
                     onRetry={opencodeModelsState.refetch}
@@ -2096,7 +2097,33 @@ export function NewSession(props: {
                                     value === 'auto' || value === 'default[]' ? value : resolveCursorBaseFromWire(value, cursorPicker.catalog)
                                 )
                             }}
-                        />
+                        >
+                            {cursorModelsState.isLoading ? (
+                                <div role="status" className="text-xs text-[var(--app-hint)]">
+                                    {t('newSession.model.loading')}
+                                </div>
+                            ) : null}
+                            {!modelCatalogRequested ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setRequestedModelCatalog(modelCatalogTarget)}
+                                    disabled={isFormDisabled || !machineId}
+                                    className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
+                                >
+                                    {t('newSession.model.loadOptions')}
+                                </button>
+                            ) : null}
+                            {cursorModelsState.error ? (
+                                <button type="button" onClick={cursorModelsState.refetch} className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)]">
+                                    {t('newSession.opencodeModel.retry')}
+                                </button>
+                            ) : null}
+                            {cursorModelsUnavailable ? (
+                                <div className="text-xs text-[var(--app-hint)]">
+                                    {t('newSession.model.cursorUnavailable')}
+                                </div>
+                            ) : null}
+                        </ModelSelector>
                         {showCursorVariantPicker ? (
                             <ModelSelector
                                 agent={agent}
@@ -2107,31 +2134,6 @@ export function NewSession(props: {
                                 isLoading={cursorModelsState.isLoading}
                                 onModelChange={handleCursorEffortChange}
                             />
-                        ) : null}
-                        {cursorModelsState.isLoading ? (
-                            <div role="status" className="px-3 text-xs text-[var(--app-hint)]">
-                                {t('newSession.model.loading')}
-                            </div>
-                        ) : null}
-                        {!modelCatalogRequested ? (
-                            <button
-                                type="button"
-                                onClick={() => setRequestedModelCatalog(modelCatalogTarget)}
-                                disabled={isFormDisabled || !machineId}
-                                className="self-start mx-3 rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
-                            >
-                                {t('newSession.model.loadOptions')}
-                            </button>
-                        ) : null}
-                        {cursorModelsState.error ? (
-                            <button type="button" onClick={cursorModelsState.refetch} className="self-start mx-3 rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)]">
-                                {t('newSession.opencodeModel.retry')}
-                            </button>
-                        ) : null}
-                        {cursorModelsUnavailable ? (
-                            <div className="px-3 pb-3 text-xs text-[var(--app-hint)]">
-                                {t('newSession.model.cursorUnavailable')}
-                            </div>
                         ) : null}
                     </>
                 ) : (

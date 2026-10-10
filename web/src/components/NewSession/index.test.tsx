@@ -306,12 +306,14 @@ vi.mock('./ModelSelector', () => ({
         model: string
         options?: Array<{ value: string; label: string }>
         onModelChange: (model: string) => void
+        children?: ReactNode
     }) => (
         <>
             <button type="button" data-testid="model" onClick={() => props.onModelChange(mocks.nextModelValue)}>
                 {props.model}
             </button>
             <div data-testid="model-options">{props.options?.map((option) => option.label).join(',')}</div>
+            {props.children}
         </>
     )
 }))

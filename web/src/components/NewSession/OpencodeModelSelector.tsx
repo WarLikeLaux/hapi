@@ -9,6 +9,7 @@ export type OpencodeModelSelectorProps = {
     error: string | null
     availableModels: OpencodeModelSummary[]
     currentModelId: string | null
+    defaultModelName?: string
     selectedModel: string | null | undefined
     onModelChange: (modelId: string | null) => void
     onRetry?: () => void
@@ -19,7 +20,7 @@ export type OpencodeModelSelectorProps = {
 export function OpencodeModelSelector(props: OpencodeModelSelectorProps) {
     const { t } = useTranslation()
     const defaultModel = props.availableModels.find((model) => model.modelId === props.currentModelId)
-    const defaultModelName = defaultModel?.name ?? defaultModel?.modelId
+    const defaultModelName = defaultModel?.name ?? props.currentModelId ?? props.defaultModelName
 
     if (!props.cwd || !props.machineId) {
         return null
