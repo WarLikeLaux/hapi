@@ -22,8 +22,8 @@ export function quotaLight(usedPercent: number): 'green' | 'yellow' | 'red' {
     return usedPercent < 50 ? 'green' : usedPercent < 85 ? 'yellow' : 'red'
 }
 
-/** Display order across providers: codex → GLM (z.ai) → MiniMax → Antigravity → Cursor → OpenCode. */
-const PROVIDER_ORDER: Record<string, number> = { codex: 0, zai: 1, minimax: 2, agy: 3, cursor: 4, opencode: 5 }
+/** Display order across providers: codex → GLM (z.ai) → Antigravity → OpenCode → Cursor → MiniMax. */
+const PROVIDER_ORDER: Record<string, number> = { codex: 0, zai: 1, agy: 2, opencode: 3, cursor: 4, minimax: 100 }
 
 export function sortQuotaWindows<T extends { source: string }>(windows: T[]): T[] {
     return [...windows].sort((a, b) => {
