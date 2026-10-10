@@ -241,9 +241,15 @@ export class SharedCodexRoot {
             await this.projection.history(response.thread);
             await this.refresh();
         } else {
-            // Existing HAPI sessions already have durable history. Loading old
-            // turns can take minutes even with projection muted. Reconcile only
-            // the input queue; live notifications resume from this point.
+            // Durable chat history needs no replay, but controls and delivery
+            // still need the latest native turn. Read its status without items
+            // so an interrupted image-heavy thread resumes fresh input promptly.
+            const revision = this.turnRevision;
+            const page = record(await this.client.request('thread/turns/list', {
+                threadId, sortDirection: 'desc', limit: 1, itemsView: 'notLoaded'
+            }));
+            if (!Array.isArray(page.data)) throw new Error('Invalid Codex latest turn');
+            this.acceptLatestTurn(page.data.length ? record(page.data[0]) : undefined, revision);
             await this.queue.reconcile();
             this.alive();
         }
@@ -356,22 +362,21 @@ export class SharedCodexRoot {
     refresh(publishHistory = true): Promise<void> {
         return this.refreshing ??= this.refreshNow(publishHistory).finally(() => { this.refreshing = undefined; });
     }
+    private acceptLatestTurn(last: Record<string, unknown> | undefined, revision: number): void {
+        if (revision !== this.turnRevision) return;
+        // Only the newest turn can represent current work; an older interrupted
+        // turn may still be marked inProgress in persisted native history.
+        this.currentTurn = last?.status === 'inProgress' ? string(last.id) : undefined;
+        this.interrupted = last?.status === 'interrupted';
+        const id = string(last?.id);
+        this.latestTurn = id && last ? { id, status: string(last.status) ?? 'unknown', planId: planProposalForTurn(this.threadId, last) } : undefined;
+    }
     private async refreshNow(publishHistory: boolean): Promise<void> {
         if (!this.threadId || this.closed || !this.client.isInitialized()) return;
         const revision = this.turnRevision;
         const thread = await this.readThread();
         const turns = Array.isArray(thread.turns) ? thread.turns.map(record) : [];
-        if (revision === this.turnRevision) {
-            const last = turns.at(-1);
-            // A stale interrupted/reconnected turn can remain `inProgress` in
-            // native history. Turns are sequential, so only the newest turn can
-            // represent current work; reviving an older one leaves HAPI stuck in
-            // Working after the latest turn has already completed.
-            this.currentTurn = last?.status === 'inProgress' ? string(last.id) : undefined;
-            this.interrupted = last?.status === 'interrupted';
-            const id = string(last?.id);
-            this.latestTurn = id && last ? { id, status: string(last.status) ?? 'unknown', planId: planProposalForTurn(this.threadId, last) } : undefined;
-        }
+        this.acceptLatestTurn(turns.at(-1), revision);
         await this.projection.history(thread, publishHistory); await this.queue.reconcile(); this.alive();
     }
     private async refreshChildren(subscribe: boolean, publishHistory = true): Promise<void> {
