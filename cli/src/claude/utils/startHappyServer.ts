@@ -29,6 +29,8 @@ import {
 import { PingPeerError, formatInspectPeerReport, formatPeerSessionsList, inspectPeer, listPeerSessions, peerListFetchLimit, pingPeer } from "@/modules/pingPeer/pingPeer";
 import { buildSessionTitleMcpInstructions } from '@/modules/common/sessionTitlePrompt';
 import { applySessionDisplayRename, normalizeSessionDisplayTitle } from "@/agent/sessionDisplayRename";
+import { createAgentLauncher } from '@/modules/pingPeer/launchAgent';
+import { launchAgentSchema, launchOptionsSchema, LAUNCH_AGENT_DESCRIPTION, LAUNCH_OPTIONS_DESCRIPTION, type LaunchAgentArgs } from '@/modules/pingPeer/launchAgentTools';
 
 type StartHappyServerOptions = {
     /**
@@ -49,7 +51,8 @@ const CLAUDE_MANUAL_APPROVAL_HAPI_TOOLS = new Set([
     'display_media',
     'display_video',
     'ping_peer',
-    'inspect_peer'
+    'inspect_peer',
+    'launch_agent'
 ]);
 
 /**
@@ -68,7 +71,8 @@ function createHapiMcpServer(
     client: ApiSessionClient,
     emitTitleSummary: boolean,
     enableChangeTitle: boolean,
-    skillLookup: StartHappyServerOptions['skillLookup']
+    skillLookup: StartHappyServerOptions['skillLookup'],
+    launcher: ReturnType<typeof createAgentLauncher>
 ): McpServer {
     const handler = async (title: string) => {
         logger.debug('[hapiMCP] Changing title to:', title);
@@ -128,6 +132,7 @@ function createHapiMcpServer(
     const pingPeerInputSchema: z.ZodTypeAny = z.object({
         sessionIdPrefix: z.string().trim().min(1).describe(SESSION_ID_PREFIX_PARAM_DESCRIPTION),
         message: z.string().min(1).describe('Message text to deliver to the target session'),
+        requestId: z.string().trim().min(1).max(128).optional().describe('Unique message request ID. Reuse on retries to prevent duplicate delivery'),
     });
 
     const maxInlineMediaBytes = 25 * 1024 * 1024;
@@ -319,12 +324,13 @@ function createHapiMcpServer(
         description: PING_PEER_TOOL_DESCRIPTION,
         title: 'Ping Peer Session',
         inputSchema: pingPeerInputSchema,
-    }, async (args: { sessionIdPrefix: string; message: string }) => {
+    }, async (args: { sessionIdPrefix: string; message: string; requestId?: string }) => {
         logger.debug('[hapiMCP] ping_peer:', args.sessionIdPrefix);
         try {
             const result = await pingPeer({
                 sessionIdPrefix: args.sessionIdPrefix,
                 message: args.message,
+                localId: args.requestId ? `peer:${client.sessionId}:${args.requestId}` : undefined,
             });
             return {
                 content: [
@@ -440,6 +446,30 @@ function createHapiMcpServer(
     });
 
 
+    mcp.registerTool<any, any>('list_launch_options', {
+        description: LAUNCH_OPTIONS_DESCRIPTION,
+        title: 'List Agent Launch Options',
+        inputSchema: launchOptionsSchema,
+    }, async (args: z.infer<typeof launchOptionsSchema>) => {
+        try {
+            return { content: [{ type: 'text' as const, text: JSON.stringify(await launcher.listOptions(args), null, 2) }], isError: false };
+        } catch (error) {
+            return { content: [{ type: 'text' as const, text: `Failed to discover launch options: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+        }
+    });
+
+    mcp.registerTool<any, any>('launch_agent', {
+        description: LAUNCH_AGENT_DESCRIPTION,
+        title: 'Launch Agent Session',
+        inputSchema: launchAgentSchema,
+    }, async (args: LaunchAgentArgs) => {
+        try {
+            return { content: [{ type: 'text' as const, text: JSON.stringify(await launcher.launch(args)) }], isError: false };
+        } catch (error) {
+            return { content: [{ type: 'text' as const, text: `Failed to launch agent: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+        }
+    });
+
     if (skillLookup) {
         mcp.registerTool<any, any>('skill_lookup', {
             description: 'Load a HAPI skill by exact name. When a user message starts with $name, call this tool with that name before acting.',
@@ -503,9 +533,10 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
     const enableChangeTitle = options.enableChangeTitle ?? true;
     const transports = new Map<string, StreamableHTTPServerTransport>();
     const mcps = new Map<string, McpServer>();
+    const launcher = createAgentLauncher(client.sessionId);
 
     const createMcpTransport = () => {
-        const mcp = createHapiMcpServer(client, emitTitleSummary, enableChangeTitle, options.skillLookup);
+        const mcp = createHapiMcpServer(client, emitTitleSummary, enableChangeTitle, options.skillLookup, launcher);
         const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (sessionId) => {
@@ -565,6 +596,7 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
     if (options.skillLookup) {
         toolNames.push('skill_lookup');
     }
+    toolNames.push('list_launch_options', 'launch_agent');
 
     return {
         url: mcpUrl,

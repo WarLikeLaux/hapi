@@ -221,8 +221,7 @@ controls for DSH.
 - `HAPI_SESSION_ID` - The current HAPI session ID, available inside agent shells. Use it in scripts that target the current conversation without listing sessions.
 - An explicitly configured `HAPI_API_URL` is also made available to agent shells. HAPI does not copy settings-backed `CLI_API_TOKEN` secrets into the agent environment; credentials already present in the parent environment may still be inherited. Web terminal PTYs strip hub secrets.
 
-For peer discovery and messaging, use the session's MCP `list_peers`,
-`inspect_peer`, and `ping_peer` tools, or the corresponding CLI commands.
+For peer discovery and messaging, use the session's MCP `list_peers`, `inspect_peer`, and `ping_peer` tools, or the corresponding CLI commands. MCP `ping_peer` accepts an optional `requestId`. Reuse it when retrying the same message so the hub can acknowledge an already consumed message without delivering it again.
 On a remote runner host, configure the matching hub URL and token so shell
 commands reach the same hub (`hapi auth login` saves the token).
 
@@ -232,6 +231,27 @@ session when MCP is unavailable:
 ```bash
 bun scripts/tooling/hapi-display-image.mjs /absolute/path/to/image.png "optional title"
 ```
+
+## Launching agents through MCP
+
+Use `list_launch_options` to discover online runners, project directories and installed agents in the session's hub namespace. Projects come from recent sessions and directories under the runner's workspace roots, like the web + picker. Discovery reports unavailable agents and directory errors instead of hiding them. Pass `machineId` to narrow the list to one runner.
+
+Call `launch_agent` with a project, task and unique request ID:
+
+```json
+{
+    "project": "/home/user/code/my-project",
+    "agent": "codex",
+    "message": "Implement the requested change and verify it",
+    "requestId": "implement-settings-1"
+}
+```
+
+`project` accepts an absolute directory path or an unambiguous project name from discovery. `agent` defaults to Codex. `machineId` defaults to the caller's runner, or the only online runner when the caller has no runner binding. The agent starts in remote mode with maximum permissions supported by its flavor. Model and effort use native defaults, so neither is required. Browser-local saved picker preferences do not apply to MCP launches. Optional `model`, `effort`, `permissionMode` and `worktreeName` override these defaults. Agents without a separate effort option reject that override.
+
+The result contains `sessionId`, a `/sessions/<id>` link and `messageDelivered: true`. Use `inspect_peer` to read progress and `ping_peer` for follow-up tasks. Launching remains subject to the caller's normal MCP permissions, even though the new session defaults to maximum permissions.
+
+Reuse the same `requestId` and identical arguments when retrying. During the caller's MCP server lifetime, concurrent calls share one launch and completed calls return the original receipt. If task delivery fails, the error includes the created session link, and a retry sends to that session with the same message ID. If the spawn response is lost, HAPI refuses to spawn again for that request and asks the caller to inspect `list_peers`. Receipts are kept for up to 100 distinct launch requests per caller server and do not survive a caller process restart. After a restart or uncertain spawn, inspect existing sessions before launching a replacement.
 
 ## Session lifecycle invariants
 

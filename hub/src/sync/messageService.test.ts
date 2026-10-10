@@ -1356,6 +1356,20 @@ describe('MessageService.sendMessage deliveryMode', () => {
         })
     })
 
+    it('acknowledges a consumed message retry without delivering the task again', async () => {
+        const store = makeStore()
+        const session = makeSession(store, 'consumed-send-retry')
+        const { io, cliEmitted } = makeTrackingIo()
+        const service = new MessageService(store, io, makePublisher() as any)
+        const payload = { text: 'delegate this task', localId: 'delegation-1' }
+        const original = await service.sendMessage(session.id, payload)
+        store.messages.markMessagesInvoked(session.id, [payload.localId], Date.now())
+
+        expect(await service.sendMessage(session.id, payload)).toEqual(original)
+        expect(cliEmitted).toHaveLength(1)
+        expect(service.getMessages(session.id, 10)).toHaveLength(1)
+    })
+
     it('downgrades a legacy persisted steer through the mature scheduled scan', () => {
         const store = makeStore()
         const session = store.sessions.getOrCreateSession(

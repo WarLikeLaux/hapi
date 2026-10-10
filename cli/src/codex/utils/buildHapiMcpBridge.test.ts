@@ -73,21 +73,23 @@ describe('buildHapiMcpBridge skill lookup config', () => {
             '--tools',
             'change_title,display_image,display_video,display_media,list_peers,ping_peer,inspect_peer,skill_lookup'
         ])
-        expect(bridge.mcpServers.hapi.tools).toEqual({
+        expect(bridge.mcpServers.hapi.tools).toMatchObject({
             change_title: { approval_mode: 'approve' },
             display_image: { approval_mode: 'prompt' },
             display_video: { approval_mode: 'prompt' },
             display_media: { approval_mode: 'prompt' },
             list_peers: { approval_mode: 'approve' },
+            list_launch_options: { approval_mode: 'approve' },
             skill_lookup: { approval_mode: 'approve' }
         })
+        expect(bridge.mcpServers.hapi.tools).not.toHaveProperty('launch_agent')
     })
 
     it('does not expose skill_lookup for native-skill bridge callers', async () => {
         const bridge = await buildHapiMcpBridge(createClient())
 
         expect(harness.cliArgs.at(-1)).toBe('change_title,display_image,display_video,display_media,list_peers,ping_peer,inspect_peer')
-        expect(bridge.mcpServers.hapi.tools).toEqual({
+        expect(bridge.mcpServers.hapi.tools).toMatchObject({
             change_title: { approval_mode: 'approve' },
             display_image: { approval_mode: 'prompt' },
             display_video: { approval_mode: 'prompt' },

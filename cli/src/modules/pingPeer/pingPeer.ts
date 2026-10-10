@@ -9,6 +9,7 @@
  */
 
 import axios, { type AxiosInstance } from 'axios'
+import { randomUUID } from 'node:crypto'
 import { extractAssistantPlainText, isObject } from '@hapi/protocol'
 import { normalizeSessionIdPrefix } from '@hapi/protocol/sessionCitation'
 import { configuration } from '@/configuration'
@@ -164,6 +165,27 @@ function authHeaders(jwt: string): Record<string, string> {
         Authorization: `Bearer ${jwt}`,
         'Content-Type': 'application/json'
     })
+}
+
+/** Authenticated access to the configured hub, scoped to this CLI's namespace. */
+export async function connectPeerHub() {
+    const apiUrl = resolveApiUrl()
+    const http = axios
+    const jwt = await exchangeJwt(apiUrl, resolveAccessToken(), http)
+    async function request<T>(method: 'get' | 'post', path: string, body?: unknown): Promise<T> {
+        const config = { headers: authHeaders(jwt), timeout: 120_000, validateStatus: () => true }
+        const response = method === 'get'
+            ? await http.get(`${apiUrl}/api${path}`, config)
+            : await http.post(`${apiUrl}/api${path}`, body, config)
+        if (response.status < 200 || response.status >= 300) {
+            throw new Error(`${method.toUpperCase()} ${path}: ${response.data?.error ?? `HTTP ${response.status}`}`)
+        }
+        return response.data as T
+    }
+    return {
+        get: <T>(path: string) => request<T>('get', path),
+        post: <T>(path: string, body: unknown) => request<T>('post', path, body),
+    }
 }
 
 export function resolveSessionByPrefix(
@@ -520,7 +542,7 @@ export async function pingPeer(options: PingPeerOptions): Promise<PingPeerResult
     }
 
     onProgress?.(`sending message (${message.length} chars)...`)
-    await sendMessage(apiUrl, jwt, matched.id, message, options.localId, http)
+    await sendMessage(apiUrl, jwt, matched.id, message, options.localId ?? randomUUID(), http)
 
     return {
         sessionId: matched.id,

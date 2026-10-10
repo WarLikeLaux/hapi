@@ -917,7 +917,9 @@ export class MessageService {
         const cliContent = inserted.inserted
             ? msg.content
             : contentForDeferredDelivery(msg.content)
-        const shouldEmitToCli = msg.deliveryState !== 'indeterminate'
+        // Id-less messages are stamped invoked at insertion because they have
+        // no ACK path. Still deliver new inserts, but never replay consumed retries.
+        const shouldEmitToCli = (inserted.inserted || msg.invokedAt === null) && msg.deliveryState !== 'indeterminate'
         this.onSessionActivity?.(actualSessionId, msg.createdAt)
 
         // Only emit to CLI if the message is not scheduled for the future.
