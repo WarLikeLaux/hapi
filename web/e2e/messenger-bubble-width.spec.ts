@@ -19,6 +19,7 @@ for (const provider of ['telegram', 'telemost']) {
             const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT)
             let node: Node | null
             while ((node = walker.nextNode())) {
+                if (node.parentElement?.closest('time')) continue
                 // pre-wrap lets spaces hang past the line box. Measure visible
                 // words so intentional line-ending spaces aren't overflow.
                 for (const word of node.textContent!.matchAll(/\S+/g)) {
@@ -28,11 +29,20 @@ for (const provider of ['telegram', 'telemost']) {
                 }
             }
             const textBox = text.getBoundingClientRect()
+            const last = fragments.at(-1)!
+            const inline = time.top < last.bottom
+            const roomForTime = textBox.right - last.right >= time.width + 7
+            const links = [...text.querySelectorAll('a')]
+
             const style = getComputedStyle(bubble)
             return {
                 id: row.getAttribute('data-provider-message-id'),
                 width: bubble.getBoundingClientRect().width,
                 spare: textBox.right - Math.max(...fragments.map(rect => rect.right)),
+                spareLimit: time.width + 9,
+                timeFits: inline ? time.left >= last.right + 7 && time.bottom <= last.bottom + 3
+                    : !roomForTime && time.top >= last.bottom - 1,
+                linksUnadorned: links.every(link => getComputedStyle(link).textDecorationLine === 'none'),
                 lines: new Set(fragments.map(rect => Math.round(rect.top))).size,
                 contained: fragments.every(rect => rect.left >= textBox.left - 1 && rect.right <= textBox.right + 1)
                     && time.right <= bubble.getBoundingClientRect().right - parseFloat(style.paddingRight) + 1,
@@ -42,7 +52,7 @@ for (const provider of ['telegram', 'telemost']) {
         let mobile: Awaited<ReturnType<typeof metrics>> | undefined
         for (const width of [390, 1280, 320, 390]) {
             await page.setViewportSize({ width, height: 844 })
-            await expect.poll(async () => (await metrics()).filter(item => item.spare > 1 || !item.contained), `viewport ${width}`).toEqual([])
+            await expect.poll(async () => (await metrics()).filter(item => item.spare > item.spareLimit || !item.contained || !item.timeFits || !item.linksUnadorned), `viewport ${width}`).toEqual([])
             const measured = await metrics()
             for (const direction of ['incoming', 'outgoing']) {
                 if (width >= 390) expect(measured.find(item => item.id === `bubble-1-${direction}`)!.lines).toBe(3)
