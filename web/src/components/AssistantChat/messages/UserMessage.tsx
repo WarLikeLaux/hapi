@@ -6,7 +6,6 @@ import { MessageAttachments } from '@/components/AssistantChat/messages/MessageA
 import { UserBubbleContent, getUserBubbleClassName, shouldShowMessageStatus } from '@/components/AssistantChat/messages/user-bubble'
 import { CliOutputBlock } from '@/components/CliOutputBlock'
 import { getConversationMessageAnchorId } from '@/chat/outline'
-import { MessageActions } from '@/components/AssistantChat/messages/MessageActions'
 import { useTranslation } from '@/lib/use-translation'
 import { MessageTimestamp } from '@/components/AssistantChat/messages/MessageTimestamp'
 
@@ -52,32 +51,6 @@ export function HappyUserMessage() {
     const onRetry = canRetry ? () => ctx.onRetryMessage!(localId) : undefined
     const showStatus = shouldShowMessageStatus(status)
 
-    const history = ctx.metadata?.capabilities?.conversationHistory
-    const hasNativePoint = typeof localId === 'string'
-        && localId.length > 0
-        && ctx.metadata?.conversationHistoryPoints?.[localId] === true
-    const isLatestBoundary = ctx.isLatestCompletedBoundary?.(messageId) === true
-    const showCurrentFork = Boolean(
-        history?.forkCurrent
-        && isLatestBoundary
-        && !ctx.disabled
-        && ctx.onForkConversation
-    )
-    const showHistoricalFork = Boolean(
-        history?.forkAtMessage
-        && hasNativePoint
-        && !isLatestBoundary
-        && !ctx.disabled
-        && ctx.onForkConversation
-    )
-    const showFork = showCurrentFork || showHistoricalFork
-    const showRewind = Boolean(
-        history?.rewindToMessage
-        && hasNativePoint
-        && !ctx.disabled
-        && ctx.onRewindConversation
-    )
-
     if (isCliOutput) {
         return (
             <MessagePrimitive.Root
@@ -87,7 +60,6 @@ export function HappyUserMessage() {
             >
                 <div className="ml-auto w-full max-w-[92%]">
                     <CliOutputBlock text={cliText} />
-                    <MessageActions align="end" copyText={cliText} messageElementId={elementId} />
                 </div>
             </MessagePrimitive.Root>
         )
@@ -122,23 +94,6 @@ export function HappyUserMessage() {
                     </span>
                 ) : null}
             </div>
-            <MessageActions
-                align="end"
-                copyText={hasText ? text : undefined}
-                messageElementId={elementId}
-                showFork={showFork}
-                showRewind={showRewind}
-                historyActionPending={ctx.historyActionPending}
-                showTimestamp={false}
-                onFork={showCurrentFork
-                    ? () => ctx.onForkConversation!()
-                    : showHistoricalFork && localId
-                        ? () => ctx.onForkConversation!(localId)
-                        : undefined}
-                onRewind={showRewind && localId
-                    ? () => ctx.onRewindConversation!(localId)
-                    : undefined}
-            />
         </MessagePrimitive.Root>
     )
 }
