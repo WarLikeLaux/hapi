@@ -209,6 +209,9 @@ export class MaxConnector implements MessengerConnector {
         const attach = raw ? attachments(raw)[mediaIndex] : undefined
         if (!attach) throw new Error('MAX attachment not found')
         let url = mediaUrl(attach.baseUrl) ?? mediaUrl(attach.url) ?? mediaUrl(attach.fileUrl)
+        if (attach._type === 'PHOTO' || attach._type === 'STICKER') {
+            url = mediaUrl(attach.mp4Url) ?? (attach._type === 'STICKER' ? mediaUrl(attach.lottieUrl) : null) ?? url
+        }
         if (attach._type === 'FILE' && id(attach.fileId)) {
             const result = await client.request(88, { chatId: this.chatId(remoteId), messageId: providerMessageId, fileId: attach.fileId })
             url = mediaUrl(result.url) ?? url

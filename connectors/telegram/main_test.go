@@ -444,6 +444,14 @@ func TestMediaFromTelegramMarksAnimatedDocument(t *testing.T) {
 	if len(media) != 1 || media[0].Kind != "video" || !media[0].IsAnimated {
 		t.Fatalf("unexpected animated document metadata: %#v", media)
 	}
+	sticker := mediaFromTelegram(&tg.MessageMediaDocument{Document: &tg.Document{
+		MimeType: "application/x-tgsticker", Attributes: []tg.DocumentAttributeClass{
+			&tg.DocumentAttributeSticker{}, &tg.DocumentAttributeAnimated{},
+		},
+	}})
+	if len(sticker) != 1 || sticker[0].Kind != "sticker" {
+		t.Fatalf("animated sticker was classified as a video: %#v", sticker)
+	}
 }
 
 func TestMediaFromTelegramCarriesVoicePlaybackMetadata(t *testing.T) {

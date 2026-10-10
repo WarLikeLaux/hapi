@@ -34,6 +34,8 @@ function serveMax() {
         fetch: async (req, server) => {
             const path = new URL(req.url).pathname
             if (path === '/download') return new Response('file-content', { headers: { 'content-type': 'text/plain' } })
+            if (path === '/animation') return new Response('animated-video', { headers: { 'content-type': 'video/mp4' } })
+            if (path === '/lottie') return new Response('{"v":"5.7.4"}', { headers: { 'content-type': 'application/json' } })
             if (path === '/unsafe-redirect') return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/private' } })
             if (path.startsWith('/upload')) {
                 const file = (await req.formData()).get('file') as File
@@ -262,17 +264,33 @@ describe('MAX personal-account connector', () => {
                 chatId: 42, message: { id: '66', sender: 8, text: '', time: Date.now(), attaches: [
                     { _type: 'INLINE_KEYBOARD', keyboard: { buttons: [[{ text: 'Open', url: 'https://example.com' }]] } },
                     { _type: 'PHOTO', baseUrl: 'https://iu.oneme.ru/download' },
-                    { _type: 'PHOTO', baseUrl: 'https://iu.oneme.ru/unsafe-redirect' }
+                    { _type: 'PHOTO', baseUrl: 'https://iu.oneme.ru/unsafe-redirect' },
+                    { _type: 'PHOTO', baseUrl: 'https://iu.oneme.ru/static', mp4Url: 'https://iu.oneme.ru/animation' },
+                    { _type: 'STICKER', url: 'https://iu.oneme.ru/static', mp4Url: 'https://iu.oneme.ru/animation', lottieUrl: 'https://iu.oneme.ru/lottie' },
+                    { _type: 'STICKER', url: 'https://iu.oneme.ru/static', lottieUrl: 'https://iu.oneme.ru/lottie' }
                 ] }
             } }))
             await eventually(() => expect(events.some(event => event.type === 'message' && event.message.providerMessageId === '66')).toBe(true))
             expect(events.find(event => event.type === 'message' && event.message.providerMessageId === '66'))
-                .toMatchObject({ message: { media: [{ kind: 'image' }, { kind: 'image' }] } })
+                .toMatchObject({ message: { media: [
+                    { kind: 'image' }, { kind: 'image' },
+                    { kind: 'video', mimeType: 'video/mp4', isAnimated: true },
+                    { kind: 'sticker', mimeType: 'video/mp4', isAnimated: true },
+                    { kind: 'sticker', mimeType: 'application/json', isAnimated: true }
+                ] } })
             const download = await connector.downloadMedia('42', '66', 0)
             expect(await readFile(download.path, 'utf8')).toBe('file-content')
             expect(download.mimeType).toBe('text/plain')
             expect((await stat(download.path)).mode & 0o777).toBe(0o600)
             await expect(connector.downloadMedia('42', '66', 1)).rejects.toThrow('MAX returned an unsupported media host')
+            for (const index of [2, 3]) {
+                const animation = await connector.downloadMedia('42', '66', index)
+                expect(animation.mimeType).toBe('video/mp4')
+                expect(await readFile(animation.path, 'utf8')).toBe('animated-video')
+            }
+            const lottie = await connector.downloadMedia('42', '66', 4)
+            expect(lottie.mimeType).toBe('application/json')
+            expect(await readFile(lottie.path, 'utf8')).toBe('{"v":"5.7.4"}')
         } finally { await connector.stop(); server.stop(true); await rm(dataDir, { recursive: true, force: true }) }
     })
 })

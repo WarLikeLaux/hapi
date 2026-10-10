@@ -45,17 +45,22 @@ function normalizeMedia(attach: MaxObject): ExternalMedia {
     const kinds: Record<string, ExternalMedia['kind']> = {
         PHOTO: 'image', VIDEO: 'video', AUDIO: 'voice', FILE: 'file', STICKER: 'sticker'
     }
-    const kind = kinds[String(attach._type)] ?? 'other'
+    const animatedPhoto = attach._type === 'PHOTO' && Boolean(mediaUrl(attach.mp4Url))
+    const stickerVideo = attach._type === 'STICKER' && Boolean(mediaUrl(attach.mp4Url))
+    const stickerLottie = attach._type === 'STICKER' && !stickerVideo && Boolean(mediaUrl(attach.lottieUrl))
+    const kind = animatedPhoto ? 'video' : kinds[String(attach._type)] ?? 'other'
     const preview = typeof attach.previewData === 'string' && attach.previewData.length < 256_000
         && /^[A-Za-z0-9+/=\s]+$/.test(attach.previewData)
         ? `data:image/jpeg;base64,${attach.previewData}` : null
     return {
         kind,
-        mimeType: typeof attach.mimeType === 'string' ? attach.mimeType
+        mimeType: animatedPhoto || stickerVideo ? 'video/mp4' : stickerLottie ? 'application/json'
+            : typeof attach.mimeType === 'string' ? attach.mimeType
             : kind === 'image' ? 'image/jpeg' : kind === 'video' ? 'video/mp4' : null,
         fileName: typeof attach.name === 'string' ? attach.name : typeof attach.fileName === 'string' ? attach.fileName : null,
         size: Math.max(0, Math.trunc(number(attach.size ?? attach.fileSize))) || null,
         thumbnailDataUrl: preview,
+        ...(animatedPhoto || stickerVideo || stickerLottie ? { isAnimated: true } : {}),
         ...(kind === 'voice' && number(attach.duration) > 0 ? { duration: number(attach.duration) / 1000 } : {})
     }
 }

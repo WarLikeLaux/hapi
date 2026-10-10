@@ -18,6 +18,7 @@ describe('stickerRenderKind', () => {
         expect(stickerRenderKind('image/webp')).toBe('image')
         expect(stickerRenderKind('video/webm')).toBe('video')
         expect(stickerRenderKind('application/x-tgsticker')).toBe('lottie')
+        expect(stickerRenderKind('application/json')).toBe('lottie')
     })
 
     it('keeps legacy unknown mimes on the image path and rejects others', () => {
@@ -33,6 +34,7 @@ describe('shouldAutoLoadExternalMedia', () => {
         expect(shouldAutoLoadExternalMedia(media({ kind: 'sticker', mimeType: 'image/webp' }))).toBe(true)
         expect(shouldAutoLoadExternalMedia(media({ kind: 'sticker', mimeType: 'video/webm' }))).toBe(true)
         expect(shouldAutoLoadExternalMedia(media({ kind: 'sticker', mimeType: 'application/x-tgsticker' }))).toBe(true)
+        expect(shouldAutoLoadExternalMedia(media({ kind: 'sticker', mimeType: 'application/json' }))).toBe(true)
         expect(shouldAutoLoadExternalMedia(media({ kind: 'video', isAnimated: true }))).toBe(true)
         expect(shouldAutoLoadExternalMedia(media({ kind: 'video', isRound: true }))).toBe(true)
     })

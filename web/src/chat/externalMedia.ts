@@ -10,7 +10,7 @@ export type StickerRenderKind = 'image' | 'video' | 'lottie'
 export function stickerRenderKind(mimeType: string | null): StickerRenderKind | null {
     const mime = mimeType?.toLowerCase() ?? ''
     if (mime.startsWith('video/')) return 'video'
-    if (mime === 'application/x-tgsticker') return 'lottie'
+    if (mime === 'application/x-tgsticker' || mime === 'application/json') return 'lottie'
     if (mime === '' || mime.startsWith('image/')) return 'image'
     return null
 }
