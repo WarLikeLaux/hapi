@@ -111,7 +111,11 @@ export async function buildHapiMcpBridge(
     tools.list_peers = {
         approval_mode: 'approve'
     };
-    // ping_peer / inspect_peer are registered on the HTTP MCP server / stdio
+    tools.list_launch_options = {
+        approval_mode: 'approve'
+    };
+    // launch_agent / ping_peer / inspect_peer use the caller's approval policy.
+    // They are registered on the HTTP MCP server / stdio
     // bridge, but are not auto-approved: they target another session (resume +
     // inject, or read peer histories).
     if (options.skillLookup) {

@@ -42,7 +42,11 @@ describe('resolveToolAutoApprovalDecision ping_peer', () => {
         'ping_peer',
         'mcp__hapi__ping_peer',
         'hapi_ping_peer',
-        'Ping Peer Session'
+        'Ping Peer Session',
+        'launch_agent',
+        'mcp__hapi__launch_agent',
+        'hapi_launch_agent',
+        'Launch Agent Session'
     ])('does not auto-approve %s in default mode', (toolName) => {
         expect(resolveToolAutoApprovalDecision('default', toolName, 'call-1')).toBeNull()
     })
@@ -51,7 +55,11 @@ describe('resolveToolAutoApprovalDecision ping_peer', () => {
         'ping_peer',
         'mcp__hapi__ping_peer',
         'hapi_ping_peer',
-        'Ping Peer Session'
+        'Ping Peer Session',
+        'launch_agent',
+        'mcp__hapi__launch_agent',
+        'hapi_launch_agent',
+        'Launch Agent Session'
     ])('does not auto-approve %s in read-only mode', (toolName) => {
         expect(resolveToolAutoApprovalDecision('read-only', toolName, 'call-1')).toBeNull()
     })
@@ -88,7 +96,12 @@ describe('resolveToolAutoApprovalDecision list_peers', () => {
         'hapi_list_peers',
         'happy__list_peers',
         'mcp__hapi__list_peers',
-        'List Peer Sessions'
+        'List Peer Sessions',
+        'list_launch_options',
+        'hapi_list_launch_options',
+        'happy__list_launch_options',
+        'mcp__hapi__list_launch_options',
+        'List Agent Launch Options'
     ])('auto-approves the exact discovery tool name %s', (toolName) => {
         expect(resolveToolAutoApprovalDecision('default', toolName, 'call-1')).toBe('approved')
     })

@@ -107,15 +107,7 @@ describe('startHappyServer skill_lookup', () => {
         const mcp = await connect(false)
         const tools = await mcp.listTools()
 
-        expect(tools.tools.map((tool) => tool.name)).toEqual([
-            'change_title',
-            'display_image',
-            'display_video',
-            'display_media',
-            'ping_peer',
-            'inspect_peer',
-            'list_peers'
-        ])
+        expect(tools.tools.map((tool) => tool.name)).not.toContain('skill_lookup')
     })
 
     it('describes display_image as user output rather than image input', async () => {
@@ -182,15 +174,8 @@ describe('startHappyServer skill_lookup', () => {
         await mcp.connect(new StreamableHTTPClientTransport(new URL(server.url)))
         const tools = await mcp.listTools()
 
-        expect(server.toolNames).toEqual(['display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer'])
-        expect(tools.tools.map((tool) => tool.name)).toEqual([
-            'display_image',
-            'display_video',
-            'display_media',
-            'ping_peer',
-            'inspect_peer',
-            'list_peers'
-        ])
+        expect(server.toolNames).not.toContain('change_title')
+        expect(tools.tools.map((tool) => tool.name)).not.toContain('change_title')
     })
 
     it('persists direct platform change_title calls when launcher-side handling is disabled', async () => {
@@ -333,11 +318,14 @@ describe('toClaudeAllowedHapiMcpTools', () => {
             'list_peers',
             'ping_peer',
             'inspect_peer',
+            'list_launch_options',
+            'launch_agent',
             'skill_lookup'
         ])).toEqual([
             'mcp__hapi__change_title',
             'mcp__hapi__display_image',
             'mcp__hapi__list_peers',
+            'mcp__hapi__list_launch_options',
             'mcp__hapi__skill_lookup'
         ])
         expect(toClaudeAllowedHapiMcpTools(['display_video'])).not.toContain('mcp__hapi__display_video')

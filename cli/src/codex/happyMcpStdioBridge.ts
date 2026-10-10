@@ -23,8 +23,9 @@ import {
   SESSION_ID_PREFIX_PARAM_DESCRIPTION,
 } from '@hapi/protocol/sessionCitation';
 import { buildSessionTitleMcpInstructions } from '@/modules/common/sessionTitlePrompt';
+import { launchAgentSchema, launchOptionsSchema, LAUNCH_AGENT_DESCRIPTION, LAUNCH_OPTIONS_DESCRIPTION } from '@/modules/pingPeer/launchAgentTools';
 
-const DEFAULT_TOOL_NAMES = ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer'];
+const DEFAULT_TOOL_NAMES = ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer', 'list_launch_options', 'launch_agent'];
 
 function parseArgs(argv: string[]): { url: string | null; toolNames: Set<string> } {
   let url: string | null = null;
@@ -78,6 +79,26 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
     }, {
       instructions: toolNames.has('change_title') ? buildSessionTitleMcpInstructions() : undefined,
     });
+
+    for (const tool of [
+      { name: 'list_launch_options', title: 'List Agent Launch Options', description: LAUNCH_OPTIONS_DESCRIPTION, schema: launchOptionsSchema },
+      { name: 'launch_agent', title: 'Launch Agent Session', description: LAUNCH_AGENT_DESCRIPTION, schema: launchAgentSchema },
+    ]) {
+      if (!toolNames.has(tool.name)) continue;
+      server.registerTool<any, any>(tool.name, {
+        title: tool.title,
+        description: tool.description,
+        inputSchema: tool.schema,
+      }, async (args: Record<string, unknown>) => {
+        try {
+          const client = await ensureHttpClient();
+          const response = await client.callTool({ name: tool.name, arguments: args }, undefined, { timeout: 240_000 });
+          return { content: response.content as any, isError: Boolean(response.isError) };
+        } catch (error) {
+          return { content: [{ type: 'text' as const, text: `Failed to call ${tool.name}: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+        }
+      });
+    }
 
     // Register tools and forward to HTTP MCP
     const changeTitleInputSchema: z.ZodTypeAny = z.object({
@@ -202,6 +223,7 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
     const pingPeerInputSchema: z.ZodTypeAny = z.object({
       sessionIdPrefix: z.string().trim().min(1).describe(SESSION_ID_PREFIX_PARAM_DESCRIPTION),
       message: z.string().min(1).describe('Message text to deliver to the target session'),
+      requestId: z.string().trim().min(1).max(128).optional().describe('Unique message request ID. Reuse on retries to prevent duplicate delivery'),
     });
 
     if (toolNames.has('ping_peer')) {
