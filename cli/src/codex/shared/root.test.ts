@@ -423,6 +423,48 @@ describe('shared plan actions', () => {
 });
 
 describe('shared steering availability', () => {
+    it('restores controls and tool history when whole-thread hydration exceeds the transport limit', async () => {
+        const f = await fixture();
+        await f.root.activate();
+        const user = { id: 'prompt', type: 'userMessage', clientId: 'accepted', content: [{ type: 'text', text: 'Draw' }] };
+        const command = { id: 'command', type: 'commandExecution', command: 'render', status: 'completed', aggregatedOutput: 'Rendered page' };
+        f.native.thread.turns = [
+            { id: 'old', status: 'completed', items: [user, command] },
+            { id: 'busy', status: 'inProgress', items: [] }
+        ];
+        const original = f.root.client.request.bind(f.root.client);
+        vi.spyOn(f.root.client, 'request').mockImplementation(async (method, raw) => {
+            const params = raw as Record<string, unknown>;
+            if (method === 'thread/resume' || method === 'thread/read') {
+                if (method === 'thread/resume' ? !params.excludeTurns : params.includeTurns) {
+                    throw new Error('Shared Codex connection closed: oversized history');
+                }
+                return { model: 'mock', thread: { id: 'thread', historyMode: 'paginated', turns: [] } };
+            }
+            if (method === 'thread/turns/list') {
+                if (params.itemsView === 'full') throw new Error('Shared Codex connection closed: oversized turn');
+                return params.cursor ? { data: [{ id: 'busy', status: 'inProgress', items: [] }] }
+                    : { data: [{ id: 'old', status: 'completed', items: [] }], nextCursor: 'next-turn' };
+            }
+            if (method === 'thread/items/list') {
+                if (params.limit !== 1) throw new Error('Shared Codex connection closed: oversized item batch');
+                return params.cursor ? { data: [{ turnId: 'old', item: command }] }
+                    : { data: [{ turnId: 'old', item: user }], nextCursor: 'next-item' };
+            }
+            return original(method, raw);
+        });
+        // Directly exercise refresh too: the old implementation fails here,
+        // instead of merely timing out inside its reconnect retry loop.
+        await f.root.refresh();
+        f.native.initialized = false; f.native.abandoned();
+        expect(f.state().steeringActive).toBe(false);
+        await vi.waitFor(() => expect(f.state().steeringActive).toBe(true));
+        expect(f.root.session.sendUserMessage).toHaveBeenCalledWith('Draw', undefined, 'accepted');
+        expect(f.send).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'tool-call-result', output: expect.objectContaining({ stdout: 'Rendered page' })
+        }), expect.any(String));
+    });
+
     it('keeps idle sessions online without polling usage or publishing agent-state updates', async () => {
         const f = await fixture();
         const requests = vi.spyOn(f.root.client, 'request');

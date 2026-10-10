@@ -106,7 +106,7 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
                 try {
                     await initializeSharedClient(control);
                     // Roots remain loaded by their independent side-clients.
-                    for (const threadId of roots.keys()) await control.request('thread/resume', { threadId });
+                    for (const threadId of roots.keys()) await control.request('thread/resume', { threadId, excludeTurns: true });
                     return;
                 } catch (error) {
                     logger.debug('[Codex shared] control reconnect', error);
@@ -199,7 +199,7 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
         runtime.pendingCreations = runtime.pendingCreations?.filter(sid => sid !== root.session.sessionId); await persist();
     };
     const reserve = async (root: SharedCodexRoot, threadId: string) => withThreadOwnership(home, threadId, id, () => reserveRecord(root, threadId));
-    const bind = async (root: SharedCodexRoot, response: Record<string, unknown>, subscribe: boolean, initialOptions?: SharedLaunchOptions) => {
+    const bind = async (root: SharedCodexRoot, response: Record<string, unknown>, subscribe: boolean, initialOptions?: SharedLaunchOptions, newThread = false) => {
         assertRunning();
         const threadId = string(record(response.thread).id);
         if (!threadId) throw new Error('Codex lifecycle response has no thread ID');
@@ -210,11 +210,11 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
         await control.request('thread/metadata/update', { threadId, gitInfo: gitInfo(string(record(response.thread).cwd) ?? root.bootstrap.workingDirectory) });
         assertRunning();
         roots.set(threadId, root);
-        await root.bind(threadId, response, subscribe);
+        await root.bind(threadId, response, subscribe, newThread);
         assertRunning();
         // Cold-resumed threads predate the control connection's automatic
         // new-thread subscription. Subscribe once without changing settings.
-        await control.request('thread/resume', { threadId });
+        await control.request('thread/resume', { threadId, excludeTurns: true });
         await root.activate(initialOptions);
         await root.session.flush();
         await persist();
@@ -225,9 +225,9 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
         let nativeSucceeded = false;
         try {
             runtime.pendingCreations = [...runtime.pendingCreations ?? [], root.session.sessionId]; await persist();
-            const response = record(await root.client.request(method, root.config({ ...params, ...(method === 'thread/fork' ? { deferGoalContinuation: true } : {}) })));
+            const response = record(await root.client.request(method, root.config({ ...params, ...(method === 'thread/fork' ? { deferGoalContinuation: true, excludeTurns: true } : {}) })));
             nativeSucceeded = true;
-            await bind(root, response, true, initialOptions); return root;
+            await bind(root, response, true, initialOptions, method === 'thread/start'); return root;
         } catch (error) {
             // A timed-out native mutation may have succeeded. Never replay it or kill unrelated roots.
             if (!nativeSucceeded && !isIndeterminateError(error)) {
@@ -288,7 +288,7 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
                 runtime.pendingCreations = runtime.pendingCreations?.filter(sid => sid !== reservation.root.session.sessionId);
                 await persist(); prepared.delete(reservation.root); await reservation.root.close(true); return;
             }
-            await bind(reservation.root, record(response.result), true);
+            await bind(reservation.root, record(response.result), true, undefined, request.method === 'thread/start');
         } else if (request.method === 'thread/archive' && !response.error) {
             const root = roots.get(string(record(request.params).threadId) ?? ''); if (root) await end(root, false);
         } else if (request.method === 'thread/queue/delete' && !response.error && record(response.result).deleted === true) {
@@ -368,7 +368,7 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
                 const root = await prepare(launch.cwd, existing);
                 await reserveRecord(root, threadId); return root;
             });
-            const params = root.config({ ...launch.threadParams, threadId });
+            const params = root.config({ ...launch.threadParams, threadId, excludeTurns: true });
             let response: Record<string, unknown>;
             try {
                 response = record(await root.client.request('thread/resume', params));

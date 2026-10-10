@@ -149,6 +149,7 @@ export type ResponseItem = Record<string, unknown>;
 
 export interface ThreadResumeParams {
     threadId: string;
+    excludeTurns?: boolean;
     history?: ResponseItem[];
     path?: string;
     model?: string;

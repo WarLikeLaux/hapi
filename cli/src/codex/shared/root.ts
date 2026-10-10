@@ -209,7 +209,7 @@ export class SharedCodexRoot {
             'shell_environment_policy.set.HAPI_SESSION_ID': this.session.sessionId
         } };
     }
-    async bind(threadId: string, response: Record<string, unknown>, subscribe: boolean): Promise<void> {
+    async bind(threadId: string, response: Record<string, unknown>, subscribe: boolean, newThread = false): Promise<void> {
         if (this.threadId && this.threadId !== threadId) throw new Error('Cannot retarget a shared HAPI session');
         this.threadId = threadId;
         this.queue = new SharedCodexQueue(this.client, threadId, join(this.host.directory, `${this.session.sessionId}.queue.json`),
@@ -233,16 +233,17 @@ export class SharedCodexRoot {
             completedRequests: { ...state.completedRequests, ...Object.fromEntries(Object.entries(state.requests ?? {}).map(([id, request]) =>
                 [id, { ...request, completedAt: Date.now(), status: 'canceled' as const }])) }
         }));
-        if (subscribe) response = record(await this.client.request('thread/resume', { threadId }));
+        // Only thread/start guarantees an empty history. Let Codex initialize
+        // its rollout lineage there; all existing threads resume metadata only.
+        if (subscribe) response = record(await this.client.request('thread/resume', { threadId, excludeTurns: !newThread }));
         this.acceptSettings(response); this.acceptSettings(this.host.settingsFor(threadId) ?? {});
         if (this.publishInitialHistory) {
             await this.projection.history(response.thread);
             await this.refresh();
         } else {
-            // The existing HAPI session is the durable history. Asking Codex to
-            // materialize every old turn here can take minutes (including old
-            // git snapshots) even if projection output is muted. Reconcile only
-            // the native input queue; live notifications resume from this point.
+            // Existing HAPI sessions already have durable history. Loading old
+            // turns can take minutes even with projection muted. Reconcile only
+            // the input queue; live notifications resume from this point.
             await this.queue.reconcile();
             this.alive();
         }
@@ -325,11 +326,28 @@ export class SharedCodexRoot {
     async readThread(threadId = this.threadId): Promise<Record<string, unknown>> {
         let thread = record(record(await this.client.request('thread/read', { threadId, includeTurns: false })).thread);
         if (thread.historyMode === 'paginated') {
-            const turns: unknown[] = []; let cursor: string | undefined;
+            const turns: Record<string, unknown>[] = []; let cursor: string | undefined;
             do {
-                const page = record(await this.client.request('thread/turns/list', { threadId, cursor, sortDirection: 'asc', itemsView: 'full' }));
+                const page = record(await this.client.request('thread/turns/list', { threadId, cursor, sortDirection: 'asc', itemsView: 'notLoaded' }));
                 if (!Array.isArray(page.data)) throw new Error('Invalid Codex history');
-                turns.push(...page.data); cursor = string(page.nextCursor);
+                turns.push(...page.data.map(value => ({ ...record(value), items: [] }))); cursor = string(page.nextCursor);
+            } while (cursor);
+            // Newly created threads have no rollout items yet. Codex cannot
+            // resolve an items cursor for them until the first turn exists.
+            if (!turns.length) return { ...thread, turns };
+            const byId = new Map(turns.map(turn => [turn.id, turn]));
+            // A single turn can contain hundreds of generated images. Page
+            // individual items rather than hydrating that turn in one frame.
+            cursor = undefined;
+            do {
+                const page = record(await this.client.request('thread/items/list', { threadId, cursor, sortDirection: 'asc', limit: 1 }));
+                if (!Array.isArray(page.data)) throw new Error('Invalid Codex history items');
+                for (const value of page.data) {
+                    const entry = record(value);
+                    const turn = byId.get(entry.turnId);
+                    if (turn) (turn.items as unknown[]).push(entry.item);
+                }
+                cursor = string(page.nextCursor);
             } while (cursor);
             thread.turns = turns;
         } else thread = record(record(await this.client.request('thread/read', { threadId, includeTurns: true })).thread);
@@ -379,7 +397,7 @@ export class SharedCodexRoot {
         for (const [id, projection] of this.children) {
             // Replaying a completed/unloaded child must not start its engine.
             try {
-                if (subscribe && loaded.has(id)) await this.client.request('thread/resume', { threadId: id });
+                if (subscribe && loaded.has(id)) await this.client.request('thread/resume', { threadId: id, excludeTurns: true });
                 if (publishHistory) {
                     projection.reset(); await projection.history(await this.readThread(id));
                 }
@@ -408,7 +426,7 @@ export class SharedCodexRoot {
                     );
                     this.client.setServerRequestHandler(request => { void this.receiveRequest(request); });
                     const settingsRevision = this.settingsRevision;
-                    const response = record(await this.client.request('thread/resume', { threadId: this.threadId }));
+                    const response = record(await this.client.request('thread/resume', { threadId: this.threadId, excludeTurns: true }));
                     const observedSettings = this.settingsRevision !== settingsRevision;
                     this.acceptSettings(response);
                     if (!observedSettings) this.acceptSettings(this.host.settingsFor(this.threadId) ?? {});
