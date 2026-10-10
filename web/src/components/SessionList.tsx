@@ -1142,7 +1142,7 @@ function FreshChatItem({ conversation }: { conversation: ExternalConversation })
             type="button"
             onClick={() => navigate({ to: '/sessions/chats/$conversationId', params: { conversationId: conversation.id } })}
             aria-current={selected ? 'page' : undefined}
-            className={`session-list-item group/session-row flex w-full select-none items-center gap-2.5 rounded-lg py-2 pl-2.5 pr-2 text-left transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
+            className={`session-list-item group/session-row flex w-full select-none items-center gap-2.5 rounded-lg py-2 pl-0 pr-2 text-left transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
         >
             <ConversationAvatar conversation={conversation} className="h-9 w-9 text-[11px]" />
             <span className="min-w-0 flex-1">
@@ -1326,7 +1326,7 @@ function SessionItem(props: {
                 type="button"
                 {...longPressHandlers}
                 data-session-scroll-anchor
-                className={`session-list-item group/session-row flex w-full flex-col gap-1 py-2 pl-2.5 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] select-none rounded-lg ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
+                className={`session-list-item group/session-row flex w-full flex-col gap-1 py-2 pl-0 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] select-none rounded-lg ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
                 style={{ WebkitTouchCallout: 'none' }}
                 aria-current={selected ? 'page' : undefined}
                 aria-describedby={describedBy}
@@ -2040,7 +2040,7 @@ export function SessionList(props: {
                 </div>
                 <div className="collapsible-panel" data-open={(!collapsible || !collapsed || isFiltering) || undefined}>
                     <div className="collapsible-inner">
-                    <div className="flex flex-col gap-0.5 ml-3 pl-1 py-1">
+                    <div className="flex flex-col gap-0.5 ml-2 py-1">
                         {mergedRows
                             ? mergedRows.map((row) => row.kind === 'session'
                                 ? renderSessionRow(row.session, row.key, activityTimeBasis)
@@ -2095,7 +2095,7 @@ export function SessionList(props: {
                 <div className="collapsible-panel" data-open={!recentSectionCollapsed || undefined}>
                     <div className="collapsible-inner">
                     {!recentSectionCollapsed ? (
-                        <div className="flex flex-col gap-0.5 ml-3 pl-1 py-1">
+                        <div className="flex flex-col gap-0.5 ml-2 py-1">
                             {visibleRecentSessions.map((session) => (
                                 <SessionItem
                                     key={session.id}
@@ -2200,7 +2200,7 @@ export function SessionList(props: {
                 {/* Sessions */}
                 <div className="collapsible-panel" data-open={!isCollapsed || undefined}>
                     <div className="collapsible-inner">
-                    <div className="flex flex-col gap-0.5 ml-3 pl-1 py-1">
+                    <div className="flex flex-col gap-0.5 ml-2 py-1">
                         {visibleGroupSessions.map((s, index) => (
                             <div key={s.id} className="contents">
                                 {shouldShowPinnedDivider(visibleGroupSessions, index) ? (
@@ -2632,7 +2632,7 @@ export function SessionList(props: {
                         </div>
                         <div className="collapsible-panel" data-open={(!pinnedSectionCollapsed || isFiltering) || undefined}>
                             <div className="collapsible-inner">
-                                <div className="flex flex-col gap-0.5 ml-3 pl-1 py-1">
+                                <div className="flex flex-col gap-0.5 ml-2 py-1">
                                     {globalPinnedSessions.map((s) => (
                                         <SessionItem
                                             key={s.id}

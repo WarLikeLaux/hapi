@@ -41,9 +41,9 @@ const GLM_BRANDED_LOGOS: Record<string, IconType> = {
     claude: GlmvMono,
 }
 
-function PiLogo() {
+function PiLogo({ avatar }: { avatar: boolean }) {
     return (
-        <svg viewBox="0 0 800 800" width="100%" height="100%" fill="currentColor">
+        <svg viewBox={avatar ? '165.29 165.29 469.43 469.43' : '0 0 800 800'} width="100%" height="100%" fill="currentColor">
             <path fillRule="evenodd" d="M165.29 165.29h352.07V400H400v117.36H282.65v117.36H165.29zM282.65 282.65V400H400V282.65z" />
             <path d="M517.36 400h117.36v234.72H517.36z" />
         </svg>
@@ -55,7 +55,12 @@ const UNKNOWN_FLAVOR_BADGE = {
     colors: 'bg-[var(--app-secondary-bg)] text-[var(--app-hint)]',
 }
 
-export function AgentFlavorIcon({ flavor, className }: { flavor?: string | null; className?: string }) {
+export function AgentFlavorIcon({ flavor, className, avatar = false }: {
+    flavor?: string | null
+    className?: string
+    /** Fill the session avatar with the mark and use its theme foreground. */
+    avatar?: boolean
+}) {
     const normalized = (flavor ?? '').trim().toLowerCase()
     const claudeGlmBranded = useClaudeGlmBranding()
     const sizeClass = className ?? 'h-4 w-4'
@@ -63,7 +68,7 @@ export function AgentFlavorIcon({ flavor, className }: { flavor?: string | null;
         return (
             <span
                 aria-hidden="true"
-                className={`inline-flex items-center justify-center leading-none text-[#24292f] dark:text-[#e6edf3] ${sizeClass}`}
+                className={`inline-flex items-center justify-center leading-none ${avatar ? 'text-[var(--app-fg)]' : 'text-[#24292f] dark:text-[#e6edf3]'} ${sizeClass}`}
             >
                 <CopilotIcon size="100%" />
             </span>
@@ -89,7 +94,7 @@ export function AgentFlavorIcon({ flavor, className }: { flavor?: string | null;
                 aria-hidden="true"
                 className={`inline-flex items-center justify-center leading-none text-[var(--app-fg)] ${sizeClass}`}
             >
-                <PiLogo />
+                <PiLogo avatar={avatar} />
             </span>
         )
     }
