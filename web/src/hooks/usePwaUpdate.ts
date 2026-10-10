@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 export const PWA_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000
 export const PWA_UPDATING_INDICATOR_MS = 800
+const PWA_ACTIVATION_TIMEOUT_MS = 30_000
 
 // Surface a waiting service worker as a brief "Updating…" indicator before the
 // page reloads. Detection is skipped when no previous controller exists (fresh
@@ -78,6 +79,7 @@ export function setupRegistrationUpdateChecks(
 
 export function usePwaUpdate() {
     const [updating, setUpdating] = useState(false)
+    const [updateFailed, setUpdateFailed] = useState(false)
 
     useEffect(() => {
         if (!('serviceWorker' in navigator)) {
@@ -87,6 +89,7 @@ export function usePwaUpdate() {
         let disposed = false
         let updateWorker: ServiceWorker | null = null
         let activationTimer: number | undefined
+        let activationTimeout: number | undefined
         let cleanupChecks: (() => void) | undefined
         let reloading = false
 
@@ -98,9 +101,26 @@ export function usePwaUpdate() {
                 return
             }
             reloading = true
+            window.clearTimeout(activationTimer)
+            window.clearTimeout(activationTimeout)
             window.location.reload()
         }
         serviceWorker.addEventListener('controllerchange', handleControllerChange)
+
+        const handleWorkerStateChange = () => {
+            if (updateWorker?.state === 'redundant') {
+                // A later deployment replaced this waiting worker. Release the
+                // attempt so the registration checks can apply its successor.
+                updateWorker.removeEventListener('statechange', handleWorkerStateChange)
+                updateWorker = null
+                window.clearTimeout(activationTimer)
+                window.clearTimeout(activationTimeout)
+                setUpdating(false)
+                setUpdateFailed(false)
+            } else {
+                handleControllerChange()
+            }
+        }
 
         const workerUrl = `${import.meta.env.BASE_URL}${import.meta.env.DEV ? 'dev-sw.js?dev-sw' : 'sw.js'}`
         void serviceWorker.register(workerUrl, {
@@ -110,18 +130,28 @@ export function usePwaUpdate() {
                 return
             }
             cleanupChecks = setupRegistrationUpdateChecks(registration, () => {
+                // Check ownership before considering another waiting update.
+                handleControllerChange()
                 if (disposed || updateWorker || !shouldAutoApplyUpdate() || !registration.waiting) {
                     return
                 }
                 updateWorker = registration.waiting
+                updateWorker.addEventListener('statechange', handleWorkerStateChange)
                 setUpdating(true)
+                setUpdateFailed(false)
                 // Allow the banner to paint, then request activation. Mobile
-                // activation can take longer than this delay; controllerchange
-                // is the sole reload trigger, so we cannot return to the old
-                // worker and start another update loop.
+                // activation can take longer than this delay. Reload only once
+                // this worker controls the page, so the old shell cannot start
+                // another update loop.
                 activationTimer = window.setTimeout(() => {
                     updateWorker?.postMessage({ type: 'SKIP_WAITING' })
                 }, PWA_UPDATING_INDICATOR_MS)
+                activationTimeout = window.setTimeout(() => {
+                    // Keep tracking ownership for a late successful activation,
+                    // but never leave a stalled attempt looking busy forever.
+                    setUpdating(false)
+                    setUpdateFailed(true)
+                }, PWA_ACTIVATION_TIMEOUT_MS)
             })
         }).catch((error) => {
             console.error('SW registration error:', error)
@@ -131,9 +161,11 @@ export function usePwaUpdate() {
             disposed = true
             cleanupChecks?.()
             window.clearTimeout(activationTimer)
+            window.clearTimeout(activationTimeout)
+            updateWorker?.removeEventListener('statechange', handleWorkerStateChange)
             serviceWorker.removeEventListener('controllerchange', handleControllerChange)
         }
     }, [])
 
-    return { updating }
+    return { updating, updateFailed }
 }

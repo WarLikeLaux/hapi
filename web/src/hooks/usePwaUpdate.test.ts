@@ -196,6 +196,10 @@ describe('setupRegistrationUpdateChecks', () => {
 describe('usePwaUpdate', () => {
     let reloadMock: ReturnType<typeof vi.fn>
 
+    function createWorker(state = 'installed') {
+        return Object.assign(new EventTarget(), { state, postMessage: vi.fn() }) as unknown as ServiceWorker
+    }
+
     function createRegistration(waiting: ServiceWorker | null = null) {
         return Object.assign(new EventTarget(), {
             waiting,
@@ -229,7 +233,7 @@ describe('usePwaUpdate', () => {
     })
 
     it('does not interrupt a fresh install with a waiting worker and no controller', async () => {
-        const worker = { postMessage: vi.fn() } as unknown as ServiceWorker
+        const worker = createWorker()
         const { result } = await mountWithRegistration(createRegistration(worker))
 
         act(() => {
@@ -244,7 +248,7 @@ describe('usePwaUpdate', () => {
     it('applies an existing waiting worker once and waits for it to control the page before reloading', async () => {
         const previousController = {} as ServiceWorker
         setServiceWorkerController(previousController)
-        const worker = { postMessage: vi.fn() } as unknown as ServiceWorker
+        const worker = createWorker()
         const registration = createRegistration(worker)
         const { result } = await mountWithRegistration(registration)
 
@@ -295,9 +299,57 @@ describe('usePwaUpdate', () => {
         expect(reloadMock).toHaveBeenCalledTimes(1)
     })
 
+    it('applies the replacement when another deployment supersedes the waiting update', async () => {
+        setServiceWorkerController({} as ServiceWorker)
+        const superseded = createWorker()
+        const registration = createRegistration(superseded)
+        await mountWithRegistration(registration)
+
+        const latest = createWorker('installing')
+        act(() => {
+            Object.assign(registration, { installing: latest })
+            registration.dispatchEvent(new Event('updatefound'))
+            Object.assign(registration, { waiting: null })
+            Object.assign(superseded, { state: 'redundant' })
+            superseded.dispatchEvent(new Event('statechange'))
+            Object.assign(registration, { waiting: latest })
+            Object.assign(latest, { state: 'installed' })
+            latest.dispatchEvent(new Event('statechange'))
+            vi.advanceTimersByTime(PWA_UPDATING_INDICATOR_MS)
+        })
+        expect(latest.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' })
+        expect(superseded.postMessage).not.toHaveBeenCalled()
+        expect(reloadMock).not.toHaveBeenCalled()
+        act(() => dispatchControllerChange(latest))
+        expect(reloadMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('ends a stalled update after 30 seconds without reloading or restarting it on visibility checks', async () => {
+        setServiceWorkerController({} as ServiceWorker)
+        const worker = createWorker()
+        const registration = createRegistration(worker)
+        const { result } = await mountWithRegistration(registration)
+        act(() => vi.advanceTimersByTime(30_000))
+        expect(result.current.updating).toBe(false)
+        expect(result.current.updateFailed).toBe(true)
+        expect(reloadMock).not.toHaveBeenCalled()
+
+        act(() => {
+            document.dispatchEvent(new Event('visibilitychange'))
+            vi.advanceTimersByTime(30_000)
+        })
+        expect(result.current.updating).toBe(false)
+        expect(worker.postMessage).toHaveBeenCalledTimes(1)
+
+        // Activation may still finish after the timeout. Use the new worker,
+        // rather than leaving the page on an old shell with an error banner.
+        act(() => dispatchControllerChange(worker))
+        expect(reloadMock).toHaveBeenCalledTimes(1)
+    })
+
     it('cancels activation and update checks when the provider unmounts', async () => {
         setServiceWorkerController({} as ServiceWorker)
-        const worker = { postMessage: vi.fn() } as unknown as ServiceWorker
+        const worker = createWorker()
         const registration = createRegistration(worker)
         const { unmount } = await mountWithRegistration(registration)
         const checksBeforeUnmount = vi.mocked(registration.update).mock.calls.length
