@@ -76,6 +76,10 @@ export const ExternalMediaSchema = z.object({
     thumbnailDataUrl: z.string().nullable(),
     isRound: z.boolean().optional(),
     isAnimated: z.boolean().optional(),
+    /** Telegram's virtual sticker for a message containing one supported emoji. */
+    emoji: z.string().max(64).optional(),
+    /** An extra animation played over that emoji on click, not a visible attachment. */
+    isEmojiEffect: z.boolean().optional(),
     // Voice notes and audio tracks carry playback metadata straight from the
     // provider (Telegram `DocumentAttributeAudio`): duration in seconds and
     // the waveform as base64 of Telegram's packed 5-bit amplitudes (8 values

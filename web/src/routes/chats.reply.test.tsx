@@ -56,6 +56,27 @@ function swipe(element: Element, points: Array<{ x: number; y: number }>) {
 }
 
 describe('messenger reply gestures', () => {
+    it('loads a standalone animated emoji and plays its hidden effect on click', async () => {
+        vi.stubGlobal('IntersectionObserver', undefined)
+        const NativeURL = globalThis.URL
+        vi.stubGlobal('URL', class extends NativeURL {
+            static createObjectURL() { return 'blob:animated-emoji' }
+            static revokeObjectURL() {}
+        })
+        const getExternalMediaBlob = vi.fn(async () => new Blob(['unavailable animation']))
+        const emoji: ExternalMessage = { ...message, text: '😂', media: [
+            { kind: 'sticker', mimeType: 'application/x-tgsticker', fileName: null, size: null, thumbnailDataUrl: null, emoji: '😂' },
+            { kind: 'sticker', mimeType: 'application/x-tgsticker', fileName: null, size: null, thumbnailDataUrl: null, isEmojiEffect: true },
+        ] }
+        renderChat({ getExternalMediaBlob, getExternalMessages: async () => ({ messages: [emoji], participants: [] }) })
+        const button = await screen.findByRole('button', { name: '😂' })
+        await waitFor(() => expect(getExternalMediaBlob).toHaveBeenCalledWith('telegram:chat:1', 'pm1', 0, { forceReload: false }))
+        expect(getExternalMediaBlob).toHaveBeenCalledTimes(1)
+        fireEvent.click(button)
+        await waitFor(() => expect(getExternalMediaBlob).toHaveBeenCalledWith('telegram:chat:1', 'pm1', 1))
+        expect(screen.queryByRole('menu')).toBeNull()
+    })
+
     it('keeps edit and delete out of the menu for incoming messages', async () => {
         renderChat()
         fireEvent.click(await screen.findByText('hello bubble'))

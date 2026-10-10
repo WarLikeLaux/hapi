@@ -9,6 +9,7 @@ import { ExternalDeliveryStatus } from '@/components/ExternalDeliveryStatus'
 import { ImagePreview } from '@/components/ImagePreview'
 import { KlipyGifPicker } from '@/components/KlipyGifPicker'
 import { LottieSticker } from '@/components/LottieSticker'
+import { AnimatedEmoji } from '@/components/AnimatedEmoji'
 import { YandexStickerPicker } from '@/components/YandexStickerPicker'
 import { useKlipyEnabled } from '@/hooks/queries/useKlipy'
 import { PrimarySectionNav } from '@/components/PrimarySectionNav'
@@ -189,6 +190,7 @@ function MediaAttachment(props: {
     conversationId: string
     providerMessageId: string
     mediaIndex: number
+    emojiEffectIndex?: number
     previewOnly?: boolean
     overlay?: ReactNode
     onStartVoicePlayback: (key: string, src: string | null) => void
@@ -250,6 +252,7 @@ function MediaAttachment(props: {
     // Telegram delivers GIFs as silent animated MP4 with kind "video"; surface
     // them as GIF everywhere a plain video would say "Video".
     const label = mediaLabel(media)
+    if (media.emoji) return <AnimatedEmoji emoji={media.emoji} src={fullUrl} conversationId={props.conversationId} providerMessageId={props.providerMessageId} effectIndex={props.emojiEffectIndex} overlay={props.overlay} observerRef={node => { previewRef.current = node }} />
     const stickerRender = media.kind === 'sticker' ? stickerRenderKind(media.mimeType) : null
     if (props.previewOnly && media.thumbnailDataUrl) {
         return <div className="relative w-[min(64vw,15rem)] max-w-full"><img src={media.thumbnailDataUrl} alt={label} referrerPolicy="no-referrer" className="max-h-[15rem] w-full object-contain" />{props.overlay}</div>
@@ -1308,7 +1311,9 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         const outgoing = outboxById.get(item.id)
                         const hasLinkPreview = Boolean(externalHttpUrl(item.linkPreview?.url))
                         const attachments = (item.media ?? []).map((media, mediaIndex) => ({ media, mediaIndex }))
-                            .filter(({ mediaIndex }) => !hasLinkPreview || mediaIndex !== item.linkPreview?.mediaIndex)
+                            .filter(({ media, mediaIndex }) => !media.isEmojiEffect && (!hasLinkPreview || mediaIndex !== item.linkPreview?.mediaIndex))
+                        const emojiEffectIndex = item.media?.findIndex(media => media.isEmojiEffect)
+                        const displayText = attachments.some(({ media }) => media.emoji) ? '' : item.text
                         const hasMedia = attachments.length > 0
                         const richMessage = Boolean(item.forward || hasLinkPreview)
                         const reactions = item.reactions ?? []
@@ -1373,7 +1378,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                         : null}
                             </time>
                         )
-                        const caption = item.text || richMessage ? (
+                        const caption = displayText || richMessage ? (
                             <div className="flex min-w-0 flex-col gap-1">
                                 {showSenderName ? (
                                     <div className="text-[11px] font-semibold leading-tight" style={{ color: senderNameColor(item.senderId) }}>
@@ -1381,14 +1386,14 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                     </div>
                                 ) : null}
                                 {item.forward && !hasMedia ? <ExternalForwardHeader forward={item.forward} /> : null}
-                                {item.text ? <ExternalMessageText
-                                    text={item.text}
+                                {displayText ? <ExternalMessageText
+                                    text={displayText}
                                     textLinks={item.textLinks}
                                     compact={!hasMedia && !richMessage}
                                     footer={!hasLinkPreview ? timestamp : undefined}
                                 /> : null}
                                 {hasLinkPreview ? <ExternalLinkPreview message={item} /> : null}
-                                {hasLinkPreview || !item.text ? <div className="self-end">{timestamp}</div> : null}
+                                {hasLinkPreview || !displayText ? <div className="self-end">{timestamp}</div> : null}
                             </div>
                         ) : null
                         return (
@@ -1504,6 +1509,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                                     conversationId={conversationId}
                                                     providerMessageId={item.providerMessageId}
                                                     mediaIndex={mediaIndex}
+                                                    emojiEffectIndex={emojiEffectIndex !== undefined && emojiEffectIndex >= 0 ? emojiEffectIndex : undefined}
                                                     onStartVoicePlayback={startVoicePlayback}
                                                     previewOnly={optimistic && media.kind === 'sticker'}
                                                     overlay={overlaysTimestamp ? (

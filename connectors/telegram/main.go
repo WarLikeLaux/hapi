@@ -99,6 +99,8 @@ type externalMedia struct {
 	ThumbnailDataURL *string `json:"thumbnailDataUrl"`
 	IsRound          bool    `json:"isRound,omitempty"`
 	IsAnimated       bool    `json:"isAnimated,omitempty"`
+	Emoji            string  `json:"emoji,omitempty"`
+	IsEmojiEffect    bool    `json:"isEmojiEffect,omitempty"`
 	Duration         *int64  `json:"duration,omitempty"`
 	// Waveform carries Telegram's packed voice waveform — 5-bit amplitudes,
 	// 8 values per 5 bytes — base64-encoded so clients can draw it before the
@@ -331,20 +333,22 @@ type buttonWatchKey struct {
 }
 
 type service struct {
-	out           *writer
-	auth          *interactiveAuth
-	mu            sync.RWMutex
-	client        *telegram.Client
-	raw           *tg.Client
-	cancel        context.CancelFunc
-	runCtx        context.Context
-	buttonWatches map[buttonWatchKey]context.CancelFunc
-	self          *tg.User
-	peers         map[string]tg.InputPeerClass
-	peerTitles    map[string]string
-	avatars       map[string]string
-	readOutboxMax map[string]int
-	sessionPath   string
+	out            *writer
+	auth           *interactiveAuth
+	mu             sync.RWMutex
+	client         *telegram.Client
+	raw            *tg.Client
+	cancel         context.CancelFunc
+	runCtx         context.Context
+	buttonWatches  map[buttonWatchKey]context.CancelFunc
+	self           *tg.User
+	peers          map[string]tg.InputPeerClass
+	peerTitles     map[string]string
+	avatars        map[string]string
+	readOutboxMax  map[string]int
+	sessionPath    string
+	emojiDocuments map[string]*tg.Document
+	emojiEffects   map[string]*tg.Document
 }
 
 func newService(out *writer) *service {
@@ -590,7 +594,7 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 				audioWaveform = attribute.Waveform
 			}
 		}
-		if isAnimated {
+		if isAnimated && kind != "sticker" {
 			kind = "video"
 		}
 		mime := document.MimeType
@@ -843,6 +847,8 @@ func (s *service) configure(apiID int, apiHash, sessionPath string) error {
 	s.runCtx = ctx
 	s.client = nil
 	s.raw = nil
+	s.emojiDocuments = nil
+	s.emojiEffects = nil
 	s.mu.Unlock()
 
 	dispatcher := tg.NewUpdateDispatcher()
@@ -879,6 +885,7 @@ func (s *service) configure(apiID int, apiHash, sessionPath string) error {
 			s.self = self
 			s.sessionPath = sessionPath
 			s.mu.Unlock()
+			s.loadAnimatedEmojis(runCtx, raw)
 			label := userName(self)
 			s.out.event("connection", connection{State: "ready", AccountLabel: &label})
 			<-runCtx.Done()
@@ -1384,6 +1391,7 @@ func (s *service) loadMessages(ctx context.Context, remoteID string, limit int) 
 		}
 		converted, ok := messageFromTelegram(msg, elem.Entities, self, avatar, readOutboxMax)
 		if ok {
+			s.decorateAnimatedEmoji(msg, &converted)
 			forwardCandidate := forwardAvatarCandidateForMessage(msg, elem.Entities, self)
 			if forwardCandidate != nil {
 				s.mu.RLock()
@@ -1626,7 +1634,7 @@ func pruneMediaCache(cacheDir string, maxBytes int64, keepPath string) error {
 }
 
 func (s *service) downloadMedia(ctx context.Context, remoteID, providerMessageID string, mediaIndex int) (downloadedMedia, error) {
-	if mediaIndex != 0 {
+	if mediaIndex < 0 || mediaIndex > 1 {
 		return downloadedMedia{}, errors.New("media attachment not found")
 	}
 	messageID, err := strconv.Atoi(providerMessageID)
@@ -1644,6 +1652,11 @@ func (s *service) downloadMedia(ctx context.Context, remoteID, providerMessageID
 	msg, err := messageByID(ctx, raw, peer, messageID)
 	if err != nil {
 		return downloadedMedia{}, err
+	}
+	if document := s.animatedEmojiDocument(msg, mediaIndex); document != nil {
+		msg = &tg.Message{Media: &tg.MessageMediaDocument{Document: document}}
+	} else if mediaIndex != 0 {
+		return downloadedMedia{}, errors.New("media attachment not found")
 	}
 
 	var location tg.InputFileLocationClass
@@ -1937,6 +1950,7 @@ func (s *service) emitNewMessage(ctx context.Context, entities messagepeer.Entit
 	if !ok {
 		return
 	}
+	s.decorateAnimatedEmoji(msg, &converted)
 	forwardCandidate := forwardAvatarCandidateForMessage(msg, entities, self)
 	needsForwardAvatar := false
 	if forwardCandidate != nil {

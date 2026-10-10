@@ -171,11 +171,12 @@ export class MaxConnector implements MessengerConnector {
             const slot = await client.request(80, { count: 1, profile: false })
             const url = mediaUrl(slot.url)
             if (!url) throw new Error('MAX did not return a photo upload URL')
-            const photoId = new URL(url).searchParams.get('photoIds')
             const form = new FormData()
             form.append('file', new Blob([bytes], { type: input.mimeType }), input.fileName)
             const result = object(await (await fetchMedia(url, { method: 'POST', body: form })).json())
-            const token = object(object(result.photos)[photoId ?? '']).token
+            // The upload ticket is opaque; the response keys contain the assigned photo IDs.
+            const token = Object.values(object(result.photos)).map(photo => object(photo).token)
+                .find(token => typeof token === 'string' && token.length > 0)
             if (typeof token !== 'string' || !token) throw new Error('MAX did not confirm the photo upload')
             attach = { _type: 'PHOTO', photoToken: token }
         } else {
@@ -208,6 +209,9 @@ export class MaxConnector implements MessengerConnector {
         const attach = raw ? attachments(raw)[mediaIndex] : undefined
         if (!attach) throw new Error('MAX attachment not found')
         let url = mediaUrl(attach.baseUrl) ?? mediaUrl(attach.url) ?? mediaUrl(attach.fileUrl)
+        if (attach._type === 'PHOTO' || attach._type === 'STICKER') {
+            url = mediaUrl(attach.mp4Url) ?? (attach._type === 'STICKER' ? mediaUrl(attach.lottieUrl) : null) ?? url
+        }
         if (attach._type === 'FILE' && id(attach.fileId)) {
             const result = await client.request(88, { chatId: this.chatId(remoteId), messageId: providerMessageId, fileId: attach.fileId })
             url = mediaUrl(result.url) ?? url
