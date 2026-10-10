@@ -49,8 +49,8 @@ export type AgentEvent =
     | { type: 'compact'; trigger: string; preTokens: number }
     // Structured result of Pi's compact RPC; rendered as a dedicated chat block.
     | { type: 'compact-summary'; summary: string; tokensBefore?: number; estimatedTokensAfter?: number }
-    // Claude Code's automatic away-summary recap (TUI window blur 5min+, then focus).
-    | { type: 'recap'; text: string }
+    // Native Codex recap or Claude Code's automatic away-summary.
+    | { type: 'recap'; text: string; flavor?: 'codex' }
     | { type: 'thread-goal-updated'; goal: ThreadGoal; threadId?: string; turnId?: string }
     | { type: 'thread-goal-cleared'; threadId?: string }
     | { type: 'abort-restore'; text: string }

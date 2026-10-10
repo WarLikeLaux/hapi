@@ -14,6 +14,7 @@ import { codexHome, saveRuntime, runtimeDirectory, runtimeAuthHash, findColdBind
 import { startCodexGateway, record, string, type Envelope } from './gateway';
 import { resolveSharedCodex, sharedLaunchConfig, initializeSharedClient, checkSharedCapabilities, takeReservedSessionId, type SharedLaunchOptions } from './launch';
 import { SharedCodexRoot } from './root';
+import { NativeCodexRecaps } from './recaps';
 
 export type RuntimeReady = { sessionId: string; runtime: CodexRuntimeRecord };
 type Reservation = { root: SharedCodexRoot; resumeId?: string };
@@ -72,6 +73,7 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
     const done = new Promise<void>(resolve => { finish = resolve; });
     const ending = new Set<SharedCodexRoot>();
     const roots = new Map<string, SharedCodexRoot>();
+    const recaps = new NativeCodexRecaps(threadId => roots.get(threadId)?.captureNativeRecap());
     const prepared = new Set<SharedCodexRoot>();
     const reservations = new Map<string, Reservation>();
     const runtime: CodexRuntimeRecord = { id, pid: process.pid, marker: getProcessStartMarker(process.pid) ?? '',
@@ -238,6 +240,7 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
     });
     const key = (connection: string, request: Envelope) => `${connection}:${typeof request.id}:${request.id}`;
     const before = (request: Envelope, connection: string): Promise<Envelope> => operation(async () => {
+        recaps.before(request, connection);
         const params = record(request.params);
         if (['thread/revert', 'thread/rollback'].includes(request.method ?? '')) {
             throw new Error('In-place rewind is unavailable with concurrent HAPI clients. Use /fork or Fork at message instead.');
@@ -293,6 +296,7 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
             const nativeId = string(record(request.params).queuedSubmissionId);
             if (root && nativeId) await root.nativeQueueDeleted(nativeId);
         }
+        recaps.after(request, response, connection);
         if (!response.error && ['thread/start', 'thread/resume', 'thread/fork'].includes(request.method ?? '')) {
             const threadId = string(record(record(response.result).thread).id);
             // Native 0.154 resume responses omit collaboration mode. Replay
@@ -328,7 +332,8 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
         await checkSharedCapabilities(control);
         assertRunning();
         gateway = await startCodexGateway({ upstream, upstreamToken, path: process.platform === 'win32' ? undefined : join(sockets, 'clients.sock'), token,
-            hooks: { before, after, disconnected: connection => {
+            hooks: { before, after, observe: (message, connection) => recaps.observe(message, connection), disconnected: connection => {
+                recaps.disconnected(connection);
                 for (const [key, reservation] of reservations) {
                     if (!key.startsWith(`${connection}:`)) continue;
                     reservation.root.session.sendSessionEvent({ type: 'message', message: 'Native lifecycle outcome is unknown after transport loss. Do not retry blindly; inspect the shared runtime log.' });

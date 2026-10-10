@@ -312,7 +312,11 @@ export function aggregateResponseGroups(
             groupFirstBlockId = block.id
             groupStartedAt = latestUserInvokedAt
         }
-        groupCompletedAt = Math.max(groupCompletedAt ?? 0, getBlockPresentationTimestamp(block))
+        // A native recap can arrive long after the answer. It belongs to the
+        // response visually, but must not extend the reported working time.
+        if (!(block.kind === 'agent-event' && block.event.type === 'recap' && block.event.flavor === 'codex')) {
+            groupCompletedAt = Math.max(groupCompletedAt ?? 0, getBlockPresentationTimestamp(block))
+        }
 
         const roundSummary = block.kind === 'tool-group'
             ? block.roundSummary
@@ -602,6 +606,15 @@ export function toThreadMessageLike(
     }
 
     if (block.kind === 'agent-event') {
+        if (block.event.type === 'recap' && block.event.flavor === 'codex') {
+            return {
+                role: 'assistant',
+                id: threadMessageId,
+                createdAt: new Date(timestamp),
+                content: [{ type: 'data', name: 'recap', data: { text: block.event.text } }],
+                metadata: { custom: { kind: 'event', event: block.event } satisfies HappyChatMessageMetadata }
+            }
+        }
         if (isInlineWorkEvent(block)) {
             return {
                 role: 'assistant',

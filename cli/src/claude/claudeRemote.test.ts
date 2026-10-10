@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as claudeSdk from '@/claude/sdk';
 import type { SDKMessage } from '@/claude/sdk/types';
+import { wrapWithHapiTitleReminder } from '@/modules/common/sessionTitlePrompt';
 
 vi.mock('@/claude/utils/claudeCheckSession', () => ({
     claudeCheckSession: () => true
@@ -69,6 +70,37 @@ async function waitFor(condition: () => boolean, timeoutMs = 300, intervalMs = 1
 }
 
 describe('claudeRemote async message handling', () => {
+    it.each([0, 1])('forwards native /recap without the hidden title reminder at prompt index %s', async recapIndex => {
+        const querySpy = vi.spyOn(claudeSdk, 'query').mockImplementation(queryMock as typeof claudeSdk.query);
+        const { claudeRemote } = await import('./claudeRemote');
+        const prompts: unknown[] = [];
+        const recap = { type: 'assistant', message: { role: 'assistant', model: '<synthetic>',
+            content: [{ type: 'text', text: 'Inspected the protocol. Next: display the native recap.' }] } } as unknown as SDKMessage;
+        queryMock.mockImplementationOnce(({ prompt }: { prompt: AsyncIterable<unknown> }) => ({
+            async *[Symbol.asyncIterator]() {
+                let index = 0;
+                for await (const message of prompt) {
+                    prompts.push(message);
+                    if (index++ === recapIndex) yield recap;
+                    yield { type: 'result', subtype: 'success', num_turns: 0, local_command: 'recap' } as unknown as SDKMessage;
+                }
+            }
+        }));
+        const received: SDKMessage[] = [];
+        let index = 0;
+        try {
+            await claudeRemote({ sessionId: 'session-1', path: process.cwd(), mcpServers: {}, claudeEnvVars: {},
+                claudeArgs: [], allowedTools: [], hookSettingsPath: '/tmp/hook.json',
+                canCallTool: async () => ({ behavior: 'allow', updatedInput: {} }),
+                nextMessage: async () => index >= 2 ? null : { message: index++ === recapIndex
+                    ? wrapWithHapiTitleReminder('Keep the title aligned.', '/recap') : 'Review this project', mode: { permissionMode: 'default' } },
+                onReady: () => {}, isAborted: () => false, onSessionFound: () => {}, onMessage: message => { received.push(message); } });
+            expect(prompts).toHaveLength(2);
+            expect(prompts[recapIndex]).toMatchObject({ type: 'user', message: { content: '/recap' } });
+            expect(received).toContainEqual(recap);
+        } finally { queryMock.mockReset(); querySpy.mockRestore(); }
+    });
+
     // CI occasionally exceeds the default 5s under load (unrelated to job work).
     it('reports the initial normal message once after the first result', { timeout: 15_000 }, async () => {
         const querySpy = vi.spyOn(claudeSdk, 'query').mockImplementation(queryMock as typeof claudeSdk.query);

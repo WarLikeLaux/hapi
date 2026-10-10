@@ -1,0 +1,220 @@
+{
+    "description": "Native Codex recap belongs to the preceding answer, survives ready, and does not join the next user turn.",
+    "expected": {
+        "blocks": [
+            {
+                "createdAt": 1755000000000,
+                "id": "recap-0",
+                "kind": "user-text",
+                "localId": null,
+                "text": "Check the protocol."
+            },
+            {
+                "createdAt": 1755000001000,
+                "id": "recap-work",
+                "kind": "agent-reasoning",
+                "localId": null,
+                "text": "Inspecting the protocol."
+            },
+            {
+                "createdAt": 1755000002000,
+                "id": "recap-answer",
+                "kind": "agent-text",
+                "localId": null,
+                "text": "Protocol checked."
+            },
+            {
+                "createdAt": 1755000004000,
+                "event": {
+                    "flavor": "codex",
+                    "text": "Checked the protocol.\nNext: verify the UI.",
+                    "type": "recap"
+                },
+                "id": "recap-4",
+                "kind": "agent-event"
+            },
+            {
+                "createdAt": 1755000005000,
+                "id": "recap-5",
+                "kind": "user-text",
+                "localId": null,
+                "text": "Continue with the UI."
+            },
+            {
+                "createdAt": 1755000006000,
+                "id": "recap-next-answer",
+                "kind": "agent-text",
+                "localId": null,
+                "text": "UI checked."
+            }
+        ],
+        "hasReadyEvent": true,
+        "latestUsage": null,
+        "visibleBlocks": [
+            {
+                "createdAt": 1755000000000,
+                "id": "recap-0",
+                "kind": "user-text",
+                "localId": null,
+                "text": "Check the protocol."
+            },
+            {
+                "createdAt": 1755000001000,
+                "id": "recap-work",
+                "kind": "agent-reasoning",
+                "localId": null,
+                "text": "Inspecting the protocol."
+            },
+            {
+                "createdAt": 1755000002000,
+                "id": "recap-answer",
+                "kind": "agent-text",
+                "localId": null,
+                "text": "Protocol checked."
+            },
+            {
+                "createdAt": 1755000004000,
+                "event": {
+                    "flavor": "codex",
+                    "text": "Checked the protocol.\nNext: verify the UI.",
+                    "type": "recap"
+                },
+                "id": "recap-4",
+                "kind": "agent-event"
+            },
+            {
+                "createdAt": 1755000005000,
+                "id": "recap-5",
+                "kind": "user-text",
+                "localId": null,
+                "text": "Continue with the UI."
+            },
+            {
+                "createdAt": 1755000006000,
+                "id": "recap-next-answer",
+                "kind": "agent-text",
+                "localId": null,
+                "text": "UI checked."
+            }
+        ]
+    },
+    "fixtureVersion": 1,
+    "input": {
+        "agentState": null,
+        "messages": [
+            {
+                "content": {
+                    "content": {
+                        "text": "Check the protocol.",
+                        "type": "text"
+                    },
+                    "role": "user"
+                },
+                "createdAt": 1755000000000,
+                "id": "recap-0",
+                "localId": null,
+                "seq": 1
+            },
+            {
+                "content": {
+                    "content": {
+                        "data": {
+                            "id": "recap-work",
+                            "message": "Inspecting the protocol.",
+                            "type": "reasoning"
+                        },
+                        "type": "codex"
+                    },
+                    "role": "agent"
+                },
+                "createdAt": 1755000001000,
+                "id": "recap-1",
+                "localId": null,
+                "seq": 2
+            },
+            {
+                "content": {
+                    "content": {
+                        "data": {
+                            "id": "recap-answer",
+                            "message": "Protocol checked.",
+                            "type": "message"
+                        },
+                        "type": "codex"
+                    },
+                    "role": "agent"
+                },
+                "createdAt": 1755000002000,
+                "id": "recap-2",
+                "localId": null,
+                "seq": 3
+            },
+            {
+                "content": {
+                    "content": {
+                        "data": {
+                            "type": "ready"
+                        },
+                        "type": "event"
+                    },
+                    "role": "agent"
+                },
+                "createdAt": 1755000003000,
+                "id": "recap-3",
+                "localId": null,
+                "seq": 4
+            },
+            {
+                "content": {
+                    "content": {
+                        "data": {
+                            "flavor": "codex",
+                            "text": "Checked the protocol.\nNext: verify the UI.",
+                            "type": "recap"
+                        },
+                        "type": "event"
+                    },
+                    "role": "agent"
+                },
+                "createdAt": 1755000004000,
+                "id": "recap-4",
+                "localId": null,
+                "seq": 5
+            },
+            {
+                "content": {
+                    "content": {
+                        "text": "Continue with the UI.",
+                        "type": "text"
+                    },
+                    "role": "user"
+                },
+                "createdAt": 1755000005000,
+                "id": "recap-5",
+                "localId": null,
+                "seq": 6
+            },
+            {
+                "content": {
+                    "content": {
+                        "data": {
+                            "id": "recap-next-answer",
+                            "message": "UI checked.",
+                            "type": "message"
+                        },
+                        "type": "codex"
+                    },
+                    "role": "agent"
+                },
+                "createdAt": 1755000006000,
+                "id": "recap-6",
+                "localId": null,
+                "seq": 7
+            }
+        ],
+        "options": {
+            "hasMoreMessages": false
+        }
+    },
+    "name": "codex-native-recap"
+}

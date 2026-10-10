@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type PropsWithChildren } from 'react'
 import {
     MessagePrimitive, useAuiState, getExternalStoreMessages,
-    type TextMessagePart, type TextMessagePartProps, type ThreadMessageLike, type ThreadAssistantMessagePart
+    type DataMessagePartProps, type TextMessagePart, type TextMessagePartProps, type ThreadMessageLike, type ThreadAssistantMessagePart
 } from '@assistant-ui/react'
 import { Reasoning, ReasoningGroup } from '@/components/assistant-ui/reasoning'
 import { HappyToolMessage } from '@/components/AssistantChat/messages/ToolMessage'
@@ -37,11 +37,24 @@ function AnchoredResponseText(props: TextMessagePartProps) {
     )
 }
 
+function ResponseRecap({ data }: DataMessagePartProps<{ text: string }>) {
+    return (
+        <div data-hapi-response-recap="true" className="mt-3 min-w-0">
+            <p className="min-w-0 whitespace-pre-wrap break-words text-base leading-relaxed text-[var(--app-fg)]">
+                <span className="font-medium text-[var(--app-hint)]">recap:</span>{' '}{data.text}
+            </p>
+        </div>
+    )
+}
+
+const RECAP_COMPONENTS = { by_name: { recap: ResponseRecap } } as const
+
 const MESSAGE_PART_COMPONENTS = {
     Text: AnchoredResponseText,
     Reasoning: Reasoning,
     ReasoningGroup: ReasoningGroup,
-    tools: TOOL_COMPONENTS
+    tools: TOOL_COMPONENTS,
+    data: RECAP_COMPONENTS
 } as const
 
 function DetailPartsGroup({ children }: PropsWithChildren) {
@@ -52,6 +65,7 @@ const DETAIL_PART_COMPONENTS = {
     Text: NotifySummaryText,
     Reasoning,
     tools: TOOL_COMPONENTS,
+    data: RECAP_COMPONENTS,
     Group: DetailPartsGroup,
 } as const
 

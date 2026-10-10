@@ -904,7 +904,7 @@ describe('aggregateResponseGroups', () => {
         })
     })
 
-    it('derives Codex Round duration from invocation to response completion', () => {
+    it.each([false, true])('derives Codex Round duration without counting a later recap (recap: %s)', recap => {
         const summary = {
             provider: 'codex' as const,
             modelUsage: {
@@ -914,7 +914,8 @@ describe('aggregateResponseGroups', () => {
         }
         const blocks: VisibleChatBlock[] = [
             userText('u1', { invokedAt: 1_000 }),
-            Object.assign(agentText('codex-answer', { createdAt: 2_800 }), { roundSummary: summary })
+            Object.assign(agentText('codex-answer', { createdAt: 2_800 }), { roundSummary: summary }),
+            ...(recap ? [{ ...agentEvent('late-recap', { type: 'recap', flavor: 'codex', text: 'Protocol checked.' }), createdAt: 60_000 }] : [])
         ]
 
         expect(aggregateResponseGroups(blocks).get('codex-answer')?.roundSummary).toEqual({

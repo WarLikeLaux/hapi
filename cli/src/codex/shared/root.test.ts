@@ -71,6 +71,7 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; in
     const updateState = vi.fn((fn: (value: AgentState) => AgentState) => { state = fn(state); });
     const rpc = new Map<string, (raw: unknown) => Promise<unknown>>();
     const send = vi.fn();
+    const events = vi.fn();
     const hubArchivedListeners: Array<() => void> = [];
     const session = {
         sessionId: 'sid', getMetadata: () => metadata,
@@ -84,7 +85,7 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; in
             if (event === 'hub-archived') hubArchivedListeners.push(listener);
         },
         rpcHandlerManager: { registerHandler: (name: string, handler: (raw: unknown) => Promise<unknown>) => rpc.set(name, handler) },
-        sendSessionEvent() {}, sendAgentMessage: send, emitSessionReady() {},
+        sendSessionEvent: events, sendAgentMessage: send, emitSessionReady() {},
         sendUserMessage: vi.fn(), emitMessagesConsumed() {}, emitSteerIndeterminate() {}, syncNativeQueuedMessage() {},
         sendSessionDeath() {}, async flush() {}, close() {}
     } as unknown as ApiSessionClient;
@@ -105,7 +106,7 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; in
         abandoned(): void;
     };
     return {
-        root, native, rpc, send, metadata: () => metadata, state: () => state, updateState,
+        root, native, rpc, send, events, metadata: () => metadata, state: () => state, updateState,
         postUser: (message: UserMessage, localId?: string) => userMessage?.(message, localId),
         reconnect: () => reconnect?.(),
         emitHubArchived: () => { for (const listener of hubArchivedListeners) listener(); },
@@ -126,6 +127,28 @@ async function completePlan(f: Awaited<ReturnType<typeof fixture>>, status = 'co
     await vi.waitFor(() => expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ name: 'ExitPlanMode' }), expect.any(String)));
     return codexPlanProposalId('thread', turn.id, 'plan-item');
 }
+
+describe('native recap freshness', () => {
+    it('drops a recap captured before a new turn and rejects delivery after closure', async () => {
+        const f = await fixture();
+        await f.root.activate();
+        const old = f.root.captureNativeRecap()!;
+        f.native.notify('turn/started', { threadId: 'thread', turn: { id: 'new-turn' } });
+        old.publish('Outdated recap', 'old');
+        f.native.notify('turn/completed', { threadId: 'thread', turn: { id: 'new-turn', status: 'completed' } });
+        await vi.waitFor(() => expect(f.events).toHaveBeenCalledWith(expect.objectContaining({ type: 'ready' })));
+        old.publish('Outdated recap', 'old');
+        expect(f.events).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recap' }), expect.any(String));
+        const fresh = f.root.captureNativeRecap()!;
+        fresh.publish('Current recap', 'fresh');
+        expect(f.events).toHaveBeenCalledWith({ type: 'recap', text: 'Current recap', flavor: 'codex' }, 'fresh');
+        f.events.mockClear();
+        await f.root.close(false);
+        fresh.publish('Closed recap', 'closed');
+        expect(f.events).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'recap' }), expect.any(String));
+        expect(f.root.captureNativeRecap()).toBeUndefined();
+    });
+});
 
 describe('shared async questions', () => {
     it('clears a persisted question answered after resume without loading history', async () => {

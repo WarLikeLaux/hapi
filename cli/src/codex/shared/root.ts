@@ -24,6 +24,7 @@ import { stripHapiTitleReminder } from '@/modules/common/sessionTitlePrompt';
 import { record, string } from './gateway';
 import { initializeSharedClient, type SharedLaunchOptions } from './launch';
 import { inheritedSandbox, settingsMatch } from './settings';
+import type { NativeRecapTarget } from './recaps';
 import { planImplementationMessageId, planProposalForItem, planProposalForTurn } from './plan';
 import { AnswerCodexAsyncQuestionRequestSchema, type AnswerCodexAsyncQuestionRequest, DismissCodexAsyncQuestionRequestSchema } from '@hapi/protocol';
 import { asyncQuestionForItem, asyncQuestionAnswerId, asyncQuestionAnswerText, asyncQuestionAnswerDisplay, parseAsyncQuestionAnswer } from './asyncQuestions';
@@ -638,6 +639,15 @@ export class SharedCodexRoot {
             config: { ...record(sandbox.config), model_reasoning_effort: this.settings.modelReasoningEffort ?? undefined } };
     }
     private notice(message: string): void { this.session.sendSessionEvent({ type: 'message', message }); }
+    captureNativeRecap(): NativeRecapTarget | undefined {
+        if (this.closed || this.stopping) return undefined;
+        const revision = this.turnRevision;
+        return { publish: (text, id) => {
+            if (!this.closed && !this.stopping && !this.currentTurn && this.turnRevision === revision) {
+                this.session.sendSessionEvent({ type: 'recap', text, flavor: 'codex' }, id);
+            }
+        } };
+    }
     private async newConversation(): Promise<SharedCodexRoot> {
         const child = await this.host.create('thread/start', this.freshParams());
         await child.initialSettings({ collaborationMode: this.settings.collaborationMode }); return child;

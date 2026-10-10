@@ -1304,6 +1304,10 @@ export class ApiSessionClient extends EventEmitter {
         type: 'message'
         message: string
     } | {
+        type: 'recap'
+        text: string
+        flavor: 'codex'
+    } | {
         type: 'error'
         message: string
     } | {
@@ -1351,7 +1355,7 @@ export class ApiSessionClient extends EventEmitter {
                 sid: this.sessionId,
                 message: content
             })
-        }, event.type === 'message' || event.type === 'error' || event.type === 'compact-summary' ? 'lossless' : 'droppable')
+        }, event.type === 'message' || event.type === 'error' || event.type === 'compact-summary' || event.type === 'recap' ? 'lossless' : 'droppable')
     }
 
     emitAgentTerminalOutput(data: string): void {

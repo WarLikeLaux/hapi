@@ -58,7 +58,8 @@ export function visibleBlockRole(block: VisibleChatBlock): VisibleChatBlockRole 
     // surrounding assistant output into multiple cards and therefore multiple
     // Show work dialogs. Other lifecycle events remain standalone messages.
     if (block.kind === 'agent-event') {
-        return isInlineWorkEvent(block) ? 'assistant' : 'system'
+        return isInlineWorkEvent(block) || (block.event.type === 'recap' && block.event.flavor === 'codex')
+            ? 'assistant' : 'system'
     }
     if (block.kind === 'cli-output') return block.source === 'user' ? 'user' : 'assistant'
     return 'assistant'
