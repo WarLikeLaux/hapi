@@ -149,7 +149,7 @@ export class NativeNotificationComposer {
         sessionName: string
     ): { title: string; body: string; notifySummary?: Record<string, unknown> } {
         const fallback = {
-            title: 'Ready for input',
+            title: 'What\'s next?',
             body: `${agentName} is waiting in ${sessionName}`
         }
 

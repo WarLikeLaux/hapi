@@ -930,7 +930,7 @@ export default {
   'send.blocked.title': 'Cannot send message',
   'send.blocked.noConnection': 'Not connected to server',
   'resume.failed.title': 'Resume failed',
-  'toast.ready.title': 'Ready for input',
+  'toast.ready.title': 'What\'s next?',
   'toast.ready.body': '{agent} is waiting in {session}',
   'toast.permission.title': 'Permission Request',
   'toast.input.title': '{agent} needs your input',

@@ -388,7 +388,7 @@ function AppInner() {
             return { title: inputTitle, body: normalizedBody }
         }
 
-        if (normalizedTitle === 'Ready for input') {
+        if (normalizedTitle === 'What\'s next?') {
             const waitingMatch = normalizedBody.match(/^(.+)\s+is waiting in\s+(.+)$/i)
             if (waitingMatch) {
                 const agent = waitingMatch[1]?.trim() ?? ''

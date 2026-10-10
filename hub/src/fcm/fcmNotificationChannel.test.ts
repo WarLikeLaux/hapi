@@ -475,7 +475,7 @@ describe('FcmNotificationChannel', () => {
 
         await channel.sendReady(createSession())
 
-        expect(sent[0].title).toBe('Ready for input')
+        expect(sent[0].title).toBe('What\'s next?')
         expect(sent[0].body).toBe('Codex is waiting in Demo')
     })
 
@@ -494,7 +494,7 @@ describe('FcmNotificationChannel', () => {
 
         await channel.sendReady(createSession())
 
-        expect(sent[0].title).toBe('Ready for input')
+        expect(sent[0].title).toBe('What\'s next?')
         expect(sent[0].body).toBe('Codex is waiting in Demo')
     })
 
