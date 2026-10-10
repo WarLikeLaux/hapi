@@ -1,0 +1,136 @@
+/* Roboto is bundled locally so messenger typography also works offline. */
+@font-face {
+    font-family: 'Hapi Roboto';
+    font-style: normal;
+    font-weight: 400 600;
+    font-display: swap;
+    src: url('./assets/fonts/roboto/latin.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: 'Hapi Roboto';
+    font-style: normal;
+    font-weight: 400 600;
+    font-display: swap;
+    src: url('./assets/fonts/roboto/cyrillic.woff2') format('woff2');
+    unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
+@font-face {
+    font-family: 'Hapi Roboto';
+    font-style: normal;
+    font-weight: 400 600;
+    font-display: swap;
+    src: url('./assets/fonts/roboto/latin-ext.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+    font-family: 'Hapi Roboto';
+    font-style: normal;
+    font-weight: 400 600;
+    font-display: swap;
+    src: url('./assets/fonts/roboto/cyrillic-ext.woff2') format('woff2');
+    unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+
+.messenger-chat {
+    --app-chat-font-size: 1rem;
+    --app-chat-line-height: 1.375rem;
+    --messenger-accent: var(--app-link);
+    font-family: 'Hapi Roboto', Roboto, system-ui, sans-serif;
+}
+
+:root[data-color-theme="telegram"] {
+    --app-chat-font-size: 1rem;
+    --app-chat-line-height: 1.375rem;
+}
+
+[data-color-theme="telegram"] .happy-chat-text,
+[data-color-theme="telegram"] .aui-md {
+    font-family: 'Hapi Roboto', Roboto, system-ui, sans-serif;
+}
+
+[data-color-theme="telegram"] .happy-user-bubble,
+.messenger-bubble {
+    padding: 6px 11px;
+}
+
+.messenger-bubble {
+    --messenger-accent: var(--app-link);
+    position: relative;
+    border-radius: 18px;
+}
+
+[data-color-theme="telegram"][data-theme="dark"] .messenger-bubble-incoming,
+[data-color-theme="telegram"][data-theme="oled"] .messenger-bubble-incoming {
+    --messenger-accent: #6bd1cc;
+}
+
+.messenger-bubble-outgoing {
+    --messenger-accent: var(--app-chat-user-fg);
+}
+
+.messenger-bubble-incoming.messenger-bubble-joined-top {
+    border-top-left-radius: 5px;
+}
+
+.messenger-bubble-outgoing.messenger-bubble-joined-top {
+    border-top-right-radius: 5px;
+}
+
+.messenger-bubble-incoming.messenger-bubble-joined-bottom,
+.messenger-bubble-tail-incoming {
+    border-bottom-left-radius: 5px;
+}
+
+.messenger-bubble-outgoing.messenger-bubble-joined-bottom,
+.messenger-bubble-tail-outgoing {
+    border-bottom-right-radius: 5px;
+}
+
+.messenger-bubble-tail-incoming::after,
+.messenger-bubble-tail-outgoing::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    width: 8px;
+    height: 12px;
+    background-color: inherit;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 12'%3E%3Cpath d='M0 0C1 7 3 10 8 12H0Z'/%3E%3C/svg%3E") center / contain no-repeat;
+    pointer-events: none;
+}
+
+.messenger-bubble-tail-incoming::after {
+    left: -7px;
+    transform: scaleX(-1);
+}
+
+.messenger-bubble-tail-outgoing::after {
+    right: -7px;
+}
+
+.messenger-chat .messenger-bubble-media {
+    padding: 3px;
+}
+
+.messenger-reply {
+    border-left: 3px solid var(--messenger-accent);
+    background-color: color-mix(in srgb, var(--messenger-accent) 12%, transparent);
+    color: inherit;
+}
+
+.messenger-time {
+    color: var(--app-hint);
+}
+
+.messenger-bubble-outgoing .messenger-time,
+.messenger-bubble-outgoing .messenger-time [role="img"] {
+    color: var(--app-chat-user-fg);
+}
+
+.messenger-time [role="img"] svg {
+    width: 18px;
+    height: 12px;
+}
