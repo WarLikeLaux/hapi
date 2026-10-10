@@ -1305,6 +1305,12 @@ export function HappyComposer(props: {
         void handleSend(intent)
     }, [handleSend])
 
+    const canQueueSend = agentFlavor === 'pi'
+        && thinking
+        && threadIsRunning
+        && pendingSchedule == null
+        && !props.scratchlistMode
+
     const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLTextAreaElement | HTMLDivElement>) => {
         const key = e.key
 
@@ -1326,10 +1332,28 @@ export function HappyComposer(props: {
             return
         }
 
-        // Only plain Enter (no modifiers) sends; other modifier combos are ignored
+        // Alt/Option+Enter is an explicit Pi follow-up request. It is
+        // orthogonal to the normal Enter preference but never overrides IME,
+        // Shift+Enter, autocomplete, scheduling, or scratchlist routing.
+        if (
+            key === 'Enter'
+            && e.altKey
+            && !e.ctrlKey
+            && !e.metaKey
+            && canQueueSend
+        ) {
+            e.preventDefault()
+            flushAndSend('queue')
+            setShowContinueHint(false)
+            return
+        }
+
+        // Plain Enter and Ctrl/Cmd+Enter send; Ctrl/Cmd+Enter must work in
+        // send-on-enter mode too (newline mode already used it to submit).
         if (key === 'Enter') {
+            const modSend = (e.ctrlKey || e.metaKey) && !e.altKey
             if (effectiveComposerEnterBehavior === 'newline') {
-                if ((e.ctrlKey || e.metaKey) && !e.altKey && canSend) {
+                if (modSend && canSend) {
                     e.preventDefault()
                     flushAndSend()
                     setShowContinueHint(false)
@@ -1337,7 +1361,7 @@ export function HappyComposer(props: {
                 return
             }
             e.preventDefault()
-            if (!e.ctrlKey && !e.altKey && !e.metaKey && canSend) {
+            if (canSend && (modSend || (!e.ctrlKey && !e.altKey && !e.metaKey))) {
                 flushAndSend()
                 setShowContinueHint(false)
             }
@@ -1407,7 +1431,7 @@ export function HappyComposer(props: {
         permissionMode,
         permissionModes,
         canSend,
-        handleSend,
+        canQueueSend,
         haptic,
         effectiveComposerEnterBehavior,
         richMentionsEnabled,

@@ -563,14 +563,12 @@ describe('HappyComposer send intent gestures', () => {
         runtime.sentIntents = []
     })
 
-    it('ignores Alt/Option+Enter (the old explicit-queue gesture) entirely', () => {
+    it('queues on Alt/Option+Enter while Pi is thinking', () => {
         renderComposer('follow-up', null, true)
 
         fireEvent.keyDown(input(), { key: 'Enter', altKey: true })
 
-        // Every send now queues by default (issue #1466); the Alt+Enter
-        // gesture was removed with the Pi automatic steer.
-        expect(runtime.sentIntents).toEqual([])
+        expect(runtime.sentIntents).toEqual(['queue'])
         expect(runtime.pendingSendIntentRef?.current).toBe('default')
     })
 
@@ -604,5 +602,13 @@ describe('HappyComposer send intent gestures', () => {
         fireEvent.keyDown(input(), { key: 'Enter', altKey: true })
         expect(runtime.sentIntents).toEqual([])
         expect(runtime.pendingSendIntentRef?.current).toBe('default')
+    })
+
+    it('sends on Ctrl/Cmd+Enter in send-on-enter mode', () => {
+        renderComposer('steer now', null, true)
+
+        fireEvent.keyDown(input(), { key: 'Enter', ctrlKey: true })
+
+        expect(runtime.sentIntents).toEqual(['default'])
     })
 })
