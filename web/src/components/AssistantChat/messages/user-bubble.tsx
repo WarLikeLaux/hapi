@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import type { MessageStatus } from '@/types/api'
 import { LazyRainbowText } from '@/components/LazyRainbowText'
 import { SparklesIcon } from '@/components/ToolCard/icons'
 import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/use-translation'
 
 const LEADING_DIRECTIVE_REGEX = /^([$\/][a-z0-9][\w-]*)(?=\s|$)/i
 
@@ -58,10 +60,48 @@ export function DirectiveChip(props: { value: string }) {
     )
 }
 
+const COLLAPSE_CHAR_LIMIT = 600
+const COLLAPSE_LINE_LIMIT = 10
+const COLLAPSED_MAX_HEIGHT = '12rem'
+
+function isCollapsibleBody(body: string): boolean {
+    if (body.length > COLLAPSE_CHAR_LIMIT) return true
+    return body.split(/\r\n|\r|\n/).length > COLLAPSE_LINE_LIMIT
+}
+
+function CollapsibleBody({ body }: { body: string }) {
+    const { t } = useTranslation()
+    const [expanded, setExpanded] = useState(false)
+    return (
+        <div className="min-w-0">
+            <div
+                className={cn('relative min-w-0 overflow-hidden', !expanded && 'max-h-48')}
+                style={expanded ? undefined : { maxHeight: COLLAPSED_MAX_HEIGHT }}
+            >
+                <LazyRainbowText text={body} preserveSingleLineBreaks />
+                {!expanded ? (
+                    <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[var(--app-chat-user-surface-bg)] to-transparent"
+                    />
+                ) : null}
+            </div>
+            <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                aria-expanded={expanded}
+                className="mt-1 inline-flex items-center gap-1 rounded-md text-xs font-medium text-[var(--app-chat-user-fg)] opacity-70 underline-offset-2 hover:opacity-100 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+            >
+                {expanded ? t('chat.message.showLess') : t('chat.message.showMore')}
+            </button>
+        </div>
+    )
+}
+
 export function UserBubbleContent(props: { text: string }) {
     const { directives, body } = extractLeadingDirectives(props.text)
     const hasBody = body.trim().length > 0
-    const shouldRenderInline = directives.length > 0 && hasBody && !/[\r\n]/.test(body)
+    const shouldRenderInline = directives.length > 0 && hasBody && !/[\r\n]/.test(body) && !isCollapsibleBody(body)
 
     if (shouldRenderInline) {
         return (
@@ -81,7 +121,7 @@ export function UserBubbleContent(props: { text: string }) {
                     {directives.map((directive) => <DirectiveChip key={directive} value={directive} />)}
                 </div>
             ) : null}
-            {hasBody ? <LazyRainbowText text={body} preserveSingleLineBreaks /> : null}
+            {hasBody ? (isCollapsibleBody(body) ? <CollapsibleBody body={body} /> : <LazyRainbowText text={body} preserveSingleLineBreaks />) : null}
         </div>
     )
 }

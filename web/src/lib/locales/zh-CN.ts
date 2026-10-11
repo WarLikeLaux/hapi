@@ -858,6 +858,8 @@ export default {
   'queuedMessages.retryUnavailable': '无法安全重试——请等待，或使用 × 丢弃',
   'queuedMessages.steeredBadge': '↳ 已介入',
   'queuedMessages.steeredBadgeTitle': '已介入当前进行中的回合',
+  'chat.message.showMore': '展开',
+  'chat.message.showLess': '收起',
 
   // Scratchlist (per-session workbench, issue #11)
   'scratchlist.title': '草稿夹',
