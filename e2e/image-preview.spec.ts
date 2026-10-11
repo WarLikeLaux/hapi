@@ -34,6 +34,11 @@ test('image gestures keep the viewer open without scrolling or loading chat hist
 
     const touch = await page.context().newCDPSession(page)
     await touch.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 })
+    // Touch emulation flips hover/pointer media features, so hover-only
+    // message action rows return to the flow and the chat re-flows. The
+    // pinch assertion guards against gesture scroll, not that reflow.
+    await page.waitForTimeout(200)
+    const pinchBaseline = await viewport.evaluate(element => element.scrollTop)
     const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
     const points = (distance: number) => [
         { x: center.x - distance / 2, y: center.y, id: 1 },
@@ -44,7 +49,7 @@ test('image gestures keep the viewer open without scrolling or loading chat hist
     await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByTitle('Reset zoom')).toHaveText('250%')
-    expect(await viewport.evaluate(element => element.scrollTop)).toBe(before)
+    expect(await viewport.evaluate(element => element.scrollTop)).toBe(pinchBaseline)
     expect(await page.evaluate(() => window.__probe.requests.filter(request => request.direction === 'before').length)).toBe(beforeLoads)
 
     // The viewer owns the blob even after the attachment releases its source.
