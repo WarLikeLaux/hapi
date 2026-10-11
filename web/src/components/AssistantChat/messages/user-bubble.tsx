@@ -7,6 +7,27 @@ import { useTranslation } from '@/lib/use-translation'
 
 const LEADING_DIRECTIVE_REGEX = /^([$\/][a-z0-9][\w-]*)(?=\s|$)/i
 
+const TITLE_BLOCK_OPEN = '<<<HAPI_TITLE_CHECK>>>'
+const TITLE_BLOCK_CLOSE = '<<<END_HAPI_TITLE_CHECK>>>'
+
+/** Defense-in-depth: the hidden title-check block must never render in chat. */
+export function sanitizeUserBubbleText(text: string): string {
+    let out = text
+    const open = out.indexOf(TITLE_BLOCK_OPEN)
+    const close = out.indexOf(TITLE_BLOCK_CLOSE)
+    if (open !== -1 && close !== -1 && close > open) {
+        out = (out.slice(0, open) + out.slice(close + TITLE_BLOCK_CLOSE.length)).trim()
+    }
+    // CLI formats attachments as leading `@/tmp/hapi-blobs/...` lines; the
+    // hub already stores attachments as metadata, so drop those echo lines.
+    out = out
+        .split(/\r\n|\r|\n/)
+        .filter((line) => !/^@\/\S*hapi-blobs\/\S*/.test(line.trim()))
+        .join('\n')
+        .trim()
+    return out
+}
+
 export function getUserBubbleClassName(status?: MessageStatus) {
     return cn(
         'happy-user-bubble happy-chat-text ml-auto w-fit min-w-0 max-w-[92%] rounded-2xl bg-[var(--app-chat-user-surface-bg)] px-4 py-2.5 text-[var(--app-chat-user-fg)] shadow-none',
@@ -99,7 +120,7 @@ function CollapsibleBody({ body }: { body: string }) {
 }
 
 export function UserBubbleContent(props: { text: string }) {
-    const { directives, body } = extractLeadingDirectives(props.text)
+    const { directives, body } = extractLeadingDirectives(sanitizeUserBubbleText(props.text))
     const hasBody = body.trim().length > 0
     const shouldRenderInline = directives.length > 0 && hasBody && !/[\r\n]/.test(body) && !isCollapsibleBody(body)
 
