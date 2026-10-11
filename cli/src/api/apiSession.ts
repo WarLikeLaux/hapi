@@ -47,6 +47,7 @@ import { WorkspaceChangesTracker } from '@/modules/common/workspaceChanges'
 import { applySessionTitleFallback } from '@/modules/common/sessionTitleFallback'
 import {
     buildSessionTitleTurnReminder,
+    stripHapiTitleReminder,
     wrapWithHapiTitleReminder
 } from '@/modules/common/sessionTitlePrompt'
 
@@ -927,9 +928,9 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     private consumePendingHubPromptEcho(text: string): boolean {
-        const normalized = text.trim()
+        const normalized = stripHapiTitleReminder(text.trim()).trim()
         if (!normalized) return false
-        const index = this.pendingHubPromptEchoes.findIndex((entry) => entry.text === normalized)
+        const index = this.pendingHubPromptEchoes.findIndex((entry) => stripHapiTitleReminder(entry.text).trim() === normalized)
         if (index < 0) return false
         this.pendingHubPromptEchoes.splice(index, 1)
         return true
@@ -1117,8 +1118,13 @@ export class ApiSessionClient extends EventEmitter {
         let createdAt: number | undefined
 
         if (isExternalUserMessage(body)) {
-            const text = extractRawUserTextContent(body.message.content) ?? ''
-            const isTranscriptEcho = this.consumePendingHubPromptEcho(text)
+            const rawText = extractRawUserTextContent(body.message.content) ?? ''
+            const isTranscriptEcho = this.consumePendingHubPromptEcho(rawText)
+            // Never persist the hidden title-check block: the transcript echo
+            // carries the exact prompt Claude saw (with the injected block),
+            // while the hub already stores the original user text.
+            const text = stripHapiTitleReminder(rawText.trim()).trim()
+            if (!text) return
             content = {
                 role: 'user',
                 content: {
