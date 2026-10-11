@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isSessionNotFoundError, SESSION_DETAIL_STALE_TIME_MS } from './useSession'
+import type { Session } from '@/types/api'
+import { hasPendingSessionRequests, isSessionNotFoundError, SESSION_DETAIL_STALE_TIME_MS } from './useSession'
 
 describe('isSessionNotFoundError', () => {
     it('matches hub 404 session responses', () => {
@@ -9,6 +10,22 @@ describe('isSessionNotFoundError', () => {
     it('does not match unrelated errors', () => {
         expect(isSessionNotFoundError(new Error('HTTP 500 Internal Server Error'))).toBe(false)
         expect(isSessionNotFoundError(null)).toBe(false)
+    })
+})
+
+describe('hasPendingSessionRequests', () => {
+    it('returns true when agentState has pending requests', () => {
+        const session = {
+            agentState: { requests: { 'req-1': { tool: 'CodexBash' } } },
+        } as unknown as Session
+        expect(hasPendingSessionRequests(session)).toBe(true)
+    })
+
+    it('returns false when there are no requests', () => {
+        expect(hasPendingSessionRequests({ agentState: { requests: {} } } as unknown as Session)).toBe(false)
+        expect(hasPendingSessionRequests({ agentState: null } as unknown as Session)).toBe(false)
+        expect(hasPendingSessionRequests(null)).toBe(false)
+        expect(hasPendingSessionRequests(undefined)).toBe(false)
     })
 })
 

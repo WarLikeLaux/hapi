@@ -18,6 +18,12 @@ export function isSessionNotFoundError(error: unknown): boolean {
 // `App.tsx`) still refetch active observers regardless of staleTime, so live
 // updates and recovery flows continue to work.  See tiann/hapi#884.
 export const SESSION_DETAIL_STALE_TIME_MS = 30_000
+export const SESSION_PENDING_REQUESTS_POLL_MS = 4_000
+
+export function hasPendingSessionRequests(session: Session | null | undefined): boolean {
+    const requests = session?.agentState?.requests
+    return Boolean(requests && Object.keys(requests).length > 0)
+}
 
 export function useSession(api: ApiClient | null, sessionId: string | null): {
     session: Session | null
@@ -37,6 +43,14 @@ export function useSession(api: ApiClient | null, sessionId: string | null): {
         },
         enabled: Boolean(api && sessionId),
         staleTime: SESSION_DETAIL_STALE_TIME_MS,
+        // SSE fallback: a dropped/out-of-order `session-updated` patch (strictly-
+        // newer version gate in `applySessionDetailPatch`) can hide a fresh
+        // permission request until a full reload. While requests are pending,
+        // poll the detail endpoint so the missing card appears on its own.
+        refetchInterval: (query) =>
+            hasPendingSessionRequests(query.state.data?.session)
+                ? SESSION_PENDING_REQUESTS_POLL_MS
+                : false,
         retry: (failureCount, error) => {
             if (isSessionNotFoundError(error)) {
                 return false
