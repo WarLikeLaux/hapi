@@ -1247,7 +1247,13 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     sendUserMessage(text: string, meta?: MessageMeta, localId?: string): void {
-        if (!text) {
+        // Codex echoes the exact turn input back as thread userMessage items,
+        // including the hidden title-check block. The hub already stores the
+        // original user text, so strip the internal wrapper here — this is
+        // the codex equivalent of the Claude transcript-echo strip in
+        // sendClaudeSessionMessage.
+        const clean = stripHapiTitleReminder(text.trim()).trim()
+        if (!clean) {
             return
         }
 
@@ -1255,7 +1261,7 @@ export class ApiSessionClient extends EventEmitter {
             role: 'user',
             content: {
                 type: 'text',
-                text
+                text: clean
             },
             meta: {
                 sentFrom: 'cli',
