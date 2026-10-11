@@ -860,6 +860,8 @@ export default {
   'queuedMessages.retryUnavailable': 'Cannot retry safely — wait or discard it with ×',
   'queuedMessages.steeredBadge': '↳ Steered',
   'queuedMessages.steeredBadgeTitle': 'Steered into the active turn',
+  'chat.message.showMore': 'Show more',
+  'chat.message.showLess': 'Show less',
 
   // Scratchlist (per-session workbench, issue #11)
   'scratchlist.title': 'Scratchlist',

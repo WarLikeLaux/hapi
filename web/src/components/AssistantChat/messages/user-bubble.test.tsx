@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { I18nProvider } from '@/lib/i18n-context'
 
 vi.mock('@/components/LazyRainbowText', () => ({
     LazyRainbowText: ({ text, inline, preserveSingleLineBreaks }: { text: string; inline?: boolean; preserveSingleLineBreaks?: boolean }) => (
@@ -63,5 +64,20 @@ describe('UserBubbleContent', () => {
         const className = getUserBubbleClassName('queued')
         expect(className).toContain('shadow-none')
         expect(className).toContain('opacity-60')
+    })
+
+    it('collapses long messages behind a show-more toggle', () => {
+        const longText = Array.from({ length: 15 }, (_, i) => `line ${i + 1}`).join('\n')
+        render(<I18nProvider><UserBubbleContent text={longText} /></I18nProvider>)
+
+        const showMore = screen.getByRole('button', { name: 'Show more' })
+        expect(showMore).toHaveAttribute('aria-expanded', 'false')
+        fireEvent.click(showMore)
+        expect(screen.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true')
+    })
+
+    it('does not collapse short messages', () => {
+        render(<UserBubbleContent text="short message" />)
+        expect(screen.queryByRole('button')).not.toBeInTheDocument()
     })
 })
