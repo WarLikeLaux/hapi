@@ -666,6 +666,16 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                 type: 'text',
                 text: messageText,
             }];
+            // Image attachments arrive already read into base64 on the batch's
+            // mode (see runOpencode.ts's user-message chain). OpenCode's ACP
+            // adapter converts each image block into a vision file part, so
+            // they must ride along with the prompt text or the model never
+            // sees them. The mode hash keeps different image sets in separate
+            // batches, so the first item's mode always matches every message
+            // in this batch.
+            for (const image of batch.mode.images ?? []) {
+                promptContent.push({ type: 'image', data: image.data, mimeType: image.mimeType });
+            }
 
             this.stallErrorReportedForPrompt = false;
             session.onThinkingChange(true);

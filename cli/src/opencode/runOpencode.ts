@@ -13,11 +13,28 @@ import { createModeChangeHandler, createRunnerLifecycle, setControlledByUser } f
 import { registerSessionConfigRpc } from '@/agent/sessionConfigRpc';
 import { startOpencodeHookServer } from './utils/startOpencodeHookServer';
 import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
+import { readImageAttachments } from '@/modules/common/attachmentImages';
+import { isAuthorizedUploadFile, isPathWithinUploadDir } from '@/modules/common/handlers/uploads';
+import type { AttachmentMetadata } from '@/api/types';
+import type { OpencodePreparedImage } from './types';
 import { getInvokedCwd } from '@/utils/invokedCwd';
 import { listSlashCommands } from '@/modules/common/slashCommands';
 import { resolveOpencodeSlashCommand } from './utils/slashCommands';
 import { isRetryableConnectionError } from '@/utils/errorUtils';
 import { withRetry } from '@/utils/time';
+
+/**
+ * Formats a user prompt for OpenCode. Image attachments travel as ACP image
+ * content blocks (see opencodeRemoteLauncher), not as text references — only
+ * non-image attachments stay in the prompt text. This mirrors the Pi flavor
+ * and keeps the image-only prompt guard in the user-message chain meaningful.
+ */
+function formatOpencodePromptText(text: string, attachments: AttachmentMetadata[] | undefined): string {
+    const textAttachments = attachments?.filter(
+        (attachment) => !attachment.mimeType.toLowerCase().startsWith('image/')
+    );
+    return formatMessageWithAttachments(text, textAttachments?.length ? textAttachments : undefined);
+}
 
 export async function runOpencode(opts: {
     startedBy?: 'runner' | 'terminal';
@@ -90,7 +107,14 @@ export async function runOpencode(opts: {
         // hash), but including `operation` here too means a prompt and a
         // compact request could never be merged into one batch even if that
         // isolation guard were ever bypassed.
-        operation: mode.operation ?? null
+        operation: mode.operation ?? null,
+        // Attachment identity: collectBatch keeps only the first item's mode,
+        // so two prompts carrying different image sets must never share a
+        // batch (the later images would be silently dropped). Source paths
+        // are unique per upload, so they identify the image set cheaply —
+        // hashing the base64 payloads here would stringify megabytes on
+        // every push.
+        images: mode.images?.map((image) => image.path) ?? null
     }));
 
     const sessionWrapperRef: { current: OpencodeSession | null } = { current: null };
@@ -120,7 +144,7 @@ export async function runOpencode(opts: {
     // their durable rows to the reserved replacement on success.
     let clearTransitionLatched = false;
     let queuedClearLocalId: string | null = null;
-    const heldDuringClear: Array<{ message: Parameters<Parameters<typeof session.onUserMessage>[0]>[0]; localId?: string }> = [];
+    const heldDuringClear: Array<{ message: Parameters<Parameters<typeof session.onUserMessage>[0]>[0]; localId?: string; images: OpencodePreparedImage[] }> = [];
     // True from the moment onCompactAvailabilityChange(false) fires (which,
     // per onLeavingRemote's contract, only ever happens because remote mode
     // is being left — never because remote just started) until this session
@@ -235,22 +259,44 @@ export async function runOpencode(opts: {
                 if (!localId) return false;
                 return cancelledBeforeEnqueue.delete(localId);
             };
+            // Image attachments read before anything else so every queue path
+            // below (plain push, held-during-clear, error fallback) carries
+            // the same prepared images.
+            let preparedImages: OpencodePreparedImage[] = [];
             const buildMode = (): OpencodeMode => ({
                 permissionMode: currentPermissionMode,
                 // Propagate null distinctly from undefined so the launcher can
                 // tell "reset to default" (from `/model default`) apart from
                 // "model unchanged".
                 model: sessionModel,
-                modelReasoningEffort: sessionModelReasoningEffort
+                modelReasoningEffort: sessionModelReasoningEffort,
+                images: preparedImages.length > 0 ? preparedImages : undefined
             });
+            // Image attachments travel as ACP image content blocks, not text
+            // references — see formatOpencodePromptText above.
             const pushPlain = () => {
-                const formattedText = formatMessageWithAttachments(message.content.text, message.content.attachments);
+                const formattedText = formatOpencodePromptText(message.content.text, message.content.attachments);
                 messageQueue.push(formattedText, buildMode(), localId);
             };
             try {
                 if (wasCancelled()) return;
+                // Zero-tick fast path for messages without attachments: it
+                // keeps listSlashCommands the first await in this chain, so
+                // the pre-image timing of the slash/clear race handling is
+                // preserved exactly.
+                const preparation = message.content.attachments?.length
+                    ? await readImageAttachments(message.content.attachments, {
+                        authorizeImagePath: (path) => isPathWithinUploadDir(path, session.sessionId),
+                        authorizeOpenedImage: (path, identity) => isAuthorizedUploadFile(path, session.sessionId, identity),
+                    })
+                    : { images: [], imageReadErrors: [] };
+                preparedImages = preparation.images.map(({ path, image }) => ({ ...image, path }));
+                if (wasCancelled()) return;
+                for (const imageReadError of preparation.imageReadErrors) {
+                    session.sendAgentMessage({ type: 'message', message: imageReadError, id: randomUUID() });
+                }
                 if (clearTransitionLatched) {
-                    heldDuringClear.push({ message, localId });
+                    heldDuringClear.push({ message, localId, images: preparedImages });
                     sessionWrapperRef.current?.onThinkingChange(false);
                     return;
                 }
@@ -420,7 +466,16 @@ export async function runOpencode(opts: {
                     text = slash.text;
                 }
 
-                const formattedText = formatMessageWithAttachments(text, message.content.attachments);
+                const formattedText = formatOpencodePromptText(text, message.content.attachments);
+                if (!formattedText.trim() && preparedImages.length === 0 && message.content.attachments?.length) {
+                    // An image-only prompt can lose every image during
+                    // asynchronous preparation (read errors reported above).
+                    // Never issue an empty OpenCode prompt; resolve the HAPI
+                    // queue row so QueuedMessagesBar cannot remain stuck
+                    // forever. (Mirrors the Pi flavor's guard.)
+                    if (localId) session.emitMessagesConsumed([localId], { clearQueuedThinkingGrace: true });
+                    return;
+                }
                 messageQueue.push(formattedText, buildMode(), localId);
             } catch (error) {
                 logger.debug('[opencode] Failed to handle user message', error);
@@ -445,11 +500,12 @@ export async function runOpencode(opts: {
                 queuedClearLocalId = null;
                 clearTransitionLatched = false;
                 for (const held of heldDuringClear) {
-                    const formattedText = formatMessageWithAttachments(held.message.content.text, held.message.content.attachments);
+                    const formattedText = formatOpencodePromptText(held.message.content.text, held.message.content.attachments);
                     messageQueue.push(formattedText, {
                         permissionMode: currentPermissionMode,
                         model: sessionModel,
-                        modelReasoningEffort: sessionModelReasoningEffort
+                        modelReasoningEffort: sessionModelReasoningEffort,
+                        images: held.images.length > 0 ? held.images : undefined
                     }, held.localId);
                 }
                 heldDuringClear.length = 0;

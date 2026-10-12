@@ -1,6 +1,16 @@
 import type { OpencodePermissionMode } from '@hapi/protocol/types';
+import type { PreparedImageContent } from '@/modules/common/attachmentImages';
 
 export type PermissionMode = OpencodePermissionMode;
+
+/**
+ * An image attachment prepared for the prompt, keeping its source upload path
+ * so queued items with different attachment sets never batch together (the
+ * launcher only sees `mode` of the batch's first item).
+ */
+export interface OpencodePreparedImage extends PreparedImageContent {
+    path: string;
+}
 
 export interface OpencodeMode {
     permissionMode: PermissionMode;
@@ -17,6 +27,11 @@ export interface OpencodeMode {
     // line" ahead of prompts that were already queued when it arrived.
     // `undefined` for normal prompts.
     operation?: 'compact' | 'clear';
+    // Image attachments of this prompt, already read into base64 (see
+    // readImageAttachments). The launcher appends them as ACP image content
+    // blocks after the text block; `undefined` for prompts without images
+    // (and for /compact and /clear operations).
+    images?: OpencodePreparedImage[];
 }
 
 export type OpencodeHookEvent = {

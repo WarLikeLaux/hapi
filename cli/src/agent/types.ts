@@ -18,10 +18,13 @@ export type AgentSessionConfig = {
     mcpServers: McpServerStdio[];
 };
 
-export type PromptContent = {
-    type: 'text';
-    text: string;
-};
+/**
+ * ACP `session/prompt` content blocks. `image` carries base64 bytes; agents
+ * that support vision (e.g. OpenCode) convert it into a vision file part.
+ */
+export type PromptContent =
+    | { type: 'text'; text: string }
+    | { type: 'image'; data: string; mimeType: string };
 
 export type PlanItem = {
     content: string;

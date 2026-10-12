@@ -465,6 +465,32 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         (backendModule.createOpencodeBackend as unknown as ReturnType<typeof vi.fn>).mockClear();
     });
 
+    it('sends prepared image attachments as ACP image content blocks alongside the prompt text', async () => {
+        const { session } = createSessionStub([
+            {
+                message: 'взгляни на скрин',
+                mode: {
+                    ...createMode(),
+                    images: [{ path: '/uploads/plot.png', type: 'image', data: 'iVBORw==', mimeType: 'image/png' }]
+                }
+            }
+        ]);
+
+        const launcherPromise = opencodeRemoteLauncher(session as never, {});
+        while (!harness.events.includes('prompt:end')) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        await launcherPromise;
+
+        expect(harness.promptCount).toBe(1);
+        expect(harness.promptContents[0]).toEqual([
+            { type: 'text', text: expect.stringContaining('взгляни на скрин') },
+            { type: 'image', data: 'iVBORw==', mimeType: 'image/png' }
+        ]);
+        const backendModule = await import('./utils/opencodeBackend');
+        (backendModule.createOpencodeBackend as unknown as ReturnType<typeof vi.fn>).mockClear();
+    });
+
     it('reserves before native cleanup but does not complete the transition when cleanup fails', async () => {
         harness.disconnectImpl = async () => {
             throw new Error('disconnect failed');

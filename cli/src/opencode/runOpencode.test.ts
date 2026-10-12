@@ -131,11 +131,46 @@ vi.mock('@/utils/attachmentFormatter', () => ({
     formatMessageWithAttachments: vi.fn((text: string) => text)
 }));
 
+vi.mock('@/modules/common/handlers/uploads', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/modules/common/handlers/uploads')>()),
+    // The UploadFile RPC registers per-file identities only inside a live
+    // session process; these tests stub the opened-file identity check and
+    // rely on the real isPathWithinUploadDir guard instead.
+    isAuthorizedUploadFile: vi.fn(() => true)
+}));
+
 vi.mock('@/modules/common/slashCommands', () => ({
     listSlashCommands: (agent: string, projectDir?: string) => harness.listSlashCommands(agent, projectDir)
 }));
 
 import { runOpencode } from './runOpencode';
+import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
+
+interface QueuedImageTestItem {
+    message: string;
+    mode: { images?: Array<{ path: string; type: 'image'; data: string; mimeType: string }> };
+    localId?: string;
+    isolate?: boolean;
+}
+
+async function createRealUploadImage(sessionKey: string, filename: string, bytes: number[]): Promise<{ imagePath: string; uploadDir: string }> {
+    const { mkdir, mkdtemp, writeFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const blobsDir = join(tmpdir(), 'hapi-blobs');
+    await mkdir(blobsDir, { recursive: true });
+    // Matches the real guard: uploads live under <hapi-blobs>/<sessionKey>-…
+    const uploadDir = await mkdtemp(join(blobsDir, `${sessionKey}-`));
+    const imagePath = join(uploadDir, filename);
+    await writeFile(imagePath, Buffer.from(bytes));
+    return { imagePath, uploadDir };
+}
+
+async function drainUserMessageChain(): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+}
 
 describe('runOpencode set-session-config handler', () => {
     beforeEach(() => {
@@ -437,6 +472,111 @@ describe('runOpencode set-session-config handler', () => {
             }
         ]);
         expect(harness.session.emitMessagesConsumed).not.toHaveBeenCalled();
+    });
+
+    it('prepares image attachments into the queued mode and keeps them out of the prompt text', async () => {
+        const { imagePath, uploadDir } = await createRealUploadImage('source-session', 'plot.png', [0x89, 0x50, 0x4e, 0x47]);
+        try {
+            await runOpencode({});
+
+            const messageQueue = harness.opencodeLoopArgs[0]?.messageQueue as unknown as { queue: QueuedImageTestItem[] };
+            const userMessageHandler = harness.session.onUserMessage.mock.calls[0]?.[0] as
+                ((msg: { content: { text: string; attachments?: Array<Record<string, unknown>> } }, localId?: string) => void)
+                | undefined;
+            expect(userMessageHandler).toBeDefined();
+            vi.mocked(formatMessageWithAttachments).mockClear();
+
+            const textAttachment = { id: 'txt', filename: 'notes.txt', mimeType: 'text/plain', size: 1, path: '/tmp/notes.txt' };
+            userMessageHandler!({
+                content: {
+                    text: 'взгляни',
+                    attachments: [
+                        { id: 'img', filename: 'plot.png', mimeType: 'image/png', size: 4, path: imagePath },
+                        textAttachment
+                    ]
+                }
+            }, 'local-image');
+            await drainUserMessageChain();
+
+            expect(harness.session.sendAgentMessage).not.toHaveBeenCalled();
+            expect(messageQueue.queue).toHaveLength(1);
+            expect(messageQueue.queue[0].mode.images).toEqual([
+                { path: imagePath, type: 'image', mimeType: 'image/png', data: 'iVBORw==' }
+            ]);
+            // The image rides as a content block; only the text file stays a
+            // text reference in the prompt.
+            expect(vi.mocked(formatMessageWithAttachments)).toHaveBeenCalledWith('взгляни', [textAttachment]);
+        } finally {
+            const { rm } = await import('node:fs/promises');
+            await rm(uploadDir, { recursive: true, force: true });
+        }
+    });
+
+    it('reports image read failures and never queues an empty prompt when every image is lost', async () => {
+        await runOpencode({});
+
+        const messageQueue = harness.opencodeLoopArgs[0]?.messageQueue as unknown as { queue: QueuedImageTestItem[] };
+        const userMessageHandler = harness.session.onUserMessage.mock.calls[0]?.[0] as
+            ((msg: { content: { text: string; attachments?: Array<Record<string, unknown>> } }, localId?: string) => void)
+            | undefined;
+        expect(userMessageHandler).toBeDefined();
+
+        userMessageHandler!({
+            content: {
+                text: '',
+                attachments: [{ id: 'bad', filename: 'missing.png', mimeType: 'image/png', size: 1, path: '/missing/image.png' }]
+            }
+        }, 'missing-image');
+        await drainUserMessageChain();
+
+        expect(harness.session.sendAgentMessage).toHaveBeenCalledWith({
+            type: 'message',
+            message: expect.stringContaining('Could not attach image missing.png'),
+            id: expect.any(String)
+        });
+        expect(messageQueue.queue).toEqual([]);
+        expect(harness.session.emitMessagesConsumed).toHaveBeenCalledWith(['missing-image'], { clearQueuedThinkingGrace: true });
+    });
+
+    it('never batches prompts carrying different image attachments together', async () => {
+        const first = await createRealUploadImage('source-session', 'first.png', [1, 2, 3, 4]);
+        const second = await createRealUploadImage('source-session', 'second.png', [5, 6, 7, 8]);
+        try {
+            await runOpencode({});
+
+            const messageQueue = harness.opencodeLoopArgs[0]?.messageQueue as unknown as {
+                queue: QueuedImageTestItem[];
+                waitForMessagesAndGetAsString: () => Promise<{ items: Array<{ message: string }>; mode: QueuedImageTestItem['mode'] } | null>;
+            };
+            const userMessageHandler = harness.session.onUserMessage.mock.calls[0]?.[0] as
+                ((msg: { content: { text: string; attachments?: Array<Record<string, unknown>> } }, localId?: string) => void)
+                | undefined;
+            expect(userMessageHandler).toBeDefined();
+            const imageAttachment = (path: string) => [{ id: 'img', filename: 'x.png', mimeType: 'image/png', size: 4, path }];
+
+            userMessageHandler!({ content: { text: 'first', attachments: imageAttachment(first.imagePath) } }, 'img-a');
+            userMessageHandler!({ content: { text: 'second', attachments: imageAttachment(second.imagePath) } }, 'img-b');
+            await drainUserMessageChain();
+
+            // Different image sets must not share a batch (collectBatch keeps
+            // only the first item's mode, so the second image would drop).
+            const batchA = await messageQueue.waitForMessagesAndGetAsString();
+            expect(batchA?.items.map((item) => item.message)).toEqual(['first']);
+            expect(batchA?.mode.images?.map((image) => image.path)).toEqual([first.imagePath]);
+            const batchB = await messageQueue.waitForMessagesAndGetAsString();
+            expect(batchB?.items.map((item) => item.message)).toEqual(['second']);
+
+            // Identical image sets still batch like plain text prompts.
+            userMessageHandler!({ content: { text: 'third', attachments: imageAttachment(first.imagePath) } }, 'img-c');
+            userMessageHandler!({ content: { text: 'fourth', attachments: imageAttachment(first.imagePath) } }, 'img-d');
+            await drainUserMessageChain();
+            const batchC = await messageQueue.waitForMessagesAndGetAsString();
+            expect(batchC?.items.map((item) => item.message)).toEqual(['third', 'fourth']);
+        } finally {
+            const { rm } = await import('node:fs/promises');
+            await rm(first.uploadDir, { recursive: true, force: true });
+            await rm(second.uploadDir, { recursive: true, force: true });
+        }
     });
 
     it('leaves a prompt uninvoked when it arrives during the clear latch so scheduled rows can transfer', async () => {
