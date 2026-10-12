@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SessionListScrollAnchor } from './SessionListScrollAnchor'
 import type { SessionSummary } from '@/types/api'
-import { SESSION_LIFECYCLE_IDLE } from '@hapi/protocol'
+import { SESSION_LIFECYCLE_IDLE, SESSION_LIFECYCLE_PARKED } from '@hapi/protocol'
 import type { ApiClient } from '@/api/client'
 import {
     buildSessionSearchScoreIndex,
@@ -186,7 +186,9 @@ export function bucketRunningSessions(
  * conversation; only disconnected sessions fall into directory groups.
  */
 function isPinnedInProgressSession(session: SessionSummary): boolean {
-    return session.active
+    if (session.active) return true
+    // Parked sessions float in the top Idle section, mirroring keepalive-idle.
+    return session.metadata?.lifecycleState === SESSION_LIFECYCLE_PARKED
 }
 
 export type SessionTimeRange = {
@@ -1862,10 +1864,10 @@ export function SessionList(props: {
         }
         const idle = sortSessionsByNewestAgentActivity(
             machineFilteredSessions.filter((session) => (
-                session.active
-                && !session.globalPinned
+                !session.globalPinned
                 && !isWorkingSession(session)
-                && session.metadata?.lifecycleState === SESSION_LIFECYCLE_IDLE
+                && (session.metadata?.lifecycleState === SESSION_LIFECYCLE_PARKED
+                    || (session.active && session.metadata?.lifecycleState === SESSION_LIFECYCLE_IDLE))
             ))
         )
         return hasTextQuery && searchScoreIndex
@@ -1873,7 +1875,11 @@ export function SessionList(props: {
             : idle
     }, [hasTextQuery, machineFilteredSessions, pinInProgressSessions, searchScoreIndex])
     const recentSessions = useMemo(() => sortSessionsByNewestAgentActivity(
-        projectHeaderSessions.filter((session) => !session.active && !session.globalPinned)
+        projectHeaderSessions.filter((session) => (
+            !session.active
+            && !session.globalPinned
+            && session.metadata?.lifecycleState !== SESSION_LIFECYCLE_PARKED
+        ))
     ), [projectHeaderSessions])
     const allDirectoryGroups = useMemo(
         () => groupSessionsByDirectory(
