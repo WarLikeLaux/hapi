@@ -1213,6 +1213,7 @@ function SessionItem(props: {
     const [renameOpen, setRenameOpen] = useState(false)
     const [exportOpen, setExportOpen] = useState(false)
     const [archiveOpen, setArchiveOpen] = useState(false)
+    const [parkOpen, setParkOpen] = useState(false)
     const [restartOpen, setRestartOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
     const {
@@ -1245,7 +1246,7 @@ function SessionItem(props: {
         ? liveGitBranch ?? s.metadata?.worktree?.branch?.trim() ?? undefined
         : undefined
 
-    const { archiveSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, deleteSession, setPinMode, isPending } = useSessionActions(
+    const { archiveSession, parkSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, deleteSession, setPinMode, isPending } = useSessionActions(
         api,
         s.id,
         s.metadata?.flavor ?? null
@@ -1365,6 +1366,7 @@ function SessionItem(props: {
                 onMarkUnread={() => markSessionUnread(s.id, getSessionUnreadActivityAt(s))}
                 onContinueInFolder={onContinueInFolder ? () => onContinueInFolder(s) : undefined}
                 onRestart={cursorReopenDisabledReason ? undefined : () => setRestartOpen(true)}
+                onPark={s.active && !cursorReopenDisabledReason ? () => setParkOpen(true) : undefined}
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={cursorReopenDisabledReason ? undefined : handleReopen}
                 reopenDisabledReason={cursorReopenDisabledReason}
@@ -1419,6 +1421,20 @@ function SessionItem(props: {
                     onConfirm={archiveSession}
                     isPending={isPending}
                     destructive
+                    centerTitle
+                />
+            ) : null}
+
+            {parkOpen ? (
+                <ConfirmDialog
+                    isOpen={true}
+                    onClose={() => setParkOpen(false)}
+                    title={t('dialog.park.title')}
+                    description={t('dialog.park.description', { name: sessionName })}
+                    confirmLabel={t('dialog.park.confirm')}
+                    confirmingLabel={t('dialog.park.confirming')}
+                    onConfirm={parkSession}
+                    isPending={isPending}
                     centerTitle
                 />
             ) : null}

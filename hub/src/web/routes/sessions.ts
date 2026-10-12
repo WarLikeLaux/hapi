@@ -475,6 +475,27 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         return c.json({ ok: true })
     })
 
+    app.post('/sessions/:id/park', async (c) => {
+        // Park = stop the agent process and free memory, but keep the row
+        // listed as `parked` (resumable via reopen) instead of `archived`.
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        if (!sessionResult.session.active) {
+            return c.json({ error: 'Session is inactive' }, 409)
+        }
+
+        await engine.parkSession(sessionResult.sessionId)
+        return c.json({ ok: true })
+    })
+
     app.post('/sessions/:id/migrate-to-acp', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {

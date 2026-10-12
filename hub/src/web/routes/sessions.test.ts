@@ -63,6 +63,7 @@ function createApp(session: Session, opts?: {
     getSessionExport?: (sessionId: string, session: Session, options?: { force?: boolean }) => unknown
     sessionExists?: boolean
     archiveSession?: (sessionId: string) => Promise<void>
+    parkSession?: (sessionId: string) => Promise<void>
     markSessionExplicitlyStopped?: (sessionId: string) => void
     markSessionExplicitlyResumed?: (sessionId: string) => void
     getCursorChatStoreStatus?: SyncEngine['getCursorChatStoreStatus']
@@ -143,6 +144,7 @@ function createApp(session: Session, opts?: {
     }))
     const sessionExists = opts?.sessionExists !== false
     const archiveSessionMock = opts?.archiveSession ?? (async () => {})
+    const parkSessionMock = opts?.parkSession ?? (async () => {})
     const engine = {
         resolveSessionAccess: () => sessionExists
             ? { ok: true, sessionId: session.id, session }
@@ -165,6 +167,7 @@ function createApp(session: Session, opts?: {
             status: { onDisk: true, store: 'acp' as const }
         })),
         archiveSession: archiveSessionMock,
+        parkSession: parkSessionMock,
         markSessionExplicitlyStopped: opts?.markSessionExplicitlyStopped ?? (() => {}),
         markSessionExplicitlyResumed: opts?.markSessionExplicitlyResumed ?? (() => {}),
         setSessionPinned: opts?.setSessionPinned ?? (() => {}),
@@ -1709,6 +1712,35 @@ describe('sessions routes', () => {
             expect(response.status).toBe(200)
             expect(await response.json()).toEqual({ ok: true })
             expect(calls).toEqual(['session-1'])
+        })
+    })
+
+    describe('POST /sessions/:id/park', () => {
+        it('parks an active session via engine.parkSession', async () => {
+            const calls: string[] = []
+            const session = createSession({ active: true })
+            const { app } = createApp(session, {
+                parkSession: async (sessionId: string) => { calls.push(sessionId) }
+            })
+
+            const response = await app.request('/api/sessions/session-1/park', { method: 'POST' })
+
+            expect(response.status).toBe(200)
+            expect(await response.json()).toEqual({ ok: true })
+            expect(calls).toEqual(['session-1'])
+        })
+
+        it('returns 409 for an inactive session', async () => {
+            let called = false
+            const session = createSession({ active: false })
+            const { app } = createApp(session, {
+                parkSession: async () => { called = true }
+            })
+
+            const response = await app.request('/api/sessions/session-1/park', { method: 'POST' })
+
+            expect(response.status).toBe(409)
+            expect(called).toBe(false)
         })
     })
 

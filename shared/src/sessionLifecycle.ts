@@ -17,10 +17,15 @@
  * (its CLI really is reachable and a turn would be served immediately), it is
  * simply flagged as keepalive-only so operators and the session list can tell
  * a working fleet from a pile of zombies.
+ *
+ * `parked` is the stopped-but-listed state: the agent process is killed and
+ * the session is `active: false` (freed from memory), but unlike `archived`
+ * the row stays visible in the session list and can be resumed with reopen.
  */
 
 export const SESSION_LIFECYCLE_RUNNING = 'running'
 export const SESSION_LIFECYCLE_IDLE = 'idle'
+export const SESSION_LIFECYCLE_PARKED = 'parked'
 export const SESSION_LIFECYCLE_ARCHIVED = 'archived'
 
 /**
@@ -32,4 +37,12 @@ export const SESSION_LIFECYCLE_ARCHIVED = 'archived'
  */
 export function isLiveLifecycleState(value: unknown): boolean {
     return value === SESSION_LIFECYCLE_RUNNING || value === SESSION_LIFECYCLE_IDLE
+}
+
+/**
+ * True for `parked`: process stopped (`active: false`) but still listed and
+ * resumable via reopen — unlike `archived`, which leaves the list.
+ */
+export function isParkedLifecycleState(value: unknown): boolean {
+    return value === SESSION_LIFECYCLE_PARKED
 }

@@ -2103,6 +2103,23 @@ export class SyncEngine {
         this.handleSessionEnd({ sid: sessionId, time: Date.now() })
     }
 
+    /**
+     * Park a session: stop the agent process exactly like `archiveSession`
+     * (same kill-RPC safety), but leave the row listed as `parked` instead
+     * of `archived` so the operator can resume it with reopen. The session
+     * becomes `active: false` — freed from memory — with
+     * `restoreOnRestart: false`, so it never auto-respawns on hub restart.
+     */
+    async parkSession(sessionId: string): Promise<void> {
+        await this.archiveSession(sessionId)
+        this.sessionCache.markSessionParkedFromHub(
+            sessionId,
+            'Parked from hub (process stopped, kept in list)'
+        )
+        this.emitCliSessionMetadataUpdate(sessionId)
+        this.handleSessionEnd({ sid: sessionId, time: Date.now() })
+    }
+
     markSessionExplicitlyStopped(sessionId: string): void {
         this.sessionCache.setSessionRestoreOnRestart(sessionId, false)
     }
@@ -3947,8 +3964,9 @@ export class SyncEngine {
         }
 
         const isArchived = metadata?.lifecycleState === 'archived'
+        const isParked = metadata?.lifecycleState === 'parked'
 
-        if (isArchived && metadata) {
+        if ((isArchived || isParked) && metadata) {
             if (metadata.flavor === 'cursor' && !metadata.cursorSessionId) {
                 const hasMessages = this.store.messages.getFirstMessages(access.sessionId, 1).length > 0
                 if (hasMessages) {
