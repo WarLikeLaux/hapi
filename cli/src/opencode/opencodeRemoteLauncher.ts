@@ -23,6 +23,7 @@ import {
     type OpencodeRetryStatus
 } from './utils/opencodeEventStream';
 import { OpencodePermissionHandler } from './utils/permissionHandler';
+import { isAcpIndeterminateError } from '@/agent/backends/acp/AcpStdioTransport';
 import { getOpencodeNativeToolInstruction, PLAN_MODE_INSTRUCTION } from './utils/systemPrompt';
 import { resolveThoughtLevelEffort } from './thoughtLevelEffort';
 
@@ -136,6 +137,10 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
     /** Subscription to the agent's own server event stream; null until the ACP session id is known, closed in cleanup(). */
     private eventStream: OpencodeEventSubscription | null = null;
     private stallErrorReportedForPrompt = false;
+    /** True while a backend.prompt turn is in flight (steer window). */
+    private promptInFlight = false;
+    /** Concurrent soft-steer session/prompt RPCs still running after kickoff. */
+    private softSteerWaiters: Promise<void>[] = [];
 
     constructor(
         session: OpencodeSession,
@@ -371,6 +376,113 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
             onAbort: () => this.handleAbort(false),
             onSwitch: () => this.handleSwitchRequest()
         });
+
+        // Soft steer = concurrent session/prompt without canceling the
+        // in-flight turn (same as Cursor ACP GUI "Send").
+        session.client.rpcHandlerManager.registerHandler(
+            RPC_METHODS.SteerQueuedMessage,
+            async (payload: unknown) => {
+                const localId = typeof (payload as { localId?: unknown } | null)?.localId === 'string'
+                    ? (payload as { localId: string }).localId
+                    : '';
+                if (!localId) {
+                    return { steered: false, error: 'Missing localId' };
+                }
+                const backend = this.backend;
+                const acpSessionId = this.activeAcpSessionId;
+                if (!this.promptInFlight || !acpSessionId || !backend) {
+                    return { steered: false, error: 'No active steerable turn' };
+                }
+                const taken = session.queue.takeByLocalId(localId);
+                if (!taken) {
+                    return { steered: false, error: 'Message not in queue' };
+                }
+                if (taken.item.isolate) {
+                    session.queue.restoreReservation(taken);
+                    return { steered: false, error: 'Control commands cannot be steered' };
+                }
+                if (!session.queue.beginReservationDispatch(taken)) {
+                    return { steered: false, error: 'Steer cancelled' };
+                }
+                const dispatchStatePersisted = await session.client.setSteerDeliveryState([localId], 'dispatching');
+                if (!dispatchStatePersisted) {
+                    session.queue.markReservationIndeterminate(taken);
+                    session.client.emitSteerIndeterminate([localId]);
+                    return { steered: false, error: 'Steer state is indeterminate' };
+                }
+                if (taken.state !== 'dispatching') {
+                    session.client.emitSteerIndeterminate([localId]);
+                    return { steered: false, error: 'Steer cancelled' };
+                }
+                let steer: { dispatched: Promise<void>; completed: Promise<void> };
+                try {
+                    steer = backend.beginSoftSteerPrompt(acpSessionId, [{
+                        type: 'text',
+                        text: taken.item.message
+                    }]);
+                } catch (error) {
+                    if (isAcpIndeterminateError(error)) {
+                        if (session.queue.markReservationIndeterminate(taken)) {
+                            session.client.emitSteerIndeterminate([localId]);
+                        }
+                        return { steered: false, error: 'Steer outcome is being reconciled' };
+                    }
+                    if (!taken.originIndeterminate && await session.client.setSteerDeliveryState([localId], 'queued')) {
+                        session.queue.restoreReservation(taken);
+                    } else {
+                        session.queue.markReservationIndeterminate(taken);
+                        session.client.emitSteerIndeterminate([localId]);
+                    }
+                    return { steered: false, error: 'Failed to soft-steer into active turn' };
+                }
+                const steerDone = Promise.all([steer.dispatched, steer.completed]).then(() => {}, (error) => {
+                    logger.debug('[opencode-remote] soft-steer completion failed after dispatch', error);
+                });
+                this.softSteerWaiters.push(steerDone);
+                const removeWaiter = () => {
+                    this.softSteerWaiters = this.softSteerWaiters.filter((p) => p !== steerDone);
+                };
+                void steerDone.then(removeWaiter);
+                try {
+                    await steer.dispatched;
+                } catch (error) {
+                    if (isAcpIndeterminateError(error)) {
+                        if (session.queue.markReservationIndeterminate(taken)) {
+                            session.client.emitSteerIndeterminate([localId]);
+                        }
+                        return { steered: false, error: 'Steer outcome is being reconciled' };
+                    }
+                    if (!taken.originIndeterminate && await session.client.setSteerDeliveryState([localId], 'queued')) {
+                        session.queue.restoreReservation(taken);
+                    } else {
+                        session.queue.markReservationIndeterminate(taken);
+                        session.client.emitSteerIndeterminate([localId]);
+                    }
+                    return { steered: false, error: 'Failed to soft-steer into active turn' };
+                }
+                void steer.completed.then(() => {
+                    if (session.queue.commitReservation(taken)) {
+                        this.messageBuffer.addMessage(taken.item.message, 'user');
+                        session.client.emitMessagesConsumed([localId], { steered: true });
+                    }
+                }, (error) => {
+                    if (isAcpIndeterminateError(error)) {
+                        if (session.queue.markReservationIndeterminate(taken)) {
+                            session.client.emitSteerIndeterminate([localId]);
+                        }
+                        return;
+                    }
+                    void (async () => {
+                        if (!taken.originIndeterminate && await session.client.setSteerDeliveryState([localId], 'queued')) {
+                            session.queue.restoreReservation(taken);
+                        } else if (session.queue.markReservationIndeterminate(taken)) {
+                            session.client.emitSteerIndeterminate([localId]);
+                        }
+                    })();
+                });
+                return { steered: true };
+            }
+        );
 
         const sendReady = () => {
             session.sendSessionEvent({ type: 'ready' });
@@ -669,6 +781,8 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
 
             this.stallErrorReportedForPrompt = false;
             session.onThinkingChange(true);
+            this.promptInFlight = true;
+            session.client.updateAgentState?.((state) => ({ ...state, steeringActive: true }));
 
             try {
                 await backend.prompt(acpSessionId, promptContent, (message: AgentMessage) => {
@@ -679,6 +793,25 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                 logger.warn('[opencode-remote] prompt failed', error);
                 this.reportPromptFailure(error);
             } finally {
+                this.promptInFlight = false;
+                session.client.updateAgentState?.((state) => ({ ...state, steeringActive: false }));
+                if (this.softSteerWaiters.length > 0 && !this.shouldExit) {
+                    const waitSignal = this.abortController.signal;
+                    let releaseWait!: () => void;
+                    const abortListener = () => releaseWait();
+                    if (!waitSignal.aborted) {
+                        waitSignal.addEventListener('abort', abortListener, { once: true });
+                    }
+                    try {
+                        await Promise.race([
+                            Promise.allSettled([...this.softSteerWaiters]),
+                            new Promise<void>((resolve) => { releaseWait = resolve; })
+                        ]);
+                    } finally {
+                        waitSignal.removeEventListener('abort', abortListener);
+                    }
+                    this.softSteerWaiters = [];
+                }
                 session.onThinkingChange(false);
                 await this.permissionHandler?.cancelAll('Prompt finished');
                 if (session.queue.size() === 0 && !this.shouldExit) {
@@ -1146,9 +1279,13 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
         const backend = this.backend;
         if (backend && this.session.sessionId) {
             await backend.cancelPrompt(this.session.sessionId);
+            backend.abortSoftSteers?.();
         }
         await this.permissionHandler?.cancelAll('User aborted');
         this.session.queue.reset();
+        this.promptInFlight = false;
+        this.softSteerWaiters = [];
+        this.session.client.updateAgentState?.((state) => ({ ...state, steeringActive: false }));
         this.abortController.abort();
         this.abortController = new AbortController();
         // Re-read here (not the snapshot taken above, before the awaits) in

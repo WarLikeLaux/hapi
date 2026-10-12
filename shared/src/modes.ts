@@ -208,8 +208,9 @@ export function getCodexCollaborationModeOptions(): CodexCollaborationModeOption
  * - MiniMax Code: native `mcode/session/steer` admits a message into the active turn. Concurrent `session/prompt` requests are not supported.
  *
  * - Claude Code: stream-json user input consumed at the next native checkpoint.
+ * - OpenCode: concurrent `session/prompt` soft-send (same as Cursor ACP).
  */
-export const STEERING_SUPPORTED_FLAVORS = ['codex', 'cursor', 'minimax', 'pi', 'claude'] as const
+export const STEERING_SUPPORTED_FLAVORS = ['codex', 'cursor', 'minimax', 'pi', 'claude', 'opencode'] as const
 
 export function isSteeringSupportedForFlavor(flavor?: string | null): boolean {
     return (STEERING_SUPPORTED_FLAVORS as readonly string[]).includes(flavor ?? '')
@@ -228,7 +229,7 @@ export function isSteeringSupportedForSession(metadata?: {
     cursorSessionId?: string | null
     cursorSessionProtocol?: 'acp' | 'stream-json' | null
 } | null): boolean {
-    if (metadata?.flavor === 'codex' || metadata?.flavor === 'minimax' || metadata?.flavor === 'pi' || metadata?.flavor === 'claude') {
+    if (metadata?.flavor === 'codex' || metadata?.flavor === 'minimax' || metadata?.flavor === 'pi' || metadata?.flavor === 'claude' || metadata?.flavor === 'opencode') {
         return true
     }
     if (metadata?.flavor !== 'cursor') {
