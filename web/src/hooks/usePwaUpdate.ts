@@ -68,10 +68,16 @@ export function setupRegistrationUpdateChecks(
     }
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    // Mobile PWAs often return via bfcache (pageshow) without a
+    // visibilitychange, and may have been offline at last check.
+    window.addEventListener('pageshow', checkForUpdate)
+    window.addEventListener('online', checkForUpdate)
 
     return () => {
         window.clearInterval(intervalId)
         document.removeEventListener('visibilitychange', handleVisibilityChange)
+        window.removeEventListener('pageshow', checkForUpdate)
+        window.removeEventListener('online', checkForUpdate)
         registration.removeEventListener('updatefound', observeInstallingWorker)
         observedInstallingWorker?.removeEventListener('statechange', handleInstallingStateChange)
     }

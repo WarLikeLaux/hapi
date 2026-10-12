@@ -34,9 +34,13 @@ export function PwaUpdateBanner({ topClassName }: { topClassName?: string } = {}
                     disabled={resetting}
                     onClick={() => {
                         setResetting(true)
+                        const fallback = window.setTimeout(() => window.location.reload(), 15_000)
                         void resetAppCaches()
                             .catch((error) => console.error('App cache reset failed:', error))
-                            .finally(() => window.location.reload())
+                            .finally(() => {
+                                window.clearTimeout(fallback)
+                                window.location.reload()
+                            })
                     }}
                     className="mt-3 min-h-11 rounded-lg bg-[var(--app-fg)] px-3 py-2 text-sm font-medium text-[var(--app-bg)] disabled:opacity-50"
                 >

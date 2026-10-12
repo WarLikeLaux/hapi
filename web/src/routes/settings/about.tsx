@@ -14,6 +14,9 @@ export default function SettingsAboutPage() {
 
     const handleResetCache = () => {
         setCacheResetting(true)
+        // Safety net: mobile WebViews can stall cache/SW promises even with
+        // per-step timeouts. Never leave the button stuck on "Clearing…".
+        const fallback = window.setTimeout(() => window.location.reload(), 15_000)
         void resetAppCaches()
             .catch((error) => {
                 console.error('App cache reset failed:', error)
@@ -21,6 +24,7 @@ export default function SettingsAboutPage() {
             .finally(() => {
                 // A reload is wanted even if the reset partially failed: the
                 // navigation re-fetches the shell and re-registers a worker.
+                window.clearTimeout(fallback)
                 window.location.reload()
             })
     }
