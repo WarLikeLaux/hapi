@@ -23,8 +23,7 @@ import type { ListPiModelsResponse, PiCommandSummary, PiModelSummary, SlashComma
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import type { ListSkillsResponse, SkillSummary } from '@/modules/common/skills';
 import type { AttachmentMetadata } from '@/api/types';
-import { readBoundedAttachmentFile } from '@/modules/common/attachmentFile';
-import { MAX_UPLOAD_BYTES } from '@/modules/common/attachmentLimits';
+import { readImageAttachments } from '@/modules/common/attachmentImages';
 import { isAuthorizedUploadFile, isPathWithinUploadDir, type UploadFileIdentity } from '@/modules/common/handlers/uploads';
 
 // Grace period before force-draining prompts buffered during Pi startup when no
@@ -154,31 +153,9 @@ export async function preparePiUserMessage(
     },
 ): Promise<PiPromptPreparation> {
     const formattedMessage = formatPiUserMessage(message, attachments, commands);
-    const images: PiImageContent[] = [];
-    const imageReadErrors: string[] = [];
-    let totalImageBytes = 0;
-
-    for (const attachment of attachments ?? []) {
-        if (!attachment.mimeType.toLowerCase().startsWith('image/')) continue;
-        try {
-            const uploadPath = attachment.path;
-            if (!options.authorizeImagePath(uploadPath)) {
-                throw new Error('invalid upload path');
-            }
-            const data = await readBoundedAttachmentFile(
-                uploadPath,
-                MAX_UPLOAD_BYTES - totalImageBytes,
-                (identity) => options.authorizeOpenedImage(uploadPath, identity),
-            );
-            totalImageBytes += data.length;
-            images.push({ type: 'image', data: data.toString('base64'), mimeType: attachment.mimeType });
-        } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error);
-            imageReadErrors.push(`Could not attach image ${attachment.filename}: ${detail}`);
-        }
-    }
-
-    return { message: formattedMessage, images, imageReadErrors };
+    const preparation = await readImageAttachments(attachments, options);
+    const images: PiImageContent[] = preparation.images.map((read) => read.image);
+    return { message: formattedMessage, images, imageReadErrors: preparation.imageReadErrors };
 }
 
 /** A failed source restore leaves the live wrapper on an unknown native branch. */
