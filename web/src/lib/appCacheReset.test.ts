@@ -34,4 +34,15 @@ describe('resetAppCaches', () => {
         await expect(resetAppCaches()).resolves.toEqual({ cachesCleared: 0, workersUnregistered: 0 })
         vi.unstubAllGlobals()
     })
+
+    it('does not hang when cache/SW promises stall (mobile WebView)', { timeout: 20_000 }, async () => {
+        vi.stubGlobal('caches', {
+            keys: () => new Promise<string[]>(() => {}),
+            delete: async () => true,
+        })
+        vi.stubGlobal('navigator', { serviceWorker: { getRegistrations: () => new Promise<never>(() => {}) } })
+
+        await expect(resetAppCaches()).resolves.toEqual({ cachesCleared: 0, workersUnregistered: 0 })
+        vi.unstubAllGlobals()
+    })
 })
