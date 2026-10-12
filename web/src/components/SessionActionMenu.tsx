@@ -39,6 +39,7 @@ type SessionActionMenuProps = {
     createExternalReviewUrl?: string | null
     onContinueInFolder?: () => void
     onRestart?: () => void
+    onPark?: () => void
     onArchive: () => void
     onReopen?: () => void
     reopenDisabledReason?: string
@@ -307,6 +308,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         createExternalReviewUrl,
         onContinueInFolder,
         onRestart,
+        onPark,
         onArchive,
         onReopen,
         reopenDisabledReason,
@@ -434,6 +436,11 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const handleArchive = () => {
         onClose()
         onArchive()
+    }
+
+    const handlePark = () => {
+        onClose()
+        onPark?.()
     }
 
     const handleRestart = () => {
@@ -800,6 +807,17 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                             >
                                 <ReopenIcon className="text-[var(--app-hint)]" />
                                 {t('session.action.restart')}
+                            </button>
+                        ) : null}
+                        {onPark ? (
+                            <button
+                                type="button"
+                                role="menuitem"
+                                className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                                onClick={handlePark}
+                            >
+                                <StopIcon className="text-[var(--app-hint)]" />
+                                {t('session.action.park')}
                             </button>
                         ) : null}
                         <button

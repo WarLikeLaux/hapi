@@ -17,6 +17,7 @@ export function useSessionActions(
 ): {
     abortSession: () => Promise<void>
     archiveSession: () => Promise<void>
+    parkSession: () => Promise<void>
     reopenSession: () => Promise<ReopenSessionResponse>
     restartSession: () => Promise<ReopenSessionResponse>
     switchSession: () => Promise<void>
@@ -94,6 +95,16 @@ export function useSessionActions(
                 throw new Error('Session unavailable')
             }
             await api.archiveSession(sessionId)
+        },
+        onSuccess: () => void invalidateSession(),
+    })
+
+    const parkMutation = useMutation({
+        mutationFn: async () => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            await api.parkSession(sessionId)
         },
         onSuccess: () => void invalidateSession(),
     })
@@ -314,6 +325,7 @@ export function useSessionActions(
     return {
         abortSession: abortMutation.mutateAsync,
         archiveSession: archiveMutation.mutateAsync,
+        parkSession: parkMutation.mutateAsync,
         reopenSession: reopenMutation.mutateAsync,
         restartSession: restartMutation.mutateAsync,
         switchSession: switchMutation.mutateAsync,
@@ -331,6 +343,7 @@ export function useSessionActions(
         deleteSession: (archiveFirst = false) => deleteMutation.mutateAsync(archiveFirst),
         isPending: abortMutation.isPending
             || archiveMutation.isPending
+            || parkMutation.isPending
             || reopenMutation.isPending
             || restartMutation.isPending
             || switchMutation.isPending

@@ -1123,6 +1123,59 @@ export class SessionCache {
         throw new Error('Session was modified concurrently while archiving from hub')
     }
 
+    /**
+     * Hub-side write of the parked state: the agent process is stopped and
+     * the row goes `active: false`, but `lifecycleState` becomes `parked`
+     * (not `archived`) so the session stays listed and reopenable.
+     * `restoreOnRestart` stays false — a parked session never auto-respawns
+     * on hub restart, it waits for an explicit reopen.
+     */
+    markSessionParkedFromHub(sessionId: string, reason: string): void {
+        for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
+            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            if (!session) return
+            const current = session.metadata
+            if (!current) return
+            if (current.lifecycleState === 'parked') {
+                return
+            }
+
+            const next: Record<string, unknown> = {
+                ...current,
+                lifecycleState: 'parked',
+                lifecycleStateSince: Date.now(),
+                restoreOnRestart: false,
+                parkedBy: 'hub',
+                parkReason: reason
+            }
+            // Parked rows are not archived rows: drop stale archive markers
+            // so reopen/snapshot logic does not read them as archived.
+            delete next.archivedBy
+            delete next.archiveReason
+
+            const result = this.store.sessions.updateSessionMetadata(
+                sessionId,
+                next,
+                session.metadataVersion,
+                session.namespace,
+                { touchUpdatedAt: false }
+            )
+
+            if (result.result === 'error') {
+                throw new Error('Failed to park session metadata from hub')
+            }
+
+            if (result.result === 'success') {
+                this.refreshSession(sessionId)
+                return
+            }
+
+            this.refreshSession(sessionId)
+        }
+
+        throw new Error('Session was modified concurrently while parking from hub')
+    }
+
     /** Persist whether an inactive runner-backed session should return after a cold restart. */
     setSessionRestoreOnRestart(sessionId: string, restoreOnRestart: boolean): void {
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
@@ -1304,6 +1357,8 @@ export class SessionCache {
             const next: Record<string, unknown> = { ...currentMetadata }
             delete next.lifecycleState
             delete next.archivedBy
+            delete next.parkedBy
+            delete next.parkReason
             delete next.archiveReason
             next.lifecycleStateSince = Date.now()
 
