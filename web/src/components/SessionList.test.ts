@@ -539,6 +539,15 @@ describe('filterActiveSessionsOnly', () => {
         ]
         expect(filterActiveSessionsOnly(sessions).map(s => s.id)).toEqual(['a', 'c'])
     })
+
+    it('keeps parked sessions visible: they are resumable, not dead rows', () => {
+        const sessions = [
+            makeSession({ id: 'live', active: true, metadata: { path: '/p' } }),
+            makeSession({ id: 'dead', metadata: { path: '/p', lifecycleState: 'archived' } }),
+            makeSession({ id: 'parked', metadata: { path: '/p', lifecycleState: 'parked' } })
+        ]
+        expect(filterActiveSessionsOnly(sessions).map(s => s.id)).toEqual(['live', 'parked'])
+    })
 })
 
 describe('user-authored session ordering', () => {

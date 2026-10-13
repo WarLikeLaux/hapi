@@ -395,13 +395,15 @@ export function prepareSidebarSessions(sessions: SessionSummary[], selectedSessi
 
 // "Active sessions only" view: hide inactive sessions, but never hide the one the
 // operator currently has open — otherwise toggling the filter would yank the
-// selected session out from under them.
+// selected session out from under them. Parked sessions stay too: the process
+// is stopped but the row is resumable via reopen, not a dead row.
 export function filterActiveSessionsOnly(sessions: SessionSummary[], selectedSessionId?: string | null): SessionSummary[] {
     return sessions.filter(session => (
         session.active
         || session.pinned
         || session.globalPinned
         || session.id === selectedSessionId
+        || session.metadata?.lifecycleState === SESSION_LIFECYCLE_PARKED
     ))
 }
 
@@ -1878,9 +1880,12 @@ export function SessionList(props: {
         projectHeaderSessions.filter((session) => (
             !session.active
             && !session.globalPinned
-            && session.metadata?.lifecycleState !== SESSION_LIFECYCLE_PARKED
+            // Parked rows live in the Idle section while it renders. When
+            // pin-in-progress is off the Idle section is empty, so keep them
+            // in Recent instead of orphaning them into collapsed groups.
+            && (session.metadata?.lifecycleState !== SESSION_LIFECYCLE_PARKED || !pinInProgressSessions)
         ))
-    ), [projectHeaderSessions])
+    ), [projectHeaderSessions, pinInProgressSessions])
     const allDirectoryGroups = useMemo(
         () => groupSessionsByDirectory(
             projectHeaderSessions.filter((session) => !session.globalPinned),
