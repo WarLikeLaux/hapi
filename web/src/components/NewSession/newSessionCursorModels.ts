@@ -73,7 +73,7 @@ export function resolveCursorDefaultModelId(catalog: CursorModelCatalog): string
     }
     const lower = (s: string) => s.toLowerCase()
     const isGrok47 = (w: string) => lower(w).includes('grok-4.7') || lower(w).includes('grok-4-7')
-    const isExtraHigh = (w: string) => lower(w).includes('extra-high') || lower(w).includes('extra_high') || lower(w).includes('extrahigh')
+    const isExtraHigh = (w: string) => lower(w).includes('extra-high') || lower(w).includes('extra_high') || lower(w).includes('extrahigh') || lower(w).includes('xhigh')
     const grok47 = wires.filter(isGrok47)
     if (grok47.length === 0) return null
     return grok47.find(isExtraHigh) ?? grok47.find((w) => lower(w).includes('high')) ?? grok47[0]
