@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary, Session } from '@/types/api'
 import { isKnownFlavor, isRemovedAgyModel, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
@@ -81,6 +81,14 @@ import {
     savePreferredYoloMode,
 } from './preferences'
 import { PermissionField } from './PermissionField'
+import {
+    AGY_HARDCODED_LABEL,
+    CLAUDE_GLM_HARDCODED_LABEL,
+    CODEX_DEFAULT_MODEL_ID,
+    CODEX_HARDCODED_OPTIONS,
+    MINIMAX_HARDCODED_LABEL,
+    OPENCODE_HARDCODED_LABEL,
+} from './hardcodedModels'
 import { orderCreateSessionAgents, resolveDefaultMachineDirectory } from './defaults'
 import { usesNativePermissionSelect, usesSharedPermissionModeState } from '@/lib/codexFamilyPermissionAgents'
 import { CodexSessionSyncDialog } from '@/components/CodexSessionSyncDialog'
@@ -93,15 +101,6 @@ import { buildSessionReferenceText } from '@/lib/sessionReference'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { makeClientSideId } from '@/lib/messages'
 
-// Fork quick-pick: models that get one-tap chips under the model select
-// (everything else stays reachable through the dropdown). A chip only
-// renders while the machine actually advertises the model.
-const QUICK_PICK_MODEL_IDS: Partial<Record<AgentType, readonly string[]>> = {
-    codex: ['gpt-6-luna'],
-}
-
-// One-tap shortcut for the quick-pick models: tap to launch with one,
-// tap again to fall back to Default.
 function QuickPickChips(props: {
     options: Array<{ value: string; label: string }>
     activeValue: string | null
@@ -129,7 +128,53 @@ function QuickPickChips(props: {
         </div>
     )
 }
+// Hardcoded model badges: a labeled chip row replacing the catalog dropdown
+// for flavors that always run a single model on this machine.
+function ModelBadges(props: {
+    label?: string
+    options: Array<{ value: string; label: string }>
+    activeValue: string | null
+    isDisabled: boolean
+    onToggle: (value: string) => void
+    footer?: ReactNode
+}) {
+    const { t } = useTranslation()
+    return (
+        <div className="flex flex-col gap-1.5 px-3 py-3">
+            <span className="text-xs font-medium text-[var(--app-hint)]">
+                {props.label ?? t('newSession.model')}
+            </span>
+            <div className="flex flex-wrap items-center gap-1">
+                <QuickPickChips
+                    options={props.options}
+                    activeValue={props.activeValue}
+                    isDisabled={props.isDisabled}
+                    onToggle={props.onToggle}
+                />
+                {props.footer ? <span className="ml-auto">{props.footer}</span> : null}
+            </div>
+        </div>
+    )
+}
 
+// Escape hatch behind the hardcoded badges: reveals the full catalog
+// selector for the day a hardcoded wire goes stale.
+function LoadOtherModelsButton(props: {
+    isDisabled: boolean
+    onClick: () => void
+}) {
+    const { t } = useTranslation()
+    return (
+        <button
+            type="button"
+            onClick={props.onClick}
+            disabled={props.isDisabled}
+            className="rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
+        >
+            {t('newSession.model.loadOptions')}
+        </button>
+    )
+}
 
 
 
@@ -431,12 +476,6 @@ export function NewSession(props: {
         }
         return options
     }, [codexModelsState.models, model])
-    const codexQuickPickOptions = useMemo(() => (
-        codexModelOptions.filter((option) => (
-            option.value !== 'auto'
-            && (QUICK_PICK_MODEL_IDS.codex ?? []).includes(option.value.toLowerCase())
-        ))
-    ), [codexModelOptions])
     const codexSupportedReasoningEfforts = useMemo(
         () => getCodexModelReasoningEfforts(codexModelsState.models, model),
         [codexModelsState.models, model]
@@ -473,7 +512,8 @@ export function NewSession(props: {
         ) {
             return
         }
-        if (!codexModelsState.models.some((candidate) => candidate.id === model)) {
+        if (!codexModelsState.models.some((candidate) => candidate.id === model)
+            && !CODEX_HARDCODED_OPTIONS.some((option) => option.value === model)) {
             setModel('auto')
         }
     }, [agent, codexModelsState.error, codexModelsState.isLoading, codexModelsState.models, model])
@@ -494,6 +534,38 @@ export function NewSession(props: {
             setServiceTier('standard')
         }
     }, [agent, codexModelsState.isLoading, showCodexFastMode, serviceTier])
+    // Fork hardcoded models: these flavors always run one model, so the form
+    // pins it instead of offering the catalog dropdown. Literals only.
+    // "Load other models" opens the full catalog selector as an escape hatch.
+    const [showAllModels, setShowAllModels] = useState(false)
+    useEffect(() => {
+        setShowAllModels(false)
+    }, [agent, machineId])
+    useEffect(() => {
+        if (agent !== 'codex' || showAllModels) {
+            return
+        }
+        if (model !== 'auto' && CODEX_HARDCODED_OPTIONS.some((option) => option.value === model)) {
+            return
+        }
+        setModel(CODEX_DEFAULT_MODEL_ID)
+    }, [agent, model, showAllModels])
+    useEffect(() => {
+        if (agent === 'claude' && claudeGlmBranded && model !== 'auto') {
+            setModel('auto')
+        }
+    }, [agent, claudeGlmBranded, model])
+    useEffect(() => {
+        if (agent === 'agy' && !showAllModels && agySelectedModel !== null) {
+            agyModelPickedByUserRef.current = false
+            setAgySelectedModel(null)
+        }
+    }, [agent, agySelectedModel, showAllModels])
+    useEffect(() => {
+        if (agent === 'opencode' && !showAllModels && opencodeSelectedModel !== null) {
+            setOpencodeSelectedModel(null)
+        }
+    }, [agent, opencodeSelectedModel, showAllModels])
     const cursorModelsState = useCursorModelsForMachine({
         api: props.api,
         machineId,
@@ -2070,36 +2142,71 @@ export function NewSession(props: {
                 />
             ) : null}
             {agent === 'dsh' ? null : agent === 'agy' ? (
-                <AgyModelSelector
-                    machineId={machineId}
-                    isLoading={agyModelsState.isLoading}
-                    error={agyModelsState.error}
-                    warning={agyModelsState.warning}
-                    isFetching={agyModelsState.isFetching}
-                    availableModels={agyModelsState.availableModels}
-                    defaultModelName={configuredDefaultModelName}
-                    selectedModel={agySelectedModel}
-                    onModelChange={(modelId) => {
-                        agyModelPickedByUserRef.current = modelId !== null
-                        setAgySelectedModel(modelId)
-                    }}
-                    onRetry={agyModelsState.refetch}
-                />
+                <>
+                    <ModelBadges
+                        options={[{ value: 'auto', label: AGY_HARDCODED_LABEL }]}
+                        activeValue="auto"
+                        isDisabled={isFormDisabled || !machineId}
+                        onToggle={() => {}}
+                        footer={showAllModels ? null : (
+                            <LoadOtherModelsButton
+                                isDisabled={isFormDisabled || !machineId}
+                                onClick={() => setShowAllModels(true)}
+                            />
+                        )}
+                    />
+                    {showAllModels ? (
+                        <AgyModelSelector
+                            machineId={machineId}
+                            isLoading={agyModelsState.isLoading}
+                            error={agyModelsState.error}
+                            warning={agyModelsState.warning}
+                            isFetching={agyModelsState.isFetching}
+                            availableModels={agyModelsState.availableModels}
+                            defaultModelName={configuredDefaultModelName}
+                            selectedModel={agySelectedModel}
+                            onModelChange={(modelId) => {
+                                agyModelPickedByUserRef.current = modelId !== null
+                                setAgySelectedModel(modelId)
+                            }}
+                            onRetry={agyModelsState.refetch}
+                        />
+                    ) : null}
+                </>
             ) : agent === 'opencode' ? (
-                <OpencodeModelSelector
-                    cwd={deferredDirectory}
-                    machineId={machineId}
-                    isLoading={opencodeModelsState.isLoading}
-                    error={opencodeModelsState.error}
-                    availableModels={opencodeModelsState.availableModels}
-                    currentModelId={opencodeModelsState.currentModelId}
-                    defaultModelName={configuredDefaultModelName}
-                    selectedModel={opencodeSelectedModel}
-                    onModelChange={setOpencodeSelectedModel}
-                    onRetry={opencodeModelsState.refetch}
-                    onLoadModels={!modelCatalogRequested ? () => setRequestedModelCatalog(modelCatalogTarget) : undefined}
-                    canLoadModels={deferredDirectoryExists === true}
-                />
+                <>
+                    <ModelBadges
+                        options={[{ value: 'auto', label: OPENCODE_HARDCODED_LABEL }]}
+                        activeValue="auto"
+                        isDisabled={isFormDisabled || !machineId}
+                        onToggle={() => {}}
+                        footer={showAllModels ? null : (
+                            <LoadOtherModelsButton
+                                isDisabled={isFormDisabled || !machineId}
+                                onClick={() => {
+                                    setShowAllModels(true)
+                                    setRequestedModelCatalog(modelCatalogTarget)
+                                }}
+                            />
+                        )}
+                    />
+                    {showAllModels ? (
+                        <OpencodeModelSelector
+                            cwd={deferredDirectory}
+                            machineId={machineId}
+                            isLoading={opencodeModelsState.isLoading}
+                            error={opencodeModelsState.error}
+                            availableModels={opencodeModelsState.availableModels}
+                            currentModelId={opencodeModelsState.currentModelId}
+                            defaultModelName={configuredDefaultModelName}
+                            selectedModel={opencodeSelectedModel}
+                            onModelChange={setOpencodeSelectedModel}
+                            onRetry={opencodeModelsState.refetch}
+                            onLoadModels={!modelCatalogRequested ? () => setRequestedModelCatalog(modelCatalogTarget) : undefined}
+                            canLoadModels={deferredDirectoryExists === true}
+                        />
+                    ) : null}
+                </>
             ) : (
                 agent === 'cursor' ? (
                     <>
@@ -2195,6 +2302,48 @@ export function NewSession(props: {
                             </>
                         ) : null}
                     </>
+                ) :                 agent === 'codex' ? (
+                    <>
+                        <ModelBadges
+                            options={[...CODEX_HARDCODED_OPTIONS]}
+                            activeValue={CODEX_HARDCODED_OPTIONS.some((option) => option.value === model) ? model : CODEX_DEFAULT_MODEL_ID}
+                            isDisabled={isFormDisabled || Boolean(codexModelsState.error)}
+                            onToggle={(value) => setModel(value)}
+                            footer={showAllModels ? null : (
+                                <LoadOtherModelsButton
+                                    isDisabled={isFormDisabled || !machineId}
+                                    onClick={() => setShowAllModels(true)}
+                                />
+                            )}
+                        />
+                        {showAllModels ? (
+                            <ModelSelector
+                                agent={agent}
+                                model={model}
+                                options={codexModelOptions}
+                                isDisabled={isFormDisabled || Boolean(codexModelsState.error)}
+                                isLoading={codexModelsState.isLoading}
+                                error={codexModelsState.error
+                                    ? `${t('newSession.model.loadFailed')}: ${codexModelsState.error}`
+                                    : null}
+                                onModelChange={setModel}
+                            />
+                        ) : null}
+                    </>
+                ) : agent === 'claude' && claudeGlmBranded ? (
+                    <ModelBadges
+                        options={[{ value: 'auto', label: CLAUDE_GLM_HARDCODED_LABEL }]}
+                        activeValue="auto"
+                        isDisabled={isFormDisabled || !machineId}
+                        onToggle={() => {}}
+                    />
+                ) : agent === 'minimax' ? (
+                    <ModelBadges
+                        options={[{ value: 'auto', label: MINIMAX_HARDCODED_LABEL }]}
+                        activeValue="auto"
+                        isDisabled={isFormDisabled || !machineId}
+                        onToggle={() => {}}
+                    />
                 ) : (
                     <ModelSelector
                         agent={agent}
@@ -2202,20 +2351,16 @@ export function NewSession(props: {
                         options={namedLaunchModelOptions}
                         isDisabled={
                             isFormDisabled
-                            || (agent === 'codex' && Boolean(codexModelsState.error))
                             || (agent === 'grok' && Boolean(grokModelsState.error))
                             || (agent === 'copilot' && Boolean(copilotModelsState.error))
                             || (agent === 'kimi' && Boolean(kimiModelsState.error))
                             || (agent === 'pi' && Boolean(piModelsState.error))
                         }
-                        isLoading={(agent === 'codex' && codexModelsState.isLoading)
-                            || (agent === 'grok' && grokModelsState.isLoading)
+                        isLoading={(agent === 'grok' && grokModelsState.isLoading)
                             || (agent === 'copilot' && copilotModelsState.isLoading)
                             || (agent === 'kimi' && kimiModelsState.isLoading)
                             || (agent === 'pi' && piModelsState.isLoading)}
-                        error={agent === 'codex' && codexModelsState.error
-                            ? `${t('newSession.model.loadFailed')}: ${codexModelsState.error}`
-                            : agent === 'grok' && grokModelsState.error
+                        error={agent === 'grok' && grokModelsState.error
                                 ? `${t('newSession.model.loadFailed')}: ${grokModelsState.error}`
                                 : agent === 'copilot' && copilotModelsState.error
                                     ? `${t('newSession.model.loadFailed')}: ${copilotModelsState.error}`
@@ -2225,18 +2370,7 @@ export function NewSession(props: {
                                             ? `${t('newSession.model.loadFailed')}: ${piModelsState.error}`
                                     : null}
                         onModelChange={setModel}
-                    >
-                        {agent === 'codex' && codexQuickPickOptions.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                                <QuickPickChips
-                                    options={codexQuickPickOptions}
-                                    activeValue={model}
-                                    isDisabled={isFormDisabled || Boolean(codexModelsState.error)}
-                                    onToggle={(value) => setModel(model === value ? 'auto' : value)}
-                                />
-                            </div>
-                        ) : null}
-                    </ModelSelector>
+                    />
                 )
             )}
             {showPiLaunchConfig && !(agent === 'claude' && claudeGlmBranded) ? (
