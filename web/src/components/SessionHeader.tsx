@@ -37,16 +37,6 @@ import { useNavigate } from '@tanstack/react-router'
 import { useSessionGitBranch, useSessionGitLabCreateMergeRequestUrl, useSessionGitLabMergeRequestUrl } from '@/hooks/queries/useSessionGitBranch'
 import { CodeIcon } from '@/components/icons'
 
-export function buildDifitOpenUrl(session: Session, branch: string | null): string {
-    const url = new URL('/open', import.meta.env.VITE_DIFIT_HUB_URL || 'https://difit.local')
-    if (session.metadata?.path) url.searchParams.set('repo', session.metadata.path)
-    if (branch && branch !== 'detached HEAD' && !branch.startsWith('detached@')) {
-        url.searchParams.set('branch', branch)
-    }
-    url.searchParams.set('hapiSessionId', session.id)
-    return url.toString()
-}
-
 /** Same preference order as session-list chips: display label → host → short id. */
 export function resolveSessionHeaderMachineLabel(
     session: Session,
@@ -123,27 +113,6 @@ function TerminalIcon(props: { className?: string }) {
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
             <polyline points="4 17 10 11 4 5" />
             <line x1="12" y1="19" x2="20" y2="19" />
-        </svg>
-    )
-}
-
-function DifitIcon(props: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={props.className}
-        >
-            <path d="M10 7H3m0 0 3-3M3 7l3 3" />
-            <path d="M14 17h7m0 0-3-3m3 3-3 3" />
-            <path d="M12 4v16" opacity="0.45" />
         </svg>
     )
 }
@@ -284,11 +253,9 @@ export function SessionHeader(props: {
         Boolean(api),
         gitBranchScope
     )
-    const attachedBranch = session.metadata?.difitReview?.branch ?? null
     const gitBranch = session.active
-        ? liveGitBranch ?? worktreeBranch ?? attachedBranch
-        : worktreeBranch ?? attachedBranch ?? liveGitBranch
-    const difitOpenUrl = buildDifitOpenUrl(session, gitBranch)
+        ? liveGitBranch ?? worktreeBranch
+        : worktreeBranch ?? liveGitBranch
     const externalReviewUrl = useSessionGitLabMergeRequestUrl(api, session.id, session.active, Boolean(api), gitBranchScope)
     const codeOpenUrl = useMemo(() => {
         if (!session.metadata?.path) return null
@@ -726,18 +693,6 @@ export function SessionHeader(props: {
                             </a>
                         ) : null}
 
-                        <a
-                            href={difitOpenUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`${headerToggleClass(false)} max-sm:hidden`}
-                            title={t('session.action.openDifit')}
-                            aria-label={t('session.action.openDifit')}
-                            data-testid="session-header-open-difit"
-                        >
-                            <DifitIcon />
-                        </a>
-
                         {!isTouch && externalReviewUrl ? (
                             <a
                                 href={externalReviewUrl}
@@ -807,7 +762,6 @@ export function SessionHeader(props: {
                 onSyncCodex={api && codexSessionId && !session.active ? handleSyncCodex : undefined}
                 onSyncPi={api && piSessionId && !session.active ? handleSyncPi : undefined}
                 externalReviewUrl={externalReviewUrl}
-                difitOpenUrl={difitOpenUrl}
                 codeOpenUrl={codeOpenUrl}
                 createExternalReviewUrl={!externalReviewUrl ? createMergeRequestUrl : null}
                 onContinueInFolder={() => navigate({
