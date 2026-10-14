@@ -462,4 +462,36 @@ describe('ApiClient.downloadKlipyGifAsFile', () => {
             { headers: { authorization: 'Bearer test-token' } }
         )
     })
+
+    it('posts editor-open requests for session files', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ opened: true, folder: '/tmp/project' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+        }))
+        const api = new ApiClient('test-token')
+
+        const result = await api.openSessionFileInEditor('session 1', { path: '/tmp/project/a.php', line: 12 })
+
+        expect(result).toEqual({ opened: true, folder: '/tmp/project' })
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/sessions/session%201/editor-open',
+            expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify({ path: '/tmp/project/a.php', line: 12 })
+            })
+        )
+    })
+
+    it('surfaces no-window failures with their status code', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'No editor window holds this project', code: 'no-window' }), {
+            status: 404,
+            statusText: 'Not Found'
+        }))
+        const api = new ApiClient('test-token')
+
+        await expect(api.openSessionFileInEditor('s1', { path: '/tmp/project/a.php' })).rejects.toMatchObject({
+            status: 404,
+            code: 'no-window'
+        })
+    })
 })

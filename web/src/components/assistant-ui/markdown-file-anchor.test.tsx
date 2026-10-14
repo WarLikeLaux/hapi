@@ -1,9 +1,11 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import React from 'react'
-import { describe, expect, it, vi } from 'vitest'
 import { defaultComponents, UriConfirmProvider } from '@/components/assistant-ui/markdown-text'
 import { I18nProvider } from '@/lib/i18n-context'
 import { encodeBase64 } from '@/lib/utils'
+import { ApiClient } from '@/api/client'
+import { AppContextProvider } from '@/lib/app-context'
 
 vi.mock('@/components/AssistantChat/context', () => ({
     useOptionalHappyChatContext: () => ({ sessionId: 'session-1' }),
@@ -48,5 +50,74 @@ describe('chat file anchors', () => {
         expect(href.searchParams.get('path')).toBe(encodeBase64('src/app.ts'))
         expect(href.searchParams.get('line')).toBe('42')
         expect(href.searchParams.get('column')).toBe('7')
+    })
+})
+
+describe('chat file anchors with an external editor', () => {
+    const STORAGE_KEY = 'hapi-external-editor-base-url'
+    let openSpy: ReturnType<typeof vi.spyOn>
+    let originalFetch: typeof globalThis.fetch
+
+    beforeEach(() => {
+        window.localStorage.clear()
+        originalFetch = globalThis.fetch
+        const placeholder = { close: vi.fn(), location: { href: 'about:blank' } }
+        openSpy = vi.spyOn(window, 'open').mockReturnValue(placeholder as unknown as Window)
+    })
+
+    afterEach(() => {
+        openSpy.mockRestore()
+        globalThis.fetch = originalFetch
+        window.localStorage.clear()
+    })
+
+    function renderWithEditor(filePath: string, hubStatus: number, hubBody: unknown) {
+        window.localStorage.setItem(STORAGE_KEY, 'https://code.local')
+        globalThis.fetch = vi.fn().mockResolvedValue(
+            new Response(JSON.stringify(hubBody), { status: hubStatus })
+        ) as unknown as typeof globalThis.fetch
+        return render(
+            <I18nProvider>
+                <AppContextProvider value={{ api: new ApiClient('test-token'), token: 'test-token', baseUrl: '' }}>
+                    <UriConfirmProvider>
+                        <AnchorComponent href={`hapi-file:${encodeURIComponent(filePath)}`}>
+                            {filePath}
+                        </AnchorComponent>
+                    </UriConfirmProvider>
+                </AppContextProvider>
+            </I18nProvider>
+        )
+    }
+
+    it('asks the hub first and closes the placeholder when the editor opens the file', async () => {
+        const filePath = '/home/shandori/code/proj/models/A.php:675'
+        renderWithEditor(filePath, 200, { opened: true, folder: '/home/shandori/code/proj' })
+        const link = screen.getByRole('link', { name: filePath })
+
+        fireEvent.click(link)
+
+        await waitFor(() => expect(openSpy).toHaveBeenCalledWith('about:blank', '_blank'))
+        await waitFor(() => expect((openSpy.mock.results[0]?.value as { close: () => void }).close).toHaveBeenCalled())
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            '/api/sessions/session-1/editor-open',
+            expect.objectContaining({ method: 'POST' })
+        )
+    })
+
+    it('falls back to a new editor tab when no window holds the project', async () => {
+        const filePath = '/home/shandori/code/proj/models/A.php:675'
+        renderWithEditor(filePath, 404, { error: 'No editor window holds this project', code: 'no-window' })
+        const link = screen.getByRole('link', { name: filePath })
+
+        fireEvent.click(link)
+
+        await waitFor(() => expect(openSpy).toHaveBeenCalledWith('about:blank', '_blank'))
+        await waitFor(() => {
+            const href = (openSpy.mock.results[0]?.value as { location: { href: string } }).location.href
+            expect(href.startsWith('https://code.local/?folder=')).toBe(true)
+        })
+        const href = (openSpy.mock.results[0]?.value as { location: { href: string } }).location.href
+        const parsed = new URL(href)
+        expect(parsed.searchParams.get('folder')).toBe('/home/shandori/code/proj/models')
     })
 })
