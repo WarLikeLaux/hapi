@@ -64,6 +64,7 @@ export const ExternalMediaKindSchema = z.enum([
     'location',
     'contact',
     'poll',
+    'dice',
     'other'
 ])
 export type ExternalMediaKind = z.infer<typeof ExternalMediaKindSchema>
@@ -78,6 +79,10 @@ export const ExternalMediaSchema = z.object({
     isAnimated: z.boolean().optional(),
     /** Telegram's virtual sticker for a message containing one supported emoji. */
     emoji: z.string().max(64).optional(),
+    /** Telegram dice (`messageMediaDice`): the game emoticon (🎲🎯🏀⚽🎳🎰). */
+    diceEmoji: z.string().max(16).optional(),
+    /** Telegram dice value (1-6 for 🎲, game-specific otherwise). */
+    diceValue: z.number().int().optional(),
     /** An extra animation played over that emoji on click, not a visible attachment. */
     isEmojiEffect: z.boolean().optional(),
     // Voice notes and audio tracks carry playback metadata straight from the

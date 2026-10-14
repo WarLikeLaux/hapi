@@ -107,6 +107,7 @@ function messagePreview(message: ExternalMessage): string {
     const media = message.media?.[0]
     if (!media) return ''
     if (media.kind === 'video' && media.isAnimated) return 'GIF'
+    if (media.kind === 'dice') return media.diceValue !== undefined && media.diceValue !== null ? `🎲${media.diceValue}` : 'Dice'
     return ({
         image: 'Photo',
         video: 'Video',
@@ -117,6 +118,7 @@ function messagePreview(message: ExternalMessage): string {
         location: 'Location',
         contact: 'Contact',
         poll: 'Poll',
+        dice: 'Dice',
         other: 'Attachment'
     } satisfies Record<NonNullable<ExternalMessage['media']>[number]['kind'], string>)[media.kind]
 }

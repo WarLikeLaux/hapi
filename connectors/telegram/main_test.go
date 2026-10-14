@@ -423,6 +423,19 @@ func TestSenderAvatarCandidateFromMessageEntities(t *testing.T) {
 	}
 }
 
+func TestMediaFromTelegramMapsDice(t *testing.T) {
+	media := mediaFromTelegram(&tg.MessageMediaDice{Value: 5, Emoticon: "🎲"})
+	if len(media) != 1 || media[0].Kind != "dice" || media[0].DiceEmoji != "🎲" {
+		t.Fatalf("unexpected dice metadata: %#v", media)
+	}
+	if media[0].DiceValue == nil || *media[0].DiceValue != 5 {
+		t.Fatalf("expected dice value 5, got %#v", media[0].DiceValue)
+	}
+	if got := mediaPreview(media); got != "Dice" {
+		t.Fatalf("expected dice preview, got %q", got)
+	}
+}
+
 func TestMediaFromTelegramMarksRoundVideo(t *testing.T) {
 	media := mediaFromTelegram(&tg.MessageMediaDocument{
 		Round:    true,

@@ -149,6 +149,7 @@ const mediaLabels: Record<ExternalMedia['kind'], string> = {
     location: 'Location',
     contact: 'Contact',
     poll: 'Poll',
+    dice: 'Dice',
     other: 'Attachment'
 }
 
@@ -166,6 +167,7 @@ const mediaIcons: Record<ExternalMedia['kind'], string> = {
     location: '⌖',
     contact: '●',
     poll: '≡',
+    dice: '🎲',
     other: '＋'
 }
 
@@ -182,6 +184,57 @@ function senderNameColor(senderId: string | null): string {
     let hash = 0
     for (const character of senderId ?? '') hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0
     return senderNameColors[Math.abs(hash) % senderNameColors.length]
+}
+
+/** CSS dice face for classic 🎲 1-6: no emoji font needed, always draws. */
+const DICE_PIPS: Record<number, Array<readonly [number, number]>> = {
+    1: [[2, 2]],
+    2: [[1, 3], [3, 1]],
+    3: [[1, 3], [2, 2], [3, 1]],
+    4: [[1, 1], [1, 3], [3, 1], [3, 3]],
+    5: [[1, 1], [1, 3], [2, 2], [3, 1], [3, 3]],
+    6: [[1, 1], [1, 3], [2, 1], [2, 3], [3, 1], [3, 3]]
+}
+
+function DiceFace(props: { emoji: string | null | undefined; value: number | null | undefined }) {
+    const pips = typeof props.value === 'number' ? DICE_PIPS[props.value] : undefined
+    const [rolling, setRolling] = useState(true)
+    const [shownValue, setShownValue] = useState(() => props.value)
+    useEffect(() => {
+        if (!pips || typeof props.value !== 'number') return
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            setRolling(false)
+            return
+        }
+        // A dice roll shuffle: Telegram doesn't expose the roll animation over
+        // the API (clients play it from bundled assets), so the tile shuffles
+        // faces for a beat and settles on the real value.
+        const startedAt = Date.now()
+        const timer = window.setInterval(() => {
+            if (Date.now() - startedAt > 900) {
+                window.clearInterval(timer)
+                setShownValue(props.value)
+                setRolling(false)
+                return
+            }
+            setShownValue(1 + Math.floor(Math.random() * 6))
+        }, 90)
+        return () => window.clearInterval(timer)
+    }, [pips, props.value])
+    if (!pips) {
+        return <span className="text-5xl leading-none">{props.emoji || '🎲'}</span>
+    }
+    const shownPips = (typeof shownValue === 'number' ? DICE_PIPS[shownValue] : undefined) ?? pips
+    return (
+        <span role="img" aria-label={`Dice ${props.value}`} className={cn('grid h-16 w-16 shrink-0 grid-cols-3 grid-rows-3 gap-1 rounded-2xl bg-white p-2 shadow', rolling && 'animate-pulse')}>
+            {Array.from({ length: 9 }, (_, index) => {
+                const row = Math.floor(index / 3) + 1
+                const col = (index % 3) + 1
+                const on = shownPips.some(([pipRow, pipCol]) => pipRow === row && pipCol === col)
+                return <span key={index} data-testid={on ? 'dice-pip' : undefined} className={cn('rounded-full', on && 'bg-slate-800')} />
+            })}
+        </span>
+    )
 }
 
 function MediaAttachment(props: {
@@ -292,6 +345,17 @@ function MediaAttachment(props: {
             return <div className="relative w-fit max-w-full"><RoundVideoPlayer src={fullUrl} label={media.fileName ?? label} />{props.overlay}</div>
         }
         return <div className="relative w-fit max-w-[min(100%,82vw,30rem)]"><video src={fullUrl} controls={!media.isAnimated} autoPlay={media.isAnimated} loop={media.isAnimated} muted={media.isAnimated} playsInline preload="metadata" className="block max-h-[32rem] max-w-full rounded-xl bg-black object-contain" />{props.overlay}</div>
+    }
+    if (media.kind === 'dice') {
+        return (
+            <div ref={(node) => { previewRef.current = node }} title={label} className="flex w-fit max-w-full items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-4 py-3">
+                <DiceFace emoji={media.diceEmoji} value={media.diceValue} />
+                {media.diceValue !== undefined && media.diceValue !== null ? (
+                    <span className="text-2xl font-semibold tabular-nums">{media.diceValue}</span>
+                ) : null}
+                {props.overlay}
+            </div>
+        )
     }
     if (media.kind === 'voice' || media.kind === 'audio') {
         return <VoiceMessagePlayer
