@@ -244,6 +244,20 @@ func TestMessageFromTelegramIncludesReactions(t *testing.T) {
 	}
 }
 
+func TestSmallestCustomEmojiThumbPicksSmallestPhoto(t *testing.T) {
+	document := &tg.Document{Thumbs: []tg.PhotoSizeClass{
+		&tg.PhotoSize{Type: "m", W: 320, H: 320},
+		&tg.PhotoSize{Type: "s", W: 80, H: 80},
+		&tg.PhotoStrippedSize{Type: "i"},
+	}}
+	if thumbType := smallestCustomEmojiThumb(document); thumbType != "s" {
+		t.Fatalf("expected smallest thumb %q, got %q", "s", thumbType)
+	}
+	if thumbType := smallestCustomEmojiThumb(&tg.Document{}); thumbType != "" {
+		t.Fatalf("expected no thumb, got %q", thumbType)
+	}
+}
+
 func TestMessageFromTelegramIncludesButtons(t *testing.T) {
 	msg := &tg.Message{
 		ID:      13,

@@ -539,6 +539,20 @@ export class ApiClient {
         return await response.blob()
     }
 
+    async getCustomEmojiBlob(conversationId: string, documentId: number): Promise<Blob> {
+        const liveToken = this.getToken ? this.getToken() : null
+        const authToken = liveToken ?? this.token
+        const headers = new Headers()
+        if (authToken) headers.set('authorization', `Bearer ${authToken}`)
+        const path = `/api/conversations/${encodeURIComponent(conversationId)}/custom-emoji/${documentId}`
+        const response = await fetch(this.buildUrl(path), { headers, cache: 'force-cache' })
+        if (!response.ok) {
+            const body = await response.text().catch(() => '')
+            throw new ApiError(`HTTP ${response.status}`, response.status, parseErrorCode(body), body || undefined)
+        }
+        return await response.blob()
+    }
+
     async getHealth(): Promise<HubHealthResponse> {
         return await this.request<HubHealthResponse>('/health')
     }

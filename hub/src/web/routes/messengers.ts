@@ -317,6 +317,28 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
         }
     })
 
+    app.get('/conversations/:id/custom-emoji/:documentId', async (c) => {
+        const documentId = Number(c.req.param('documentId'))
+        if (!Number.isInteger(documentId) || documentId <= 0) return c.json({ error: 'Invalid custom emoji id' }, 400)
+        try {
+            const media = await manager.downloadCustomEmoji(
+                c.get('namespace'),
+                c.req.param('id'),
+                documentId
+            )
+            return new Response(Bun.file(media.path), {
+                headers: {
+                    'content-type': media.mimeType || 'image/jpeg',
+                    'content-length': String(media.size),
+                    'content-disposition': inlineContentDisposition(media.fileName),
+                    'cache-control': 'private, max-age=86400'
+                }
+            })
+        } catch (error) {
+            const message = errorMessage(error)
+            return c.json({ error: message }, message.includes('not found') || message.includes('not supported') ? 404 : 502)
+        }
+    })
     app.post('/conversations/:id/media', bodyLimit({
         maxSize: MAX_MESSENGER_MEDIA_BYTES + 1024 * 1024,
         onError: (c) => c.json({ error: 'Media file is too large' }, 413)

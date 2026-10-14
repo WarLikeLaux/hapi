@@ -181,8 +181,28 @@ describe('messenger reply gestures', () => {
         expect(screen.getByTestId('chats-reply-bar')).not.toHaveTextContent('Video')
     })
 
-    it('replaces the previous MAX reaction when another emoji is clicked', async () => {
-        const setExternalMessageReactions = vi.fn(async () => {})
+    it('renders a premium custom-emoji reaction as an image with a fallback', async () => {
+        const NativeURL = globalThis.URL
+        vi.stubGlobal('URL', class extends NativeURL {
+            static createObjectURL() { return 'blob:custom-emoji' }
+            static revokeObjectURL() {}
+        })
+        const getCustomEmojiBlob = vi.fn(async () => new Blob(['emoji'], { type: 'image/jpeg' }))
+        renderChat({
+            getCustomEmojiBlob,
+            getExternalMessages: async () => ({ messages: [{ ...message,
+                reactions: [
+                    { reaction: 'custom:99', emoji: null, count: 2, chosen: false },
+                    { reaction: 'paid', emoji: null, count: 1, chosen: false },
+                ]
+            }], participants: [] }),
+        })
+        await waitFor(() => expect(getCustomEmojiBlob).toHaveBeenCalledWith('telegram:chat:1', 99))
+        expect(screen.getByRole('button', { name: '2' }).querySelector('img')).toHaveAttribute('src', 'blob:custom-emoji')
+        expect(screen.getByTitle('paid')).toHaveTextContent('✦')
+    })
+
+    it('replaces the previous MAX reaction when another emoji is clicked', async () => {        const setExternalMessageReactions = vi.fn(async () => {})
         renderChat({
             setExternalMessageReactions,
             getExternalMessages: async () => ({ messages: [{ ...message,

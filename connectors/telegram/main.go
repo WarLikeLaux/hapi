@@ -1743,6 +1743,102 @@ func (s *service) downloadMedia(ctx context.Context, remoteID, providerMessageID
 	return downloadedMedia{Path: path, MIMEType: mimeType, FileName: fileName, Size: stat.Size()}, nil
 }
 
+// smallestCustomEmojiThumb picks the smallest server-side thumbnail of a
+// custom emoji document. Pills only need ~40px, and thumbs are plain JPEGs
+// while the document itself may be an animated .tgs no <img> can draw.
+func smallestCustomEmojiThumb(document *tg.Document) string {
+	thumbType, smallest := "", int64(0)
+	for _, size := range document.Thumbs {
+		photo, ok := size.(*tg.PhotoSize)
+		if !ok || photo.W <= 0 || photo.H <= 0 {
+			continue
+		}
+		area := int64(photo.W) * int64(photo.H)
+		if thumbType == "" || area < smallest {
+			thumbType, smallest = photo.Type, area
+		}
+	}
+	return thumbType
+}
+
+func (s *service) downloadCustomEmoji(ctx context.Context, documentID int64) (downloadedMedia, error) {
+	if documentID <= 0 {
+		return downloadedMedia{}, errors.New("invalid custom emoji id")
+	}
+	raw, err := s.ready()
+	if err != nil {
+		return downloadedMedia{}, err
+	}
+	documents, err := raw.MessagesGetCustomEmojiDocuments(ctx, []int64{documentID})
+	if err != nil {
+		return downloadedMedia{}, err
+	}
+	var document *tg.Document
+	for _, item := range documents {
+		if candidate, ok := item.(*tg.Document); ok && candidate.ID == documentID {
+			document = candidate
+			break
+		}
+	}
+	if document == nil {
+		return downloadedMedia{}, errors.New("custom emoji is unavailable")
+	}
+	s.mu.RLock()
+	sessionPath := s.sessionPath
+	s.mu.RUnlock()
+	cacheDir := filepath.Join(filepath.Dir(sessionPath), "media-cache")
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+		return downloadedMedia{}, fmt.Errorf("create media cache: %w", err)
+	}
+	path := filepath.Join(cacheDir, fmt.Sprintf("custom-emoji-%d.jpg", documentID))
+	if stat, err := os.Stat(path); err == nil && stat.Size() > 0 {
+		now := time.Now()
+		_ = os.Chtimes(path, now, now)
+		_ = pruneMediaCache(cacheDir, maxMediaCacheBytes, path)
+		return downloadedMedia{Path: path, MIMEType: "image/jpeg", FileName: fmt.Sprintf("custom-emoji-%d.jpg", documentID), Size: stat.Size()}, nil
+	}
+	// Inline thumbnail bytes need no download at all.
+	for _, size := range document.Thumbs {
+		if cached, ok := size.(*tg.PhotoCachedSize); ok && len(cached.Bytes) > 0 {
+			if err := os.WriteFile(path+".part", cached.Bytes, 0o600); err != nil {
+				return downloadedMedia{}, err
+			}
+			stat, err := os.Stat(path + ".part")
+			if err != nil || stat.Size() == 0 {
+				_ = os.Remove(path + ".part")
+				return downloadedMedia{}, errors.New("downloaded custom emoji is invalid")
+			}
+			if err := os.Rename(path+".part", path); err != nil {
+				_ = os.Remove(path + ".part")
+				return downloadedMedia{}, err
+			}
+			_ = pruneMediaCache(cacheDir, maxMediaCacheBytes, path)
+			return downloadedMedia{Path: path, MIMEType: "image/jpeg", FileName: fmt.Sprintf("custom-emoji-%d.jpg", documentID), Size: stat.Size()}, nil
+		}
+	}
+	if thumbType := smallestCustomEmojiThumb(document); thumbType != "" {
+		location := &tg.InputDocumentFileLocation{ID: document.ID, AccessHash: document.AccessHash, FileReference: document.FileReference, ThumbSize: thumbType}
+		temporaryPath := path + ".part"
+		_ = os.Remove(temporaryPath)
+		if _, err := downloader.NewDownloader().Download(raw, location).ToPath(ctx, temporaryPath); err != nil {
+			_ = os.Remove(temporaryPath)
+			return downloadedMedia{}, err
+		}
+		stat, err := os.Stat(temporaryPath)
+		if err != nil || stat.Size() == 0 {
+			_ = os.Remove(temporaryPath)
+			return downloadedMedia{}, errors.New("downloaded custom emoji is invalid")
+		}
+		if err := os.Rename(temporaryPath, path); err != nil {
+			_ = os.Remove(temporaryPath)
+			return downloadedMedia{}, err
+		}
+		_ = pruneMediaCache(cacheDir, maxMediaCacheBytes, path)
+		return downloadedMedia{Path: path, MIMEType: "image/jpeg", FileName: fmt.Sprintf("custom-emoji-%d.jpg", documentID), Size: stat.Size()}, nil
+	}
+	return downloadedMedia{}, errors.New("custom emoji has no usable preview")
+}
+
 func applyClientID(builder *message.Builder, clientID string) {
 	if clientID == "" {
 		return
@@ -2386,6 +2482,14 @@ func (s *service) handle(req rpcRequest) (any, error) {
 			return nil, err
 		}
 		return s.downloadMedia(ctx, params.RemoteID, params.ProviderMessageID, params.MediaIndex)
+	case "custom-emoji.download":
+		var params struct {
+			DocumentID int64 `json:"documentId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, err
+		}
+		return s.downloadCustomEmoji(ctx, params.DocumentID)
 	case "media.send":
 		var params struct {
 			RemoteID                 string `json:"remoteId"`

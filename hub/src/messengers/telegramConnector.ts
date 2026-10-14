@@ -108,6 +108,17 @@ export class TelegramConnector implements MessengerConnector {
         await this.request('messages.reactions.set', { remoteId, providerMessageId, reactions })
     }
 
+    async downloadCustomEmoji(remoteId: string, documentId: number): Promise<DownloadedExternalMedia> {
+        await this.ensureProcess()
+        const result = await this.request('custom-emoji.download', { remoteId, documentId }, 60_000) as DownloadedExternalMedia
+        const mediaRoot = resolve(this.options.dataDir, 'media-cache')
+        const mediaPath = resolve(result.path)
+        if (!mediaPath.startsWith(`${mediaRoot}${sep}`) || !statSync(mediaPath).isFile()) {
+            throw new Error('Telegram connector returned an invalid media path')
+        }
+        return { ...result, path: mediaPath }
+    }
+
     async editMessage(remoteId: string, providerMessageId: string, text: string): Promise<void> {
         await this.request('messages.edit', { remoteId, providerMessageId, text })
     }

@@ -134,6 +134,36 @@ describe('messenger routes', () => {
         expect(calls).toEqual([['default', 'chat', '42', ['emoji:👍', 'custom:7']]])
     })
 
+    it('serves premium custom-emoji previews by document id', async () => {
+        const calls: unknown[][] = []
+        const dataDir = await mkdtemp(join(tmpdir(), 'hapi-custom-emoji-'))
+        const previewPath = join(dataDir, 'preview.jpg')
+        await Bun.write(previewPath, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))
+        const manager = {
+            downloadCustomEmoji: async (...args: unknown[]) => {
+                calls.push(args)
+                return { path: previewPath, mimeType: 'image/jpeg', fileName: 'custom-emoji-7.jpg', size: 4 }
+            }
+        } as unknown as MessengerManager
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/', createMessengerRoutes(manager))
+        try {
+            expect((await app.request('/conversations/chat/custom-emoji/0')).status).toBe(400)
+            expect((await app.request('/conversations/chat/custom-emoji/nope')).status).toBe(400)
+            const response = await app.request('/conversations/chat/custom-emoji/7')
+            expect(response.status).toBe(200)
+            expect(response.headers.get('content-type')).toBe('image/jpeg')
+            expect(await response.arrayBuffer().then((buffer) => buffer.byteLength)).toBe(4)
+            expect(calls).toEqual([['default', 'chat', 7]])
+        } finally {
+            await rm(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('supports cached and forced candidate refreshes', async () => {
         const calls: unknown[][] = []
         const manager = {
