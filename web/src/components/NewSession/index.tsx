@@ -34,12 +34,11 @@ import { getCodexModelReasoningEfforts, resolveCodexModel } from '@/lib/codexMod
 import {
     buildNewSessionCursorModelCatalog,
     buildNewSessionCursorPickerState,
-    hardcodedCursorWiresAvailable,
+    CURSOR_COMPOSER_FAST_WIRE,
+    CURSOR_GROK_XHIGH_WIRE,
     isCursorEffortWireAllowed,
     isHardcodedCursorModelId,
     resolveCursorBaseFromWire,
-    resolveCursorDefaultModelId,
-    resolveHardcodedCursorWires,
     resolveNewSessionCursorBaseSelectValue,
     resolveNewSessionCursorEffortSelectValue,
     resolveWireIdForBaseChange,
@@ -519,35 +518,23 @@ export function NewSession(props: {
         ),
         [cursorModelsState.availableModels, cursorModelsState.cliModelSkus]
     )
-    const cursorDefaultWire = useMemo(
-        () => resolveCursorDefaultModelId(availableCursorCatalog),
-        [availableCursorCatalog]
-    )
-    // Hardcoded cursor shortlist: grok-4.7 extra-high + composer-2.5 fast, nothing else.
-    const hardcodedCursorWires = useMemo(
-        () => resolveHardcodedCursorWires(availableCursorCatalog),
-        [availableCursorCatalog]
-    )
-    const hardcodedCursorReady = useMemo(
-        () => hardcodedCursorWiresAvailable(availableCursorCatalog, hardcodedCursorWires),
-        [availableCursorCatalog, hardcodedCursorWires]
-    )
+    // Cursor models are hardcoded literals, no catalog lookup.
     const hardcodedCursorOptions = useMemo(
         () => [
-            { value: hardcodedCursorWires.grokWire, label: 'Grok 4.7 Extra High' },
-            { value: hardcodedCursorWires.composerWire, label: 'Composer 2.5 Fast' },
+            { value: CURSOR_GROK_XHIGH_WIRE, label: 'Grok 4.7 Extra High' },
+            { value: CURSOR_COMPOSER_FAST_WIRE, label: 'Composer 2.5 Fast' },
         ],
-        [hardcodedCursorWires]
+        []
     )
     const cursorDefaultAppliedRef = useRef<string | null>(null)
     useEffect(() => {
-        if (agent !== 'cursor' || cursorModelsState.isLoading || !hardcodedCursorReady) return
+        if (agent !== 'cursor') return
         if (model !== 'auto' && model !== 'default[]') return
-        if (cursorDefaultAppliedRef.current === hardcodedCursorWires.grokWire) return
-        cursorDefaultAppliedRef.current = hardcodedCursorWires.grokWire
-        setModel(hardcodedCursorWires.grokWire)
-        setCursorSelectedBase(resolveCursorBaseFromWire(hardcodedCursorWires.grokWire, availableCursorCatalog))
-    }, [agent, availableCursorCatalog, hardcodedCursorReady, hardcodedCursorWires, cursorModelsState.isLoading, model])
+        if (cursorDefaultAppliedRef.current === CURSOR_GROK_XHIGH_WIRE) return
+        cursorDefaultAppliedRef.current = CURSOR_GROK_XHIGH_WIRE
+        setModel(CURSOR_GROK_XHIGH_WIRE)
+        setCursorSelectedBase('grok-4.7')
+    }, [agent, model])
 
     useEffect(() => {
         if (
@@ -2107,46 +2094,25 @@ export function NewSession(props: {
             ) : (
                 agent === 'cursor' ? (
                     <>
-                        <ModelSelector
-                            agent={agent}
-                            model={hardcodedCursorOptions.some((option) => option.value === model) ? model : hardcodedCursorWires.grokWire}
-                            options={hardcodedCursorOptions}
-                            isDisabled={cursorModelPickersDisabled}
-                            isLoading={false}
-                            error={cursorModelsState.error
-                                ? `${t('newSession.model.loadFailed')}: ${cursorModelsState.error}`
-                                : null}
-                            onModelChange={(value) => {
-                                setModel(value)
-                                setCursorSelectedBase(resolveCursorBaseFromWire(value, availableCursorCatalog))
-                            }}
-                        >
-                            {cursorModelsState.isLoading ? (
-                                <div role="status" className="text-xs text-[var(--app-hint)]">
-                                    {t('newSession.model.loading')}
-                                </div>
-                            ) : null}
-                            {!modelCatalogRequested ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setRequestedModelCatalog(modelCatalogTarget)}
-                                    disabled={isFormDisabled || !machineId}
-                                    className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
-                                >
-                                    {t('newSession.model.loadOptions')}
-                                </button>
-                            ) : null}
+                        <div className="flex flex-col gap-1.5 px-3 py-3">
+                            <span className="text-xs font-medium text-[var(--app-hint)]">
+                                {t('newSession.model')}
+                            </span>
+                            <QuickPickChips
+                                options={hardcodedCursorOptions}
+                                activeValue={hardcodedCursorOptions.some((option) => option.value === model) ? model : CURSOR_GROK_XHIGH_WIRE}
+                                isDisabled={isFormDisabled || !machineId}
+                                onToggle={(value) => {
+                                    setModel(value)
+                                    setCursorSelectedBase(value === CURSOR_COMPOSER_FAST_WIRE ? 'composer-2.5' : 'grok-4.7')
+                                }}
+                            />
                             {cursorModelsState.error ? (
                                 <button type="button" onClick={cursorModelsState.refetch} className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)]">
                                     {t('newSession.opencodeModel.retry')}
                                 </button>
                             ) : null}
-                            {cursorModelsUnavailable ? (
-                                <div className="text-xs text-[var(--app-hint)]">
-                                    {t('newSession.model.cursorUnavailable')}
-                                </div>
-                            ) : null}
-                        </ModelSelector>
+                        </div>
                     </>
                 ) : (
                     <ModelSelector
