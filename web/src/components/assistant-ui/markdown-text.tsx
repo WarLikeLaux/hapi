@@ -38,6 +38,9 @@ import { remarkSessionPathLinks } from '@/lib/remark-session-path-links'
 import { buildSessionReferencePath, parseSessionPathHref } from '@/lib/sessionReference'
 import { UriConfirmDialog } from '@/components/UriConfirmDialog'
 import { DEFAULT_OPEN_EXTERNAL_LINKS_IN_NEW_TAB, useOpenExternalLinksInNewTab } from '@/hooks/useOpenExternalLinksInNewTab'
+import { useExternalEditorBaseUrl } from '@/hooks/useExternalEditor'
+import { useOptionalAppContext } from '@/lib/app-context'
+import { buildExternalEditorFileUrl, resolveExternalEditorFolder } from '@/lib/external-editor-url'
 
 import type { MarkdownTextPrimitiveProps } from '@assistant-ui/react-markdown'
 
@@ -549,12 +552,55 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & {
     line?: number
     column?: number
 }) {
-    const { filePath, sessionId, line, column, ...anchorProps } = props
+    const { filePath, sessionId, line, column, onClick, ...anchorProps } = props
+    const app = useOptionalAppContext()
+    const chat = useOptionalHappyChatContext()
+    const { externalEditorBaseUrl } = useExternalEditorBaseUrl()
     const searchParams = new URLSearchParams({ path: encodeBase64(filePath), origin: 'chat' })
     if (line !== undefined) searchParams.set('line', String(line))
     if (column !== undefined) searchParams.set('column', String(column))
     const search = searchParams.toString()
     const href = `/sessions/${encodeURIComponent(sessionId)}/file?${search}`
+
+    const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+        onClick?.(event)
+        if (event.defaultPrevented) return
+        // External editor integration (Settings > Display > Links): absolute
+        // workspace paths are offered to the live editor first via the hub.
+        if (!externalEditorBaseUrl || !app || !filePath.startsWith('/')) return
+        event.preventDefault()
+        // Open synchronously inside the gesture — navigating after an await
+        // would be cut down by the popup blocker.
+        const placeholder = window.open('about:blank', '_blank')
+        if (!placeholder) return
+        void (async () => {
+            try {
+                const result = await app.api.openSessionFileInEditor(sessionId, {
+                    path: filePath,
+                    ...(line !== undefined ? { line } : {}),
+                    ...(column !== undefined ? { column } : {}),
+                })
+                if (result.opened) {
+                    placeholder.close()
+                    return
+                }
+            } catch {
+                // Fall through to opening a fresh editor tab below.
+            }
+            try {
+                const base = new URL(externalEditorBaseUrl)
+                const folder = resolveExternalEditorFolder(chat?.metadata?.path ?? null, filePath)
+                placeholder.location.href = buildExternalEditorFileUrl(
+                    `${base.origin}${base.pathname.replace(/\/+$/, '')}`,
+                    base.host,
+                    folder,
+                    { file: filePath, ...(line !== undefined ? { line } : {}), ...(column !== undefined ? { column } : {}) }
+                )
+            } catch {
+                placeholder.close()
+            }
+        })()
+    }
 
     return (
         <a
@@ -562,6 +608,7 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & {
             href={href}
             target="_blank"
             rel={newTabRel(anchorProps.rel)}
+            onClick={handleClick}
             className={cn('aui-md-a font-medium text-[var(--app-link)] underline decoration-[color:var(--app-link-muted)] underline-offset-3', anchorProps.className)}
         />
     )

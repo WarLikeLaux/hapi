@@ -13,6 +13,7 @@ import { useThemeColors, type ThemeColorKeyId } from '@/hooks/useThemeColors'
 import { useSessionHeaderMetadata, type SessionHeaderMetadataKey } from '@/hooks/useSessionHeaderMetadata'
 import { useAppBadgePreference } from '@/hooks/useAppBadgePreference'
 import { useOpenExternalLinksInNewTab } from '@/hooks/useOpenExternalLinksInNewTab'
+import { normalizeExternalEditorBaseUrl, useExternalEditorBaseUrl } from '@/hooks/useExternalEditor'
 import { useSessionContextFilter } from '@/hooks/useSessionContextFilter'
 import { useSessionContextHubSync } from '@/hooks/useSessionContextHubSync'
 import { SettingsChoiceGroup, SettingsFieldLabel, SettingsPageContent, SettingsRow, SettingsSection, SettingsSwitch } from '@/components/settings/SettingsPrimitives'
@@ -102,6 +103,57 @@ function SessionPreviewLimitControl() {
                 <button type="button" onClick={() => step(1)} disabled={sessionPreviewLimit >= MAX_SESSION_PREVIEW_LIMIT} aria-label={t('settings.display.sessionPreviewLimit.increase')} className="flex h-8 w-8 items-center justify-center disabled:opacity-40"><PlusIcon /></button>
             </div>
         } />
+    )
+}
+
+function ExternalEditorControl() {
+    const { t } = useTranslation()
+    const { externalEditorBaseUrl, setExternalEditorBaseUrl } = useExternalEditorBaseUrl()
+    const [draft, setDraft] = useState(externalEditorBaseUrl)
+    const [invalid, setInvalid] = useState(false)
+
+    useEffect(() => setDraft(externalEditorBaseUrl), [externalEditorBaseUrl])
+
+    const commit = () => {
+        if (draft.trim() === '') {
+            setExternalEditorBaseUrl('')
+            setInvalid(false)
+            return
+        }
+        const normalized = normalizeExternalEditorBaseUrl(draft)
+        if (!normalized) {
+            setInvalid(true)
+            return
+        }
+        setInvalid(false)
+        setExternalEditorBaseUrl(normalized)
+        setDraft(normalized)
+    }
+
+    return (
+        <div className="px-3 py-3">
+            <SettingsFieldLabel description={t('settings.display.externalEditor.desc')}>
+                {t('settings.display.externalEditor')}
+            </SettingsFieldLabel>
+            <input
+                aria-label={t('settings.display.externalEditor')}
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="https://code.local"
+                value={draft}
+                onChange={(event) => { setDraft(event.target.value); setInvalid(false) }}
+                onBlur={commit}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter') { commit(); event.currentTarget.blur() }
+                    if (event.key === 'Escape') { setDraft(externalEditorBaseUrl); setInvalid(false); event.currentTarget.blur() }
+                }}
+                aria-invalid={invalid}
+                className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-1.5 text-sm text-[var(--app-fg)] outline-none focus:border-[var(--app-link)]"
+            />
+            {invalid ? <div role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{t('settings.display.externalEditor.invalid')}</div> : null}
+        </div>
     )
 }
 
@@ -261,6 +313,7 @@ export default function SettingsDisplayPage() {
                     checked={openExternalLinksInNewTab}
                     onChange={setOpenExternalLinksInNewTab}
                 />
+                <ExternalEditorControl />
             </SettingsSection>
         </SettingsPageContent>
     )

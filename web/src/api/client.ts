@@ -11,6 +11,8 @@ import type {
     DecryptedMessage,
     CodexCollaborationMode,
     CopilotAgentMode,
+    EditorOpenRequest,
+    EditorOpenResponse,
     FileSearchResponse,
     MachinesResponse,
     MessageSearchResponse,
@@ -834,6 +836,13 @@ export class ApiClient {
         const params = new URLSearchParams()
         params.set('path', path)
         return await this.request<FileReadResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/file?${params.toString()}`)
+    }
+
+    async openSessionFileInEditor(sessionId: string, payload: EditorOpenRequest): Promise<EditorOpenResponse> {
+        return await this.request<EditorOpenResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/editor-open`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
     }
 
     async listSessionDirectory(sessionId: string, path?: string): Promise<ListDirectoryResponse> {

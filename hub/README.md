@@ -158,6 +158,15 @@ for request/response shapes and error semantics, and `src/web/routes/` for all e
 - `GET /api/sessions/:id/file` - Read file content.
 - `GET /api/sessions/:id/files` - File search with ripgrep.
 
+### Local editor (`src/web/routes/editor.ts`)
+
+- `POST /api/sessions/:id/editor-open` - Ask the local editor to open a session file
+  (`{ "path": "/abs/file", "line"?: n, "column"?: n }`). The hub validates the path
+  inside the session workspace (worktree path preferred) and drops a claim file into
+  the editor mailbox (`~/.local/share/code-local/hapi-open/requests/`, overridable via
+  `HAPI_EDITOR_MAILBOX_DIR`). Returns `{ "opened": true }` once an editor window claims
+  it, or `404 { "code": "no-window" }` when no window holds the project.
+
 ### Events (`src/web/routes/events.ts`)
 
 - `GET /api/events` - SSE stream for live updates.

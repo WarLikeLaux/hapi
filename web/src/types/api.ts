@@ -352,4 +352,15 @@ export type VisibilityPayload = {
     visibility: 'visible' | 'hidden'
 }
 
+export type EditorOpenRequest = {
+    path: string
+    line?: number
+    column?: number
+}
+
+export type EditorOpenResponse = {
+    opened: boolean
+    folder: string
+}
+
 export type SyncEvent = ProtocolSyncEvent
