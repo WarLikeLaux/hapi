@@ -34,7 +34,10 @@ import { getCodexModelReasoningEfforts, resolveCodexModel } from '@/lib/codexMod
 import {
     buildNewSessionCursorModelCatalog,
     buildNewSessionCursorPickerState,
+    CURSOR_COMPOSER_FAST_WIRE,
+    CURSOR_GROK_XHIGH_WIRE,
     isCursorEffortWireAllowed,
+    isHardcodedCursorModelId,
     resolveCursorBaseFromWire,
     resolveNewSessionCursorBaseSelectValue,
     resolveNewSessionCursorEffortSelectValue,
@@ -106,7 +109,7 @@ function QuickPickChips(props: {
     onToggle: (value: string) => void
 }) {
     return (
-        <div className="flex flex-wrap gap-1">
+        <div className="contents">
             {props.options.map((option) => (
                 <button
                     key={option.value}
@@ -515,6 +518,28 @@ export function NewSession(props: {
         ),
         [cursorModelsState.availableModels, cursorModelsState.cliModelSkus]
     )
+    // Cursor models are hardcoded literals, no catalog lookup.
+    const hardcodedCursorOptions = useMemo(
+        () => [
+            { value: CURSOR_GROK_XHIGH_WIRE, label: 'Grok 4.7 Extra High' },
+            { value: CURSOR_COMPOSER_FAST_WIRE, label: 'Composer 2.5 Fast' },
+        ],
+        []
+    )
+    // Escape hatch behind the hardcoded badges: reveals the full catalog picker.
+    const [showAllCursorModels, setShowAllCursorModels] = useState(false)
+    useEffect(() => {
+        setShowAllCursorModels(false)
+    }, [agent, machineId])
+    useEffect(() => {
+        // Idempotent and coercive in badges mode: anything outside the
+        // hardcoded shortlist (including auto) snaps to Grok Extra High.
+        // With the hatch open the user owns the selection.
+        if (agent !== 'cursor' || showAllCursorModels) return
+        if (isHardcodedCursorModelId(model)) return
+        setModel(CURSOR_GROK_XHIGH_WIRE)
+        setCursorSelectedBase('grok-4.7')
+    }, [agent, model, showAllCursorModels])
 
     useEffect(() => {
         if (
@@ -524,7 +549,7 @@ export function NewSession(props: {
         ) {
             return
         }
-        if (model !== 'auto' && model !== 'default[]' && !availableCursorCatalog.wireToBase.has(model)) {
+        if (model !== 'auto' && model !== 'default[]' && !isHardcodedCursorModelId(model) && !availableCursorCatalog.wireToBase.has(model)) {
             setModel('auto')
             setCursorSelectedBase('auto')
             return
@@ -532,6 +557,7 @@ export function NewSession(props: {
         if (
             cursorSelectedBase !== 'auto'
             && cursorSelectedBase !== 'default[]'
+            && !isHardcodedCursorModelId(model)
             && !availableCursorCatalog.variantsByBase.has(cursorSelectedBase)
         ) {
             setCursorSelectedBase('auto')
@@ -598,7 +624,7 @@ export function NewSession(props: {
         cursorSelectedBase
     ])
 
-    const showCursorVariantPicker = model !== 'auto' && model !== 'default[]' && cursorPicker.mode === 'dual' && cursorVariantOptions.length > 1
+    const showCursorVariantPicker = showAllCursorModels && model !== 'auto' && model !== 'default[]' && cursorPicker.mode === 'dual' && cursorVariantOptions.length > 1
 
     useEffect(() => {
         if (agent !== 'cursor' || cursorModelsState.isLoading) {
@@ -1017,9 +1043,12 @@ export function NewSession(props: {
         // The model choice is deliberately not remembered: every fresh form
         // starts at the agent's own default (its CLI config decides), and a
         // concrete model is picked per launch. The per-machine preference only
-        // carries effort/permission touches.
-        setModel('auto')
-        setCursorSelectedBase('auto')
+        // carries effort/permission touches. Cursor badges own their model via
+        // the pin effect above, so they are exempt here.
+        if (agent !== 'cursor') {
+            setModel('auto')
+            setCursorSelectedBase('auto')
+        }
         // A GLM-branded claude hides the effort field; the remembered value
         // must not silently survive where the user cannot see or change it.
         setEffort(agent === 'claude' && getClaudeGlmBranded() ? 'auto' : preferred.effort)
@@ -2074,66 +2103,96 @@ export function NewSession(props: {
             ) : (
                 agent === 'cursor' ? (
                     <>
-                        <ModelSelector
-                            agent={agent}
-                            model={cursorPicker.mode === 'dual' ? cursorBaseSelectValue : model}
-                            options={[
-                                ...cursorPicker.modelOptions.map((option) => option.value === 'auto'
-                                    ? { ...option, label: cursorDefaultModelName ?? t('newSession.model.default') } : option),
-                                { value: 'default[]', label: 'Auto' }
-                            ]}
-                            isDisabled={cursorModelPickersDisabled}
-                            isLoading={false}
-                            error={cursorModelsState.error
-                                ? `${t('newSession.model.loadFailed')}: ${cursorModelsState.error}`
-                                : null}
-                            onModelChange={(value) => {
-                                if (cursorPicker.mode === 'dual') {
-                                    handleCursorBaseChange(value)
-                                    return
-                                }
-                                setModel(value)
-                                setCursorSelectedBase(
-                                    value === 'auto' || value === 'default[]' ? value : resolveCursorBaseFromWire(value, cursorPicker.catalog)
-                                )
-                            }}
-                        >
-                            {cursorModelsState.isLoading ? (
-                                <div role="status" className="text-xs text-[var(--app-hint)]">
-                                    {t('newSession.model.loading')}
-                                </div>
-                            ) : null}
-                            {!modelCatalogRequested ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setRequestedModelCatalog(modelCatalogTarget)}
-                                    disabled={isFormDisabled || !machineId}
-                                    className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
-                                >
-                                    {t('newSession.model.loadOptions')}
-                                </button>
-                            ) : null}
+                        <div className="flex flex-col gap-1.5 px-3 py-3">
+                            <span className="text-xs font-medium text-[var(--app-hint)]">
+                                {t('newSession.model')}
+                            </span>
+                            <div className="flex flex-wrap items-center gap-1">
+                                <QuickPickChips
+                                    options={hardcodedCursorOptions}
+                                    activeValue={hardcodedCursorOptions.some((option) => option.value === model) ? model : CURSOR_GROK_XHIGH_WIRE}
+                                    isDisabled={isFormDisabled || !machineId}
+                                    onToggle={(value) => {
+                                        setModel(value)
+                                        setCursorSelectedBase(value === CURSOR_COMPOSER_FAST_WIRE ? 'composer-2.5' : 'grok-4.7')
+                                    }}
+                                />
+                                {showAllCursorModels ? null : (
+                                    <span className="ml-auto">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowAllCursorModels(true)
+                                                setRequestedModelCatalog(modelCatalogTarget)
+                                            }}
+                                            disabled={isFormDisabled || !machineId}
+                                            className="rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
+                                        >
+                                            {t('newSession.model.loadOptions')}
+                                        </button>
+                                    </span>
+                                )}
+                            </div>
                             {cursorModelsState.error ? (
                                 <button type="button" onClick={cursorModelsState.refetch} className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)]">
                                     {t('newSession.opencodeModel.retry')}
                                 </button>
                             ) : null}
-                            {cursorModelsUnavailable ? (
-                                <div className="text-xs text-[var(--app-hint)]">
-                                    {t('newSession.model.cursorUnavailable')}
-                                </div>
-                            ) : null}
-                        </ModelSelector>
-                        {showCursorVariantPicker ? (
-                            <ModelSelector
-                                agent={agent}
-                                model={cursorEffortSelectValue}
-                                label={t('misc.variant')}
-                                options={cursorVariantSelectOptions}
-                                isDisabled={cursorModelPickersDisabled}
-                                isLoading={cursorModelsState.isLoading}
-                                onModelChange={handleCursorEffortChange}
-                            />
+                        </div>
+                        {showAllCursorModels ? (
+                            <>
+                                <ModelSelector
+                                    agent={agent}
+                                    model={cursorPicker.mode === 'dual' ? cursorBaseSelectValue : model}
+                                    options={[
+                                        ...cursorPicker.modelOptions.map((option) => option.value === 'auto'
+                                            ? { ...option, label: cursorDefaultModelName ?? t('newSession.model.default') } : option),
+                                        { value: 'default[]', label: 'Auto' }
+                                    ]}
+                                    isDisabled={cursorModelPickersDisabled}
+                                    isLoading={false}
+                                    error={cursorModelsState.error
+                                        ? `${t('newSession.model.loadFailed')}: ${cursorModelsState.error}`
+                                        : null}
+                                    onModelChange={(value) => {
+                                        if (cursorPicker.mode === 'dual') {
+                                            handleCursorBaseChange(value)
+                                            return
+                                        }
+                                        setModel(value)
+                                        setCursorSelectedBase(
+                                            value === 'auto' || value === 'default[]' ? value : resolveCursorBaseFromWire(value, cursorPicker.catalog)
+                                        )
+                                    }}
+                                >
+                                    {!modelCatalogRequested ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setRequestedModelCatalog(modelCatalogTarget)}
+                                            disabled={isFormDisabled || !machineId}
+                                            className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
+                                        >
+                                            {t('newSession.model.loadOptions')}
+                                        </button>
+                                    ) : null}
+                                    {cursorModelsUnavailable ? (
+                                        <div className="text-xs text-[var(--app-hint)]">
+                                            {t('newSession.model.cursorUnavailable')}
+                                        </div>
+                                    ) : null}
+                                </ModelSelector>
+                                {showCursorVariantPicker ? (
+                                    <ModelSelector
+                                        agent={agent}
+                                        model={cursorEffortSelectValue}
+                                        label={t('misc.variant')}
+                                        options={cursorVariantSelectOptions}
+                                        isDisabled={cursorModelPickersDisabled}
+                                        isLoading={cursorModelsState.isLoading}
+                                        onModelChange={handleCursorEffortChange}
+                                    />
+                                ) : null}
+                            </>
                         ) : null}
                     </>
                 ) : (
@@ -2168,12 +2227,14 @@ export function NewSession(props: {
                         onModelChange={setModel}
                     >
                         {agent === 'codex' && codexQuickPickOptions.length > 0 ? (
-                            <QuickPickChips
-                                options={codexQuickPickOptions}
-                                activeValue={model}
-                                isDisabled={isFormDisabled || Boolean(codexModelsState.error)}
-                                onToggle={(value) => setModel(model === value ? 'auto' : value)}
-                            />
+                            <div className="flex flex-wrap gap-1">
+                                <QuickPickChips
+                                    options={codexQuickPickOptions}
+                                    activeValue={model}
+                                    isDisabled={isFormDisabled || Boolean(codexModelsState.error)}
+                                    onToggle={(value) => setModel(model === value ? 'auto' : value)}
+                                />
+                            </div>
                         ) : null}
                     </ModelSelector>
                 )

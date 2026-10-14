@@ -946,11 +946,42 @@ describe('NewSession launch preferences', () => {
         }))
     })
 
-    it.each(['cursor', 'opencode'] as const)('launches %s Default without a catalog request, even while an explicit catalog load is pending', async (agent) => {
+    it('launches cursor badges with the full picker behind the hatch', async () => {
         mocks.useRealCatalogHooks = true
-        savePreferredAgent(agent)
-        if (agent === 'cursor') mocks.availableAgents.find((entry) => entry.agent === 'cursor')!.defaultModelName = 'Composer 2.5'
-        savePreferredLaunchSettings('machine-1', agent, { model: 'composer-2.5', cursorSelectedBase: 'composer-2.5', effort: 'auto', modelReasoningEffort: 'default' })
+        savePreferredAgent('cursor')
+        mocks.availableAgents.find((entry) => entry.agent === 'cursor')!.defaultModelName = 'Composer 2.5'
+        savePreferredLaunchSettings('machine-1', 'cursor', { model: 'composer-2.5', cursorSelectedBase: 'composer-2.5', effort: 'auto', modelReasoningEffort: 'default' })
+        const getMachineCursorModels = vi.fn(async () => ({
+            success: true,
+            availableModels: [{ modelId: 'grok-4.7' }],
+            cliModelSkus: [{ modelId: 'grok-4.7-xhigh', name: 'Grok 4.7 Extra High' }],
+            currentModelId: null
+        }))
+        const getMachineOpencodeModelsForCwd = vi.fn(() => new Promise(() => {}))
+        const getMachineOpencodeModelVariants = vi.fn()
+        const catalogApi = { ...api, getMachineCursorModels, getMachineOpencodeModelsForCwd, getMachineOpencodeModelVariants } as unknown as ApiClient
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'default-session' })
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        const view = render(<QueryClientProvider client={client}>
+            <NewSession api={catalogApi} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />
+        </QueryClientProvider>)
+
+        // Badges pin Grok Extra High regardless of the remembered model.
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Grok 4.7 Extra High' })).toHaveAttribute('aria-pressed', 'true'))
+        fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
+        await waitFor(() => expect(screen.getAllByTestId('model-options')[0].textContent).toContain('grok-4.7'))
+        expect(getMachineOpencodeModelVariants.mock.calls.length).toBe(0)
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model: 'grok-4.7-xhigh' })))
+        view.unmount()
+        client.clear()
+    })
+
+    it('launches opencode Default without a catalog request, even while an explicit catalog load is pending', async () => {
+        mocks.useRealCatalogHooks = true
+        savePreferredAgent('opencode')
+        savePreferredLaunchSettings('machine-1', 'opencode', { model: 'composer-2.5', cursorSelectedBase: 'composer-2.5', effort: 'auto', modelReasoningEffort: 'default' })
         const getMachineCursorModels = vi.fn(() => new Promise(() => {}))
         const getMachineOpencodeModelsForCwd = vi.fn(() => new Promise(() => {}))
         const getMachineOpencodeModelVariants = vi.fn()
@@ -962,21 +993,13 @@ describe('NewSession launch preferences', () => {
         </QueryClientProvider>)
 
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
-        if (agent === 'cursor') expect(screen.getByTestId('model-options').textContent).toBe('Composer 2.5,Auto')
         expect(getMachineCursorModels.mock.calls.length + getMachineOpencodeModelsForCwd.mock.calls.length).toBe(0)
-        if (agent === 'cursor') {
-            mocks.nextModelValue = 'default[]'
-            fireEvent.click(screen.getByTestId('model'))
-            expect(getMachineCursorModels.mock.calls.length).toBe(0)
-            mocks.nextModelValue = 'auto'
-            fireEvent.click(screen.getByTestId('model'))
-        }
         fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
-        await waitFor(() => expect(agent === 'cursor' ? getMachineCursorModels : getMachineOpencodeModelsForCwd).toHaveBeenCalledTimes(1))
+        await waitFor(() => expect(getMachineOpencodeModelsForCwd).toHaveBeenCalledTimes(1))
         expect(getMachineOpencodeModelVariants.mock.calls.length).toBe(0)
         expect(screen.getByTestId('create')).toBeEnabled()
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent, model: undefined })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: undefined })))
         view.unmount()
         client.clear()
     })
@@ -1660,35 +1683,32 @@ describe('NewSession fork launch defaults', () => {
         expect(screen.queryByText('newSession.fastMode')).toBeNull()
     })
 
-    it('leaves a fresh Cursor launch at its configured default even when Compose 2.5 is available', async () => {
+    it('pins a fresh Cursor launch to Grok 4.7 Extra High with YOLO on', async () => {
         savePreferredAgent('cursor')
         mocks.cursorModels = [{ modelId: 'composer-2.5', name: 'Compose 2.5' }, { modelId: 'grep-5', name: 'Grep 5' }]
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
 
-        await waitFor(() => expect(screen.getByTestId('model')).toHaveTextContent('auto'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Grok 4.7 Extra High' })).toHaveAttribute('aria-pressed', 'true'))
+        expect(screen.getByRole('button', { name: 'Composer 2.5 Fast' })).toHaveAttribute('aria-pressed', 'false')
         expect(screen.getByTestId('yolo-toggle')).toHaveTextContent('on')
 
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('fork-session'))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'cursor',
-            model: undefined,
+            model: 'grok-4.7-xhigh',
             yolo: true
         }))
     })
 
-    it('allows explicit Cursor Auto separately from the configured default', async () => {
+    it('reveals the full Cursor catalog behind the load-other-models hatch', async () => {
         savePreferredAgent('cursor')
-        mocks.cursorModels = [{ modelId: 'grep-5', name: 'Grep 5' }]
-        const view = render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
-
-        await waitFor(() => expect(screen.getByTestId('model')).toBeInTheDocument())
-        mocks.nextModelValue = 'default[]'
-        fireEvent.click(screen.getByTestId('model'))
         mocks.cursorModels = [{ modelId: 'composer-2.5[fast=true]' }, { modelId: 'composer-2.5[fast=false]' }]
-        view.rerender(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        expect(screen.getByTestId('model')).toHaveTextContent('default[]')
-        fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model: 'default[]' })))
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Grok 4.7 Extra High' })).toBeInTheDocument())
+        expect(screen.queryByTestId('model')).toBeNull()
+        fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
+        await waitFor(() => expect(screen.getByTestId('model')).toBeInTheDocument())
     })
 })

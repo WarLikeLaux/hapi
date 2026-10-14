@@ -610,8 +610,9 @@ export function HappyThread(props: {
         const createdAtLabel = formatSessionHeaderTimestamp(props.session.createdAt, locale)
         const updatedAtLabel = formatSessionHeaderTimestamp(props.session.updatedAt, locale)
         const worktreeBranch = props.session.metadata?.worktree?.branch?.trim() || null
-        const showFastBadge = agentFlavor === 'codex'
-            && isFastServiceTier(props.serviceTier ?? props.session.serviceTier)
+        const showFastBadge = (agentFlavor === 'codex'
+            && isFastServiceTier(props.serviceTier ?? props.session.serviceTier))
+            || (agentFlavor === 'cursor' && /fast/i.test(props.session.model ?? ''))
 
         return selectShareTurnMetadata(headerMetadata, {
             agent: agentLabel ? { text: agentLabel, flavor: agentFlavor } : undefined,

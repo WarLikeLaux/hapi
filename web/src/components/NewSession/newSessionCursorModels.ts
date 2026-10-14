@@ -65,7 +65,37 @@ export function shouldShowNewSessionCursorVariantPicker(picker: CursorPickerStat
     return picker.mode === 'dual' && picker.showEffortPicker && picker.effortOptions.length > 1
 }
 
-/** Base row value in dual mode — use explicit base state, not derived catalog baseKey. */
+/** Hardcoded cursor models: literal wire ids, no catalog lookup. */
+export const CURSOR_GROK_XHIGH_WIRE = 'grok-4.7-xhigh'
+export const CURSOR_COMPOSER_FAST_WIRE = 'composer-2.5-fast'
+
+export function isHardcodedCursorModelId(modelId: string | null | undefined): boolean {
+    if (!modelId) return false
+    const lower = modelId.toLowerCase()
+    return lower === CURSOR_GROK_XHIGH_WIRE || lower === CURSOR_COMPOSER_FAST_WIRE
+}
+export function resolveCursorDefaultModelId(catalog: CursorModelCatalog): string | null {
+    const wires: string[] = []
+    for (const variants of catalog.variantsByBase.values()) {
+        for (const entry of variants) wires.push(entry.wireId)
+    }
+    const lower = (s: string) => s.toLowerCase()
+    const isGrok47 = (w: string) => lower(w).includes('grok-4.7') || lower(w).includes('grok-4-7')
+    const isExtraHigh = (w: string) => lower(w).includes('extra-high') || lower(w).includes('extra_high') || lower(w).includes('extrahigh') || lower(w).includes('xhigh')
+    const grok47 = wires.filter(isGrok47)
+    if (grok47.length === 0) return null
+    return grok47.find(isExtraHigh) ?? grok47.find((w) => lower(w).includes('high')) ?? grok47[0]
+}
+
+/** Quick-pick wire for cursor: composer-2.5 fast variant, shown as a chip like gpt-6-luna. */
+export function resolveCursorQuickPickFastId(catalog: CursorModelCatalog): string | null {
+    const wires: string[] = []
+    for (const variants of catalog.variantsByBase.values()) {
+        for (const entry of variants) wires.push(entry.wireId)
+    }
+    const lower = (s: string) => s.toLowerCase()
+    return wires.find((w) => lower(w).includes('composer-2.5') && (lower(w).includes('fast=true') || lower(w).endsWith('-fast'))) ?? null
+}
 export function resolveNewSessionCursorBaseSelectValue(
     picker: CursorPickerState,
     cursorSelectedBase: string

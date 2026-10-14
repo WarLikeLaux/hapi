@@ -162,9 +162,12 @@ export function getContextUsageDetails(
 
 export function shouldShowCodexFastBadge(
     agentFlavor: string | null | undefined,
-    serviceTier: string | null | undefined
+    serviceTier: string | null | undefined,
+    model?: string | null
 ): boolean {
-    return agentFlavor === 'codex' && isFastServiceTier(serviceTier)
+    if (agentFlavor === 'codex') return isFastServiceTier(serviceTier)
+    if (agentFlavor === 'cursor') return /fast/i.test(model ?? '')
+    return false
 }
 
 export function StatusBar(props: {
@@ -261,7 +264,7 @@ export function StatusBar(props: {
     const compactReasoningLabel = displaysReasoning
         ? formatCompactReasoningLabel(reasoningEffort)
         : null
-    const codexFastMode = shouldShowCodexFastBadge(props.agentFlavor, props.serviceTier)
+    const codexFastMode = shouldShowCodexFastBadge(props.agentFlavor, props.serviceTier, props.model)
 
     return (
         <div className="flex min-w-0 items-baseline justify-between gap-2 px-2 pb-1">
