@@ -14,6 +14,15 @@ export function readDisplayGitBranch(statusOutput: string): string | null {
     return null
 }
 
+export function shouldKeepPollingGitBranch(active: boolean, error: unknown): boolean {
+    if (!active) return false
+    if (error instanceof Error
+        && /not a git repository|not a git|path not available/i.test(error.message)) {
+        return false
+    }
+    return true
+}
+
 function useSessionGitInfo(
     api: ApiClient | null,
     sessionId: string,
@@ -37,7 +46,12 @@ function useSessionGitInfo(
         },
         enabled: Boolean(enabled && api && typeof api.getGitStatus === 'function'),
         staleTime: 5_000,
-        refetchInterval: active ? 10_000 : false,
+        // A session rooted outside any git repo (e.g. ~/code itself) fails
+        // every poll with "not a git repository". Stop the 10s interval for
+        // those so they don't spam git-status RPCs forever; transient errors
+        // keep polling.
+        refetchInterval: (query) =>
+            shouldKeepPollingGitBranch(active, query.state.error) ? 10_000 : false,
         retry: false,
     }).data ?? null
 }
