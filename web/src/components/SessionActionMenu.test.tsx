@@ -371,41 +371,13 @@ describe('SessionActionMenu - Pi sync action', () => {
     })
 })
 
-describe('SessionActionMenu - DIFIT actions', () => {
-    it('offers a direct Open in DIFIT link for a new active session', () => {
-        const onClose = vi.fn()
-        renderMenu({ sessionActive: true, difitOpenUrl: 'https://difit.local/open?repo=%2Frepo', onClose })
-
-        const action = screen.getByRole('menuitem', { name: 'Open in DIFIT' })
-        expect(action.tagName).toBe('A')
-        expect(action).toHaveAttribute('href', 'https://difit.local/open?repo=%2Frepo')
-        fireEvent.click(action)
-        expect(onClose).toHaveBeenCalledOnce()
-    })
-
-    it('keeps the link available for an inactive session', () => {
-        const onClose = vi.fn()
-        renderMenu({ sessionActive: false, difitOpenUrl: 'https://difit.local/open?repo=%2Frepo', onClose })
-
-        const reviewLink = screen.getByRole('menuitem', { name: 'Open in DIFIT' })
-        const items = screen.getAllByRole('menuitem')
-        expect(items.indexOf(reviewLink)).toBeLessThan(
-            items.indexOf(screen.getByRole('menuitem', { name: 'Rename' }))
-        )
-        expect(reviewLink).toHaveAttribute('href', 'https://difit.local/open?repo=%2Frepo')
-        expect(reviewLink).toHaveAttribute('target', '_blank')
-        expect(reviewLink).toHaveAttribute('rel', 'noopener noreferrer')
-        fireEvent.click(reviewLink)
-        expect(onClose).toHaveBeenCalledOnce()
-    })
-
-    it('exposes the merge-request link without duplicating the header DIFIT link', () => {
+describe('SessionActionMenu - external review actions', () => {
+    it('exposes the merge-request link', () => {
         renderMenu({
             externalReviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/1',
             createExternalReviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new',
         })
 
-        expect(screen.queryByRole('menuitem', { name: 'Open in DIFIT' })).toBeNull()
         expect(screen.getByRole('menuitem', { name: 'Open MR' })).toHaveAttribute(
             'href',
             'https://gitlab.example.test/group/project/-/merge_requests/1'

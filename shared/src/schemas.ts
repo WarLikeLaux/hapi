@@ -52,16 +52,6 @@ export const WorktreeMetadataSchema = z.object({
 
 export type WorktreeMetadata = z.infer<typeof WorktreeMetadataSchema>
 
-export const DifitReviewMetadataSchema = z.object({
-    id: z.string().trim().min(1).max(255),
-    url: z.string().trim().url().max(2048),
-    reviewUrl: z.string().trim().url().max(2048).optional(),
-    branch: z.string().trim().min(1).max(512).optional(),
-    attachedAt: z.number().int().nonnegative()
-})
-
-export type DifitReviewMetadata = z.infer<typeof DifitReviewMetadataSchema>
-
 export const MetadataSchema = z.object({
     path: z.string(),
     host: z.string(),
@@ -150,8 +140,6 @@ export const MetadataSchema = z.object({
     supersededBySessionId: z.string().optional(),
     // Durable in-progress state for runner-backed OpenCode /clear.
     opencodeClearOperation: OpencodeClearOperationSchema.optional(),
-    // Hub-owned link to the most recently attached DIFIT review for this session.
-    difitReview: DifitReviewMetadataSchema.optional(),
     preferredPermissionMode: PermissionModeSchema.optional(),
     preferredCopilotAgentMode: CopilotAgentModeSchema.optional(),
     flavor: z.string().nullish(),

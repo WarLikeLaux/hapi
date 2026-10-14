@@ -1,7 +1,7 @@
 import { SESSION_LIFECYCLE_IDLE, SESSION_LIFECYCLE_RUNNING } from '@hapi/protocol'
 import { AgentStateSchema, MetadataSchema, SessionPatchSchema, TeamStateSchema } from '@hapi/protocol/schemas'
 import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
-import type { CodexCollaborationMode, CopilotAgentMode, DifitReviewMetadata, PermissionMode, Session, SessionPatch } from '@hapi/protocol/types'
+import type { CodexCollaborationMode, CopilotAgentMode, PermissionMode, Session, SessionPatch } from '@hapi/protocol/types'
 import type { Store } from '../store'
 import { clampAliveTime } from './aliveTime'
 import { EventPublisher } from './eventPublisher'
@@ -889,7 +889,7 @@ export class SessionCache {
     /**
      * Accept a reliable new-turn boundary from the CLI. This is intentionally
      * separate from volatile heartbeats: a persisted ready boundary blocks old
-     * thinking=true packets, but an externally-started turn (for example Difit)
+     * thinking=true packets, but an externally-started turn
      * has no queued HAPI user message that would otherwise clear that fence.
      */
     handleSessionBusy(sessionId: string, time: number): void {
@@ -1277,48 +1277,6 @@ export class SessionCache {
             if (result.result === 'success') {
                 this.refreshSession(sessionId)
                 return
-            }
-
-            this.refreshSession(sessionId)
-        }
-
-        throw new Error('Session was modified concurrently. Please try again.')
-    }
-
-    async setSessionDifitReview(
-        sessionId: string,
-        review: DifitReviewMetadata | null,
-        expectedReviewId?: string
-    ): Promise<boolean> {
-        for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
-            if (!session) {
-                throw new Error('Session not found')
-            }
-
-            const currentMetadata = session.metadata ?? { path: '', host: '' }
-            if (!review && currentMetadata.difitReview?.id !== expectedReviewId) {
-                return false
-            }
-
-            const newMetadata = { ...currentMetadata }
-            if (review) newMetadata.difitReview = review
-            else delete newMetadata.difitReview
-
-            const result = this.store.sessions.updateSessionMetadata(
-                sessionId,
-                newMetadata,
-                session.metadataVersion,
-                session.namespace,
-                { touchUpdatedAt: false }
-            )
-
-            if (result.result === 'error') {
-                throw new Error('Failed to update DIFIT review metadata')
-            }
-            if (result.result === 'success') {
-                this.refreshSession(sessionId)
-                return true
             }
 
             this.refreshSession(sessionId)
