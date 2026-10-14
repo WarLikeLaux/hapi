@@ -105,9 +105,21 @@ vi.mock('@/hooks/queries/useCodexModels', () => ({
     useCodexModels: () => ({
         models: [
             {
+                id: 'gpt-6.1-sol',
+                displayName: 'GPT-6.1-Sol',
+                isDefault: true,
+                supportedReasoningEfforts: ['low', 'high', 'xhigh']
+            },
+            {
+                id: 'gpt-6-luna',
+                displayName: 'GPT-6-Luna',
+                isDefault: false,
+                supportedReasoningEfforts: ['low', 'high', 'max']
+            },
+            {
                 id: 'gpt-5.6-sol',
                 displayName: 'GPT-5.6 Sol',
-                isDefault: true,
+                isDefault: false,
                 supportedReasoningEfforts: ['low', 'high', 'xhigh']
             },
             {
@@ -429,7 +441,7 @@ describe('NewSession launch preferences', () => {
         expect(mocks.spawnSession).not.toHaveBeenCalled()
     })
 
-    it('starts codex at Default model and Default reasoning effort, keeping saved permission', async () => {
+    it('pins codex to the hardcoded GPT-6.1-Sol badge with Default reasoning effort, keeping saved permission', async () => {
         savePreferredLaunchSettings('machine-1', 'codex', {
             model: 'gpt-5.6-sol',
             cursorSelectedBase: 'auto',
@@ -450,15 +462,14 @@ describe('NewSession launch preferences', () => {
         )
 
         await waitFor(() => {
-            // Neither the model nor the reasoning effort is remembered: the
-            // form opens on the CLI's own defaults (codex config decides the
-            // effort), so a stale saved value cannot override the config.
-            expect(screen.getByTestId('model')).toHaveTextContent('auto')
+            // A remembered non-shortlist model is coerced to the hardcoded
+            // default; the remembered effort still resets to Default.
+            expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'true')
             expect(screen.getByTestId('reasoning')).toHaveTextContent('default')
         })
     })
 
-    it.each(['grok', 'kimi', 'pi', 'minimax'] as const)('names the %s native default without pinning it at launch', async (agent) => {
+    it.each(['grok', 'kimi', 'pi'] as const)('names the %s native default without pinning it at launch', async (agent) => {
         savePreferredAgent(agent)
         if (agent === 'grok') {
             mocks.grokModels = [{ modelId: 'native-default', name: 'Native model' }]
@@ -466,11 +477,9 @@ describe('NewSession launch preferences', () => {
         } else if (agent === 'kimi') {
             mocks.kimiModels = [{ modelId: 'native-default', name: 'Native model' }]
             mocks.kimiCurrentModelId = 'native-default'
-        } else if (agent === 'pi') {
+        } else {
             mocks.piModels = [{ modelId: 'native-default', name: 'Native model', provider: 'local' }]
             mocks.piCurrentModelId = 'local/native-default'
-        } else {
-            mocks.availableAgents.push({ agent, available: true, defaultModelName: 'Native model' })
         }
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'native-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
@@ -479,10 +488,9 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent, model: undefined })))
     })
 
-    it('names the codex Default option after the config default model, without a duplicate row', () => {
-        // No pick = codex runs its own config default; the catalog marks that
-        // model, so the option carries its name and the catalog row for the
-        // same id is not repeated.
+    it('names the codex hardcoded badges, with GPT-6.1-Sol pressed', () => {
+        // No dropdown: codex always offers the hardcoded shortlist and opens
+        // on GPT-6.1-Sol.
         render(
             <NewSession
                 api={api}
@@ -494,8 +502,38 @@ describe('NewSession launch preferences', () => {
             />
         )
 
-        expect(screen.getByTestId('model')).toHaveTextContent('auto')
-        expect(screen.getByTestId('model-options')).toHaveTextContent('GPT-5.6 Sol,GPT-5.6 Terra')
+        expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.getByRole('button', { name: 'GPT-6 Luna' })).toHaveAttribute('aria-pressed', 'false')
+        expect(screen.getByRole('button', { name: 'GPT-6 Astra' })).toHaveAttribute('aria-pressed', 'false')
+        expect(screen.queryByTestId('model')).toBeNull()
+    })
+
+    it('reveals the full codex catalog behind the load-other-models hatch', async () => {
+        render(
+            <NewSession
+                api={api}
+                machines={[machine]}
+                initialMachineId="machine-1"
+                initialDirectory="C:\\repo"
+                onSuccess={mocks.onSuccess}
+                onCancel={() => {}}
+            />
+        )
+
+        expect(screen.queryByTestId('model')).toBeNull()
+        fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
+        await waitFor(() => expect(screen.getByTestId('model-options')).toHaveTextContent('GPT-6.1-Sol'))
+    })
+
+    it('shows the minimax native default as a badge without pinning it at launch', async () => {
+        savePreferredAgent('minimax')
+        mocks.availableAgents.push({ agent: 'minimax', available: true, defaultModelName: 'Native model' })
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'native-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.getByRole('button', { name: 'MiniMax M3.1 Flash' })).toBeInTheDocument()
+        expect(screen.queryByTestId('model')).toBeNull()
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'minimax', model: undefined })))
     })
 
     it('uses the new Codex YOLO default independently of another agent legacy value', async () => {
@@ -750,7 +788,7 @@ describe('NewSession launch preferences', () => {
         )
 
         expect(loadPreferredLaunchSettings('machine-1', 'codex')).toBeNull()
-        fireEvent.click(screen.getByTestId('model'))
+        fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
         fireEvent.click(screen.getByTestId('reasoning'))
         fireEvent.click(screen.getByTestId('permission-mode'))
         expect(loadPreferredLaunchSettings('machine-1', 'codex')).toBeNull()
@@ -759,7 +797,7 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1'))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: 'yolo' }))
         expect(loadPreferredLaunchSettings('machine-1', 'codex')).toEqual({
-            model: 'gpt-5.6-terra',
+            model: 'gpt-6-luna',
             cursorSelectedBase: 'auto',
             effort: 'auto',
             modelReasoningEffort: 'max',
@@ -767,7 +805,7 @@ describe('NewSession launch preferences', () => {
         })
     })
 
-    it('drops a removed AGY Claude choice from a restored draft and the quick picks', async () => {
+    it('pins the hardcoded AGY badge even when a restored draft names a removed model', async () => {
         savePreferredAgent('agy')
         mocks.agyModels = [
             { modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' },
@@ -781,10 +819,10 @@ describe('NewSession launch preferences', () => {
         })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         expect(screen.queryByRole('button', { name: 'Claude Opus 4.6 (Thinking)' })).not.toBeInTheDocument()
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
     })
 
-    it('restores the AGY model from a browse-return draft', async () => {
+    it('ignores the AGY model from a browse-return draft and pins the hardcoded default', async () => {
         savePreferredAgent('agy')
         saveNewSessionFormDraft({
             agent: 'agy', model: 'gemini-3.6-flash-low', cursorSelectedBase: 'auto', machineId: 'machine-1',
@@ -792,11 +830,14 @@ describe('NewSession launch preferences', () => {
             copilotAgentMode: 'interactive', yoloMode: false, nativePermissionMode: 'default',
             grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
         })
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'agy-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('gemini-3.6-flash-low'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: undefined })))
     })
 
-    it('falls back to Default when a browse-return AGY model is no longer advertised', async () => {
+    it('keeps the hardcoded AGY badge when a browse-return draft names an unadvertised model', async () => {
         savePreferredAgent('agy')
         saveNewSessionFormDraft({
             agent: 'agy', model: 'removed-model', cursorSelectedBase: 'auto', machineId: 'machine-1',
@@ -805,40 +846,46 @@ describe('NewSession launch preferences', () => {
             grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
         })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
     })
 
-    it('keeps an AGY model the user picked here when the machine catalog changes under the form', async () => {
-        // The machine refreshes its catalog in the background, so the list can
-        // change while the form is open. A model the user chose is theirs to
-        // keep — unlike a restored one, which the two tests above drop.
+    it('keeps the hardcoded AGY badge when the machine catalog changes under the form', async () => {
+        // The machine refreshes its catalog in the background; the hardcoded
+        // badge does not depend on it, so it never flickers or resets.
         savePreferredAgent('agy')
         const view = render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
-        fireEvent.click(screen.getByTestId('agy-model'))
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('gemini-3.6-flash-low'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
 
         mocks.agyModels = [{ modelId: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' }]
         view.rerender(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('gemini-3.6-flash-low'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
     })
 
-    it('falls back to Default when a preferred AGY model is no longer advertised', async () => {
+    it('pins the hardcoded AGY badge even with a remembered model, without blocking creation', async () => {
         savePreferredAgent('agy')
         savePreferredLaunchSettings('machine-1', 'agy', { model: 'removed-model', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
     })
 
-    it('starts AGY at Default even with a remembered model', async () => {
+    it('starts AGY at the hardcoded default even with a remembered model', async () => {
         savePreferredAgent('agy')
         savePreferredLaunchSettings('machine-1', 'agy', { model: 'gemini-3.6-flash-low', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default' })
         mocks.agyModelsLoading = true
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         // Default needs no catalog validation, so creation is not blocked.
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
         expect(screen.getByTestId('create')).toBeEnabled()
+    })
+
+    it('reveals the full AGY catalog behind the load-other-models hatch', async () => {
+        savePreferredAgent('agy')
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.queryByTestId('agy-model')).toBeNull()
+        fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
+        await waitFor(() => expect(screen.getByTestId('agy-model')).toBeInTheDocument())
     })
 
     it('does not forward the global YOLO preference to managed DSH ACP', async () => {
@@ -946,11 +993,11 @@ describe('NewSession launch preferences', () => {
         }))
     })
 
-    it.each(['cursor', 'opencode'] as const)('launches %s Default without a catalog request, even while an explicit catalog load is pending', async (agent) => {
+    it('launches cursor Default without a catalog request, even while an explicit catalog load is pending', async () => {
         mocks.useRealCatalogHooks = true
-        savePreferredAgent(agent)
-        if (agent === 'cursor') mocks.availableAgents.find((entry) => entry.agent === 'cursor')!.defaultModelName = 'Composer 2.5'
-        savePreferredLaunchSettings('machine-1', agent, { model: 'composer-2.5', cursorSelectedBase: 'composer-2.5', effort: 'auto', modelReasoningEffort: 'default' })
+        savePreferredAgent('cursor')
+        mocks.availableAgents.find((entry) => entry.agent === 'cursor')!.defaultModelName = 'Composer 2.5'
+        savePreferredLaunchSettings('machine-1', 'cursor', { model: 'composer-2.5', cursorSelectedBase: 'composer-2.5', effort: 'auto', modelReasoningEffort: 'default' })
         const getMachineCursorModels = vi.fn(() => new Promise(() => {}))
         const getMachineOpencodeModelsForCwd = vi.fn(() => new Promise(() => {}))
         const getMachineOpencodeModelVariants = vi.fn()
@@ -962,46 +1009,73 @@ describe('NewSession launch preferences', () => {
         </QueryClientProvider>)
 
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
-        if (agent === 'cursor') expect(screen.getByTestId('model-options').textContent).toBe('Composer 2.5,Auto')
+        expect(screen.getByTestId('model-options').textContent).toBe('Composer 2.5,Auto')
         expect(getMachineCursorModels.mock.calls.length + getMachineOpencodeModelsForCwd.mock.calls.length).toBe(0)
-        if (agent === 'cursor') {
-            mocks.nextModelValue = 'default[]'
-            fireEvent.click(screen.getByTestId('model'))
-            expect(getMachineCursorModels.mock.calls.length).toBe(0)
-            mocks.nextModelValue = 'auto'
-            fireEvent.click(screen.getByTestId('model'))
-        }
+        mocks.nextModelValue = 'default[]'
+        fireEvent.click(screen.getByTestId('model'))
+        expect(getMachineCursorModels.mock.calls.length).toBe(0)
+        mocks.nextModelValue = 'auto'
+        fireEvent.click(screen.getByTestId('model'))
         fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
-        await waitFor(() => expect(agent === 'cursor' ? getMachineCursorModels : getMachineOpencodeModelsForCwd).toHaveBeenCalledTimes(1))
+        await waitFor(() => expect(getMachineCursorModels).toHaveBeenCalledTimes(1))
         expect(getMachineOpencodeModelVariants.mock.calls.length).toBe(0)
         expect(screen.getByTestId('create')).toBeEnabled()
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent, model: undefined })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model: undefined })))
         view.unmount()
         client.clear()
     })
 
-    it('keeps an explicit OpenCode Default selection instead of restoring a concrete model', async () => {
+    it('launches opencode with the hardcoded badge and never requests the model catalog', async () => {
+        mocks.useRealCatalogHooks = true
+        savePreferredAgent('opencode')
+        const getMachineOpencodeModelsForCwd = vi.fn(() => new Promise(() => {}))
+        const getMachineOpencodeModelVariants = vi.fn()
+        const catalogApi = { ...api, getMachineOpencodeModelsForCwd, getMachineOpencodeModelVariants } as unknown as ApiClient
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'default-session' })
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        const view = render(<QueryClientProvider client={client}>
+            <NewSession api={catalogApi} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />
+        </QueryClientProvider>)
+
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 Contributor' })).toBeInTheDocument()
+        // No dropdown: the catalog is never requested unless the hatch opens it.
+        expect(getMachineOpencodeModelsForCwd.mock.calls.length).toBe(0)
+        expect(getMachineOpencodeModelVariants.mock.calls.length).toBe(0)
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: undefined })))
+        view.unmount()
+        client.clear()
+    })
+
+    it('reveals the full opencode catalog behind the load-other-models hatch', async () => {
+        savePreferredAgent('opencode')
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.queryByTestId('opencode-model')).toBeNull()
+        fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
+        await waitFor(() => expect(screen.getByTestId('opencode-model')).toBeInTheDocument())
+    })
+
+    it('launches opencode with the hardcoded badge and an explicit Default, omitting the model', async () => {
         savePreferredAgent('opencode')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'opencode-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        // The catalog advertises a concrete default; the user picks Default.
-        fireEvent.click(screen.getByTestId('opencode-model-default'))
-        await waitFor(() => expect(screen.getByTestId('opencode-model')).toHaveTextContent('default'))
+        // No dropdown: the badge is the whole model UI.
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Muse Spark 1.3 Contributor' })).toBeInTheDocument())
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('opencode-session'))
-        // Spawn omits model and the explicit Default choice sticks.
+        // Spawn omits model and the hardcoded choice sticks.
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: undefined }))
-        expect(screen.getByTestId('opencode-model')).toHaveTextContent('default')
+        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 Contributor' })).toBeInTheDocument()
     })
 
-    it('uses the probed current model variants for an explicit OpenCode Default selection', async () => {
+    it('probes current model variants once a non-default opencode effort is picked', async () => {
         savePreferredAgent('opencode')
         mocks.opencodeVariants = { 'provider/current': ['low', 'high', 'max'] }
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
-        fireEvent.click(screen.getByTestId('opencode-model-default'))
         fireEvent.click(screen.getByTestId('reasoning'))
         await waitFor(() => expect(screen.getByTestId('opencode-variants')).toHaveTextContent('low,high,max'))
         expect(mocks.opencodeVariantsEnabled).toBe(true)
@@ -1029,23 +1103,26 @@ describe('NewSession launch preferences', () => {
         expect(mocks.opencodeVariantsEnabled).toBe(false)
     })
 
-    it('starts OpenCode at Default even with a remembered model', async () => {
+    it('starts OpenCode on the hardcoded badge even with a remembered model', async () => {
         savePreferredAgent('opencode')
         savePreferredLaunchSettings('machine-1', 'opencode', { model: 'provider/model', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'high' })
         mocks.opencodeModels = [{ modelId: 'provider/model', name: 'Model' }]
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'opencode-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByTestId('opencode-model')).toHaveTextContent('default'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Muse Spark 1.3 Contributor' })).toBeInTheDocument())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: undefined })))
     })
 
-    it('persists the selected AGY model only after a successful launch', async () => {
+    it('launches AGY with the backend default and saves auto only after a successful launch', async () => {
         savePreferredAgent('agy')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'agy-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        fireEvent.click(screen.getByTestId('agy-model'))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('agy-session'))
-        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-3.6-flash-low' }))
-        expect(loadPreferredLaunchSettings('machine-1', 'agy')?.model).toBe('gemini-3.6-flash-low')
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: undefined }))
+        expect(loadPreferredLaunchSettings('machine-1', 'agy')?.model).toBe('auto')
     })
 
     it('does not persist launch settings after a failed AGY launch', async () => {
@@ -1057,9 +1134,9 @@ describe('NewSession launch preferences', () => {
         ]
         mocks.spawnSession.mockResolvedValue({ type: 'error', message: 'spawn failed' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        // The remembered model is no longer restored; the form opens on Default.
-        await waitFor(() => expect(screen.getByTestId('agy-model')).toHaveTextContent('auto'))
-        fireEvent.click(screen.getByTestId('agy-model'))
+        // The remembered model is pinned to the hardcoded default; the failed
+        // launch leaves the saved preference untouched.
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.notification).toHaveBeenCalledWith('error'))
         expect(loadPreferredLaunchSettings('machine-1', 'agy')?.model).toBe('gemini-3.5-flash-low')
@@ -1277,7 +1354,7 @@ describe('NewSession launch preferences', () => {
             />
         )
 
-        fireEvent.click(screen.getByTestId('model'))
+        fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
         fireEvent.click(screen.getByTestId('reasoning'))
         fireEvent.click(screen.getByTestId('create'))
 
@@ -1323,10 +1400,10 @@ describe('NewSession launch preferences', () => {
         )
 
         await waitFor(() => {
-            // The draft's model wins over the saved preference, but a draft
-            // reasoning effort for codex is clamped to Default like any other
-            // remembered value — the codex config rules until a manual pick.
-            expect(screen.getByTestId('model')).toHaveTextContent('gpt-5.6-terra')
+            // A codex draft model outside the hardcoded shortlist is coerced
+            // to GPT-6.1-Sol, and a draft reasoning effort is clamped to
+            // Default like any other remembered value.
+            expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'true')
             expect(screen.getByTestId('reasoning')).toHaveTextContent('default')
         })
     })
@@ -1550,7 +1627,9 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('continued-session'))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'codex',
-            model: 'gpt-5.6-sol',
+            // The continued session named a non-shortlist model; the
+            // hardcoded pin wins, other settings still carry over.
+            model: 'gpt-6.1-sol',
             modelReasoningEffort: 'high',
             permissionMode: 'yolo',
         }))
