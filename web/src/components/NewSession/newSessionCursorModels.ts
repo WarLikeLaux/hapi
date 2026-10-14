@@ -65,7 +65,50 @@ export function shouldShowNewSessionCursorVariantPicker(picker: CursorPickerStat
     return picker.mode === 'dual' && picker.showEffortPicker && picker.effortOptions.length > 1
 }
 
-/** Preferred default wire for new cursor sessions: grok-4.7 extra-high first. */
+/** Hardcoded cursor shortlist: only these two models are offered. */
+export const CURSOR_GROK_XHIGH_WIRE = 'grok-4.7-xhigh'
+export const CURSOR_COMPOSER_FAST_WIRE = 'composer-2.5-fast'
+
+function collectCatalogWires(catalog: CursorModelCatalog): string[] {
+    const wires: string[] = []
+    for (const variants of catalog.variantsByBase.values()) {
+        for (const entry of variants) wires.push(entry.wireId)
+    }
+    return wires
+}
+
+function findWire(wires: readonly string[], predicate: (wire: string) => boolean, fallback: string): string {
+    return wires.find(predicate) ?? fallback
+}
+
+/** The two hardcoded cursor options, resolved to catalog wire ids when present. */
+export function resolveHardcodedCursorWires(catalog: CursorModelCatalog): { grokWire: string; composerWire: string } {
+    const wires = collectCatalogWires(catalog)
+    const lower = (s: string) => s.toLowerCase()
+    const grokWire = findWire(
+        wires,
+        (w) => (lower(w).includes('grok-4.7') || lower(w).includes('grok-4-7'))
+            && (lower(w).includes('xhigh') || lower(w).includes('extra-high') || lower(w).includes('extrahigh')),
+        CURSOR_GROK_XHIGH_WIRE
+    )
+    const composerWire = findWire(
+        wires,
+        (w) => lower(w).includes('composer-2.5') && (lower(w).includes('fast=true') || lower(w).endsWith('-fast')),
+        CURSOR_COMPOSER_FAST_WIRE
+    )
+    return { grokWire, composerWire }
+}
+
+/** True when every hardcoded wire is advertised by the machine catalog. */
+export function hardcodedCursorWiresAvailable(catalog: CursorModelCatalog, wires: { grokWire: string; composerWire: string }): boolean {
+    return catalog.wireToBase.has(wires.grokWire) && catalog.wireToBase.has(wires.composerWire)
+}
+
+export function isHardcodedCursorModelId(modelId: string | null | undefined): boolean {
+    if (!modelId) return false
+    const lower = modelId.toLowerCase()
+    return lower === CURSOR_GROK_XHIGH_WIRE || lower === CURSOR_COMPOSER_FAST_WIRE
+}
 export function resolveCursorDefaultModelId(catalog: CursorModelCatalog): string | null {
     const wires: string[] = []
     for (const variants of catalog.variantsByBase.values()) {

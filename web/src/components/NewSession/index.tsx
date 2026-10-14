@@ -34,10 +34,12 @@ import { getCodexModelReasoningEfforts, resolveCodexModel } from '@/lib/codexMod
 import {
     buildNewSessionCursorModelCatalog,
     buildNewSessionCursorPickerState,
+    hardcodedCursorWiresAvailable,
     isCursorEffortWireAllowed,
+    isHardcodedCursorModelId,
     resolveCursorBaseFromWire,
     resolveCursorDefaultModelId,
-    resolveCursorQuickPickFastId,
+    resolveHardcodedCursorWires,
     resolveNewSessionCursorBaseSelectValue,
     resolveNewSessionCursorEffortSelectValue,
     resolveWireIdForBaseChange,
@@ -521,19 +523,31 @@ export function NewSession(props: {
         () => resolveCursorDefaultModelId(availableCursorCatalog),
         [availableCursorCatalog]
     )
-    const cursorQuickPickFastId = useMemo(
-        () => resolveCursorQuickPickFastId(availableCursorCatalog),
+    // Hardcoded cursor shortlist: grok-4.7 extra-high + composer-2.5 fast, nothing else.
+    const hardcodedCursorWires = useMemo(
+        () => resolveHardcodedCursorWires(availableCursorCatalog),
         [availableCursorCatalog]
+    )
+    const hardcodedCursorReady = useMemo(
+        () => hardcodedCursorWiresAvailable(availableCursorCatalog, hardcodedCursorWires),
+        [availableCursorCatalog, hardcodedCursorWires]
+    )
+    const hardcodedCursorOptions = useMemo(
+        () => [
+            { value: hardcodedCursorWires.grokWire, label: 'Grok 4.7 Extra High' },
+            { value: hardcodedCursorWires.composerWire, label: 'Composer 2.5 Fast' },
+        ],
+        [hardcodedCursorWires]
     )
     const cursorDefaultAppliedRef = useRef<string | null>(null)
     useEffect(() => {
-        if (agent !== 'cursor' || cursorModelsState.isLoading || !cursorDefaultWire) return
-        if (model !== 'auto' || cursorSelectedBase !== 'auto') return
-        if (cursorDefaultAppliedRef.current === cursorDefaultWire) return
-        cursorDefaultAppliedRef.current = cursorDefaultWire
-        setModel(cursorDefaultWire)
-        setCursorSelectedBase(resolveCursorBaseFromWire(cursorDefaultWire, availableCursorCatalog))
-    }, [agent, availableCursorCatalog, cursorDefaultWire, cursorModelsState.isLoading, cursorSelectedBase, model])
+        if (agent !== 'cursor' || cursorModelsState.isLoading || !hardcodedCursorReady) return
+        if (model !== 'auto' && model !== 'default[]') return
+        if (cursorDefaultAppliedRef.current === hardcodedCursorWires.grokWire) return
+        cursorDefaultAppliedRef.current = hardcodedCursorWires.grokWire
+        setModel(hardcodedCursorWires.grokWire)
+        setCursorSelectedBase(resolveCursorBaseFromWire(hardcodedCursorWires.grokWire, availableCursorCatalog))
+    }, [agent, availableCursorCatalog, hardcodedCursorReady, hardcodedCursorWires, cursorModelsState.isLoading, model])
 
     useEffect(() => {
         if (
@@ -543,7 +557,7 @@ export function NewSession(props: {
         ) {
             return
         }
-        if (model !== 'auto' && model !== 'default[]' && !availableCursorCatalog.wireToBase.has(model)) {
+        if (model !== 'auto' && model !== 'default[]' && !isHardcodedCursorModelId(model) && !availableCursorCatalog.wireToBase.has(model)) {
             setModel('auto')
             setCursorSelectedBase('auto')
             return
@@ -617,7 +631,7 @@ export function NewSession(props: {
         cursorSelectedBase
     ])
 
-    const showCursorVariantPicker = model !== 'auto' && model !== 'default[]' && cursorPicker.mode === 'dual' && cursorVariantOptions.length > 1
+    const showCursorVariantPicker = false
 
     useEffect(() => {
         if (agent !== 'cursor' || cursorModelsState.isLoading) {
@@ -2095,26 +2109,16 @@ export function NewSession(props: {
                     <>
                         <ModelSelector
                             agent={agent}
-                            model={cursorPicker.mode === 'dual' ? cursorBaseSelectValue : model}
-                            options={[
-                                ...cursorPicker.modelOptions.map((option) => option.value === 'auto'
-                                    ? { ...option, label: cursorDefaultModelName ?? t('newSession.model.default') } : option),
-                                { value: 'default[]', label: 'Auto' }
-                            ]}
+                            model={hardcodedCursorOptions.some((option) => option.value === model) ? model : hardcodedCursorWires.grokWire}
+                            options={hardcodedCursorOptions}
                             isDisabled={cursorModelPickersDisabled}
                             isLoading={false}
                             error={cursorModelsState.error
                                 ? `${t('newSession.model.loadFailed')}: ${cursorModelsState.error}`
                                 : null}
                             onModelChange={(value) => {
-                                if (cursorPicker.mode === 'dual') {
-                                    handleCursorBaseChange(value)
-                                    return
-                                }
                                 setModel(value)
-                                setCursorSelectedBase(
-                                    value === 'auto' || value === 'default[]' ? value : resolveCursorBaseFromWire(value, cursorPicker.catalog)
-                                )
+                                setCursorSelectedBase(resolveCursorBaseFromWire(value, availableCursorCatalog))
                             }}
                         >
                             {cursorModelsState.isLoading ? (
@@ -2137,44 +2141,12 @@ export function NewSession(props: {
                                     {t('newSession.opencodeModel.retry')}
                                 </button>
                             ) : null}
-                            {cursorQuickPickFastId ? (
-                                <QuickPickChips
-                                    options={[{ value: cursorQuickPickFastId, label: 'Composer 2.5 Fast' }]}
-                                    activeValue={model}
-                                    isDisabled={cursorModelPickersDisabled}
-                                    onToggle={(value) => {
-                                        if (model === value) {
-                                            if (cursorDefaultWire) {
-                                                setModel(cursorDefaultWire)
-                                                setCursorSelectedBase(resolveCursorBaseFromWire(cursorDefaultWire, availableCursorCatalog))
-                                            } else {
-                                                setModel('auto')
-                                                setCursorSelectedBase('auto')
-                                            }
-                                        } else {
-                                            setModel(value)
-                                            setCursorSelectedBase(resolveCursorBaseFromWire(value, availableCursorCatalog))
-                                        }
-                                    }}
-                                />
-                            ) : null}
                             {cursorModelsUnavailable ? (
                                 <div className="text-xs text-[var(--app-hint)]">
                                     {t('newSession.model.cursorUnavailable')}
                                 </div>
                             ) : null}
                         </ModelSelector>
-                        {showCursorVariantPicker ? (
-                            <ModelSelector
-                                agent={agent}
-                                model={cursorEffortSelectValue}
-                                label={t('misc.variant')}
-                                options={cursorVariantSelectOptions}
-                                isDisabled={cursorModelPickersDisabled}
-                                isLoading={cursorModelsState.isLoading}
-                                onModelChange={handleCursorEffortChange}
-                            />
-                        ) : null}
                     </>
                 ) : (
                     <ModelSelector
