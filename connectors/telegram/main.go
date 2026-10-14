@@ -101,6 +101,8 @@ type externalMedia struct {
 	IsAnimated       bool    `json:"isAnimated,omitempty"`
 	Emoji            string  `json:"emoji,omitempty"`
 	IsEmojiEffect    bool    `json:"isEmojiEffect,omitempty"`
+	DiceEmoji        string  `json:"diceEmoji,omitempty"`
+	DiceValue        *int    `json:"diceValue,omitempty"`
 	Duration         *int64  `json:"duration,omitempty"`
 	// Waveform carries Telegram's packed voice waveform — 5-bit amplitudes,
 	// 8 values per 5 bytes — base64-encoded so clients can draw it before the
@@ -620,6 +622,9 @@ func mediaFromTelegram(media tg.MessageMediaClass) []externalMedia {
 		return []externalMedia{{Kind: "contact"}}
 	case *tg.MessageMediaPoll:
 		return []externalMedia{{Kind: "poll"}}
+	case *tg.MessageMediaDice:
+		diceValue := value.Value
+		return []externalMedia{{Kind: "dice", DiceEmoji: value.Emoticon, DiceValue: &diceValue}}
 	case *tg.MessageMediaWebPage:
 		if page, ok := value.Webpage.(*tg.WebPage); ok {
 			if photo, ok := page.Photo.(*tg.Photo); ok {
@@ -663,6 +668,8 @@ func mediaPreview(media []externalMedia) string {
 		return "Contact"
 	case "poll":
 		return "Poll"
+	case "dice":
+		return "Dice"
 	default:
 		return "Attachment"
 	}

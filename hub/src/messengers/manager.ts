@@ -638,7 +638,7 @@ export class MessengerManager {
 
     private shouldPrefetchMedia(message: ExternalMessage, mediaIndex: number): boolean {
         const media = message.media?.[mediaIndex]
-        if (!media || media.kind === 'file' || media.kind === 'location' || media.kind === 'contact' || media.kind === 'poll' || media.kind === 'other') {
+        if (!media || media.kind === 'file' || media.kind === 'location' || media.kind === 'contact' || media.kind === 'poll' || media.kind === 'dice' || media.kind === 'other') {
             return false
         }
         if (media.size !== null && media.size > MAX_PREFETCH_MEDIA_BYTES) return false

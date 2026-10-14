@@ -56,6 +56,19 @@ function swipe(element: Element, points: Array<{ x: number; y: number }>) {
 }
 
 describe('messenger reply gestures', () => {
+    it('renders telegram dice as a static tile without fetching media', async () => {
+        vi.stubGlobal('matchMedia', () => ({ matches: true }))
+        const getExternalMediaBlob = vi.fn(async () => new Blob(['x']))
+        const dice: ExternalMessage = { ...message, text: '', media: [
+            { kind: 'dice', mimeType: null, fileName: null, size: null, thumbnailDataUrl: null, diceEmoji: '🎲', diceValue: 5 },
+        ] }
+        renderChat({ getExternalMediaBlob, getExternalMessages: async () => ({ messages: [dice], participants: [] }) })
+        const tile = await screen.findByTitle('Dice')
+        expect(tile).toHaveTextContent('5')
+        expect(within(tile).getAllByTestId('dice-pip')).toHaveLength(5)
+        expect(getExternalMediaBlob).not.toHaveBeenCalled()
+    })
+
     it('loads a standalone animated emoji and plays its hidden effect on click', async () => {
         vi.stubGlobal('IntersectionObserver', undefined)
         const NativeURL = globalThis.URL

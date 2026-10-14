@@ -40,6 +40,25 @@ describe('MessengerStore', () => {
         }
     })
 
+    it.each([
+        { diceEmoji: '🎲', diceValue: 5, expected: '🎲5' },
+        { diceEmoji: undefined, diceValue: undefined, expected: 'Dice' }
+    ])('previews dice with its value: $expected', ({ diceEmoji, diceValue, expected }) => {
+        const store = new Store(':memory:')
+        try {
+            store.messengers.upsertConversation('one', conversation('user:1', true))
+            store.messengers.upsertMessage('one', {
+                id: 'telegram:user:1:1', conversationId: 'telegram:user:1', providerMessageId: '1',
+                senderId: 'user:1', senderName: 'Friend', direction: 'incoming' as const,
+                text: '', createdAt: 1000, editedAt: null,
+                media: [{ kind: 'dice' as const, mimeType: null, fileName: null, size: null, thumbnailDataUrl: null, diceEmoji, diceValue }]
+            })
+            expect(store.messengers.listConversations('one')[0]?.lastMessagePreview).toBe(expected)
+        } finally {
+            store.close()
+        }
+    })
+
     it('keeps selection and cached messages isolated by namespace', () => {
         const store = new Store(':memory:')
         try {
