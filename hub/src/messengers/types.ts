@@ -55,6 +55,8 @@ export interface MessengerConnector {
         cursor?: { seqNo: number; version: number }
     ): Promise<void>
     downloadMedia(remoteId: string, providerMessageId: string, mediaIndex: number): Promise<DownloadedExternalMedia>
+    /** Downloads a premium custom-emoji preview (e.g. Telegram `custom:<documentId>` reactions). Only some providers implement it. */
+    downloadCustomEmoji?(remoteId: string, documentId: number): Promise<DownloadedExternalMedia>
     sendText(
         remoteId: string,
         text: string,

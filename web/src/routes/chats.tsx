@@ -99,6 +99,43 @@ function displayReactionEmoji(emoji: string | null): string {
     return emoji === '❤' ? '❤️' : (emoji ?? '✦')
 }
 
+function customEmojiDocumentId(reaction: string): number | null {
+    if (!reaction.startsWith('custom:')) return null
+    const documentId = Number(reaction.slice('custom:'.length))
+    return Number.isInteger(documentId) && documentId > 0 ? documentId : null
+}
+
+function CustomEmojiReactionImage(props: { conversationId: string; documentId: number }) {
+    const { api } = useAppContext()
+    const [src, setSrc] = useState<string | null>(null)
+    const [failed, setFailed] = useState(false)
+    useEffect(() => {
+        let cancelled = false
+        let objectUrl: string | null = null
+        setSrc(null)
+        setFailed(false)
+        if (!api) {
+            setFailed(true)
+            return
+        }
+        void api.getCustomEmojiBlob(props.conversationId, props.documentId).then((blob) => {
+            if (cancelled) return
+            objectUrl = URL.createObjectURL(blob)
+            setSrc(objectUrl)
+        }).catch(() => {
+            if (!cancelled) setFailed(true)
+        })
+        return () => {
+            cancelled = true
+            if (objectUrl) URL.revokeObjectURL(objectUrl)
+        }
+    }, [api, props.conversationId, props.documentId])
+    if (!src || failed) {
+        return <span aria-hidden="true">✦</span>
+    }
+    return <img src={src} alt="" draggable={false} className="h-5 w-5 object-contain" onError={() => setFailed(true)} />
+}
+
 function loadReactionUsage(): Record<string, number> {
     if (typeof window === 'undefined') return {}
     try {
@@ -1442,13 +1479,13 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                         : null}
                             </time>
                         )
+                        const senderName = showSenderName ? (
+                            <div className="text-[11px] font-semibold leading-tight" style={{ color: senderNameColor(item.senderId) }}>
+                                {item.senderName}
+                            </div>
+                        ) : null
                         const caption = displayText || richMessage ? (
                             <div className="flex min-w-0 flex-col gap-1">
-                                {showSenderName ? (
-                                    <div className="text-[11px] font-semibold leading-tight" style={{ color: senderNameColor(item.senderId) }}>
-                                        {item.senderName}
-                                    </div>
-                                ) : null}
                                 {item.forward && !hasMedia ? <ExternalForwardHeader forward={item.forward} /> : null}
                                 {displayText ? <ExternalMessageText
                                     text={displayText}
@@ -1558,7 +1595,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                             <div className="flex max-w-full flex-col gap-1.5">
                                                 {attachments.map(({ media, mediaIndex }) => <MediaAttachment key={`${item.id}:${mediaIndex}`} media={media} galleryId={`external-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={mediaIndex} onStartVoicePlayback={startVoicePlayback} />)}
                                             </div>
-                                            <div className="px-2 pb-0.5 pt-1.5">{quoteHeader}{caption}</div>
+                                            <div className="px-2 pb-0.5 pt-1.5">{senderName}{quoteHeader}{caption}</div>
                                         </div>
                                     ) : (
                                         <>
@@ -1584,7 +1621,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                                     ) : undefined}
                                                 />
                                             })}</div> : null}
-                                            {caption ? <div className={bubbleClassName}>{quoteHeader}{caption}</div> : null}
+                                            {caption ? <div className={bubbleClassName}>{senderName}{quoteHeader}{caption}</div> : null}
                                         </>
                                     )}
                                     {item.buttons && item.buttons.length > 0 && !optimistic ? (
@@ -1674,9 +1711,15 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                                             : 'border-[var(--app-border)] bg-[var(--app-secondary-bg)] text-[var(--app-fg)]'
                                                     )}
                                                     aria-pressed={reaction.chosen}
-                                                    title={reaction.chosen ? 'Remove reaction' : 'Add reaction'}
+                                                    title={reaction.emoji ?? reaction.reaction}
                                                 >
-                                                    <span className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden text-base leading-5" style={{ fontFamily: emojiFontFamily }}>{displayReactionEmoji(reaction.emoji)}</span>
+                                                    {reaction.emoji === null && customEmojiDocumentId(reaction.reaction) !== null ? (
+                                                        <span className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden leading-5">
+                                                            <CustomEmojiReactionImage conversationId={conversationId} documentId={customEmojiDocumentId(reaction.reaction)!} />
+                                                        </span>
+                                                    ) : (
+                                                        <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden leading-5', reaction.emoji === null && 'rounded-full bg-gradient-to-br from-[#B678FF] to-[#2AABEE] text-[10px] font-bold text-white')} style={reaction.emoji === null ? undefined : { fontFamily: emojiFontFamily, fontSize: '16px' }}>{displayReactionEmoji(reaction.emoji)}</span>
+                                                    )}
                                                     <span className="text-[11px] font-medium tabular-nums">{reaction.count}</span>
                                                 </button>
                                             ))}

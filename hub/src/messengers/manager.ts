@@ -533,6 +533,18 @@ export class MessengerManager {
         return await this.downloadMediaOnce(key, namespace, conversation, providerMessageId, mediaIndex)
     }
 
+    async downloadCustomEmoji(
+        namespace: string,
+        conversationId: string,
+        documentId: number
+    ): Promise<DownloadedExternalMedia> {
+        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        if (!conversation?.selected) throw new Error('Conversation not found')
+        const connector = await this.requireConnector(namespace, conversation.provider)
+        if (!connector.downloadCustomEmoji) throw new Error('Custom emoji is not supported by this provider')
+        return await connector.downloadCustomEmoji(conversation.remoteId, documentId)
+    }
+
     async sendMedia(namespace: string, conversationId: string, input: {
         bytes: Uint8Array
         fileName: string
