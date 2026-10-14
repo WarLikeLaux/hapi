@@ -312,7 +312,9 @@ export function SessionHeader(props: {
         ? formatReasoningLabel(reasoningEffort, headerMetadata.showLabels)
         : null
     // Match expected Fast badge semantics (#1004): only explicit service tier, no effort/model heuristics.
-    const showFastBadge = agentFlavor === 'codex' && isFastServiceTier(props.serviceTier ?? session.serviceTier)
+    // Cursor composer fast variants surface the same badge from the model id.
+    const isCursorFastModel = agentFlavor === 'cursor' && /fast/i.test(session.model ?? '')
+    const showFastBadge = (agentFlavor === 'codex' && isFastServiceTier(props.serviceTier ?? session.serviceTier)) || isCursorFastModel
     const createdAtLabel = headerMetadata.createdAt ? formatSessionHeaderTimestamp(session.createdAt, locale) : null
     const updatedAtLabel = headerMetadata.updatedAt ? formatSessionHeaderTimestamp(session.updatedAt, locale) : null
     const codexSessionId = session.metadata?.flavor === 'codex'

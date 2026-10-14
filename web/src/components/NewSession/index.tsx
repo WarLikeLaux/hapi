@@ -36,6 +36,8 @@ import {
     buildNewSessionCursorPickerState,
     isCursorEffortWireAllowed,
     resolveCursorBaseFromWire,
+    resolveCursorDefaultModelId,
+    resolveCursorQuickPickFastId,
     resolveNewSessionCursorBaseSelectValue,
     resolveNewSessionCursorEffortSelectValue,
     resolveWireIdForBaseChange,
@@ -515,6 +517,23 @@ export function NewSession(props: {
         ),
         [cursorModelsState.availableModels, cursorModelsState.cliModelSkus]
     )
+    const cursorDefaultWire = useMemo(
+        () => resolveCursorDefaultModelId(availableCursorCatalog),
+        [availableCursorCatalog]
+    )
+    const cursorQuickPickFastId = useMemo(
+        () => resolveCursorQuickPickFastId(availableCursorCatalog),
+        [availableCursorCatalog]
+    )
+    const cursorDefaultAppliedRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (agent !== 'cursor' || cursorModelsState.isLoading || !cursorDefaultWire) return
+        if (model !== 'auto' || cursorSelectedBase !== 'auto') return
+        if (cursorDefaultAppliedRef.current === cursorDefaultWire) return
+        cursorDefaultAppliedRef.current = cursorDefaultWire
+        setModel(cursorDefaultWire)
+        setCursorSelectedBase(resolveCursorBaseFromWire(cursorDefaultWire, availableCursorCatalog))
+    }, [agent, availableCursorCatalog, cursorDefaultWire, cursorModelsState.isLoading, cursorSelectedBase, model])
 
     useEffect(() => {
         if (
@@ -2117,6 +2136,27 @@ export function NewSession(props: {
                                 <button type="button" onClick={cursorModelsState.refetch} className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)]">
                                     {t('newSession.opencodeModel.retry')}
                                 </button>
+                            ) : null}
+                            {cursorQuickPickFastId ? (
+                                <QuickPickChips
+                                    options={[{ value: cursorQuickPickFastId, label: 'Composer 2.5 Fast' }]}
+                                    activeValue={model}
+                                    isDisabled={cursorModelPickersDisabled}
+                                    onToggle={(value) => {
+                                        if (model === value) {
+                                            if (cursorDefaultWire) {
+                                                setModel(cursorDefaultWire)
+                                                setCursorSelectedBase(resolveCursorBaseFromWire(cursorDefaultWire, availableCursorCatalog))
+                                            } else {
+                                                setModel('auto')
+                                                setCursorSelectedBase('auto')
+                                            }
+                                        } else {
+                                            setModel(value)
+                                            setCursorSelectedBase(resolveCursorBaseFromWire(value, availableCursorCatalog))
+                                        }
+                                    }}
+                                />
                             ) : null}
                             {cursorModelsUnavailable ? (
                                 <div className="text-xs text-[var(--app-hint)]">
