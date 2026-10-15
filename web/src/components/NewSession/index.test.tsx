@@ -108,7 +108,8 @@ vi.mock('@/hooks/queries/useCodexModels', () => ({
                 id: 'gpt-6.1-sol',
                 displayName: 'GPT-6.1-Sol',
                 isDefault: true,
-                supportedReasoningEfforts: ['low', 'high', 'xhigh']
+                supportedReasoningEfforts: ['low', 'high', 'xhigh'],
+                serviceTiers: ['priority', 'fast']
             },
             {
                 id: 'gpt-6-luna',
@@ -261,26 +262,6 @@ vi.mock('./MachineSelector', () => ({
     )
 }))
 vi.mock('./SessionTypeSelector', () => ({ SessionTypeSelector: () => null }))
-vi.mock('./PermissionField', () => ({
-    PermissionField: (props: {
-        agent: string
-        nativeValue: string
-        yoloMode: boolean
-        isDisabled: boolean
-        onNativeChange: (mode: string) => void
-        onYoloToggle: (value: boolean) => void
-    }) => (
-        <>
-            <button type="button" data-testid="permission-mode" onClick={() => props.onNativeChange('yolo')}>
-                {props.nativeValue}
-            </button>
-            <button type="button" data-testid="permission-mode-plan" onClick={() => props.onNativeChange('plan')}>
-                {props.nativeValue}
-            </button>
-            <div data-testid="yolo-toggle">{props.yoloMode ? 'on' : 'off'}</div>
-        </>
-    )
-}))
 vi.mock('./CopilotAgentModeSelector', () => ({ CopilotAgentModeSelector: () => null }))
 vi.mock('./OpencodeModelSelector', () => ({
     OpencodeModelSelector: (props: { selectedModel: string | null | undefined; onModelChange: (model: string | null) => void; onLoadModels?: () => void }) => (
@@ -553,9 +534,10 @@ describe('NewSession launch preferences', () => {
 
         fireEvent.click(screen.getByDisplayValue('codex'))
 
-        await waitFor(() => {
-            expect(screen.getByTestId('permission-mode')).toHaveTextContent('yolo')
-        })
+        expect(screen.queryByText('misc.permissionMode')).toBeNull()
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'permission-session' })
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: 'yolo' })))
     })
 
     it('migrates a legacy YOLO value when Codex was the preferred agent', async () => {
@@ -573,9 +555,10 @@ describe('NewSession launch preferences', () => {
             />
         )
 
-        await waitFor(() => {
-            expect(screen.getByTestId('permission-mode')).toHaveTextContent('yolo')
-        })
+        expect(screen.queryByText('misc.permissionMode')).toBeNull()
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'permission-session' })
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: 'yolo' })))
     })
 
     it('shows discovered Copilot models for the selected directory', async () => {
@@ -790,7 +773,6 @@ describe('NewSession launch preferences', () => {
         expect(loadPreferredLaunchSettings('machine-1', 'codex')).toBeNull()
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
         fireEvent.click(screen.getByTestId('reasoning'))
-        fireEvent.click(screen.getByTestId('permission-mode'))
         expect(loadPreferredLaunchSettings('machine-1', 'codex')).toBeNull()
         fireEvent.click(screen.getByTestId('create'))
 
@@ -903,34 +885,28 @@ describe('NewSession launch preferences', () => {
         }))
     })
 
-    it('lets Claude create with a chosen permission mode instead of the global YOLO toggle', async () => {
+    it('launches Claude with its native YOLO mode while the permission field is hidden', async () => {
         savePreferredAgent('claude')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
-        fireEvent.click(screen.getByTestId('permission-mode-plan'))
         fireEvent.click(screen.getByTestId('create'))
 
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session'))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'claude',
             yolo: undefined,
-            permissionMode: 'plan'
+            permissionMode: 'bypassPermissions'
         }))
     })
 
-    it('does not carry a permission mode picked under another flavor into the Claude spawn payload', async () => {
+    it('uses Claude permissions after switching from Codex', async () => {
         savePreferredAgent('codex')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
-        // Starts as codex; picking the mocked native-select button sets the
-        // shared nativePermissionMode state to 'yolo', a value 'claude' does
-        // not carry in its own permission catalog. Switching flavors lands on
-        // claude's own YOLO-equivalent default (fork: YOLO everywhere), so the
-        // codex-picked 'yolo' itself still never reaches the claude payload.
+        // Switching flavors keeps each agent's own YOLO-equivalent launch mode.
         await waitFor(() => expect(screen.getByDisplayValue('codex')).toBeChecked())
-        fireEvent.click(screen.getByTestId('permission-mode'))
         fireEvent.click(screen.getByDisplayValue('claude'))
         await waitFor(() => expect(screen.getByDisplayValue('claude')).toBeChecked())
         fireEvent.click(screen.getByTestId('create'))
@@ -948,9 +924,10 @@ describe('NewSession launch preferences', () => {
 
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
-        await waitFor(() => {
-            expect(screen.getByTestId('permission-mode')).toHaveTextContent('bypassPermissions')
-        })
+        expect(screen.queryByText('misc.permissionMode')).toBeNull()
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'permission-session' })
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: 'bypassPermissions' })))
     })
 
     it('lands Claude on its own YOLO-equivalent default instead of another flavor\'s legacy YOLO inheritance', async () => {
@@ -967,9 +944,10 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(screen.getByDisplayValue('cursor')).toBeChecked())
         fireEvent.click(screen.getByDisplayValue('claude'))
 
-        await waitFor(() => {
-            expect(screen.getByTestId('permission-mode')).toHaveTextContent('bypassPermissions')
-        })
+        expect(screen.queryByText('misc.permissionMode')).toBeNull()
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'permission-session' })
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: 'bypassPermissions' })))
     })
 
     it('keeps the effort field and passes the remembered effort while claude is not GLM-branded', async () => {
@@ -1020,7 +998,7 @@ describe('NewSession launch preferences', () => {
         expect(getMachineOpencodeModelVariants.mock.calls.length).toBe(0)
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model: 'grok-4.7-xhigh' })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model: 'grok-4.7-xhigh-fast' })))
         view.unmount()
         client.clear()
     })
@@ -1748,38 +1726,65 @@ describe('NewSession fork launch defaults', () => {
 
         // Fork: remembered permission modes no longer pin the form; every
         // fresh launch opens on the flavor's own YOLO-equivalent.
-        await waitFor(() => expect(screen.getByTestId('permission-mode')).toHaveTextContent('bypassPermissions'))
+        expect(screen.queryByText('misc.permissionMode')).toBeNull()
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: 'bypassPermissions' })))
     })
 
     it('lands a fresh Codex form on YOLO with no stored preference', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
 
-        expect(screen.getByTestId('permission-mode')).toHaveTextContent('yolo')
+        expect(screen.queryByText('misc.permissionMode')).toBeNull()
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'codex-session' })
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: 'yolo' })))
     })
 
-    it('hides the codex collaboration and fast-mode selectors', () => {
+    it.each(['standard', 'fast'] as const)('submits the selected Codex %s badge', async (serviceTier) => {
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'speed-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
 
         expect(screen.queryByText('newSession.collaborationMode')).toBeNull()
-        expect(screen.queryByText('newSession.fastMode')).toBeNull()
+        expect(screen.getByRole('button', { name: 'misc.fastModeStandard' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
+        if (serviceTier === 'standard') fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeStandard' }))
+        expect(screen.getByRole('button', { name: serviceTier === 'fast' ? 'misc.fastModeFast' : 'misc.fastModeStandard' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ serviceTier, permissionMode: 'yolo' })))
     })
 
-    it('pins a fresh Cursor launch to Grok 4.7 Extra High with YOLO on', async () => {
+    it('drops Fast when switching to a Codex model without a fast tier', async () => {
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'standard-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+        fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
+        fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
+        expect(screen.queryByRole('button', { name: 'misc.fastModeFast' })).toBeNull()
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6-luna', serviceTier: undefined })))
+    })
+
+    it.each([
+        { label: 'Grok 4.7 Extra High', model: 'grok-4.7-xhigh-fast', speed: 'fast' },
+        { label: 'Grok 4.7 Extra High', model: 'grok-4.7-xhigh', speed: 'standard' },
+        { label: 'Composer 2.5', model: 'composer-2.5-fast', speed: 'fast' },
+        { label: 'Composer 2.5', model: 'composer-2.5', speed: 'standard' },
+    ])('launches Cursor $label with $speed and YOLO', async ({ label, model, speed }) => {
         savePreferredAgent('cursor')
-        mocks.cursorModels = [{ modelId: 'composer-2.5', name: 'Compose 2.5' }, { modelId: 'grep-5', name: 'Grep 5' }]
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'fork-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
 
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Grok 4.7 Extra High' })).toHaveAttribute('aria-pressed', 'true'))
-        expect(screen.getByRole('button', { name: 'Composer 2.5 Fast' })).toHaveAttribute('aria-pressed', 'false')
-        expect(screen.getByTestId('yolo-toggle')).toHaveTextContent('on')
+        expect(screen.getByRole('button', { name: 'Grok 4.7 Extra High' })).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(screen.getByRole('button', { name: label }))
+        expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true')
+        if (speed === 'standard') fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeStandard' }))
+        expect(screen.queryByText('newSession.yolo')).toBeNull()
 
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('fork-session'))
-        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
-            agent: 'cursor',
-            model: 'grok-4.7-xhigh',
-            yolo: true
-        }))
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model, yolo: true, serviceTier: undefined }))
     })
 
     it('reveals the full Cursor catalog behind the load-other-models hatch', async () => {
@@ -1791,5 +1796,19 @@ describe('NewSession fork launch defaults', () => {
         expect(screen.queryByTestId('model')).toBeNull()
         fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
         await waitFor(() => expect(screen.getByTestId('model')).toBeInTheDocument())
+    })
+
+    it('keeps Grok High effort when enabling Fast through the full Cursor picker', async () => {
+        savePreferredAgent('cursor')
+        mocks.cursorModels = [{ modelId: 'grok-4.7', name: 'Grok 4.7' }]
+        mocks.cursorSkus = [{ modelId: 'grok-4.7-high' }, { modelId: 'grok-4.7-high-fast' }, { modelId: 'grok-4.7-xhigh-fast' }]
+        mocks.nextModelValue = 'grok-4.7-high'
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'high-fast-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+        fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
+        fireEvent.click(screen.getAllByTestId('model')[1])
+        fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'grok-4.7-high-fast' })))
     })
 })

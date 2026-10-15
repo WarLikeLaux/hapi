@@ -1,6 +1,5 @@
 import { useTranslation } from '@/lib/use-translation'
 import type { NewSessionServiceTier } from './types'
-import { SelectControl } from '@/components/ui/select-control'
 
 export type { NewSessionServiceTier }
 
@@ -17,20 +16,28 @@ export function FastModeSelector(props: {
     }
 
     return (
-        <div className="flex flex-col gap-1.5 px-3 py-3">
-            <label className="text-xs font-medium text-[var(--app-hint)]">
-                {t('newSession.fastMode')}{' '}
-                <span className="font-normal">({t('newSession.model.optional')})</span>
-            </label>
-            <SelectControl
-                value={props.value}
-                onChange={(e) => props.onChange(e.target.value as NewSessionServiceTier)}
-                disabled={props.isDisabled}
-                className="py-2 pl-3 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
-            >
-                <option value="standard">{t('misc.fastModeStandard')}</option>
-                <option value="fast">{t('misc.fastModeFast')}</option>
-            </SelectControl>
+        <div className="flex flex-col gap-1.5 px-3 py-3" role="group" aria-label={t('newSession.fastMode')}>
+            <div className="text-xs font-medium text-[var(--app-hint)]">
+                {t('newSession.fastMode')}
+            </div>
+            <div className="flex flex-wrap gap-1">
+                {(['standard', 'fast'] as const).map((value) => (
+                    <button
+                        key={value}
+                        type="button"
+                        aria-pressed={props.value === value}
+                        disabled={props.isDisabled}
+                        onClick={() => props.onChange(value)}
+                        className={`rounded-full border px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] disabled:opacity-50 ${
+                            props.value === value
+                                ? 'border-[var(--app-link)] bg-[var(--app-link)] font-medium text-[var(--app-bg)]'
+                                : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)]'
+                        }`}
+                    >
+                        {t(value === 'fast' ? 'misc.fastModeFast' : 'misc.fastModeStandard')}
+                    </button>
+                ))}
+            </div>
         </div>
     )
 }

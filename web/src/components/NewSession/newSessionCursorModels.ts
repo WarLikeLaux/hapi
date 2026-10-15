@@ -67,12 +67,23 @@ export function shouldShowNewSessionCursorVariantPicker(picker: CursorPickerStat
 
 /** Hardcoded cursor models: literal wire ids, no catalog lookup. */
 export const CURSOR_GROK_XHIGH_WIRE = 'grok-4.7-xhigh'
+export const CURSOR_GROK_XHIGH_FAST_WIRE = 'grok-4.7-xhigh-fast'
+export const CURSOR_COMPOSER_STANDARD_WIRE = 'composer-2.5'
 export const CURSOR_COMPOSER_FAST_WIRE = 'composer-2.5-fast'
+
+export function getCursorModelSpeedOptions(modelId: string): { standard: string; fast: string } | null {
+    const standard = modelId.replace(/-fast$/, '')
+    if (standard !== CURSOR_COMPOSER_STANDARD_WIRE && !/^grok-4\.7-(low|medium|high|xhigh)$/.test(standard)) {
+        return null
+    }
+    return { standard, fast: `${standard}-fast` }
+}
 
 export function isHardcodedCursorModelId(modelId: string | null | undefined): boolean {
     if (!modelId) return false
     const lower = modelId.toLowerCase()
-    return lower === CURSOR_GROK_XHIGH_WIRE || lower === CURSOR_COMPOSER_FAST_WIRE
+    const standard = lower.replace(/-fast$/, '')
+    return standard === CURSOR_GROK_XHIGH_WIRE || standard === CURSOR_COMPOSER_STANDARD_WIRE
 }
 export function resolveCursorDefaultModelId(catalog: CursorModelCatalog): string | null {
     const wires: string[] = []

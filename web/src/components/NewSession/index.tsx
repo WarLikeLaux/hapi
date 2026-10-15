@@ -35,7 +35,10 @@ import {
     buildNewSessionCursorModelCatalog,
     buildNewSessionCursorPickerState,
     CURSOR_COMPOSER_FAST_WIRE,
+    CURSOR_COMPOSER_STANDARD_WIRE,
+    CURSOR_GROK_XHIGH_FAST_WIRE,
     CURSOR_GROK_XHIGH_WIRE,
+    getCursorModelSpeedOptions,
     isCursorEffortWireAllowed,
     isHardcodedCursorModelId,
     resolveCursorBaseFromWire,
@@ -80,7 +83,6 @@ import {
     savePreferredLaunchSettings,
     savePreferredYoloMode,
 } from './preferences'
-import { PermissionField } from './PermissionField'
 import {
     AGY_HARDCODED_LABEL,
     CLAUDE_GLM_HARDCODED_LABEL,
@@ -520,9 +522,7 @@ export function NewSession(props: {
             setModel('auto')
         }
     }, [agent, codexModelsState.error, codexModelsState.isLoading, codexModelsState.models, model])
-    // Fork: fast mode is dormant — the selector stays hidden and codex always
-    // launches on the standard tier, same treatment as the worktree picker.
-    const showCodexFastMode = false
+    const showCodexFastMode = agent === 'codex'
         && !codexModelsState.error
         && codexModelAdvertisesFastTier(model === 'auto' ? null : model, codexModelsState.models)
 
@@ -597,7 +597,7 @@ export function NewSession(props: {
     const hardcodedCursorOptions = useMemo(
         () => [
             { value: CURSOR_GROK_XHIGH_WIRE, label: 'Grok 4.7 Extra High' },
-            { value: CURSOR_COMPOSER_FAST_WIRE, label: 'Composer 2.5 Fast' },
+            { value: CURSOR_COMPOSER_STANDARD_WIRE, label: 'Composer 2.5' },
         ],
         []
     )
@@ -608,13 +608,15 @@ export function NewSession(props: {
     }, [agent, machineId])
     useEffect(() => {
         // Idempotent and coercive in badges mode: anything outside the
-        // hardcoded shortlist (including auto) snaps to Grok Extra High.
+        // hardcoded shortlist (including auto) snaps to Grok Extra High Fast.
         // With the hatch open the user owns the selection.
         if (agent !== 'cursor' || showAllCursorModels) return
         if (isHardcodedCursorModelId(model)) return
-        setModel(CURSOR_GROK_XHIGH_WIRE)
+        setModel(CURSOR_GROK_XHIGH_FAST_WIRE)
         setCursorSelectedBase('grok-4.7')
     }, [agent, model, showAllCursorModels])
+    const cursorSpeedOptions = agent === 'cursor' ? getCursorModelSpeedOptions(model) : null
+    const cursorServiceTier = cursorSpeedOptions?.fast === model ? 'fast' : 'standard'
 
     useEffect(() => {
         if (
@@ -2220,11 +2222,11 @@ export function NewSession(props: {
                             <div className="flex flex-wrap items-center gap-1">
                                 <QuickPickChips
                                     options={hardcodedCursorOptions}
-                                    activeValue={hardcodedCursorOptions.some((option) => option.value === model) ? model : CURSOR_GROK_XHIGH_WIRE}
+                                    activeValue={cursorSpeedOptions?.standard ?? CURSOR_GROK_XHIGH_WIRE}
                                     isDisabled={isFormDisabled || !machineId}
                                     onToggle={(value) => {
-                                        setModel(value)
-                                        setCursorSelectedBase(value === CURSOR_COMPOSER_FAST_WIRE ? 'composer-2.5' : 'grok-4.7')
+                                        setModel(value === CURSOR_COMPOSER_STANDARD_WIRE ? CURSOR_COMPOSER_FAST_WIRE : CURSOR_GROK_XHIGH_FAST_WIRE)
+                                        setCursorSelectedBase(value === CURSOR_COMPOSER_STANDARD_WIRE ? 'composer-2.5' : 'grok-4.7')
                                     }}
                                 />
                                 {showAllCursorModels ? null : (
@@ -2385,20 +2387,17 @@ export function NewSession(props: {
                     piSelectedModel={agent === 'pi' ? piSelectedModel : null}
                 />
             ) : null}
-            <PermissionField
-                agent={agent}
-                nativeValue={agent === 'grok' ? grokPermissionMode : nativePermissionMode}
-                yoloMode={yoloMode}
-                autoPermissionModeSupported={agent === 'grok' ? grokModelsState.autoPermissionModeSupported : null}
-                isDisabled={isFormDisabled}
-                onNativeChange={(mode) => {
-                    if (agent === 'grok') {
-                        setGrokPermissionMode(mode as GrokPermissionMode)
+            <FastModeSelector
+                visible={showCodexFastMode || Boolean(cursorSpeedOptions)}
+                value={agent === 'cursor' ? cursorServiceTier : serviceTier}
+                isDisabled={isFormDisabled || (agent === 'codex' && codexModelsState.isLoading)}
+                onChange={(value) => {
+                    if (cursorSpeedOptions) {
+                        setModel(cursorSpeedOptions[value])
                     } else {
-                        setNativePermissionMode(mode)
+                        setServiceTier(value)
                     }
                 }}
-                onYoloToggle={setYoloMode}
             />
             {/* Fork: the collaboration-mode selector is dormant — codex
                 launches with its own default mode and the field stays out of
@@ -2408,12 +2407,6 @@ export function NewSession(props: {
                 value={copilotAgentMode}
                 isDisabled={isFormDisabled}
                 onChange={setCopilotAgentMode}
-            />
-            <FastModeSelector
-                visible={showCodexFastMode}
-                value={serviceTier}
-                isDisabled={isFormDisabled}
-                onChange={setServiceTier}
             />
 
             {(error ?? spawnError) ? (
