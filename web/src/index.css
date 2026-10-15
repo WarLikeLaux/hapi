@@ -641,29 +641,10 @@ html:has(.chat-scroll-y) #root {
         pointer-events: auto;
     }
 
-    /* Hover controls must not reserve an empty row between chat messages. */
+    /* Hover controls keep their in-flow row below the bubble so the
+    Copy/share buttons never float above the message text. */
     .happy-thread-messages > [data-hapi-message-role="assistant"] {
-        position: relative;
         overflow: visible;
-    }
-
-    .happy-thread-messages > [data-hapi-message-role="assistant"] > .happy-message-actions {
-        position: absolute;
-        top: 0;
-        right: 4px;
-        z-index: 2;
-        margin-top: 0;
-        padding-inline: 4px;
-        border-radius: 6px;
-        background-color: var(--app-secondary-bg);
-        transform: translateY(-50%);
-    }
-
-    .happy-thread-messages > .happy-message:has(> .happy-response-work) > .happy-message-actions {
-        top: auto;
-        bottom: 2px;
-        background-color: transparent;
-        transform: none;
     }
 }
 
