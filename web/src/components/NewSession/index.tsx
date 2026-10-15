@@ -151,7 +151,7 @@ function ModelBadges(props: {
                     isDisabled={props.isDisabled}
                     onToggle={props.onToggle}
                 />
-                {props.footer ? <span className="ml-auto">{props.footer}</span> : null}
+                {props.footer}
             </div>
         </div>
     )
@@ -159,7 +159,7 @@ function ModelBadges(props: {
 
 // Escape hatch behind the hardcoded badges: reveals the full catalog
 // selector for the day a hardcoded wire goes stale.
-function LoadOtherModelsButton(props: {
+function OtherModelsButton(props: {
     isDisabled: boolean
     onClick: () => void
 }) {
@@ -169,9 +169,12 @@ function LoadOtherModelsButton(props: {
             type="button"
             onClick={props.onClick}
             disabled={props.isDisabled}
-            className="rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2.5 py-1 text-xs text-[var(--app-fg)] transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50"
         >
             {t('newSession.model.loadOptions')}
+            <svg aria-hidden="true" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m6 9 6 6 6-6" />
+            </svg>
         </button>
     )
 }
@@ -536,7 +539,7 @@ export function NewSession(props: {
     }, [agent, codexModelsState.isLoading, showCodexFastMode, serviceTier])
     // Fork hardcoded models: these flavors always run one model, so the form
     // pins it instead of offering the catalog dropdown. Literals only.
-    // "Load other models" opens the full catalog selector as an escape hatch.
+    // The Other badge opens the full catalog selector as an escape hatch.
     const [showAllModels, setShowAllModels] = useState(false)
     useEffect(() => {
         setShowAllModels(false)
@@ -2149,7 +2152,7 @@ export function NewSession(props: {
                         isDisabled={isFormDisabled || !machineId}
                         onToggle={() => {}}
                         footer={showAllModels ? null : (
-                            <LoadOtherModelsButton
+                            <OtherModelsButton
                                 isDisabled={isFormDisabled || !machineId}
                                 onClick={() => setShowAllModels(true)}
                             />
@@ -2181,7 +2184,7 @@ export function NewSession(props: {
                         isDisabled={isFormDisabled || !machineId}
                         onToggle={() => {}}
                         footer={showAllModels ? null : (
-                            <LoadOtherModelsButton
+                            <OtherModelsButton
                                 isDisabled={isFormDisabled || !machineId}
                                 onClick={() => {
                                     setShowAllModels(true)
@@ -2225,19 +2228,13 @@ export function NewSession(props: {
                                     }}
                                 />
                                 {showAllCursorModels ? null : (
-                                    <span className="ml-auto">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setShowAllCursorModels(true)
-                                                setRequestedModelCatalog(modelCatalogTarget)
-                                            }}
-                                            disabled={isFormDisabled || !machineId}
-                                            className="rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
-                                        >
-                                            {t('newSession.model.loadOptions')}
-                                        </button>
-                                    </span>
+                                    <OtherModelsButton
+                                        isDisabled={isFormDisabled || !machineId}
+                                        onClick={() => {
+                                            setShowAllCursorModels(true)
+                                            setRequestedModelCatalog(modelCatalogTarget)
+                                        }}
+                                    />
                                 )}
                             </div>
                             {cursorModelsState.error ? (
@@ -2310,7 +2307,7 @@ export function NewSession(props: {
                             isDisabled={isFormDisabled || Boolean(codexModelsState.error)}
                             onToggle={(value) => setModel(value)}
                             footer={showAllModels ? null : (
-                                <LoadOtherModelsButton
+                                <OtherModelsButton
                                     isDisabled={isFormDisabled || !machineId}
                                     onClick={() => setShowAllModels(true)}
                                 />

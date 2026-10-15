@@ -513,7 +513,7 @@ export default {
   'newSession.model': 'Model',
   'newSession.effort': 'Effort',
   'newSession.model.loading': 'Loading models…',
-  'newSession.model.loadOptions': 'Load other models',
+  'newSession.model.loadOptions': 'Other',
   'newSession.model.optional': 'optional',
   'newSession.model.default': 'Default',
   'newSession.model.loadFailed': 'Failed to load models',
