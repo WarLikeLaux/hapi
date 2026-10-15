@@ -565,7 +565,7 @@ function AppInner() {
     }
 
     return (
-        <AppContextProvider value={{ api, token, baseUrl, titleSuggestionAvailable }}>
+        <AppContextProvider value={{ api, token, baseUrl, titleSuggestionAvailable, isHubConnected: globalSubscriptionId !== null }}>
             <VoiceProvider>
                 <ClaudeGlmBrandingSync />
                 <PwaUpdateBannerWithStatusOffset

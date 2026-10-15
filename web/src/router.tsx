@@ -161,7 +161,7 @@ function SettingsIcon(props: { className?: string }) {
 }
 
 function SessionsPage() {
-    const { api, baseUrl, titleSuggestionAvailable = false } = useAppContext()
+    const { api, baseUrl, titleSuggestionAvailable = false, isHubConnected = true } = useAppContext()
     const navigate = useNavigate()
     const pathname = useLocation({ select: location => location.pathname })
     const matchRoute = useMatchRoute()
@@ -235,7 +235,7 @@ function SessionsPage() {
                 style={{ '--sidebar-w': `${sidebar.width}px` } as React.CSSProperties}
             >
                 <div className="flex min-h-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">
-                    {error ? (
+                    {error && isHubConnected ? (
                         <div className="mx-auto w-full max-w-content px-3 py-2">
                             <div className="text-sm text-red-600">{error}</div>
                         </div>

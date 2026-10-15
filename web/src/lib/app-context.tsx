@@ -5,6 +5,7 @@ export type AppContextValue = {
     api: ApiClient
     token: string
     baseUrl: string
+    isHubConnected?: boolean
     titleSuggestionAvailable?: boolean
 }
 
