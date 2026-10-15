@@ -42,7 +42,9 @@ Actions run in argument order. Repeat `--click` for multiple menus. `--fill '<se
 
 `--expect` is the final assertion after all actions. Choose a specific changed control, message, or menu item. The helper scrolls to its first match and requires the entire element to fit in the viewport, including clipping by nested scrollers. Large containers need a narrower selector or larger `--width` / `--height`. `--absent '<selector>'` waits for unwanted UI to become hidden. Defaults are 390 × 844. The output must be an absolute `.png` path. Parent directories are created automatically. Success prints JSON with the URL, PNG path, viewport, and byte count. Failures exit nonzero.
 
-Inspect the PNG with your image-reading tool before sending it. Check that the changed element and enough surrounding context are visible in the intended state. Then send it with HAPI `display_image` using its absolute path and wait for visual acceptance as required by AGENTS.md. If the model lacks that MCP tool, use the existing shell fallback inside its HAPI session:
+After every capture, open the actual saved PNG with an image-reading tool. Check that the changed element and enough surrounding context are visible in the intended state, without clipping or obstructing overlays. A successful command, selector assertion, or `display_image` call does not count as visual inspection. If you cannot read images, explicitly report the screenshot as visually unverified. If the image is wrong, explain the problem and retake it.
+
+Send every screenshot taken for the task with HAPI `display_image` using its absolute path. Include all viewports, states, and earlier attempts, not just one representative image. Give each capture a distinct filename so it remains available for inspection and delivery. Label what each image shows and identify failed or superseded attempts. Wait for visual acceptance as required by AGENTS.md. If the model lacks that MCP tool, use the existing shell fallback inside its HAPI session for each image:
 
 ```bash
 bun scripts/tooling/hapi-display-image.mjs /tmp/hapi-external-editor.png
