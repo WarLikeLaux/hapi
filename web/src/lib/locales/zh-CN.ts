@@ -517,7 +517,7 @@ export default {
   'newSession.model': '模型',
   'newSession.effort': '思考强度',
   'newSession.model.loading': '正在加载模型…',
-  'newSession.model.loadOptions': '加载其他模型',
+  'newSession.model.loadOptions': '其他',
   'newSession.model.optional': '可选',
   'newSession.model.default': '默认',
   'newSession.model.loadFailed': '加载模型失败',
