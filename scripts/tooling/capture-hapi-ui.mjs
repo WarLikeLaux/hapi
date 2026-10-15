@@ -1,70 +1,63 @@
 #!/usr/bin/env bun
-// Capture the running HAPI web app through its local Vite proxy.
-// Example:
-// bun scripts/tooling/capture-hapi-ui.mjs --url http://127.0.0.1:5174/sessions/<id> --out /tmp/menu.png --click 'button[title="More actions"]' --expect '[role="menuitem"]:has-text("Delete")'
+import { captureHapiUi } from './hapi-ui.mjs'
 
-import { isAbsolute } from 'node:path'
-import { chromium } from 'playwright'
-import { installHapiAuth, readCliAccessToken } from '../../web/e2e/helpers/hapi-live.ts'
+const help = `Capture the real HAPI UI through a slot's local Vite proxy.
 
-const args = process.argv.slice(2)
-const values = new Map()
-for (let i = 0; i < args.length; i += 2) {
-    const key = args[i]
-    const value = args[i + 1]
-    if (!key?.startsWith('--') || !value || value.startsWith('--') || values.has(key)) {
-        throw new Error('Expected unique --url, --out, --expect and optional --click, --dismiss, --absent, --width, --height arguments')
-    }
-    values.set(key, value)
-}
+Usage:
+  bun scripts/tooling/capture-hapi-ui.mjs --url <loopback-url> --out </absolute/path.png> --expect <selector>
 
-const pageUrl = new URL(values.get('--url'))
-const outputPath = values.get('--out')
-const expectedSelector = values.get('--expect')
-if (!['127.0.0.1', 'localhost', '[::1]'].includes(pageUrl.hostname)) {
-    throw new Error('Preview URL must use a loopback host so the local access token stays on this machine')
-}
-if (!outputPath || !isAbsolute(outputPath) || !outputPath.endsWith('.png') || !expectedSelector) {
-    throw new Error('--out must be an absolute PNG path and --expect must identify the changed UI')
-}
-for (const key of values.keys()) {
-    if (!['--url', '--out', '--expect', '--click', '--dismiss', '--absent', '--width', '--height'].includes(key)) {
-        throw new Error(`Unknown argument: ${key}`)
-    }
-}
-const width = Number(values.get('--width') ?? 390)
-const height = Number(values.get('--height') ?? 844)
-if (!Number.isInteger(width) || !Number.isInteger(height) || width < 200 || height < 200) {
-    throw new Error('Viewport width and height must be integers of at least 200')
-}
+Options:
+  --width <pixels> --height <pixels>  Viewport (default: 390 x 844, minimum: 200)
+  --absent <selector>               Wait until the unwanted UI is hidden
+  --help                            Show this help without launching a browser
 
-const browser = await chromium.launch({ headless: true })
+Actions (repeatable, executed in argument order before --expect):
+  --dismiss <selector>              Click an optional overlay if it appears
+  --click <selector>                Click an element
+  --fill <selector> <text>          Fill an input (quote selectors and text)
+  --press <selector> <key>          Press a key, e.g. Enter or End
+  --hover <selector>                Reveal hover actions
+  --scroll <selector>               Scroll an element into view
+  --wait <selector>                 Wait for an intermediate element
+
+The --expect element is scrolled into view and must fit fully in the viewport.
+Use a specific control or message, not a container taller than the screen.
+Auth: HAPI_ACCESS_TOKEN, then CLI_API_TOKEN, then cliApiToken in
+HAPI_SETTINGS_PATH (default: ~/.hapi/settings.json). Tokens are never printed.
+For custom scenarios import captureHapiUi from scripts/tooling/hapi-ui.mjs.
+See scripts/tooling/README.md for examples and troubleshooting.`
+
 try {
-    const page = await browser.newPage({ viewport: { width, height } })
-    // An explicit hub URL bypasses Vite's /api proxy and causes CORS failures.
-    await page.addInitScript(() => localStorage.removeItem('hapi_hub_url'))
-    await installHapiAuth(page, pageUrl.origin, readCliAccessToken())
-    const response = await page.goto(pageUrl.href, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    if (!response?.ok()) throw new Error(`Preview page returned HTTP ${response?.status() ?? 'unknown'}`)
-    const dismissSelector = values.get('--dismiss')
-    if (dismissSelector) {
-        const dismissButton = page.locator(dismissSelector).first()
-        try {
-            await dismissButton.waitFor({ state: 'visible', timeout: 2_000 })
-            await dismissButton.click()
-        } catch {
-            // The optional overlay may already have been dismissed.
+    const args = process.argv.slice(2)
+    if (args.length === 1 && args[0] === '--help') {
+        console.log(help)
+    } else {
+        const options = { steps: [] }
+        const singles = new Set(['--url', '--out', '--expect', '--absent', '--width', '--height'])
+        const actions = new Set(['--dismiss', '--click', '--fill', '--press', '--hover', '--scroll', '--wait'])
+        const seen = new Set()
+        for (let i = 0; i < args.length; i++) {
+            const key = args[i]
+            if (!singles.has(key) && !actions.has(key)) throw new Error(`Unknown argument: ${key}. Use --help.`)
+            const value = args[++i]
+            if (!value || value.startsWith('--')) throw new Error(`Missing value for ${key}`)
+            if (actions.has(key)) {
+                const step = { action: key.slice(2), selector: value }
+                if (key === '--fill' || key === '--press') {
+                    step.value = args[++i]
+                    if (step.value === undefined || step.value.startsWith('--')) throw new Error(`Missing text/key for ${key}`)
+                }
+                options.steps.push(step)
+            } else {
+                if (seen.has(key)) throw new Error(`Duplicate argument: ${key}`)
+                seen.add(key)
+                options[key.slice(2)] = key === '--width' || key === '--height' ? Number(value) : value
+            }
         }
+        if (!options.url || !options.out || !options.expect) throw new Error('Required: --url, --out, --expect. Use --help.')
+        console.log(JSON.stringify(await captureHapiUi(options)))
     }
-    const clickSelector = values.get('--click')
-    if (clickSelector) await page.locator(clickSelector).first().click({ timeout: 15_000 })
-    await page.locator(expectedSelector).first().waitFor({ state: 'visible', timeout: 15_000 })
-    const absentSelector = values.get('--absent')
-    if (absentSelector && await page.locator(absentSelector).count() > 0) {
-        throw new Error(`Unexpected UI is still present: ${absentSelector}`)
-    }
-    const png = await page.screenshot({ path: outputPath })
-    console.log(JSON.stringify({ url: pageUrl.href, image: outputPath, width, height, bytes: png.length }))
-} finally {
-    await browser.close()
+} catch (error) {
+    console.error(`capture-hapi-ui: ${error.message}`)
+    process.exitCode = 1
 }
