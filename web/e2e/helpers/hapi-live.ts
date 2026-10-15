@@ -15,6 +15,9 @@ export function readCliAccessToken(): string {
     if (process.env.HAPI_ACCESS_TOKEN?.trim()) {
         return process.env.HAPI_ACCESS_TOKEN.trim()
     }
+    if (process.env.CLI_API_TOKEN?.trim()) {
+        return process.env.CLI_API_TOKEN.trim()
+    }
     const settingsPath = process.env.HAPI_SETTINGS_PATH ?? join(homedir(), '.hapi', 'settings.json')
     const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as { cliApiToken?: string }
     if (!settings.cliApiToken) {
@@ -25,6 +28,7 @@ export function readCliAccessToken(): string {
 
 export async function installHapiAuth(page: Page, baseUrl: string, accessToken: string) {
     await page.addInitScript(({ token, url }) => {
+        if (location.origin !== url) return
         localStorage.setItem(`hapi_access_token::${url}`, token)
     }, { token: accessToken, url: baseUrl })
 }

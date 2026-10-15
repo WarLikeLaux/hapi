@@ -5,8 +5,7 @@
 // last-known usage with a "stale · Xm ago" indicator after 15 minutes instead
 // of the red "Authentication expired" banner.
 
-import { chromium } from 'playwright'
-import { installHapiAuth, readCliAccessToken } from '../../web/e2e/helpers/hapi-live.ts'
+import { captureHapiUi } from './hapi-ui.mjs'
 
 const PREVIEW_ORIGIN = 'http://127.0.0.1:5174'
 const OUTPUT_PATH = '/tmp/limits-stale.png'
@@ -73,45 +72,18 @@ const mockBody = JSON.stringify({
     ]
 })
 
-const browser = await chromium.launch({ headless: true })
-try {
-    const page = await browser.newPage({ viewport: { width: 420, height: 720 } })
-    await page.addInitScript(() => localStorage.removeItem('hapi_hub_url'))
-    await installHapiAuth(page, PREVIEW_ORIGIN, readCliAccessToken())
-
-    await page.route('**/api/quotas', async (route) => {
-        await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: mockBody
+console.log(JSON.stringify(await captureHapiUi({
+    url: `${PREVIEW_ORIGIN}/settings/limits`,
+    out: OUTPUT_PATH,
+    width: 420,
+    height: 720,
+    expect: 'text=MiniMax Code',
+    prepare: async (page) => {
+        await page.route('**/api/quotas', async (route) => {
+            await route.fulfill({ status: 200, contentType: 'application/json', body: mockBody })
         })
-    })
-
-    const response = await page.goto(`${PREVIEW_ORIGIN}/settings/limits`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30_000
-    })
-    if (!response?.ok()) throw new Error(`Preview page returned HTTP ${response?.status() ?? 'unknown'}`)
-    // Wait for the cached mcode snapshot to render. The collector's replay
-    // path leaves measuredAt in the past, which means the row carries a
-    // "stale · 22m ago" suffix once STALE_AFTER_MS (15 min) passes.
-    await page.waitForSelector('text=MiniMax Code', { timeout: 15_000 })
-    try {
-        await page.waitForFunction(
-            () => document.body.innerText.includes('measured'),
-            { timeout: 8_000 }
-        )
-    } catch {
-        const text = await page.evaluate(() => document.body.innerText.slice(0, 600))
-        console.error('DEBUG body text:\n' + text)
-        throw new Error('stale indicator did not appear within 8s')
-    }
-    // Let the layout settle (bar widths, lazy text rendering).
-    await page.waitForTimeout(500)
-
-    await page.screenshot({ path: OUTPUT_PATH, fullPage: false })
-    const stat = await Bun.file(OUTPUT_PATH).stat()
-    console.log(JSON.stringify({ url: page.url(), image: OUTPUT_PATH, bytes: stat.size }))
-} finally {
-    await browser.close()
-}
+    },
+    interact: async (page) => {
+        await page.waitForFunction(() => document.body.innerText.includes('measured'), null, { timeout: 8_000 })
+    },
+})))
