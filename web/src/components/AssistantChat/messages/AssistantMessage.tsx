@@ -165,6 +165,18 @@ export function HappyAssistantMessage() {
             stripNotifySummary: !showSessionSummaryInChat
         })
     })
+    // Copy must match what the bubble shows: when the response is compacted,
+    // only the final prose (+ recap/media) stays visible, the rest lives in
+    // the Work dialog and must not leak into the clipboard.
+    const visibleCopyText = useMemo(() => {
+        if (!compactParts) return copyText
+        const visible = compactParts.visibleIndices
+            .map((index) => messageParts[index])
+            .filter((part) => part !== undefined)
+        return getAssistantCopyText(visible, {
+            stripNotifySummary: !showSessionSummaryInChat
+        })
+    }, [compactParts, copyText, messageParts, showSessionSummaryInChat])
 
     const durationMs = useAuiState(({ message }) => (message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined)?.durationMs)
     const usage = useAuiState(({ message }) => (message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined)?.usage)
@@ -259,7 +271,7 @@ export function HappyAssistantMessage() {
             {showMessageActions ? (
                 <MessageActions
                     align="start"
-                    copyText={copyText || undefined}
+                    copyText={visibleCopyText || undefined}
                     metadata={metadata}
                     messageElementId={elementId}
                     showFork={showForkCurrent}
