@@ -679,20 +679,6 @@ export function SessionHeader(props: {
                             </button>
                         ) : null}
 
-                        {codeOpenUrl ? (
-                            <a
-                                href={codeOpenUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={`${headerToggleClass(false)} max-sm:hidden`}
-                                title={t('session.action.openCode')}
-                                aria-label={t('session.action.openCode')}
-                                data-testid="session-header-open-code"
-                            >
-                                <CodeIcon className="h-[18px] w-[18px]" />
-                            </a>
-                        ) : null}
-
                         {!isTouch && externalReviewUrl ? (
                             <a
                                 href={externalReviewUrl}
@@ -704,6 +690,20 @@ export function SessionHeader(props: {
                                 data-testid="session-header-open-external-review"
                             >
                                 <MergeRequestIcon />
+                            </a>
+                        ) : null}
+
+                        {codeOpenUrl ? (
+                            <a
+                                href={codeOpenUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`${headerToggleClass(false)} max-sm:hidden`}
+                                title={t('session.action.openCode')}
+                                aria-label={t('session.action.openCode')}
+                                data-testid="session-header-open-code"
+                            >
+                                <CodeIcon className="h-[20px] w-[20px]" />
                             </a>
                         ) : null}
 

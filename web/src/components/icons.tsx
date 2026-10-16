@@ -30,7 +30,11 @@ export function CloseIcon(props: IconProps) {
 
 export function CodeIcon(props: IconProps) {
     return createIcon(
-        <path d="m8 8-4 4 4 4m8-8 4 4-4 4m-3-11-2 14" />,
+        <>
+            <rect x="3" y="4" width="18" height="14" rx="2" />
+            <path d="m10 9-2 3 2 3" />
+            <path d="m14 9 2 3-2 3" />
+        </>,
         props,
         2
     )
