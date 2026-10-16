@@ -89,32 +89,41 @@ describe('chat file anchors with an external editor', () => {
         )
     }
 
-    it('asks the hub first and closes the placeholder when the editor opens the file', async () => {
+    it('focuses the named editor tab and never closes it when the editor opens the file', async () => {
         const filePath = '/home/shandori/code/proj/models/A.php:675'
         renderWithEditor(filePath, 200, { opened: true, folder: '/home/shandori/code/proj' })
         const link = screen.getByRole('link', { name: filePath })
 
         fireEvent.click(link)
 
-        await waitFor(() => expect(openSpy).toHaveBeenCalledWith('about:blank', '_blank'))
-        await waitFor(() => expect((openSpy.mock.results[0]?.value as { close: () => void }).close).toHaveBeenCalled())
+        await waitFor(() => expect(openSpy).toHaveBeenCalledWith(
+            'https://code.local/?folder=/home/shandori/code/proj/models',
+            'hapi-code-home-shandori-code-proj-models'
+        ))
+        // No navigation of the loaded tab, no closing: the mock tab starts
+        // at about:blank only in jsdom, the folder URL came via window.open.
+        expect((openSpy.mock.results[0]?.value as { close: () => void }).close).not.toHaveBeenCalled()
         expect(globalThis.fetch).toHaveBeenCalledWith(
             '/api/sessions/session-1/editor-open',
             expect.objectContaining({ method: 'POST' })
         )
     })
 
-    it('falls back to a new editor tab when no window holds the project', async () => {
+    it('navigates the same tab to the payload URL when no window holds the project', async () => {
         const filePath = '/home/shandori/code/proj/models/A.php:675'
         renderWithEditor(filePath, 404, { error: 'No editor window holds this project', code: 'no-window' })
         const link = screen.getByRole('link', { name: filePath })
 
         fireEvent.click(link)
 
-        await waitFor(() => expect(openSpy).toHaveBeenCalledWith('about:blank', '_blank'))
+        await waitFor(() => expect(openSpy).toHaveBeenCalledWith(
+            'https://code.local/?folder=/home/shandori/code/proj/models',
+            'hapi-code-home-shandori-code-proj-models'
+        ))
         await waitFor(() => {
             const href = (openSpy.mock.results[0]?.value as { location: { href: string } }).location.href
             expect(href.startsWith('https://code.local/?folder=')).toBe(true)
+            expect(href).toContain('&payload=')
         })
         const href = (openSpy.mock.results[0]?.value as { location: { href: string } }).location.href
         const parsed = new URL(href)

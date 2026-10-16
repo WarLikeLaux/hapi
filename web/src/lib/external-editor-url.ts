@@ -11,6 +11,26 @@ export type ExternalEditorFileTarget = {
 }
 
 /**
+ * Stable browser tab name per editor folder: clicks for project B focus or
+ * create B's own tab and never touch (or blank) the tab holding project A.
+ */
+export function editorTabName(folder: string): string {
+    const slug = folder.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'root'
+    return `hapi-code-${slug}`
+}
+
+/**
+ * Build a plain folder URL (no payload): focuses or opens the editor tab on
+ * the project without triggering any file open. Used as the synchronous
+ * window.open target so repeat clicks focus the same tab with no flicker.
+ */
+export function buildExternalEditorFolderUrl(baseUrl: string, folder: string): string {
+    // Encode per path segment so slashes stay readable in the address bar.
+    const folderParam = folder.split('/').map((s) => encodeURIComponent(s)).join('/')
+    return `${baseUrl}/?folder=${folderParam}`
+}
+
+/**
  * Build a code-server style URL that opens `file` (optionally at
  * line/column) inside `folder`. `codeHost` is the host part of the base URL
  * and goes into the `vscode-remote://` URI the workbench understands.
@@ -30,7 +50,9 @@ export function buildExternalEditorFileUrl(
             ? [['gotoLineMode', 'true'], ['openFile', remote]]
             : [['openFile', remote]]
     )
-    return `${baseUrl}/?folder=${encodeURIComponent(folder)}&payload=${encodeURIComponent(payload)}`
+    // Encode per path segment so slashes stay readable in the address bar.
+    const folderParam = folder.split('/').map((s) => encodeURIComponent(s)).join('/')
+    return `${baseUrl}/?folder=${folderParam}&payload=${encodeURIComponent(payload)}`
 }
 
 /**

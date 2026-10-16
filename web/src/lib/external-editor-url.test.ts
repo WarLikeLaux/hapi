@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildExternalEditorFileUrl, resolveExternalEditorFolder } from './external-editor-url'
+import { buildExternalEditorFileUrl, editorTabName, resolveExternalEditorFolder } from './external-editor-url'
 
 describe('buildExternalEditorFileUrl', () => {
     it('builds a folder + openFile payload URL', () => {
@@ -17,8 +17,17 @@ describe('buildExternalEditorFileUrl', () => {
         ])
     })
 
-    it('adds gotoLineMode with line and column', () => {
+    it('keeps slashes readable in the raw folder param', () => {
         const url = buildExternalEditorFileUrl(
+            'https://code.local',
+            'code.local',
+            '/home/shandori/code/proj',
+            { file: '/home/shandori/code/proj/models/A.php' }
+        )
+        expect(url).toContain('?folder=/home/shandori/code/proj&')
+    })
+
+    it('adds gotoLineMode with line and column', () => {        const url = buildExternalEditorFileUrl(
             'https://code.local',
             'code.local',
             '/home/shandori/code/proj',
@@ -29,6 +38,14 @@ describe('buildExternalEditorFileUrl', () => {
             ['gotoLineMode', 'true'],
             ['openFile', 'vscode-remote://code.local/home/shandori/code/proj/models/A.php:675:4'],
         ])
+    })
+})
+
+describe('editorTabName', () => {
+    it('derives a stable per-project tab name', () => {
+        expect(editorTabName('/home/shandori/code/proj')).toBe('hapi-code-home-shandori-code-proj')
+        expect(editorTabName('/home/shandori/code/proj/')).toBe('hapi-code-home-shandori-code-proj')
+        expect(editorTabName('/home/shandori/code/other')).not.toBe(editorTabName('/home/shandori/code/proj'))
     })
 })
 

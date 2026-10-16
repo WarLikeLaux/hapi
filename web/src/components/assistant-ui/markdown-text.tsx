@@ -40,7 +40,7 @@ import { UriConfirmDialog } from '@/components/UriConfirmDialog'
 import { DEFAULT_OPEN_EXTERNAL_LINKS_IN_NEW_TAB, useOpenExternalLinksInNewTab } from '@/hooks/useOpenExternalLinksInNewTab'
 import { useExternalEditorBaseUrl } from '@/hooks/useExternalEditor'
 import { useOptionalAppContext } from '@/lib/app-context'
-import { buildExternalEditorFileUrl, resolveExternalEditorFolder } from '@/lib/external-editor-url'
+import { buildExternalEditorFileUrl, buildExternalEditorFolderUrl, editorTabName, resolveExternalEditorFolder } from '@/lib/external-editor-url'
 
 import type { MarkdownTextPrimitiveProps } from '@assistant-ui/react-markdown'
 
@@ -569,10 +569,26 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & {
         // workspace paths are offered to the live editor first via the hub.
         if (!externalEditorBaseUrl || !app || !filePath.startsWith('/')) return
         event.preventDefault()
-        // Open synchronously inside the gesture — navigating after an await
-        // would be cut down by the popup blocker.
-        const placeholder = window.open('about:blank', '_blank')
-        if (!placeholder) return
+        // No throwaway placeholder: synchronously focus (or open) the named
+        // editor tab for THIS project on its folder URL, then ask the hub to
+        // open the file in the live window via the mailbox. Tab names are
+        // per-project, so other projects' tabs are never touched. Opening an
+        // already-open tab with the identical URL only focuses it (no reload,
+        // no beforeunload prompt). Only when no window holds the project does
+        // this same tab navigate to the payload URL. Nothing is ever closed.
+        let base: URL
+        let folder: string
+        try {
+            base = new URL(externalEditorBaseUrl)
+            folder = resolveExternalEditorFolder(chat?.metadata?.path ?? null, filePath)
+        } catch {
+            return
+        }
+        const baseRoot = `${base.origin}${base.pathname.replace(/\/+$/, '')}`
+        const tabName = editorTabName(folder)
+        const editorTab = window.open(buildExternalEditorFolderUrl(baseRoot, folder), tabName)
+        if (!editorTab) return
+        try { editorTab.focus() } catch { /* ignore */ }
         void (async () => {
             try {
                 const result = await app.api.openSessionFileInEditor(sessionId, {
@@ -580,25 +596,18 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & {
                     ...(line !== undefined ? { line } : {}),
                     ...(column !== undefined ? { column } : {}),
                 })
-                if (result.opened) {
-                    placeholder.close()
-                    return
-                }
+                if (result.opened) return
             } catch {
-                // Fall through to opening a fresh editor tab below.
+                // Fall through to the payload URL below.
             }
             try {
-                const base = new URL(externalEditorBaseUrl)
-                const folder = resolveExternalEditorFolder(chat?.metadata?.path ?? null, filePath)
-                placeholder.location.href = buildExternalEditorFileUrl(
-                    `${base.origin}${base.pathname.replace(/\/+$/, '')}`,
+                editorTab.location.href = buildExternalEditorFileUrl(
+                    baseRoot,
                     base.host,
                     folder,
                     { file: filePath, ...(line !== undefined ? { line } : {}), ...(column !== undefined ? { column } : {}) }
                 )
-            } catch {
-                placeholder.close()
-            }
+            } catch { /* tab already gone */ }
         })()
     }
 
