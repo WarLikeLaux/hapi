@@ -251,13 +251,6 @@ function SessionsPage() {
                         })}
                         onNewSessionInDirectory={handleNewSessionInDirectory}
                         onBrowse={canBrowse ? () => navigate({ to: '/browse' }) : undefined}
-                        onContinueInFolder={(session) => navigate({
-                            to: '/browse',
-                            search: {
-                                continueFromSessionId: session.id,
-                                ...(session.metadata?.machineId ? { machineId: session.metadata.machineId } : {}),
-                            },
-                        })}
                         onRefresh={handleRefresh}
                         isLoading={isLoading}
                         renderHeader={false}

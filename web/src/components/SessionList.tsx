@@ -1180,7 +1180,6 @@ function FreshChatItem({ conversation }: { conversation: ExternalConversation })
 function SessionItem(props: {
     session: SessionSummary
     onSelect: (sessionId: string) => void
-    onContinueInFolder?: (session: SessionSummary) => void
     showPath?: boolean
     api: ApiClient | null
     titleSuggestionAvailable?: boolean
@@ -1199,7 +1198,6 @@ function SessionItem(props: {
     const {
         session: s,
         onSelect,
-        onContinueInFolder,
         showPath = true,
         api,
         titleSuggestionAvailable = false,
@@ -1368,7 +1366,6 @@ function SessionItem(props: {
                 onRename={() => setRenameOpen(true)}
                 onExport={() => setExportOpen(true)}
                 onMarkUnread={() => markSessionUnread(s.id, getSessionUnreadActivityAt(s))}
-                onContinueInFolder={onContinueInFolder ? () => onContinueInFolder(s) : undefined}
                 onRestart={cursorReopenDisabledReason ? undefined : () => setRestartOpen(true)}
                 onPark={s.active && !cursorReopenDisabledReason ? () => setParkOpen(true) : undefined}
                 onArchive={() => setArchiveOpen(true)}
@@ -1514,7 +1511,6 @@ export function SessionList(props: {
     onNewSession: () => void
     onNewSessionInDirectory?: (args: { machineId: string | null; directory: string }) => void
     onBrowse?: () => void
-    onContinueInFolder?: (session: SessionSummary) => void
     onRefresh: () => Promise<unknown> | void
     isLoading: boolean
     renderHeader?: boolean
@@ -1991,7 +1987,6 @@ export function SessionList(props: {
             key={key ?? s.id}
             session={s}
             onSelect={props.onSelect}
-            onContinueInFolder={props.onContinueInFolder}
             showPath={false}
             api={api}
             titleSuggestionAvailable={titleSuggestionAvailable}
@@ -2128,7 +2123,6 @@ export function SessionList(props: {
                                     key={session.id}
                                     session={session}
                                     onSelect={props.onSelect}
-                                    onContinueInFolder={props.onContinueInFolder}
                                     showPath={false}
                                     api={api}
                                     titleSuggestionAvailable={titleSuggestionAvailable}
@@ -2240,7 +2234,6 @@ export function SessionList(props: {
                                 <SessionItem
                                     session={s}
                                     onSelect={props.onSelect}
-                                    onContinueInFolder={props.onContinueInFolder}
                                     showPath={false}
                                     api={api}
                                     titleSuggestionAvailable={titleSuggestionAvailable}
@@ -2665,7 +2658,6 @@ export function SessionList(props: {
                                             key={s.id}
                                             session={s}
                                             onSelect={props.onSelect}
-                                            onContinueInFolder={props.onContinueInFolder}
                                             showPath={false}
                                             api={api}
                                             titleSuggestionAvailable={titleSuggestionAvailable}

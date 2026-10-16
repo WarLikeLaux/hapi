@@ -378,11 +378,11 @@ describe('SessionActionMenu - external review actions', () => {
             createExternalReviewUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new',
         })
 
-        expect(screen.getByRole('menuitem', { name: 'Open MR' })).toHaveAttribute(
+        expect(screen.getByRole('menuitem', { name: 'Open PR' })).toHaveAttribute(
             'href',
             'https://gitlab.example.test/group/project/-/merge_requests/1'
         )
-        expect(screen.queryByRole('menuitem', { name: 'Create MR' })).toBeNull()
+        expect(screen.queryByRole('menuitem', { name: 'Create PR' })).toBeNull()
     })
 
     it('offers review creation when no external review is attached', () => {
@@ -392,7 +392,7 @@ describe('SessionActionMenu - external review actions', () => {
             onClose,
         })
 
-        const createAction = screen.getByRole('menuitem', { name: 'Create MR' })
+        const createAction = screen.getByRole('menuitem', { name: 'Create PR' })
         expect(createAction).toHaveAttribute(
             'href',
             'https://gitlab.example.test/group/project/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature'
