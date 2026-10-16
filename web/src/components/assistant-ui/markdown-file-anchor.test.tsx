@@ -97,7 +97,7 @@ describe('chat file anchors with an external editor', () => {
         fireEvent.click(link)
 
         await waitFor(() => expect(openSpy).toHaveBeenCalledWith(
-            'https://code.local/?folder=/home/shandori/code/proj/models',
+            'https://code.local/?folder=/home/shandori/code/proj/models#hapi-focus',
             'hapi-code-home-shandori-code-proj-models'
         ))
         // No navigation of the loaded tab, no closing: the mock tab starts
@@ -117,7 +117,7 @@ describe('chat file anchors with an external editor', () => {
         fireEvent.click(link)
 
         await waitFor(() => expect(openSpy).toHaveBeenCalledWith(
-            'https://code.local/?folder=/home/shandori/code/proj/models',
+            'https://code.local/?folder=/home/shandori/code/proj/models#hapi-focus',
             'hapi-code-home-shandori-code-proj-models'
         ))
         await waitFor(() => {

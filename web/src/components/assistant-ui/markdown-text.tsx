@@ -570,12 +570,14 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & {
         if (!externalEditorBaseUrl || !app || !filePath.startsWith('/')) return
         event.preventDefault()
         // No throwaway placeholder: synchronously focus (or open) the named
-        // editor tab for THIS project on its folder URL, then ask the hub to
-        // open the file in the live window via the mailbox. Tab names are
-        // per-project, so other projects' tabs are never touched. Opening an
-        // already-open tab with the identical URL only focuses it (no reload,
-        // no beforeunload prompt). Only when no window holds the project does
-        // this same tab navigate to the payload URL. Nothing is ever closed.
+        // editor tab for THIS project, then ask the hub to open the file in
+        // the live window via the mailbox. Tab names are per-project, so
+        // other projects' tabs are never touched. The sync open carries only
+        // a fragment (#hapi-focus) on top of the folder URL: focusing an
+        // already-open tab this way never reloads it and never trips
+        // beforeunload, while a missing tab boots straight into the folder.
+        // Only when no window holds the project does this same tab navigate
+        // to the payload URL. Nothing is ever closed.
         let base: URL
         let folder: string
         try {
@@ -586,7 +588,8 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & {
         }
         const baseRoot = `${base.origin}${base.pathname.replace(/\/+$/, '')}`
         const tabName = editorTabName(folder)
-        const editorTab = window.open(buildExternalEditorFolderUrl(baseRoot, folder), tabName)
+        const folderUrl = `${buildExternalEditorFolderUrl(baseRoot, folder)}#hapi-focus`
+        const editorTab = window.open(folderUrl, tabName)
         if (!editorTab) return
         try { editorTab.focus() } catch { /* ignore */ }
         void (async () => {
