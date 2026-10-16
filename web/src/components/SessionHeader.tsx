@@ -94,12 +94,11 @@ function headerToggleClass(active: boolean): string {
     }`
 }
 
-/** Solid prompt mark in the codicons 16-grid — matches the filled header icon row. */
+/** Command mark (lucide), green — agent terminal toggle. */
 function TerminalIcon(props: { className?: string }) {
     return (
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={props.className ?? 'h-[20px] w-[20px]'}>
-            <path d="M3.2 2.4 9.2 7 3.2 11.6 3.2 9.9 7.4 7 3.2 4.1Z" />
-            <path d="M3.2 12.6H10.7V14.3H3.2Z" />
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#3FB950" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className={props.className ?? 'h-[20px] w-[20px]'}>
+            <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
         </svg>
     )
 }
