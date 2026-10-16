@@ -56,7 +56,7 @@ export function resolveSessionHeaderMachineLabel(
     return null
 }
 
-/** Open folder mark (vscode-codicons), amber — files panel toggle. */
+/** Solid amber folder slab — files panel toggle. */
 function FilesIcon(props: { className?: string }) {
     return (
         <svg
@@ -65,12 +65,12 @@ function FilesIcon(props: { className?: string }) {
             fill="#E3B341"
             className={props.className ?? 'h-[20px] w-[20px]'}
         >
-            <path d="M2 4.5V9.10022L2.92389 7.5C3.45979 6.5718 4.45017 6 5.52196 6L11.9146 6C11.7087 5.4174 11.1531 5 10.5 5H7C6.86739 5 6.74021 4.94732 6.64645 4.85355L4.93934 3.14645C4.84557 3.05268 4.71839 3 4.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM7.06895 13.9953C7.04641 13.9984 7.02339 14 7 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5C1 3.11929 2.11929 2 3.5 2H4.58579C4.98361 2 5.36514 2.15804 5.64645 2.43934L7.20711 4H10.5C11.724 4 12.7426 4.87965 12.958 6.04127C14.605 6.34148 15.5443 8.22106 14.6616 9.75L13.0766 12.4953C12.5407 13.4235 11.5503 13.9953 10.4785 13.9953H7.06895ZM5.52196 7C4.80743 7 4.14718 7.3812 3.78991 8L2.20492 10.7453C1.62757 11.7453 2.34926 12.9953 3.50396 12.9953L10.4785 12.9953C11.193 12.9953 11.8533 12.6141 12.2105 11.9953L13.7955 9.25C14.3729 8.25 13.6512 7 12.4965 7L5.52196 7Z" />
+            <path d="M2 3.2C2 2.5 2.5 2 3.2 2H5.7C6 2 6.3 2.1 6.5 2.4L7.7 3.8C7.9 4.1 8.2 4.2 8.5 4.2H12.8C13.5 4.2 14 4.7 14 5.4V11.8C14 12.5 13.5 13 12.8 13H3.2C2.5 13 2 12.5 2 11.8V3.2Z" />
         </svg>
     )
 }
 
-/** Structure blocks mark (vscode-codicons), violet — outline panel toggle. */
+/** Solid violet blocks — outline panel toggle. */
 function OutlineIcon(props: { className?: string }) {
     return (
         <svg
@@ -79,9 +79,9 @@ function OutlineIcon(props: { className?: string }) {
             fill="#BC8CFF"
             className={props.className ?? 'h-[20px] w-[20px]'}
         >
-            <path fill-rule="evenodd" clip-rule="evenodd" d="M1 3C1 2.44772 1.44772 2 2 2H14C14.5523 2 15 2.44772 15 3V6C15 6.55228 14.5523 7 14 7H2C1.44772 7 1 6.55228 1 6V3ZM2 3H14V6H2L2 3Z" />
-            <path fill-rule="evenodd" clip-rule="evenodd" d="M2 9C1.44772 9 1 9.44772 1 10V13C1 13.5523 1.44772 14 2 14H5C5.55228 14 6 13.5523 6 13V10C6 9.44772 5.55228 9 5 9H2ZM5 10H2V13H5V10Z" />
-            <path fill-rule="evenodd" clip-rule="evenodd" d="M11 9C10.4477 9 10 9.44772 10 10V13C10 13.5523 10.4477 14 11 14H14C14.5523 14 15 13.5523 15 13V10C15 9.44772 14.5523 9 14 9H11ZM14 10H11V13H14V10Z" />
+            <rect x="1.5" y="2" width="13" height="4.6" rx="1" />
+            <rect x="1.5" y="7.8" width="5.6" height="6.2" rx="1" />
+            <rect x="8.9" y="7.8" width="5.6" height="6.2" rx="1" />
         </svg>
     )
 }
