@@ -13,7 +13,7 @@ import { safeCopyToClipboard } from '@/lib/clipboard'
 import { buildSessionReferenceText } from '@/lib/sessionReference'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
-import { CodeIcon, CopyIcon } from '@/components/icons'
+import { CodeIcon, CopyIcon, GitLabIcon } from '@/components/icons'
 import { SESSION_CONTEXTS, type SessionContextId } from '@/lib/sessionContexts'
 
 type SessionActionMenuProps = {
@@ -185,21 +185,6 @@ function SyncIcon(props: { className?: string }) {
             <path d="M21 3v5h-5" />
             <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
             <path d="M3 21v-5h5" />
-        </svg>
-    )
-}
-
-function ExternalReviewIcon(props: { className?: string }) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            className={props.className}>
-            <circle cx="6" cy="5" r="2" />
-            <circle cx="6" cy="19" r="2" />
-            <circle cx="18" cy="5" r="2" />
-            <path d="M6 7v10" />
-            <path d="M18 7v3a4 4 0 0 1-4 4H9" />
-            <path d="m11 11-3 3 3 3" />
         </svg>
     )
 }
@@ -634,7 +619,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
                         onClick={onClose}
                     >
-                        <ExternalReviewIcon className="text-[var(--app-hint)]" />
+                        <GitLabIcon className="h-[18px] w-[18px] text-[var(--app-hint)]" />
                         {t('session.action.openExternalReview')}
                     </a>
                 ) : createExternalReviewUrl ? (
@@ -646,7 +631,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
                         onClick={onClose}
                     >
-                        <ExternalReviewIcon className="text-[var(--app-hint)]" />
+                        <GitLabIcon className="h-[18px] w-[18px] text-[var(--app-hint)]" />
                         {t('session.action.createExternalReview')}
                     </a>
                 ) : null}

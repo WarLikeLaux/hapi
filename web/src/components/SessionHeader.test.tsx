@@ -126,11 +126,11 @@ describe('SessionHeader', () => {
         renderHeaderWithApi(baseSession({ metadata: {
             path: '/repo', host: 'machine',
         } }), api, client)
-        expect(await screen.findByRole('link', { name: 'Open MR' })).toHaveAttribute(
+        expect(await screen.findByRole('link', { name: 'Open PR' })).toHaveAttribute(
             'href', 'https://gitlab.example.test/group/project/-/merge_requests/7'
         )
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        expect(screen.getByRole('menuitem', { name: 'Open MR' })).toHaveAttribute(
+        expect(screen.getByRole('menuitem', { name: 'Open PR' })).toHaveAttribute(
             'href', 'https://gitlab.example.test/group/project/-/merge_requests/7'
         )
 
@@ -139,9 +139,9 @@ describe('SessionHeader', () => {
             createMergeRequestUrl: 'https://gitlab.example.test/group/project/-/merge_requests/new',
         })
         await act(async () => { await client.invalidateQueries() })
-        await waitFor(() => expect(screen.queryByRole('link', { name: 'Open MR' })).not.toBeInTheDocument())
-        expect(screen.queryByRole('menuitem', { name: 'Open MR' })).not.toBeInTheDocument()
-        expect(screen.getByRole('menuitem', { name: 'Create MR' })).toHaveAttribute(
+        await waitFor(() => expect(screen.queryByRole('link', { name: 'Open PR' })).not.toBeInTheDocument())
+        expect(screen.queryByRole('menuitem', { name: 'Open PR' })).not.toBeInTheDocument()
+        expect(screen.getByRole('menuitem', { name: 'Create PR' })).toHaveAttribute(
             'href', 'https://gitlab.example.test/group/project/-/merge_requests/new'
         )
     })
@@ -174,7 +174,7 @@ describe('SessionHeader', () => {
         )
 
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        const link = await screen.findByRole('menuitem', { name: 'Create MR' })
+        const link = await screen.findByRole('menuitem', { name: 'Create PR' })
         expect(link).toHaveAttribute('href', createMergeRequestUrl)
         expect(link).toHaveAttribute('target', '_blank')
         expect(sendMessage).not.toHaveBeenCalled()

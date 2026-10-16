@@ -35,7 +35,7 @@ import { markSessionUnread } from '@/lib/sessionLastSeen'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useNavigate } from '@tanstack/react-router'
 import { useSessionGitBranch, useSessionGitLabCreateMergeRequestUrl, useSessionGitLabMergeRequestUrl } from '@/hooks/queries/useSessionGitBranch'
-import { CodeIcon } from '@/components/icons'
+import { CodeIcon, GitLabIcon } from '@/components/icons'
 
 /** Same preference order as session-list chips: display label → host → short id. */
 export function resolveSessionHeaderMachineLabel(
@@ -113,24 +113,6 @@ function TerminalIcon(props: { className?: string }) {
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
             <polyline points="4 17 10 11 4 5" />
             <line x1="12" y1="19" x2="20" y2="19" />
-        </svg>
-    )
-}
-
-/** GitLab tanuki silhouette in the theme color — external review button. */
-function MergeRequestIcon(props: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 32 32"
-            fill="currentColor"
-            className={props.className}
-        >
-            <path d="m31.46 12.78-.04-.12-4.35-11.35A1.14 1.14 0 0 0 25.94.6c-.24 0-.47.1-.66.24-.19.15-.33.36-.39.6l-2.94 9h-11.9l-2.94-9A1.14 1.14 0 0 0 6.07.58a1.15 1.15 0 0 0-1.14.72L.58 12.68l-.05.11a8.1 8.1 0 0 0 2.68 9.34l.02.01.04.03 6.63 4.97 3.28 2.48 2 1.52a1.35 1.35 0 0 0 1.62 0l2-1.52 3.28-2.48 6.67-5h.02a8.09 8.09 0 0 0 2.7-9.36Z" />
-            <path d="m31.46 12.78-.04-.12a14.75 14.75 0 0 0-5.86 2.64l-9.55 7.24 6.09 4.6 6.67-5h.02a8.09 8.09 0 0 0 2.67-9.36Z" opacity=".65" />
-            <path d="M6.44 15.3a14.71 14.71 0 0 0-5.86-2.63l-.05.12a8.1 8.1 0 0 0 2.68 9.34l.02.01.04.03 6.63 4.97 6.1-4.6-9.56-7.24Z" opacity=".65" />
         </svg>
     )
 }
@@ -683,7 +665,7 @@ export function SessionHeader(props: {
                                 aria-label={t('session.action.openExternalReview')}
                                 data-testid="session-header-open-external-review"
                             >
-                                <MergeRequestIcon />
+                                <GitLabIcon className="h-[20px] w-[20px]" />
                             </a>
                         ) : null}
 
