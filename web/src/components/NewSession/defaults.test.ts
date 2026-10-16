@@ -29,6 +29,20 @@ describe('new session defaults', () => {
             .toEqual(['codex', 'claude', 'agy', 'opencode', 'cursor', 'grok', 'pi', 'minimax'])
     })
 
+    it('prefers a recent hapi directory over the workspace root', () => {
+        expect(resolveDefaultMachineDirectory(machine({
+            host: 'host',
+            platform: 'linux',
+            happyCliVersion: '1.0.0',
+            workspaceRoots: ['/home/shandori/code'],
+            homeDir: '/home/shandori'
+        }), [
+            '/home/shandori/code',
+            '/home/shandori/code/hapi/',
+            '/home/shandori/code/anime'
+        ])).toBe('/home/shandori/code/hapi/')
+    })
+
     it('prefers the runner workspace root over recent paths and home', () => {
         expect(resolveDefaultMachineDirectory(machine({
             host: 'host',
