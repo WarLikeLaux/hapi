@@ -1,6 +1,5 @@
 import { getAgentConfigDescriptor, type PiThinkingLevelMap } from '@hapi/protocol'
 import { getPiThinkingLevelOptions } from '@/components/AssistantChat/piThinkingLevelOptions'
-import { formatCodexReasoningEffortLabel, getCodexComposerReasoningEffortOptions } from '@/components/AssistantChat/codexReasoningEffortOptions'
 import { useTranslation } from '@/lib/use-translation'
 import { SelectControl } from '@/components/ui/select-control'
 import type { AgentType, CodexReasoningEffort, LaunchEffort } from './types'
@@ -17,10 +16,6 @@ export type EffortFieldProps = {
     isDisabled: boolean
     /** Model-dependent launch-effort options (Grok). */
     grokOptions?: Array<{ value: string; label: string }>
-    /** Model-dependent reasoning-effort options (Codex). */
-    codexReasoningOptions?: Array<{ value: string; name?: string }>
-    /** The effort codex's own config uses by default — the no-pick option is named after it (Codex). */
-    codexDefaultReasoningEffort?: string | null
     /** Model-dependent variant values from the OpenCode catalog (OpenCode). Array = dynamic list, [] = hide field, null/undefined = static fallback. */
     opencodeVariantOptions?: string[] | null
     /** Selected Pi model — hides effort when the model cannot reason and filters levels via thinkingLevelMap. */
@@ -36,17 +31,21 @@ export type EffortFieldProps = {
  * - Grok: model-dependent launch-effort levels.
  * - Pi: model-dependent thinking levels (filtered by the selected model's
  *   thinkingLevelMap; hidden when the model cannot reason).
- * - Codex / OpenCode: model-dependent reasoning-effort levels.
+ * - OpenCode: model-dependent reasoning-effort levels.
+ * Codex has no picker: its CLI config always runs high.
  */
 export function EffortField(props: EffortFieldProps) {
     const { t } = useTranslation()
+    if (props.agent === 'codex') {
+        return null
+    }
     const descriptor = getAgentConfigDescriptor(props.agent)
     const field = descriptor.fields.find((candidate) => candidate.id === 'effort')
     if (!field) {
         return null
     }
 
-    const isReasoningEffort = props.agent === 'codex' || props.agent === 'opencode'
+    const isReasoningEffort = props.agent === 'opencode'
 
     let options: Array<{ value: string; label: string }>
     if (props.agent === 'grok') {
@@ -60,45 +59,16 @@ export function EffortField(props: EffortFieldProps) {
             ...getPiThinkingLevelOptions(props.effort, props.piSelectedModel?.thinkingLevelMap)
         ]
     } else if (isReasoningEffort) {
-        const modelOptions = props.agent === 'codex'
-            ? (props.codexReasoningOptions?.length
-                ? getCodexComposerReasoningEffortOptions(null, props.agent, props.codexReasoningOptions).map((option) => ({
-                    value: option.value ?? 'default',
-                    label: option.label
-                }))
-                : undefined)
-            : undefined
-        if (props.agent === 'codex' && modelOptions) {
-            // The no-pick option launches the effort codex's own config uses by
-            // default, so it is named after that effort, and the explicit row
-            // for the same effort is skipped unless the user pinned it.
-            const defaultEffort = props.codexDefaultReasoningEffort?.trim().toLowerCase() || null
-            options = [
-                {
-                    value: 'default',
-                    label: defaultEffort
-                        ? formatCodexReasoningEffortLabel(defaultEffort)
-                        : t('newSession.model.default')
-                },
-                ...modelOptions.filter((option) => option.value !== 'default'
-                    && (option.value !== defaultEffort || props.reasoningEffort === option.value))
-            ]
-        } else if (props.agent === 'opencode') {
-            if (props.opencodeVariantOptions !== undefined && props.opencodeVariantOptions !== null) {
-                if (props.opencodeVariantOptions.length === 0) {
-                    return null
-                }
-                options = [
-                    { value: 'default', label: t('newSession.model.default') },
-                    ...props.opencodeVariantOptions.map((variant) => ({ value: variant, label: variant }))
-                ]
-            } else {
-                options = CODEX_REASONING_EFFORT_OPTIONS.filter((option) => option.value !== 'xhigh')
+        if (props.opencodeVariantOptions !== undefined && props.opencodeVariantOptions !== null) {
+            if (props.opencodeVariantOptions.length === 0) {
+                return null
             }
+            options = [
+                { value: 'default', label: t('newSession.model.default') },
+                ...props.opencodeVariantOptions.map((variant) => ({ value: variant, label: variant }))
+            ]
         } else {
-            options = modelOptions ?? CODEX_REASONING_EFFORT_OPTIONS.filter(
-                (option) => option.value !== 'max'
-            )
+            options = CODEX_REASONING_EFFORT_OPTIONS.filter((option) => option.value !== 'xhigh')
         }
     } else {
         options = CLAUDE_EFFORT_OPTIONS

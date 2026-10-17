@@ -420,14 +420,14 @@ describe('HappyComposer generic model/effort value buttons', () => {
         expect(screen.getByText('Sonnet 4 (High)')).toBeTruthy()
     })
 
-    it('opens the full sheet with Reasoning Effort from the gear for Codex', () => {
+    it('opens the Codex settings sheet without a reasoning-effort picker', () => {
         renderComposer('codex', {
             modelReasoningEffort: 'high',
             onModelReasoningEffortChange: vi.fn(),
             availableModelReasoningEffortOptions: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }],
         })
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-        expect(screen.getByText('Reasoning Effort')).toBeTruthy()
+        expect(screen.queryByText('Reasoning Effort')).toBeNull()
         expect(screen.getByText('Model')).toBeTruthy()
     })
 

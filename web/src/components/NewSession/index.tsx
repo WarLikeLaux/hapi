@@ -483,16 +483,6 @@ export function NewSession(props: {
         () => getCodexModelReasoningEfforts(codexModelsState.models, model),
         [codexModelsState.models, model]
     )
-    // The effort codex's config uses by default — named on the no-pick option.
-    const codexDefaultReasoningEffort = useMemo(
-        () => resolveCodexModel(codexModelsState.models, 'auto')?.defaultReasoningEffort ?? null,
-        [codexModelsState.models]
-    )
-    const codexReasoningEffortOptions = useMemo(
-        () => codexSupportedReasoningEfforts?.map((value) => ({ value })),
-        [codexSupportedReasoningEfforts]
-    )
-
     useEffect(() => {
         if (
             agent !== 'codex'
@@ -2380,8 +2370,6 @@ export function NewSession(props: {
                     onReasoningEffortChange={setModelReasoningEffort}
                     isDisabled={isFormDisabled || (agent === 'codex' && codexModelsState.isLoading)}
                     grokOptions={agent === 'grok' ? grokEffortOptions : undefined}
-                    codexReasoningOptions={agent === 'codex' ? codexReasoningEffortOptions : undefined}
-                    codexDefaultReasoningEffort={agent === 'codex' ? codexDefaultReasoningEffort : undefined}
                     opencodeVariantOptions={agent === 'opencode' ? opencodeVariantOptions : undefined}
                     piSelectedModel={agent === 'pi' ? piSelectedModel : null}
                 />
