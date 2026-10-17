@@ -38,6 +38,7 @@ import { usePlatform } from '@/hooks/usePlatform'
 import { useNavigate } from '@tanstack/react-router'
 import { useSessionGitBranch, useSessionGitLabCreateMergeRequestUrl, useSessionGitLabMergeRequestUrl } from '@/hooks/queries/useSessionGitBranch'
 import { CodeIcon, GitLabIcon } from '@/components/icons'
+import { buildExternalEditorFolderUrl } from '@/lib/external-editor-url'
 
 function GitBranchIcon() {
     return (
@@ -230,9 +231,8 @@ export function SessionHeader(props: {
     const externalReviewUrl = useSessionGitLabMergeRequestUrl(api, session.id, session.active, Boolean(api), gitBranchScope)
     const codeOpenUrl = useMemo(() => {
         if (!session.metadata?.path) return null
-        const url = new URL(import.meta.env.VITE_CODE_SERVER_URL || 'https://code.local')
-        url.searchParams.set('folder', session.metadata.path)
-        return url.toString()
+        const baseUrl = (import.meta.env.VITE_CODE_SERVER_URL || 'https://code.local').replace(/\/+$/, '')
+        return buildExternalEditorFolderUrl(baseUrl, session.metadata.path)
     }, [session.metadata?.path])
     const modelLabel = useSessionModelLabel({ session, api })
     const isModelChanging = useIsMutating({
