@@ -147,7 +147,7 @@ function ModelBadges(props: {
             <span className="text-xs font-medium text-[var(--app-hint)]">
                 {props.label ?? t('newSession.model')}
             </span>
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="flex flex-wrap items-center gap-2">
                 <QuickPickChips
                     options={props.options}
                     activeValue={props.activeValue}
@@ -2207,7 +2207,7 @@ export function NewSession(props: {
                             <span className="text-xs font-medium text-[var(--app-hint)]">
                                 {t('newSession.model')}
                             </span>
-                            <div className="flex flex-wrap items-center gap-1">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <QuickPickChips
                                     options={hardcodedCursorOptions}
                                     activeValue={cursorSpeedOptions?.standard ?? CURSOR_GROK_XHIGH_WIRE}
