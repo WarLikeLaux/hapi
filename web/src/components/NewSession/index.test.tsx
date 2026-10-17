@@ -1060,20 +1060,46 @@ describe('NewSession launch preferences', () => {
         client.clear()
     })
 
-    it('reveals the full opencode catalog behind the load-other-models hatch', async () => {
+    it('launches an explicitly selected opencode catalog model while keeping the quick picks available', async () => {
         savePreferredAgent('opencode')
+        mocks.opencodeModels = [{ modelId: 'provider/model', name: 'Other model' }]
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'catalog-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         expect(screen.queryByTestId('opencode-model')).toBeNull()
         fireEvent.click(screen.getByRole('button', { name: 'newSession.model.loadOptions' }))
         await waitFor(() => expect(screen.getByTestId('opencode-model')).toBeInTheDocument())
+        fireEvent.click(screen.getByTestId('opencode-model-pick'))
+        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 Contributor' })).toHaveAttribute('aria-pressed', 'false')
+        expect(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash' })).toHaveAttribute('aria-pressed', 'false')
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'opencode', model: 'provider/model'
+        })))
+    })
+
+    it('launches DeepSeek V4.1 Flash from the quick pick even when the discovered catalog omits it', async () => {
+        savePreferredAgent('opencode')
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'deepseek-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+
+        fireEvent.click(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash' }))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash' })).toHaveAttribute('aria-pressed', 'true'))
+        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 Contributor' })).toHaveAttribute('aria-pressed', 'false')
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'opencode', model: 'opencode-go/deepseek-v4.1-flash'
+        })))
     })
 
     it('launches opencode with the hardcoded badge and an explicit Default, omitting the model', async () => {
         savePreferredAgent('opencode')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'opencode-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        // No dropdown: the badge is the whole model UI.
+        // Returning from an explicit model to Muse restores the native default.
         await waitFor(() => expect(screen.getByRole('button', { name: 'Muse Spark 1.3 Contributor' })).toBeInTheDocument())
+        fireEvent.click(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Muse Spark 1.3 Contributor' }))
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('opencode-session'))
