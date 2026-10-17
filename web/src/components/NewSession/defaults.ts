@@ -1,4 +1,5 @@
 import type { Machine } from '@/types/api'
+import { basename } from '@/utils/path'
 import type { AgentType } from './types'
 
 // Display order for the Create Session agent picker: Codex, GLM (the claude
@@ -31,6 +32,11 @@ export function resolveDefaultMachineDirectory(
     machine: Machine,
     recentPaths: readonly string[]
 ): string {
+    const hapiPath = recentPaths
+        .map((path) => path.trim())
+        .find((path) => path.length > 0 && basename(path) === 'hapi')
+    if (hapiPath) return hapiPath
+
     const workspaceRoot = machine.metadata?.workspaceRoots
         ?.find((path) => path.trim().length > 0)
         ?.trim()
