@@ -2,6 +2,7 @@ import {
     ConfigureTelegramRequestSchema,
     ConfigureYandexRequestSchema,
     ConfigureMaxRequestSchema,
+    isMessengerProviderEnabled,
     EditExternalMessageRequestSchema,
     PressExternalMessageButtonRequestSchema,
     SelectMessengerConversationsRequestSchema,
@@ -35,6 +36,13 @@ function inlineContentDisposition(fileName: string): string {
 
 export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
+
+    app.use('/messengers/:provider/*', async (c, next) => {
+        if (!isMessengerProviderEnabled(c.req.param('provider') ?? '')) {
+            return c.json({ error: 'Messenger provider is disabled' }, 404)
+        }
+        return next()
+    })
 
     app.get('/messengers/yandex/stickers', async (c) => {
         try {

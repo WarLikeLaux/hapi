@@ -17,7 +17,7 @@ import type { SSEManager } from '../sse/sseManager'
 import { TelegramConnector } from './telegramConnector'
 import { YandexConnector } from './yandex/yandexConnector'
 import { MaxConnector } from './max/maxConnector'
-import { ConfigureMaxRequestSchema } from '@hapi/protocol'
+import { ConfigureMaxRequestSchema, isMessengerProviderEnabled } from '@hapi/protocol'
 import type { DownloadedExternalMedia, MessengerConnector, MessengerConnectorEvent, MessengerConnectorFactory } from './types'
 
 type MediaPrefetchTask = {
@@ -106,10 +106,13 @@ export class MessengerManager {
     }) {
         this.factories.set('telegram', (connectorOptions) => new TelegramConnector(connectorOptions))
         this.factories.set('yandex', (connectorOptions) => new YandexConnector(connectorOptions))
-        this.factories.set('max', (connectorOptions) => new MaxConnector(connectorOptions))
+        if (isMessengerProviderEnabled('max')) {
+            this.factories.set('max', (connectorOptions) => new MaxConnector(connectorOptions))
+        }
     }
 
     registerConnectorFactory(provider: string, factory: MessengerConnectorFactory): void {
+        this.assertProviderEnabled(provider)
         if (!provider.trim()) throw new Error('Messenger provider is required')
         if (this.factories.has(provider)) throw new Error(`Messenger provider already exists: ${provider}`)
         this.factories.set(provider, factory)
@@ -153,6 +156,7 @@ export class MessengerManager {
     }
 
     async listCandidates(namespace: string, provider: string, forceRefresh = false): Promise<ExternalConversation[]> {
+        this.assertProviderEnabled(provider)
         const cached = this.cachedCandidates(namespace, provider)
         const syncKey = this.key(namespace, provider)
         const initialized = this.candidateSyncedAt.has(syncKey)
@@ -171,6 +175,7 @@ export class MessengerManager {
 
     listConversations(namespace: string): ExternalConversation[] {
         const conversations = this.options.store.messengers.listConversations(namespace, true)
+            .filter((conversation) => isMessengerProviderEnabled(conversation.provider))
         this.maybeLazyRefreshAvatars(namespace, conversations)
         return conversations.map(repairAvatarUrl)
     }
@@ -213,19 +218,20 @@ export class MessengerManager {
     }
 
     listParticipants(namespace: string, conversationId: string): ExternalParticipant[] {
+        if (!this.getAvailableConversation(namespace, conversationId)) throw new Error('Conversation not found')
         return this.options.store.messengers.listParticipants(namespace, conversationId)
     }
 
     setConversationAlias(namespace: string, conversationId: string, name: string | null): ExternalConversation {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation) throw new Error('Conversation not found')
         this.options.store.messengers.setConversationAlias(namespace, conversationId, name)
         this.options.sseManager.broadcast({ type: 'external-conversation-updated', namespace, conversationId })
-        return this.options.store.messengers.getConversation(namespace, conversationId)!
+        return this.getAvailableConversation(namespace, conversationId)!
     }
 
     setParticipantAlias(namespace: string, conversationId: string, participantId: string, name: string | null): ExternalParticipant {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation) throw new Error('Conversation not found')
         this.options.store.messengers.setParticipantAlias(namespace, conversationId, participantId, name)
         this.options.sseManager.broadcast({ type: 'external-message-updated', namespace, conversationId })
@@ -236,6 +242,7 @@ export class MessengerManager {
     }
 
     async selectConversations(namespace: string, provider: string, remoteIds: string[]): Promise<ExternalConversation[]> {
+        this.assertProviderEnabled(provider)
         let remote = this.options.store.messengers.listConversations(namespace, false)
             .filter((conversation) => conversation.provider === provider)
         const cachedIds = new Set(remote.map((conversation) => conversation.remoteId))
@@ -343,7 +350,7 @@ export class MessengerManager {
         conversationId: string,
         options: { markRead?: boolean; refresh?: boolean } = {}
     ): Promise<ExternalMessage[]> {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         const cached = this.options.store.messengers.listMessages(namespace, conversationId)
         if (options.markRead !== false) {
@@ -423,7 +430,7 @@ export class MessengerManager {
         clientId?: string,
         replyToProviderMessageId?: string
     ): Promise<void> {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         if (replyToProviderMessageId && !this.options.store.messengers.hasMessage(namespace, conversationId, replyToProviderMessageId)) {
             throw new Error('Message not found')
@@ -435,7 +442,7 @@ export class MessengerManager {
     }
 
     private requireOwnMessage(namespace: string, conversationId: string, providerMessageId: string) {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         const message = this.options.store.messengers.listMessages(namespace, conversationId, 200)
             .find((item) => item.providerMessageId === providerMessageId)
@@ -464,7 +471,7 @@ export class MessengerManager {
     }
 
     async sendSticker(namespace: string, conversationId: string, input: SendExternalStickerRequest): Promise<void> {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         if (input.replyToProviderMessageId && !this.options.store.messengers.hasMessage(namespace, conversationId, input.replyToProviderMessageId)) {
             throw new Error('Message not found')
@@ -482,7 +489,7 @@ export class MessengerManager {
         providerMessageId: string,
         reactions: string[]
     ): Promise<void> {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         if (!this.options.store.messengers.hasMessage(namespace, conversationId, providerMessageId)) {
             throw new Error('Message not found')
@@ -498,7 +505,7 @@ export class MessengerManager {
         providerMessageId: string,
         buttonId: string
     ): Promise<{ message: string | null }> {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         const message = this.options.store.messengers.listMessages(namespace, conversationId, 200)
             .find((item) => item.providerMessageId === providerMessageId)
@@ -523,7 +530,7 @@ export class MessengerManager {
         providerMessageId: string,
         mediaIndex: number
     ): Promise<DownloadedExternalMedia> {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         const message = this.options.store.messengers.listMessages(namespace, conversationId, 200)
             .find((item) => item.providerMessageId === providerMessageId)
@@ -538,7 +545,7 @@ export class MessengerManager {
         conversationId: string,
         documentId: number
     ): Promise<DownloadedExternalMedia> {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         const connector = await this.requireConnector(namespace, conversation.provider)
         if (!connector.downloadCustomEmoji) throw new Error('Custom emoji is not supported by this provider')
@@ -553,7 +560,7 @@ export class MessengerManager {
         clientId?: string
         replyToProviderMessageId?: string
     }): Promise<void> {
-        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        const conversation = this.getAvailableConversation(namespace, conversationId)
         if (!conversation?.selected) throw new Error('Conversation not found')
         if (input.replyToProviderMessageId && !this.options.store.messengers.hasMessage(namespace, conversationId, input.replyToProviderMessageId)) {
             throw new Error('Message not found')
@@ -587,6 +594,15 @@ export class MessengerManager {
         this.mediaPrefetchPausedUntil.clear()
         await Promise.all(Array.from(this.connectors.values(), (connector) => connector.stop()))
         this.connectors.clear()
+    }
+
+    private assertProviderEnabled(provider: string): void {
+        if (!isMessengerProviderEnabled(provider)) throw new Error('Messenger provider is disabled')
+    }
+
+    private getAvailableConversation(namespace: string, conversationId: string): ExternalConversation | null {
+        const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+        return conversation && isMessengerProviderEnabled(conversation.provider) ? conversation : null
     }
 
     private key(namespace: string, provider: string): string {
@@ -755,6 +771,7 @@ export class MessengerManager {
     }
 
     private async getOrCreate(namespace: string, provider: string): Promise<MessengerConnector> {
+        this.assertProviderEnabled(provider)
         const key = this.key(namespace, provider)
         const existing = this.connectors.get(key)
         if (existing) return existing
@@ -879,11 +896,12 @@ export class MessengerManager {
  * case where the user opens a chat whose `unreadCount` is stale).
  */
  async setConversationOpen(namespace: string, conversationId: string, isOpen: boolean): Promise<void> {
+ if (!this.getAvailableConversation(namespace, conversationId)) throw new Error('Conversation not found')
  const key = this.openConversationKey(namespace, conversationId)
  if (isOpen) {
  if (this.openConversations.has(key)) return
  this.openConversations.add(key)
- const conversation = this.options.store.messengers.getConversation(namespace, conversationId)
+ const conversation = this.getAvailableConversation(namespace, conversationId)
  if (conversation) await this.markReadForConversation(namespace, conversation)
  return
  }

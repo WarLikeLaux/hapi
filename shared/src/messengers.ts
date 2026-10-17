@@ -1,5 +1,13 @@
 import { z } from 'zod'
 
+// Temporary product-level pause. Re-enable here, rebuild hub + web, and restart
+// the hub to restore MAX with the existing credentials and conversation history.
+export const MAX_MESSENGER_ENABLED: boolean = false
+
+export function isMessengerProviderEnabled(provider: string): boolean {
+    return provider !== 'max' || MAX_MESSENGER_ENABLED
+}
+
 export const MessengerProviderSchema = z.string().min(1).max(64)
 export type MessengerProvider = z.infer<typeof MessengerProviderSchema>
 
