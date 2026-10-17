@@ -117,7 +117,10 @@ vi.mock('@/hooks/useActiveWord', () => ({ useActiveWord: () => null }))
 vi.mock('@/hooks/useActiveSuggestions', () => ({ useActiveSuggestions: () => [[], -1, () => {}, () => {}, () => {}] }))
 vi.mock('@/components/ChatInput/FloatingOverlay', () => ({ FloatingOverlay: ({ children }: { children: ReactNode }) => <>{children}</> }))
 vi.mock('@/components/ChatInput/Autocomplete', () => ({ Autocomplete: () => null }))
-vi.mock('@/components/AssistantChat/StatusBar', () => ({ StatusBar: () => null }))
+vi.mock('@/components/AssistantChat/StatusBar', async (importOriginal) => ({
+    ...await importOriginal<typeof import('./StatusBar')>(),
+    StatusBar: () => null,
+}))
 
 function renderComposer(agentFlavor: string, overrides: Partial<Parameters<typeof HappyComposer>[0]> = {}) {
     render(

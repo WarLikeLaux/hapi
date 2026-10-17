@@ -34,7 +34,10 @@ vi.mock('@/components/AssistantChat/ComposerButtons', () => ({
     ),
 }))
 
-vi.mock('@/components/AssistantChat/StatusBar', () => ({ StatusBar: () => null }))
+vi.mock('@/components/AssistantChat/StatusBar', async (importOriginal) => ({
+    ...await importOriginal<typeof import('./StatusBar')>(),
+    StatusBar: () => null,
+}))
 vi.mock('@/hooks/useComposerDraft', () => ({
     useComposerDraft: () => ({ sessionId: undefined, complete: true, restoredAny: false, hasStoredAttachments: false }),
 }))

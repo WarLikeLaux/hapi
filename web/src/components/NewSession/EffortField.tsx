@@ -3,7 +3,7 @@ import { getPiThinkingLevelOptions } from '@/components/AssistantChat/piThinking
 import { useTranslation } from '@/lib/use-translation'
 import { SelectControl } from '@/components/ui/select-control'
 import type { AgentType, CodexReasoningEffort, LaunchEffort } from './types'
-import { CLAUDE_EFFORT_OPTIONS, CODEX_REASONING_EFFORT_OPTIONS, GROK_EFFORT_OPTIONS } from './types'
+import { CLAUDE_EFFORT_OPTIONS, GROK_EFFORT_OPTIONS } from './types'
 
 export type EffortFieldProps = {
     agent: AgentType
@@ -31,8 +31,8 @@ export type EffortFieldProps = {
  * - Grok: model-dependent launch-effort levels.
  * - Pi: model-dependent thinking levels (filtered by the selected model's
  *   thinkingLevelMap; hidden when the model cannot reason).
- * - OpenCode: model-dependent reasoning-effort levels.
- * Codex has no picker: its CLI config always runs high.
+ * Codex and OpenCode have no picker: Codex uses its configured effort and
+ * OpenCode always launches at max.
  */
 export function EffortField(props: EffortFieldProps) {
     const { t } = useTranslation()
@@ -46,8 +46,6 @@ export function EffortField(props: EffortFieldProps) {
         return null
     }
 
-    const isReasoningEffort = props.agent === 'opencode'
-
     let options: Array<{ value: string; label: string }>
     if (props.agent === 'grok') {
         options = props.grokOptions ?? GROK_EFFORT_OPTIONS
@@ -59,34 +57,19 @@ export function EffortField(props: EffortFieldProps) {
             { value: 'auto', label: t('newSession.model.default') },
             ...getPiThinkingLevelOptions(props.effort, props.piSelectedModel?.thinkingLevelMap)
         ]
-    } else if (isReasoningEffort) {
-        if (props.opencodeVariantOptions !== undefined && props.opencodeVariantOptions !== null) {
-            if (props.opencodeVariantOptions.length === 0) {
-                return null
-            }
-            options = [
-                { value: 'default', label: t('newSession.model.default') },
-                ...props.opencodeVariantOptions.map((variant) => ({ value: variant, label: variant }))
-            ]
-        } else {
-            options = CODEX_REASONING_EFFORT_OPTIONS.filter((option) => option.value !== 'xhigh')
-        }
     } else {
         options = CLAUDE_EFFORT_OPTIONS
     }
 
-    const value = isReasoningEffort ? props.reasoningEffort : props.effort
-    const onChange = isReasoningEffort ? props.onReasoningEffortChange : props.onEffortChange
-
     return (
         <div className="flex flex-col gap-1.5 px-3 py-3">
             <label className="text-xs font-medium text-[var(--app-hint)]">
-                {isReasoningEffort ? t('newSession.reasoningEffort') : t('newSession.effort')}{' '}
+                {t('newSession.effort')}{' '}
                 <span className="font-normal">({t('newSession.model.optional')})</span>
             </label>
             <SelectControl
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
+                value={props.effort}
+                onChange={(e) => props.onEffortChange(e.target.value)}
                 disabled={props.isDisabled}
                 className="py-2 pl-3 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
             >

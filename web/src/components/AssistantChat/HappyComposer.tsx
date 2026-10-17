@@ -1808,11 +1808,11 @@ export function HappyComposer(props: {
             wireId: model,
             flavor: agentFlavor,
             modelReasoningEffort,
-            effort,
+            effort: isGlmBrandedClaude ? undefined : effort,
             effortLabel: effortValueLabel ?? reasoningEffortValueLabel,
             fast: shouldShowCodexFastBadge(agentFlavor, serviceTier, model),
         })
-    }, [modelValueLabel, model, agentFlavor, modelReasoningEffort, effort, effortValueLabel, reasoningEffortValueLabel, serviceTier])
+    }, [modelValueLabel, model, agentFlavor, modelReasoningEffort, effort, effortValueLabel, reasoningEffortValueLabel, serviceTier, isGlmBrandedClaude])
 
     // Wrapper for DOM onClick consumers: never leak the MouseEvent into the
     // `section` parameter (the gear must always open the full sheet).
