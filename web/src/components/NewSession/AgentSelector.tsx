@@ -16,7 +16,7 @@ export function AgentSelector(props: {
             <label className="text-xs font-medium text-[var(--app-hint)]">
                 {t('newSession.agent')}
             </label>
-            <div className="flex flex-wrap gap-x-3 gap-y-2">
+            <div className="flex flex-wrap gap-3">
                 {props.agents.map((agentType) => (
                     <label
                         key={agentType}
