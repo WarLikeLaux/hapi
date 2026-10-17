@@ -150,6 +150,7 @@ function pickExistingSessionMetadata(metadata: Metadata | null | undefined): Par
     const preserved: Partial<Metadata> = {}
 
     if (metadata.name !== undefined) preserved.name = metadata.name
+    if (metadata.nameLock !== undefined) preserved.nameLock = metadata.nameLock
     if (metadata.summary !== undefined) preserved.summary = metadata.summary
     if (metadata.claudeSessionId !== undefined) preserved.claudeSessionId = metadata.claudeSessionId
     if (metadata.codexSessionId !== undefined) preserved.codexSessionId = metadata.codexSessionId

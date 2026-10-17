@@ -57,6 +57,8 @@ export const MetadataSchema = z.object({
     host: z.string(),
     version: z.string().optional(),
     name: z.string().optional(),
+    // Hub-owned title protection. Manual user names take priority over agent pins.
+    nameLock: z.enum(['user', 'agent']).optional(),
     os: z.string().optional(),
     summary: MetadataSummarySchema.optional(),
     machineId: z.string().optional(),

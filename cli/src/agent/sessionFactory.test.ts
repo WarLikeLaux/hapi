@@ -207,6 +207,8 @@ describe('bootstrapExistingSession', () => {
 
         session.metadata = {
             ...existingMetadata,
+            name: 'Координатор',
+            nameLock: 'user',
             claudeSessionId: 'claude-thread-1',
             codexSessionId: 'codex-thread-1',
             geminiSessionId: 'gemini-thread-1',
@@ -253,6 +255,8 @@ describe('bootstrapExistingSession', () => {
         })
 
         expect(result.metadata).toEqual(expect.objectContaining({
+            name: 'Координатор',
+            nameLock: 'user',
             claudeSessionId: 'claude-thread-1',
             codexSessionId: 'codex-thread-1',
             geminiSessionId: 'gemini-thread-1',

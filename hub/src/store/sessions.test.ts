@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import { Store } from './index'
 import { randomUUID } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { SessionIdentityConflictError } from './sessions'
 
 function makeStore(): Store {
@@ -1316,6 +1319,38 @@ describe('replaceSessionTodos: watermark ratchet (PR #897 rewind race)', () => {
         expect(after?.todos).toBeNull()
         expect(after?.todosUpdatedAt).toBe(51)
 
+        store.close()
+    })
+})
+
+describe('durable title ownership', () => {
+    it('retains a manual title when adopting a stub and after reopening the database', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-title-'))
+        const dbPath = join(dir, 'sessions.db')
+        let store = new Store(dbPath)
+        try {
+            const id = randomUUID()
+            const stub = store.sessions.getOrCreateSession(`machine-spawn:${id}`, { path: '/tmp', host: 'localhost' }, null, 'default', undefined, undefined, undefined, id)
+            store.sessions.updateSessionMetadata(id, { path: '/tmp', host: 'localhost', name: 'Мой координатор' }, stub.metadataVersion, 'default', { titleOperation: 'user' })
+            const adopted = store.sessions.adoptPreallocatedSession(id, 'runner-tag', { path: '/tmp', host: 'localhost', name: 'Runner title', codexSessionId: 'thread-1' }, null, 'default')
+            expect(adopted.metadata).toMatchObject({ name: 'Мой координатор', nameLock: 'user', codexSessionId: 'thread-1' })
+            store.close()
+            store = new Store(dbPath)
+            const reloaded = store.sessions.getSession(id)!
+            const updated = store.sessions.updateSessionMetadata(id, { name: 'Changed after restart', nameLock: null }, reloaded.metadataVersion, 'default')
+            expect(updated).toMatchObject({ result: 'success', value: { name: 'Мой координатор', nameLock: 'user' } })
+        } finally {
+            store.close()
+            rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('does not let an ordinary metadata update establish ownership', () => {
+        const store = makeStore()
+        const session = store.sessions.getOrCreateSession('automatic', { path: '/tmp', host: 'localhost' }, null, 'default')
+        const update = store.sessions.updateSessionMetadata(session.id, { name: 'Automatic title', nameLock: 'user' }, session.metadataVersion, 'default')
+        expect(update).toMatchObject({ result: 'success', value: { name: 'Automatic title' } })
+        expect(getMetadata(store, session.id)?.nameLock).toBeUndefined()
         store.close()
     })
 })

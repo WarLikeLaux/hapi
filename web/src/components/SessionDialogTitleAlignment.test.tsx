@@ -40,6 +40,21 @@ describe('session dialog title alignment', () => {
         expectCenteredTitle('Rename Session')
     })
 
+    it('submits the unchanged title so the user can protect an existing name', async () => {
+        const onRename = vi.fn(async () => {})
+        renderWithProviders(
+            <RenameSessionDialog
+                isOpen={true}
+                onClose={vi.fn()}
+                currentName="Координатор"
+                onRename={onRename}
+                isPending={false}
+            />
+        )
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+        await waitFor(() => expect(onRename).toHaveBeenCalledWith('Координатор'))
+    })
+
     it('saves an untouched generated draft as metadata.summary.text', async () => {
         const onRename = vi.fn(async () => {})
         const onUpdateSummary = vi.fn(async () => {})
