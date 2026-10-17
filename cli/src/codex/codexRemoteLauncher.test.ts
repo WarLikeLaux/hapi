@@ -84,6 +84,7 @@ const harness = vi.hoisted(() => ({
     emitParentGoalDuplicateEvents: false,
     emitChildNestedAgentTool: false,
     emitParentTitleChange: false,
+    parentTitlePin: false,
     emitParentSpawnFailureWithoutAgentId: false,
     emitParentSpawnStartWithoutEnd: false,
     emitParentSpawnRouterStderrError: false,
@@ -434,7 +435,7 @@ vi.mock('./codexAppServerClient', () => {
                             type: 'mcpToolCall',
                             server: 'hapi',
                             tool: 'change_title',
-                            arguments: { title: 'Parent Title' }
+                            arguments: { title: 'Parent Title', pin: harness.parentTitlePin }
                         },
                         threadId,
                         turnId
@@ -1491,6 +1492,7 @@ describe('codexRemoteLauncher', () => {
         harness.emitParentGoalDuplicateEvents = false;
         harness.emitChildNestedAgentTool = false;
         harness.emitParentTitleChange = false;
+        harness.parentTitlePin = false;
         harness.emitParentSpawnFailureWithoutAgentId = false;
         harness.emitParentSpawnStartWithoutEnd = false;
         harness.emitParentSpawnRouterStderrError = false;
@@ -3318,8 +3320,9 @@ describe('codexRemoteLauncher', () => {
         }));
     });
 
-    it('applies parent-thread hapi change_title after disabling MCP-side title writes', async () => {
+    it.each([false, true])('applies parent-thread hapi change_title after disabling MCP-side title writes (pin: %s)', async pin => {
         harness.emitParentTitleChange = true;
+        harness.parentTitlePin = pin;
         const { session, codexMessages, summaryMessages, getMetadata } = createSessionStub();
 
         await codexRemoteLauncher(session as never);
@@ -3327,11 +3330,12 @@ describe('codexRemoteLauncher', () => {
         expect(harness.bridgeOptions).toEqual([{ emitTitleSummary: false }]);
         expect(summaryMessages).toEqual([]);
         expect(getMetadata().name).toBe('Parent Title');
+        expect(getMetadata().nameLock).toBe(pin ? 'agent' : undefined);
         expect(codexMessages).toContainEqual(expect.objectContaining({
             type: 'tool-call',
             name: 'mcp__hapi__change_title',
             callId: 'title-parent',
-            input: { title: 'Parent Title' }
+            input: { title: 'Parent Title', pin }
         }));
         expect(codexMessages).toContainEqual(expect.objectContaining({
             type: 'tool-call-result',

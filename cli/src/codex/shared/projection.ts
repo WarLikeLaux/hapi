@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ApiSessionClient } from '@/api/apiSession';
-import { normalizeSessionDisplayTitle } from '@/agent/sessionDisplayRename';
+import { applySessionDisplayRename, normalizeSessionDisplayTitle } from '@/agent/sessionDisplayRename';
 import { registerGeneratedImageFromPath } from '@/modules/common/generatedImages';
 import { AppServerEventConverter } from '../utils/appServerEventConverter';
 import { record, string } from './gateway';
@@ -16,12 +16,16 @@ export function inputText(input: unknown): string {
     }).filter(Boolean).join('\n');
 }
 
-function requestedTitle(item: Record<string, unknown>): string | undefined {
+type RequestedTitle = { title: string; pin: boolean };
+
+function requestedTitle(item: Record<string, unknown>): RequestedTitle | undefined {
     if (item.type !== 'mcpToolCall' || item.server !== 'hapi' || item.tool !== 'change_title') return;
-    return normalizeSessionDisplayTitle(string(record(item.arguments).title)) ?? undefined;
+    const args = record(item.arguments);
+    const title = normalizeSessionDisplayTitle(string(args.title));
+    return title ? { title, pin: args.pin === true } : undefined;
 }
 
-function successfulTitle(item: Record<string, unknown>, pending?: string): string | undefined {
+function successfulTitle(item: Record<string, unknown>, pending?: RequestedTitle): RequestedTitle | undefined {
     if (item.type !== 'mcpToolCall' || (item.status !== undefined && item.status !== 'completed')
         || item.error != null || item.result == null) return;
     const result = record(item.result);
@@ -40,7 +44,7 @@ export class SharedCodexProjection {
     private readonly turns = new Map<string, string>();
     private readonly turnModels = new Map<string, string>();
     // Unlike transcript emission, title side effects survive reset/replay.
-    private readonly pendingTitles = new Map<string, string>();
+    private readonly pendingTitles = new Map<string, RequestedTitle>();
     private readonly completedTitles = new Set<string>();
     private readonly completedCloseRequests = new Set<string>();
     private titleRevision = 0;
@@ -118,13 +122,13 @@ export class SharedCodexProjection {
         } : { ...body, id }, id);
     }
 
-    private applyDisplayRename(title: string, revision: number): void {
-        this.session.updateMetadata(metadata => {
-            if (revision !== this.titleRevision) return metadata;
-            const normalized = normalizeSessionDisplayTitle(title);
-            if (!normalized || metadata.name?.trim() === normalized) return metadata;
-            return { ...metadata, name: normalized };
-        });
+    private applyDisplayRename(request: RequestedTitle, revision: number): void {
+        // Preserve the order of pin requests even if a later ordinary rename
+        // arrives before the metadata queue drains.
+        applySessionDisplayRename({ updateMetadata: (handler, options) => this.session.updateMetadata(metadata => {
+            if (!request.pin && revision !== this.titleRevision) return metadata;
+            return handler(metadata);
+        }, options) }, request.title, { pin: request.pin });
     }
 
     async notification(method: string, params: unknown, modelAtReceipt?: string): Promise<void> {
@@ -329,7 +333,7 @@ export class SharedCodexProjection {
             });
         }
         const titleRevision = this.titleRevision;
-        let latestTitle: string | undefined;
+        let latestTitle: RequestedTitle | undefined;
         for (const value of turns) {
             const turn = record(value);
             if (!Array.isArray(turn.items)) continue;
@@ -348,7 +352,7 @@ export class SharedCodexProjection {
                     if (!this.parentThreadId) {
                         const title = successfulTitle(record(item));
                         if (title && string(record(item).id)) {
-                            latestTitle = title;
+                            if (!latestTitle?.pin) latestTitle = title;
                             this.completedTitles.add(titleKey);
                         }
                         this.pendingTitles.delete(titleKey);
@@ -366,10 +370,8 @@ export class SharedCodexProjection {
                 if (titleRevision !== this.titleRevision || metadataHasDisplayTitle(metadata)) {
                     return metadata;
                 }
-                const normalized = normalizeSessionDisplayTitle(title);
-                if (!normalized) return metadata;
-                return { ...metadata, name: normalized };
-            });
+                return { ...metadata, name: title.title, ...(title.pin ? { nameLock: 'agent' as const } : {}) };
+            }, title.pin ? { pinTitle: true } : undefined);
         }
     }
 }

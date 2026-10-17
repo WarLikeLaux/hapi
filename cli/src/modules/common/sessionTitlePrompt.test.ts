@@ -18,11 +18,11 @@ describe('buildSessionTitleTurnReminder', () => {
         expect(prompt).toContain('Write titles in Russian')
     })
 
-    it('force mode overrides manual titles and silences user-facing output', () => {
+    it('force mode preserves protected titles and silences user-facing output', () => {
         const prompt = buildSessionTitleTurnReminder('Manual title', undefined, true)
         expect(prompt).toContain('explicitly requests regeneration')
-        expect(prompt).toContain('even if the current title was set manually')
-        expect(prompt).toContain('do not send any user-facing text')
+        expect(prompt).toContain('Preserve user-set and MCP-pinned titles')
+        expect(prompt).toContain('Do not send any user-facing text')
     })
 })
 

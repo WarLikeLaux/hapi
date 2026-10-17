@@ -1273,7 +1273,7 @@ export class SyncEngine {
         await this.sendMessage(sessionId, {
             text: [
                 'Regenerate the chat title now from the full conversation context.',
-                'Call the HAPI change_title tool even if a title was set manually.',
+                'Call the HAPI change_title tool only for an unprotected title. Preserve user-set and MCP-pinned titles, including project-required role titles.',
                 'The title must be in Russian, specific and understandable without opening the chat, preferably 3-7 words.',
                 'Do not include task or ticket IDs, Git branch names, commit hashes, machine names, or bare repository names.',
                 'Do not send any user-facing text; finish immediately after the title tool call.'

@@ -629,3 +629,45 @@ describe('cli session handlers', () => {
         })
     })
 })
+
+describe('CLI title pin requests', () => {
+    it('persists a versioned pin, rejects stale writes and retains it after reopening the database', async () => {
+        const { mkdtempSync, rmSync } = await import('node:fs')
+        const { tmpdir } = await import('node:os')
+        const { join } = await import('node:path')
+        const directory = mkdtempSync(join(tmpdir(), 'hapi-title-pin-'))
+        const filename = join(directory, 'hub.sqlite')
+        let store = new Store(filename)
+        try {
+            const session = store.sessions.getOrCreateSession('pin-test', { path: '/repo', host: 'test', name: 'Task' }, null, 'default')
+            const socket = new FakeSocket()
+            const events: SyncEvent[] = []
+            registerSessionHandlers(socket as unknown as CliSocketWithData, {
+                store,
+                resolveSessionAccess: id => ({ ok: true, value: store.sessions.getSession(id)! }),
+                emitAccessError() {},
+                onWebappEvent: event => events.push(event)
+            })
+            let ack: any
+            socket.trigger('update-metadata', { sid: session.id, expectedVersion: session.metadataVersion - 1, metadata: { path: '/repo', host: 'test', name: 'Wrong' }, pinTitle: true }, value => { ack = value })
+            expect(ack.result).toBe('version-mismatch')
+            socket.trigger('update-metadata', { sid: session.id, expectedVersion: session.metadataVersion, metadata: { path: '/repo', host: 'test', name: 'Координатор' }, pinTitle: true }, value => { ack = value })
+            expect(ack).toMatchObject({ result: 'success', metadata: { name: 'Координатор', nameLock: 'agent' } })
+            expect(events.at(-1)).toMatchObject({ type: 'session-updated', data: { metadata: { value: { name: 'Координатор', nameLock: 'agent' } } } })
+            socket.trigger('update-metadata', { sid: session.id, expectedVersion: ack.version, metadata: { path: '/repo', host: 'test', name: 'Next task' } }, value => { ack = value })
+            expect(ack).toMatchObject({ result: 'success', metadata: { name: 'Координатор', nameLock: 'agent' } })
+            socket.trigger('update-metadata', { sid: session.id, expectedVersion: ack.version, metadata: { path: '/repo', host: 'test', name: 'Интегратор' }, pinTitle: true }, value => { ack = value })
+            expect(ack).toMatchObject({ result: 'success', metadata: { name: 'Координатор', nameLock: 'agent' } })
+            const versionBeforeInvalid = ack.version
+            socket.trigger('update-metadata', { sid: session.id, expectedVersion: ack.version, metadata: { path: '/repo', host: 'test' }, pinTitle: true }, value => { ack = value })
+            expect(ack.result).toBe('error')
+            expect(store.sessions.getSession(session.id)?.metadataVersion).toBe(versionBeforeInvalid)
+            store.close()
+            store = new Store(filename)
+            expect(store.sessions.getSession(session.id)?.metadata).toMatchObject({ name: 'Координатор', nameLock: 'agent' })
+        } finally {
+            store.close()
+            rmSync(directory, { recursive: true, force: true })
+        }
+    })
+})
