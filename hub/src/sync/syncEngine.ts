@@ -2120,6 +2120,30 @@ export class SyncEngine {
         this.handleSessionEnd({ sid: sessionId, time: Date.now() })
     }
 
+    /** Apply only after archive succeeds, so the final flushed transcript is covered. */
+    markSessionRead(sessionId: string): void {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const session = this.sessionCache.refreshSession(sessionId)
+            if (!session?.metadata) throw new Error('Session metadata is unavailable')
+            const readThrough = Math.max(Date.now(), session.lastAgentMessageAt ?? 0,
+                session.metadata.readThrough ?? 0)
+            const result = this.store.sessions.updateSessionMetadata(
+                sessionId,
+                { ...session.metadata, readThrough },
+                session.metadataVersion,
+                session.namespace,
+                { touchUpdatedAt: false }
+            )
+            if (result.result === 'success') {
+                this.sessionCache.refreshSession(sessionId)
+                this.emitCliSessionMetadataUpdate(sessionId)
+                return
+            }
+            if (result.result === 'error') throw new Error('Failed to persist session read state')
+        }
+        throw new Error('Session was modified concurrently while marking read')
+    }
+
     markSessionExplicitlyStopped(sessionId: string): void {
         this.sessionCache.setSessionRestoreOnRestart(sessionId, false)
     }

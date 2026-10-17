@@ -183,6 +183,33 @@ describe('sessionLastSeen', () => {
         expect(getSessionLastSeenAt('session-c')).toBe(0)
     })
 
+    it('applies a close read watermark once, including after reconnect, and preserves later unread actions', () => {
+        initializeSessionLastSeen('hub-a', [])
+        markSessionUnread('closed', 2000)
+        const closed = { id: 'closed', updatedAt: 4000, lastAgentMessageAt: 3000,
+            metadata: { readThrough: 3500 } }
+
+        // The browser missed the live close event; the next list still clears it.
+        initializeSessionLastSeen('hub-a', [closed])
+        expect(getUnreadSessionCount([closed])).toBe(0)
+        expect(getSessionManualUnreadAt('closed')).toBeNull()
+
+        markSessionUnread('closed', 3000)
+        initializeSessionLastSeen('hub-a', [closed])
+        expect(getUnreadSessionCount([closed])).toBe(1)
+        expect(getSessionManualUnreadAt('closed')).toBe(3000)
+
+        markSessionSeen('closed', 3500)
+        const reopened = { ...closed, lastAgentMessageAt: 5000 }
+        initializeSessionLastSeen('hub-a', [reopened])
+        expect(getUnreadSessionCount([reopened])).toBe(1)
+
+        initializeSessionLastSeen('hub-a', [{ ...reopened, metadata: { readThrough: 5500 } }])
+        expect(getUnreadSessionCount([reopened])).toBe(0)
+        initializeSessionLastSeen('hub-a', [closed])
+        expect(getSessionLastSeenAt('closed')).toBe(5500)
+    })
+
     it('initializes each hub independently', () => {
         initializeSessionLastSeen('hub-a', [{ id: 'session-a', updatedAt: 1000 }])
         initializeSessionLastSeen('hub-b', [{ id: 'session-b', updatedAt: 2000 }])

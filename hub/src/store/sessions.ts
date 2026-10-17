@@ -137,6 +137,12 @@ export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
     merged = carryForwardIfMissing(prior, next, merged, SIMPLE_RESUME_TOKENS)
     merged = carryForwardIfMissing(prior, next, merged, DURABLE_LIFECYCLE_FIELDS)
     merged = preserveCursorProtocolPair(prior, next, merged)
+    // A stale or sparse CLI metadata replacement must not undo hub read state.
+    if (typeof prior.readThrough === 'number' && Number.isFinite(prior.readThrough)) {
+        merged ??= { ...next }
+        merged.readThrough = Math.max(prior.readThrough,
+            typeof next.readThrough === 'number' && Number.isFinite(next.readThrough) ? next.readThrough : 0)
+    }
     return merged ?? next
 }
 

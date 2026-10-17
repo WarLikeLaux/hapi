@@ -1336,7 +1336,7 @@ export class ApiSessionClient extends EventEmitter {
                 if (this.selfCloseRequest !== request || this.currentThinking || this.state !== 'active') return
                 if (!flushed) throw new Error('Final messages could not be confirmed by the hub')
                 this.selfCloseRequest = null
-                const result = await request.hub.post<{ ok?: boolean }>(`/sessions/${encodeURIComponent(this.sessionId)}/archive`, {})
+                const result = await request.hub.post<{ ok?: boolean }>(`/sessions/${encodeURIComponent(this.sessionId)}/archive`, { markRead: true })
                 if (result.ok !== true) throw new Error('Hub did not confirm session archive')
             } catch (error) {
                 if (this.selfCloseRequest === request) this.selfCloseRequest = null

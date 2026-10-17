@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react'
 const STORAGE_KEY = 'hapi.sessionLastSeen.v1'
 const MANUAL_UNREAD_KEY = 'hapi.sessionManualUnread.v1'
 const BASELINE_KEY = 'hapi.sessionLastSeenBaseline.v1'
+const APPLIED_READ_KEY = 'hapi.sessionAppliedRead.v1'
 const CHANGE_EVENT = 'hapi.sessionLastSeen.changed'
 
 let changeVersion = 0
@@ -21,14 +22,14 @@ function getLocalStorage(): Storage | null {
     }
 }
 
-function readStore(): LastSeenStore {
+function readStore(key = STORAGE_KEY): LastSeenStore {
     const storage = getLocalStorage()
     if (!storage) {
         return {}
     }
 
     try {
-        const raw = storage.getItem(STORAGE_KEY)
+        const raw = storage.getItem(key)
         if (!raw) {
             return {}
         }
@@ -151,6 +152,7 @@ type SessionReadStateInput = {
     id: string
     updatedAt: number
     lastAgentMessageAt?: number
+    metadata?: { readThrough?: number } | null
 }
 
 function getUnreadActivityAt(session: SessionReadStateInput): number {
@@ -257,15 +259,43 @@ export function initializeSessionLastSeen(scope: string, sessions: Iterable<Sess
 
     try {
         const baselineKey = `${BASELINE_KEY}:${scope}`
-        if (storage.getItem(baselineKey) === '1') {
-            return
-        }
+        const initialize = storage.getItem(baselineKey) !== '1'
+        const appliedKey = `${APPLIED_READ_KEY}:${scope}`
+        const applied = readStore(appliedKey)
         const store = readStore()
+        const manualUnread = readManualUnreadStore()
+        let seenChanged = false
+        let manualChanged = false
+        let appliedChanged = false
         for (const session of sessions) {
-            store[session.id] ??= getUnreadActivityAt(session)
+            if (initialize && store[session.id] === undefined) {
+                store[session.id] = getUnreadActivityAt(session)
+                seenChanged = true
+            }
+            const readThrough = session.metadata?.readThrough
+            if (typeof readThrough !== 'number' || !Number.isFinite(readThrough)
+                || readThrough <= (applied[session.id] ?? 0)) continue
+
+            // Consume each hub mark once. Repeated snapshots must allow a later
+            // local "mark unread" action, while offline devices catch up on reconnect.
+            const nextSeenAt = Math.max(store[session.id] ?? 0, readThrough)
+            if (store[session.id] !== nextSeenAt) {
+                store[session.id] = nextSeenAt
+                seenChanged = true
+            }
+            if (manualUnread[session.id] !== undefined && manualUnread[session.id] <= readThrough) {
+                delete manualUnread[session.id]
+                manualChanged = true
+            }
+            applied[session.id] = readThrough
+            appliedChanged = true
         }
-        storage.setItem(STORAGE_KEY, JSON.stringify(store))
-        storage.setItem(baselineKey, '1')
+        if (seenChanged) storage.setItem(STORAGE_KEY, JSON.stringify(store))
+        if (manualChanged) storage.setItem(MANUAL_UNREAD_KEY, JSON.stringify(manualUnread))
+        // Write this last so a failed read-state write can be retried next time.
+        if (appliedChanged) storage.setItem(appliedKey, JSON.stringify(applied))
+        if (initialize) storage.setItem(baselineKey, '1')
+        if (seenChanged || manualChanged) notifyStoreChanged()
     } catch {
         // Ignore storage errors
     }

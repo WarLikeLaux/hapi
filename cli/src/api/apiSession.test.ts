@@ -1376,7 +1376,7 @@ describe('ApiSessionClient self close', () => {
             flushed.resolve({})
             await vi.advanceTimersByTimeAsync(0)
             expect(archiveCalls()).toEqual([[
-                expect.stringContaining(`/api/sessions/${client.sessionId}/archive`), {},
+                expect.stringContaining(`/api/sessions/${client.sessionId}/archive`), { markRead: true },
                 expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer session-jwt' }) })
             ]])
             expect(axiosHarness.post).toHaveBeenCalledWith(expect.stringContaining('/api/auth'),
