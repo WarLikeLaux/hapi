@@ -1,7 +1,7 @@
 // Deep component imports on purpose: the package root re-exports ./features,
 // which pulls in uninstalled peer deps (@lobehub/ui, antd). The Mono/Color
 // components only depend on react and es-toolkit.
-import AntigravityColor from '@lobehub/icons/es/Antigravity/components/Color'
+import AntigravityMono from '@lobehub/icons/es/Antigravity/components/Mono'
 import ClaudeColor from '@lobehub/icons/es/Claude/components/Color'
 import CursorMono from '@lobehub/icons/es/Cursor/components/Mono'
 import DeepSeekColor from '@lobehub/icons/es/DeepSeek/components/Color'
@@ -11,7 +11,7 @@ import GrokMono from '@lobehub/icons/es/Grok/components/Mono'
 import KimiMono from '@lobehub/icons/es/Kimi/components/Mono'
 import MinimaxMono from '@lobehub/icons/es/Minimax/components/Mono'
 import OpenAIMono from '@lobehub/icons/es/OpenAI/components/Mono'
-import OpenCodeMono from '@lobehub/icons/es/OpenCode/components/Mono'
+import SparkMono from '@lobehub/icons/es/Spark/components/Mono'
 import type { IconType } from '@lobehub/icons/es/types'
 import { CopilotIcon } from '@/components/icons/CopilotIcon'
 import { useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
@@ -20,9 +20,12 @@ import { useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
 // light and dark surfaces (claude/gemini); Mono (currentColor) where the
 // package ships no Color variant — or where, like KimiColor, the main glyph is
 // hard-coded #fff and would vanish on the default light theme. Codex wears the
-// OpenAI flower (fork hook: the Codex CLI talks to ChatGPT).
+// OpenAI flower (fork hook: the Codex CLI talks to ChatGPT). OpenCode wears
+// the Spark flame as Mono so it follows the theme; Spark Color is iFlytek
+// cyan/red and would not match the other marks. Antigravity wears its Mono
+// arch for the same reason.
 const FLAVOR_LOGOS: Record<string, IconType> = {
-    agy: AntigravityColor,
+    agy: AntigravityMono,
     claude: ClaudeColor,
     codex: OpenAIMono,
     dsh: DeepSeekColor,
@@ -31,7 +34,7 @@ const FLAVOR_LOGOS: Record<string, IconType> = {
     grok: GrokMono,
     kimi: KimiMono,
     minimax: MinimaxMono,
-    opencode: OpenCodeMono,
+    opencode: SparkMono,
 }
 
 // Fork hook: with the hub's `claudeBrandedAsGlm` setting on, the claude
