@@ -26,9 +26,13 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useChatKeyboardTail } from '@/hooks/useChatKeyboardTail'
 import { useChatsComposerAutoFocus } from '@/hooks/useChatsComposerAutoFocus'
 import { useChatsPendingMedia } from '@/hooks/useChatsPendingMedia'
+import { useDragOver } from '@/hooks/useDragOver'
 import { useExternalMessagePrefetch } from '@/hooks/useExternalMessagePrefetch'
 import { useExternalMessages } from '@/hooks/queries/useExternalMessages'
 import { useExternalMessageOutbox } from '@/hooks/mutations/useExternalMessageOutbox'
+import { ComposerExpandButton } from '@/components/AssistantChat/ComposerButtons'
+import { ChatsComposerAttachment } from '@/components/ChatsComposerAttachment'
+import { getDraft, saveDraft } from '@/lib/composer-drafts'
 import { MessageStatusIndicator } from '@/components/AssistantChat/messages/MessageStatusIndicator'
 import { useAppContext } from '@/lib/app-context'
 import { ApiError } from '@/api/client'
@@ -1004,7 +1008,7 @@ export function ChatConversationPane(props: { conversationId: string; backTo: '/
 
 function ChatConversationView(props: { conversationId: string; backTo: '/chats' | '/sessions' }) {
     const conversationId = props.conversationId
-    const { api } = useAppContext()
+    const { api, baseUrl } = useAppContext()
     const { t } = useTranslation()
     const navigate = useNavigate()
     const conversations = useQuery({
@@ -1013,12 +1017,19 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
         enabled: Boolean(api)
     })
     const queryClient = useQueryClient()
-    const [text, setText] = useState('')
+    const draftKey = `external:${baseUrl ?? ''}:${conversationId}`
+    const [text, setText] = useState(() => getDraft(draftKey))
+    const [isExpanded, setIsExpanded] = useState(false)
     const [gifPickerOpen, setGifPickerOpen] = useState(false)
-    const { pendingMedia, previewUrl, clearPendingMedia, handlePaste: handlePendingPaste } = useChatsPendingMedia()
+    const { pendingMedia, addPendingMedia, removePendingMedia, clearPendingMedia, handlePaste: handlePendingPaste } = useChatsPendingMedia()
+    const isDraggingFiles = useDragOver()
     const [replyTo, setReplyTo] = useState<ExternalMessage | null>(null)
     const [editingMessage, setEditingMessage] = useState<ExternalMessage | null>(null)
     const [deletingMessage, setDeletingMessage] = useState<ExternalMessage | null>(null)
+    useEffect(() => {
+        // Editing an existing message must never overwrite the unsent draft.
+        if (!editingMessage) saveDraft(draftKey, text)
+    }, [draftKey, text, editingMessage])
     const editPendingRef = useRef(false)
     const savedDraftRef = useRef<{ text: string; replyTo: ExternalMessage | null }>({ text: '', replyTo: null })
     const cancelEditing = useCallback(() => {
@@ -1034,6 +1045,12 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     const messageContentRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const composerRef = useRef<HTMLTextAreaElement>(null)
+    useLayoutEffect(() => {
+        const editor = composerRef.current
+        if (!editor) return
+        editor.style.height = isExpanded ? '100%' : 'auto'
+        if (!isExpanded) editor.style.height = `${Math.min(editor.scrollHeight, 128)}px`
+    }, [text, isExpanded, Boolean(conversations.data)])
     const stickToBottomRef = useRef(true)
     const readerMovedAwayRef = useRef(false)
     const scrollTouchRef = useRef<{ x: number; y: number } | null>(null)
@@ -1172,7 +1189,10 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
         if (editingMessage) return false
         if (!outbox.send({ ...payload, replyToProviderMessageId: replyTo?.providerMessageId })) return false
         stickToBottomRef.current = true
-        if (payload.kind !== 'sticker') setText('')
+        if (payload.kind !== 'sticker') {
+            setText('')
+            setIsExpanded(false)
+        }
         setReplyTo(null)
         if (payload.kind === 'media') {
             clearPendingMedia()
@@ -1326,7 +1346,30 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     }
 
     return (
-        <div className="messenger-chat flex h-full min-h-0 flex-col pt-[env(safe-area-inset-top)]">
+        <div
+            className="messenger-chat relative flex h-full min-h-0 flex-col pt-[env(safe-area-inset-top)]"
+            onDragOver={(event) => {
+                if (!event.dataTransfer.types.includes('Files')) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = !api || editingMessage ? 'none' : 'copy'
+            }}
+            onDrop={(event) => {
+                if (!event.dataTransfer.types.includes('Files')) return
+                event.preventDefault()
+                if (!api || editingMessage) return
+                const files = Array.from(event.dataTransfer.files)
+                if (files.length === 0) return
+                addPendingMedia(files)
+                composerRef.current?.focus({ preventScroll: true })
+            }}
+        >
+            {isDraggingFiles && api && !editingMessage ? (
+                <div className="pointer-events-none absolute inset-0 z-[70] flex items-center justify-center rounded-lg border-2 border-dashed border-[var(--app-link)] bg-[var(--app-link)]/10">
+                    <div role="status" className="rounded-lg bg-[var(--app-bg)] px-4 py-2 text-sm font-medium text-[var(--app-link)] shadow-lg">
+                        {t('composer.dropToAttach')}
+                    </div>
+                </div>
+            ) : null}
             <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-3">
                 <button type="button" onClick={() => navigate({ to: props.backTo })} className="rounded-full p-2 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] split:hidden"><BackIcon /></button>
                 <ConversationAvatar conversation={conversation} />
@@ -1766,14 +1809,27 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                     }}
                 />
             ) : null}
-            <form className="shrink-0 border-t border-[var(--app-border)] bg-[var(--app-bg)] p-2 pb-[max(.5rem,env(safe-area-inset-bottom))]" onSubmit={(event) => {
+            <form className={cn(
+                'flex min-h-0 shrink-0 flex-col border-t border-[var(--app-border)] bg-[var(--app-bg)] p-2 pb-[max(.5rem,env(safe-area-inset-bottom))]',
+                isExpanded && 'absolute inset-0 z-[60] pt-[max(.5rem,env(safe-area-inset-top))]',
+            )} onSubmit={(event) => {
                 event.preventDefault()
                 if (editingMessage) {
                     if (!editMessage.isPending && text.trim() && text.trim() !== editingMessage.text.trim()) {
                         editMessage.mutate({ providerMessageId: editingMessage.providerMessageId, text: text.trim() })
                     }
-                } else if (pendingMedia) {
-                    submitMessage({ kind: 'media', file: pendingMedia, text })
+                } else if (pendingMedia.length > 0 && api) {
+                    // Each file uses the existing ordered, retryable outbox. Only
+                    // the first carries the caption; all retain the reply target.
+                    pendingMedia.forEach((file, index) => {
+                        outbox.send({ kind: 'media', file, text: index === 0 ? text : '', replyToProviderMessageId: replyTo?.providerMessageId })
+                    })
+                    stickToBottomRef.current = true
+                    setText('')
+                    setReplyTo(null)
+                    clearPendingMedia()
+                    setIsExpanded(false)
+                    composerRef.current?.focus({ preventScroll: true })
                 } else if (text.trim()) {
                     submitMessage({ kind: 'text', text: text.trim() })
                 }
@@ -1813,39 +1869,29 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         >×</button>
                     </div>
                 ) : null}
-                {pendingMedia && !editingMessage ? (
-                    <div className="mx-auto mb-1 flex max-w-content items-center gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] p-1.5 pl-2" data-testid="chats-pending-media">
-                        {previewUrl ? (
-                            <img src={previewUrl} alt="" className="h-14 w-14 shrink-0 rounded-md object-cover" />
-                        ) : (
-                            <div className="h-14 w-14 shrink-0 rounded-md bg-[var(--app-bg)]" />
-                        )}
-                        <div className="min-w-0 flex-1 text-xs">
-                            <div className="truncate font-medium">{pendingMedia.name || 'Pasted image'}</div>
-                            <div className="text-[var(--app-hint)]">{pendingMedia.type || 'image'}</div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={clearPendingMedia}
-                            aria-label="Remove attachment"
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35"
-                        >×</button>
+                {pendingMedia.length > 0 && !editingMessage ? (
+                    <div className="mx-auto mb-2 flex max-h-40 w-full max-w-content shrink flex-wrap gap-2 overflow-y-auto" data-testid="chats-pending-media">
+                        {pendingMedia.map((file, index) => (
+                            <ChatsComposerAttachment key={`${file.name}:${index}`} file={file} onRemove={() => removePendingMedia(index)} />
+                        ))}
                     </div>
                 ) : null}
-                <div className="mx-auto flex max-w-content items-end gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] p-1.5 pl-3 focus-within:border-[var(--app-link)]">
+                <div className={cn(
+                    'mx-auto grid w-full max-w-content grid-cols-[1fr_auto] gap-x-1 rounded-2xl border border-[var(--app-border)] bg-[var(--app-secondary-bg)] p-1.5 focus-within:border-[var(--app-link)]',
+                    isExpanded ? 'min-h-0 flex-1 grid-rows-[1fr_auto]' : 'grid-rows-[auto_auto]',
+                )}>
                     <input
                         ref={fileInputRef}
                         type="file"
+                        multiple
+                        disabled={Boolean(editingMessage)}
                         className="hidden"
                         onChange={(event) => {
-                            const file = event.target.files?.[0]
-                            // Explicit file picks send immediately, while pastes stay staged.
-                            if (file) submitMessage({ kind: 'media', file, text })
+                            addPendingMedia(Array.from(event.target.files ?? []))
+                            event.target.value = ''
+                            composerRef.current?.focus({ preventScroll: true })
                         }}
                     />
-                    <button type="button" disabled={Boolean(editingMessage)} onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Attach media"><AttachmentIcon /></button>
-                    <button type="button" disabled={Boolean(editingMessage)} onClick={() => setGifPickerOpen(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Send GIF"><GifIcon /></button>
-                    {conversation.provider === 'yandex' && !editingMessage ? <YandexStickerPicker key={conversationId} onSelect={(sticker, setId) => submitMessage({ kind: 'sticker', sticker, setId, text: '' })} /> : null}
                     <textarea
                         ref={composerRef}
                         onFocus={handleComposerFocus}
@@ -1869,7 +1915,12 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                     }
                                     return
                                 }
-                                if (pendingMedia) {
+                                if (isExpanded) {
+                                    event.preventDefault()
+                                    setIsExpanded(false)
+                                    return
+                                }
+                                if (pendingMedia.length > 0) {
                                     event.preventDefault()
                                     clearPendingMedia()
                                     return
@@ -1880,6 +1931,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                 }
                                 return
                             }
+                            if (event.nativeEvent.isComposing) return
                             if (event.key === 'Enter' && !event.shiftKey) {
                                 event.preventDefault()
                                 event.currentTarget.form?.requestSubmit()
@@ -1887,9 +1939,21 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         }}
                         rows={1}
                         placeholder={t('chats.messagePlaceholder')}
-                        className="max-h-32 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[var(--app-hint)]"
+                        className={cn(
+                            'col-span-2 w-full min-w-0 resize-none overflow-y-auto bg-transparent px-2 py-2 text-sm outline-none placeholder:text-[var(--app-hint)]',
+                            isExpanded ? 'h-full min-h-0' : 'max-h-32 min-h-9',
+                        )}
                     />
-                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={!api || (editingMessage ? editMessage.isPending || !text.trim() || text.trim() === editingMessage.text.trim() : !text.trim() && !pendingMedia)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t(editingMessage ? 'chats.edit.save' : 'chats.send')}>{editingMessage ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg> : <SendIcon />}</button>
+                    <div className="flex min-w-0 items-center gap-1">
+                        <button type="button" disabled={Boolean(editingMessage)} onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Attach media"><AttachmentIcon /></button>
+                        <button type="button" disabled={Boolean(editingMessage)} onClick={() => setGifPickerOpen(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:opacity-35" title="Send GIF"><GifIcon /></button>
+                        {conversation.provider === 'yandex' && !editingMessage ? <YandexStickerPicker key={conversationId} onSelect={(sticker, setId) => submitMessage({ kind: 'sticker', sticker, setId, text: '' })} /> : null}
+                        <ComposerExpandButton expanded={isExpanded} onToggle={() => {
+                            setIsExpanded(current => !current)
+                            composerRef.current?.focus({ preventScroll: true })
+                        }} />
+                    </div>
+                    <button type="submit" onPointerDown={(event) => event.preventDefault()} disabled={!api || (editingMessage ? editMessage.isPending || !text.trim() || text.trim() === editingMessage.text.trim() : !text.trim() && pendingMedia.length === 0)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--app-button)] text-[var(--app-button-text)] disabled:opacity-35" title={t(editingMessage ? 'chats.edit.save' : 'chats.send')}>{editingMessage ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg> : <SendIcon />}</button>
                 </div>
                 {editingMessage && editMessage.error ? <div role="alert" className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{editMessage.error.message}</div> : null}
                 {setReactions.error ? <div className="mx-auto mt-1 max-w-content px-2 text-xs text-red-600">{setReactions.error.message}</div> : null}
