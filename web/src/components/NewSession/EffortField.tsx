@@ -40,6 +40,10 @@ export type EffortFieldProps = {
  */
 export function EffortField(props: EffortFieldProps) {
     const { t } = useTranslation()
+    // OpenCode always launches at max; the picker is not shown.
+    if (props.agent === 'opencode') {
+        return null
+    }
     const descriptor = getAgentConfigDescriptor(props.agent)
     const field = descriptor.fields.find((candidate) => candidate.id === 'effort')
     if (!field) {

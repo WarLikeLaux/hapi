@@ -60,9 +60,11 @@ export function getSessionModelLabel(session: SessionModelSource): SessionModelL
  *   2. Dynamic catalog lookup by `session.model` (so a picked catalog id
  *      resolves to its friendly name, even though the static lookup above
  *      already returned it raw).
- *   3. Dynamic catalog lookup by `currentModelId` — the model the ACP session
+ *   3. OpenCode with no stored model: the fixed Muse Spark default. Launch
+ *      omits `session.model`, so the header would otherwise stay blank.
+ *   4. Dynamic catalog lookup by `currentModelId` — the model the ACP session
  *      is actually using when no explicit pick was sent.
- *   4. None of the above: null.
+ *   5. None of the above: null.
  *
  * `catalogEnabled` is a hint that the dynamic catalog is meaningful right now
  * (e.g. active session for minimax). When false, skip the dynamic steps so
@@ -82,6 +84,10 @@ export function resolveSessionModelLabel(args: {
         const dynamicEntry = findDynamicCatalogEntry(args.availableModels, explicitModel)
         const value = staticLabel ?? dynamicEntry?.name?.trim() ?? dynamicEntry?.modelId ?? explicitModel
         return { key: 'session.item.model', value }
+    }
+
+    if (!explicitModel && args.agentFlavor === 'opencode') {
+        return { key: 'session.item.model', value: 'Muse Spark 1.3 Contributor' }
     }
 
     if (!args.catalogEnabled || args.agentFlavor !== 'minimax') {

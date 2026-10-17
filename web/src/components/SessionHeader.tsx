@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useIsMutating, useQueryClient } from '@tanstack/react-query'
 import type { Session } from '@/types/api'
 import type { ApiClient } from '@/api/client'
@@ -15,10 +15,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useScratchlistCount } from '@/lib/use-scratchlist-count'
 import { formatReopenError } from '@/lib/reopenError'
 import { formatReasoningLabel, getReasoningEffortForFlavor } from '@/lib/codexStatusLabels'
+import { modelChipText, prettyModelName } from '@/lib/modelChipLabel'
+import { formatCodexReasoningEffortLabel } from '@/components/AssistantChat/codexReasoningEffortOptions'
 import { retargetSharePendingTransfer } from '@/lib/sharePendingState'
 import { useSessionModelLabel } from '@/hooks/useSessionModelLabel'
 import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
+import { getProjectLabelHue } from '@/components/SessionRowSummary'
+import { basename } from '@/utils/path'
 import { isFastServiceTier } from '@/components/AssistantChat/codexFastMode'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { useToast } from '@/lib/toast-context'
@@ -26,16 +30,25 @@ import { queryKeys } from '@/lib/query-keys'
 import { markCodexSessionsImported } from '@/lib/codexImportedSessions'
 import { useMachines } from '@/hooks/queries/useMachines'
 import { useMachineLabels } from '@/hooks/useMachineLabels'
-import { formatAbsoluteDateTime, formatRelativeTime } from '@/lib/relativeTime'
 import { useSessionHeaderMetadata } from '@/hooks/useSessionHeaderMetadata'
 import { formatSessionHeaderTimestamp } from '@/lib/sessionHeaderTimestamp'
 import { selectMobileSessionHeaderSecondary } from '@/lib/sessionHeaderMobileMetadata'
-import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { markSessionUnread } from '@/lib/sessionLastSeen'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useNavigate } from '@tanstack/react-router'
 import { useSessionGitBranch, useSessionGitLabCreateMergeRequestUrl, useSessionGitLabMergeRequestUrl } from '@/hooks/queries/useSessionGitBranch'
 import { CodeIcon, GitLabIcon } from '@/components/icons'
+
+function GitBranchIcon() {
+    return (
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0">
+            <line x1="6" y1="3" x2="6" y2="15" />
+            <circle cx="18" cy="6" r="3" />
+            <circle cx="6" cy="18" r="3" />
+            <path d="M18 9a9 9 0 0 1-9 9" />
+        </svg>
+    )
+}
 
 /** Same preference order as session-list chips: display label → host → short id. */
 export function resolveSessionHeaderMachineLabel(
@@ -258,21 +271,27 @@ export function SessionHeader(props: {
         () => resolveSessionHeaderMachineLabel(session, machineLabelsById),
         [session, machineLabelsById]
     )
-    const lastActiveAt = session.activeAt || session.updatedAt || session.createdAt
-    // Relative labels cross minute/hour boundaries without new patches; tick
-    // once a minute so "just now" does not freeze forever on inactive sessions.
-    const relativeTimeTick = useMinuteTick(headerMetadata.lastActive)
-    const ageLabel = useMemo(
-        () => (headerMetadata.lastActive && lastActiveAt > 0 ? formatRelativeTime(lastActiveAt, t) : null),
-        [headerMetadata.lastActive, lastActiveAt, t, relativeTimeTick]
-    )
-    const ageAbsolute = ageLabel ? formatAbsoluteDateTime(lastActiveAt) : null
-    const showMobileModel = headerMetadata.model && modelLabel !== null
+    const projectDirectory = session.metadata?.worktree?.basePath?.trim()
+        || session.metadata?.path?.trim()
+        || null
+    const projectLabel = projectDirectory ? basename(projectDirectory) : null
+    const projectHue = projectDirectory ? getProjectLabelHue(projectDirectory) : null
+    const modelChip = modelLabel
+        ? modelChipText({
+            name: modelLabel.value,
+            wireId: session.model,
+            flavor: agentFlavor,
+            modelReasoningEffort: session.modelReasoningEffort,
+            effort: session.effort,
+            fast: showFastBadge,
+        })
+        : null
+    const showMobileModel = headerMetadata.model && modelChip !== null
     const mobileSecondary = selectMobileSessionHeaderSecondary({
         reasoning: headerMetadata.reasoning && reasoningLabel !== null,
         branch: headerMetadata.branch && gitBranch !== null,
         machine: headerMetadata.machine && machineLabel !== null,
-        lastActive: ageLabel !== null,
+        lastActive: false,
         updatedAt: updatedAtLabel !== null,
         createdAt: createdAtLabel !== null,
         worktree: headerMetadata.worktree && Boolean(worktreeBranch),
@@ -281,15 +300,12 @@ export function SessionHeader(props: {
     const mobileSecondaryValue = mobileSecondary === 'reasoning' ? reasoningLabel
         : mobileSecondary === 'branch' ? gitBranch
         : mobileSecondary === 'machine' ? machineLabel
-        : mobileSecondary === 'lastActive' ? ageLabel
         : mobileSecondary === 'updatedAt' ? updatedAtLabel
         : mobileSecondary === 'createdAt' ? createdAtLabel
         : mobileSecondary === 'worktree' ? worktreeBranch
         : mobileSecondary === 'fastMode' ? 'fast'
         : null
-    const mobileSummary = showMobileModel ? modelLabel?.value
-        : headerMetadata.agent && agentLabel ? agentLabel
-        : mobileSecondaryValue
+    const mobileSummary = showMobileModel ? modelChip : mobileSecondaryValue
 
     const [menuOpen, setMenuOpen] = useState(false)
     const [detailsOpen, setDetailsOpen] = useState(false)
@@ -544,15 +560,33 @@ export function SessionHeader(props: {
                     <div className="hidden min-w-0 flex-1 sm:block">
                         <div className="truncate font-semibold">{title}</div>
                         <div className="hidden flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--app-hint)] sm:flex">
-                            {headerMetadata.agent && agentLabel ? (
-                                <span className="inline-flex items-center gap-1">
-                                    <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" />
-                                    {agentLabel}
+                            {projectLabel && projectHue !== null ? (
+                                <span
+                                    data-testid="session-header-project"
+                                    className="inline-flex max-w-[12rem] items-center truncate rounded-[5px] border border-[var(--session-project-border)] bg-[var(--session-project-bg)] px-1.5 py-px font-medium leading-tight text-[var(--session-project-fg)]"
+                                    style={{
+                                        '--session-project-fg': `light-dark(hsl(${projectHue} 78% 27%), hsl(${projectHue} 95% 88%))`,
+                                        '--session-project-bg': `light-dark(hsl(${projectHue} 92% 89%), hsl(${projectHue} 68% 30%))`,
+                                        '--session-project-border': `light-dark(hsl(${projectHue} 70% 72%), hsl(${projectHue} 68% 45%))`,
+                                    } as CSSProperties}
+                                    title={projectDirectory ?? projectLabel}
+                                >
+                                    {projectLabel}
                                 </span>
                             ) : null}
+                            {headerMetadata.model && modelChip ? (
+                                <span data-testid="session-header-model" className="inline-flex items-center gap-1.5">
+                                    <AgentFlavorIcon flavor={agentFlavor} className="h-3.5 w-3.5 shrink-0" />
+                                    <span>{modelChip}</span>
+                                    {isModelChanging ? <ModelChangingStatus /> : null}
+                                </span>
+                            ) : headerMetadata.agent && agentLabel ? (
+                                <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0" />
+                            ) : null}
                             {headerMetadata.branch && gitBranch ? (
-                                <span data-testid="session-header-branch" className="max-w-[18rem] truncate" title={gitBranch}>
-                                    {headerMetadata.showLabels ? `${t('session.item.branch')}: ` : ''}{gitBranch}
+                                <span data-testid="session-header-branch" className="inline-flex max-w-[18rem] items-center gap-1" title={gitBranch}>
+                                    <GitBranchIcon />
+                                    <span className="truncate">{gitBranch}</span>
                                 </span>
                             ) : null}
                             {headerMetadata.machine && machineLabel ? (
@@ -560,23 +594,12 @@ export function SessionHeader(props: {
                                     {headerMetadata.showLabels ? `${t('session.item.machine')}: ` : ''}{machineLabel}
                                 </span>
                             ) : null}
-                            {ageLabel ? (
-                                <span data-testid="session-header-age" title={ageAbsolute ?? undefined}>
-                                    {ageLabel}
-                                </span>
-                            ) : null}
-                            {headerMetadata.model && modelLabel ? (
-                                <span className="inline-flex items-center gap-1.5">
-                                    <span>{headerMetadata.showLabels ? `${t(modelLabel.key)}: ` : ''}{modelLabel.value}</span>
-                                    {isModelChanging ? <ModelChangingStatus /> : null}
-                                </span>
-                            ) : null}
-                            {headerMetadata.reasoning && reasoningLabel ? (
+                            {headerMetadata.reasoning && reasoningLabel && !modelChip ? (
                                 <span data-testid="session-header-reasoning">
                                     {reasoningLabel}
                                 </span>
                             ) : null}
-                            {headerMetadata.fastMode && showFastBadge ? (
+                            {headerMetadata.fastMode && showFastBadge && !modelChip ? (
                                 <span data-testid="session-header-fast" className="text-[#34C759]">
                                     fast
                                 </span>
@@ -695,9 +718,9 @@ export function SessionHeader(props: {
                     </DialogHeader>
                     <dl className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
                         {agentLabel ? <><dt className="text-[var(--app-hint)]">{t('session.item.agent')}</dt><dd className="min-w-0 break-all">{agentLabel}</dd></> : null}
-                        {modelLabel ? <><dt className="text-[var(--app-hint)]">{t('session.item.model')}</dt><dd className="min-w-0 break-all">{modelLabel.value}</dd></> : null}
+                        {modelLabel ? <><dt className="text-[var(--app-hint)]">{t('session.item.model')}</dt><dd className="min-w-0 break-all">{prettyModelName(modelLabel.value)}</dd></> : null}
                         {gitBranch ? <><dt className="text-[var(--app-hint)]">{t('session.item.branch')}</dt><dd className="min-w-0 break-all select-text">{gitBranch}</dd></> : null}
-                        {reasoningEffort ? <><dt className="text-[var(--app-hint)]">{t('settings.display.sessionHeader.reasoning')}</dt><dd className="min-w-0 break-all">{formatReasoningLabel(reasoningEffort, false)}</dd></> : null}
+                        {reasoningEffort ? <><dt className="text-[var(--app-hint)]">{t('settings.display.sessionHeader.reasoning')}</dt><dd className="min-w-0 break-all">{formatCodexReasoningEffortLabel(reasoningEffort)}</dd></> : null}
                         {machineLabel ? <><dt className="text-[var(--app-hint)]">{t('session.item.machine')}</dt><dd className="min-w-0 break-all">{machineLabel}</dd></> : null}
                         {session.metadata?.path ? <><dt className="text-[var(--app-hint)]">{t('session.item.path')}</dt><dd className="min-w-0 break-all select-text">{session.metadata.path}</dd></> : null}
                     </dl>

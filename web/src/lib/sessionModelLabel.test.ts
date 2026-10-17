@@ -113,6 +113,14 @@ describe('resolveSessionModelLabel', () => {
         })).toBeNull()
     })
 
+    it('names the OpenCode default when the session has no explicit model', () => {
+        expect(resolveSessionModelLabel({
+            session: { model: null },
+            agentFlavor: 'opencode',
+            catalogEnabled: false
+        })).toEqual({ key: 'session.item.model', value: 'Muse Spark 1.3 Contributor' })
+    })
+
     it('does not apply the dynamic fallback to non-minimax flavors', () => {
         expect(resolveSessionModelLabel({
             session: { model: null },

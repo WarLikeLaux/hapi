@@ -431,7 +431,7 @@ describe('SessionHeader', () => {
         expect(screen.queryByTestId('session-header-reasoning')).not.toBeInTheDocument()
     })
 
-    it('shows an opted-in machine label and relative last-active age in the meta row', () => {
+    it('shows an opted-in machine label and no relative age in the meta row', () => {
         localStorage.setItem('hapi-session-header-metadata', JSON.stringify({ branch: false, machine: true }))
         const fiveMinutesAgo = Date.now() - 5 * 60_000
         renderHeader(baseSession({
@@ -446,7 +446,26 @@ describe('SessionHeader', () => {
         }))
 
         expect(screen.getByTestId('session-header-machine')).toHaveTextContent(/oos-linux/)
-        expect(screen.getByTestId('session-header-age')).toHaveTextContent(/5m ago|5分钟前/)
+        expect(screen.queryByTestId('session-header-age')).not.toBeInTheDocument()
+    })
+
+    it('shows the model as an icon, a pretty name, and capitalized effort', () => {
+        renderHeader(baseSession({
+            model: 'gpt-6.1-sol',
+            modelReasoningEffort: 'high',
+            serviceTier: 'fast',
+        }), { serviceTier: 'fast' })
+
+        const chip = screen.getByTestId('session-header-model')
+        expect(chip).toHaveTextContent('GPT-6.1 Sol (High, fast)')
+        expect(chip.querySelector('svg, img')).not.toBeNull()
+        expect(chip.textContent).not.toMatch(/model:/)
+        expect(chip.parentElement?.textContent).not.toMatch(/\bcodex\b/)
+        const project = screen.getByTestId('session-header-project')
+        expect(project).toHaveTextContent('repo')
+        expect(project.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(screen.queryByTestId('session-header-reasoning')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('session-header-age')).not.toBeInTheDocument()
     })
 
     it('shows the live Git branch instead of the machine by default', async () => {
@@ -471,7 +490,12 @@ describe('SessionHeader', () => {
             </AppContextTestProvider>
         )
 
-        expect(await screen.findByTestId('session-header-branch')).toHaveTextContent('branch: feature/live-branch')
+        const branch = await screen.findByTestId('session-header-branch')
+        expect(branch).toHaveTextContent('feature/live-branch')
+        expect(branch).not.toHaveTextContent('branch:')
+        expect(branch.querySelector('svg')).not.toBeNull()
+        const project = screen.getByTestId('session-header-project')
+        expect(project.compareDocumentPosition(branch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         expect(screen.queryByTestId('session-header-machine')).not.toBeInTheDocument()
     })
 
@@ -500,7 +524,7 @@ describe('SessionHeader', () => {
         // right-aligned action buttons when short and takes the whole line
         // when long, dropping the buttons to a tight line below.
         expect(detailsButton).toHaveClass('flex-1', 'min-w-0', 'truncate')
-        expect(model).toHaveTextContent('gpt-6-astra')
+        expect(model).toHaveTextContent('GPT-6 Astra')
         expect(model.parentElement?.textContent).not.toContain('codex')
         expect(summaryButton).toHaveClass('sm:hidden')
         // The summary sits on its own line inside the title group, indented
@@ -510,32 +534,8 @@ describe('SessionHeader', () => {
                 fireEvent.click(detailsButton)
         const dialog = screen.getByRole('dialog')
         expect(dialog).toHaveTextContent(title)
-        expect(dialog).toHaveTextContent('gpt-6-astra')
+        expect(dialog).toHaveTextContent('GPT-6 Astra')
         await waitFor(() => expect(dialog).toHaveTextContent(branch))
-    })
-
-    it('advances relative age on the minute tick without a session prop change', () => {
-        vi.useFakeTimers()
-        const now = new Date('2026-07-29T16:00:00.000Z')
-        vi.setSystemTime(now)
-
-        try {
-            renderHeader(baseSession({
-                activeAt: now.getTime() - 30_000,
-                updatedAt: now.getTime() - 30_000,
-                metadata: { flavor: 'cursor', path: '/r', host: 'host.local' }
-            }))
-
-            expect(screen.getByTestId('session-header-age')).toHaveTextContent(/just now|刚刚/)
-
-            act(() => {
-                vi.advanceTimersByTime(60_000)
-            })
-
-            expect(screen.getByTestId('session-header-age')).toHaveTextContent(/1m ago|1分钟前/)
-        } finally {
-            vi.useRealTimers()
-        }
     })
 
     it('anchors the action menu to the center of the More actions trigger', () => {

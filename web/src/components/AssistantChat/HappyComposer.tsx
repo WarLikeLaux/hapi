@@ -49,7 +49,9 @@ import { getEffectiveComposerEnterBehavior, useComposerEnterBehavior } from '@/h
 import { FloatingOverlay } from '@/components/ChatInput/FloatingOverlay'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import type { AgentActivity } from '@/lib/agentActivity'
-import { StatusBar } from '@/components/AssistantChat/StatusBar'
+import { StatusBar, shouldShowCodexFastBadge } from '@/components/AssistantChat/StatusBar'
+import { modelChipText } from '@/lib/modelChipLabel'
+import { OPENCODE_HARDCODED_LABEL } from '@/components/NewSession/hardcodedModels'
 import { ComposerButtons } from '@/components/AssistantChat/ComposerButtons'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { SortableComposerAttachments } from '@/components/AssistantChat/SortableComposerAttachments'
@@ -1739,7 +1741,7 @@ export function HappyComposer(props: {
     const modelEffortControlsDisabled = agentFlavor === 'pi' ? configurationControlsDisabled : controlsDisabled
     const modelValueLabel = useMemo(() => {
         if (isNarrowViewport) return undefined
-        if (!onModelChange || !supportsModelChange(agentFlavor)) return undefined
+        if (!supportsModelChange(agentFlavor)) return undefined
         // Pi models come from the dynamic piModels catalog; show the
         // provider-qualified selection name. No button until the catalog
         // resolves: a bare session model id has no provider and the sheet
@@ -1754,14 +1756,17 @@ export function HappyComposer(props: {
         if (agentFlavor === 'minimax' && selectedMinimaxModel) {
             return selectedMinimaxModel.name ?? selectedMinimaxModel.modelId
         }
-        if (modelOptions.length === 0) return undefined
+        if (modelOptions.length === 0) {
+            if (agentFlavor === 'opencode') return model?.trim() || OPENCODE_HARDCODED_LABEL
+            return model?.trim() || undefined
+        }
         const rawKey = selectedModelBase !== undefined ? selectedModelBase : model
         const normalizedKey = agentFlavor === 'cursor'
             ? (!rawKey || rawKey === 'auto' || rawKey === 'default' || rawKey === 'default[]' ? 'auto' : rawKey)
             : (!rawKey || rawKey === 'auto' || rawKey === 'default' ? null : rawKey)
         const option = modelOptions.find((candidate) => candidate.value === normalizedKey)
         return option?.label ?? rawKey ?? undefined
-    }, [isNarrowViewport, onModelChange, agentFlavor, selectedPiModel, selectedMinimaxModel, model, modelOptions, selectedModelBase])
+    }, [isNarrowViewport, agentFlavor, selectedPiModel, selectedMinimaxModel, model, modelOptions, selectedModelBase])
     const effortValueLabel = useMemo(() => {
         if (isNarrowViewport) return undefined
         if (!onEffortChange || !supportsEffort(agentFlavor)) return undefined
@@ -1793,13 +1798,19 @@ export function HappyComposer(props: {
         return option?.label
             ?? (modelReasoningEffort ? formatCodexReasoningEffortLabel(modelReasoningEffort) : 'Default')
     }, [isNarrowViewport, onModelReasoningEffortChange, agentFlavor, modelReasoningEffort, codexReasoningEffortOptions])
-    // One pill shows "Model (Effort)"; the effort itself is picked in the
-    // settings sheet (gear), not from the toolbar.
+    // One pill: icon + pretty name + (Effort, fast). Effort is display-only.
     const modelPillLabel = useMemo(() => {
-        const effortPart = effortValueLabel ?? reasoningEffortValueLabel
-        if (!modelValueLabel || !effortPart) return modelValueLabel
-        return `${modelValueLabel} (${effortPart})`
-    }, [modelValueLabel, effortValueLabel, reasoningEffortValueLabel])
+        if (!modelValueLabel) return undefined
+        return modelChipText({
+            name: modelValueLabel,
+            wireId: model,
+            flavor: agentFlavor,
+            modelReasoningEffort,
+            effort,
+            effortLabel: effortValueLabel ?? reasoningEffortValueLabel,
+            fast: shouldShowCodexFastBadge(agentFlavor, serviceTier, model),
+        })
+    }, [modelValueLabel, model, agentFlavor, modelReasoningEffort, effort, effortValueLabel, reasoningEffortValueLabel, serviceTier])
 
     // Wrapper for DOM onClick consumers: never leak the MouseEvent into the
     // `section` parameter (the gear must always open the full sheet).
@@ -2488,6 +2499,8 @@ export function HappyComposer(props: {
                             onClearSchedule={onUserClearSchedule}
                             hasAttachments={blocksScheduling}
                             modelValueLabel={modelPillLabel}
+                            modelWireId={model}
+                            agentFlavor={agentFlavor}
                             scratchlistMode={props.scratchlistMode}
                             scratchlistCount={props.scratchlistCount}
                             onScratchlistToggle={props.onScratchlistToggle}

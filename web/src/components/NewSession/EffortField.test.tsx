@@ -22,6 +22,15 @@ function renderEffortField(overrides: Partial<Parameters<typeof EffortField>[0]>
     )
 }
 
+describe('EffortField', () => {
+    it('does not render a picker for OpenCode', () => {
+        renderEffortField({ agent: 'opencode', opencodeVariantOptions: ['minimal', 'max'] })
+
+        expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+        expect(screen.queryByRole('option')).not.toBeInTheDocument()
+    })
+})
+
 describe('EffortField codex reasoning options', () => {
     it('names the no-pick option after the config default effort and skips the duplicate row', () => {
         renderEffortField({ codexDefaultReasoningEffort: 'high' })
