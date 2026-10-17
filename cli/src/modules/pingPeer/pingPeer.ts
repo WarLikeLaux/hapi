@@ -168,10 +168,10 @@ function authHeaders(jwt: string): Record<string, string> {
 }
 
 /** Authenticated access to the configured hub, scoped to this CLI's namespace. */
-export async function connectPeerHub() {
+export async function connectPeerHub(options: { accessToken?: string } = {}) {
     const apiUrl = resolveApiUrl()
     const http = axios
-    const jwt = await exchangeJwt(apiUrl, resolveAccessToken(), http)
+    const jwt = await exchangeJwt(apiUrl, resolveAccessToken(options.accessToken), http)
     async function request<T>(method: 'get' | 'post', path: string, body?: unknown): Promise<T> {
         const config = { headers: authHeaders(jwt), timeout: 120_000, validateStatus: () => true }
         const response = method === 'get'

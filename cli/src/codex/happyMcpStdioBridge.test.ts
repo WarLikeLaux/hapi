@@ -65,11 +65,11 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
         expect(description).toContain('cannot be used to read, inspect, or analyze image contents')
     })
 
-    it.each(['list_launch_options', 'launch_agent'])('forwards %s arguments through the stdio bridge', async (name) => {
+    it.each(['list_launch_options', 'launch_agent', 'close_session'])('forwards %s arguments through the stdio bridge', async (name) => {
         await runHappyMcpStdioBridge(['--url', 'http://127.0.0.1:43006', '--tools', name])
         const args = name === 'launch_agent'
             ? { project: '/code/project', message: 'Implement task', requestId: 'task-1' }
-            : { machineId: 'runner-one' }
+            : name === 'close_session' ? {} : { machineId: 'runner-one' }
         const result = await harness.tools.get(name)?.(args)
         expect(result).toEqual({ content: [{ type: 'text', text: 'forwarded' }], isError: false })
         expect(harness.callTool).toHaveBeenCalledWith({ name, arguments: args })

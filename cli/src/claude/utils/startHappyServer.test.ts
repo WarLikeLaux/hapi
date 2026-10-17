@@ -332,3 +332,26 @@ describe('toClaudeAllowedHapiMcpTools', () => {
         expect(toClaudeAllowedHapiMcpTools(['display_media'])).not.toContain('mcp__hapi__display_media')
     })
 })
+
+
+describe('startHappyServer close_session', () => {
+    it.each([['native-client', true, 1], ['hapi-stdio-bridge', false, 0]] as const)(
+        'binds closure to this client and defers shared Codex receipts (%s)', async (name, emitTitleSummary, calls) => {
+            const requestCloseAfterTurn = vi.fn(async () => {})
+            const session = { sessionId: 'self', updateMetadata: vi.fn(), requestCloseAfterTurn } as unknown as ApiSessionClient
+            const server = await startHappyServer(session, { emitTitleSummary })
+            const mcp = new Client({ name, version: '1.0.0' })
+            try {
+                await mcp.connect(new StreamableHTTPClientTransport(new URL(server.url)))
+                const rejected = await mcp.callTool({ name: 'close_session', arguments: { sessionId: 'peer' } }) as ToolResult
+                expect(rejected.isError).toBe(true)
+                const result = await mcp.callTool({ name: 'close_session', arguments: {} }) as ToolResult
+                expect(result.isError).toBe(false)
+                expect(requestCloseAfterTurn).toHaveBeenCalledTimes(calls)
+            } finally {
+                await mcp.close()
+                server.stop()
+            }
+        }
+    )
+})

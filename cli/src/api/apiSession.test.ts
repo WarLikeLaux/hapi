@@ -21,7 +21,8 @@ const socketHarness = vi.hoisted(() => ({
 }))
 
 const axiosHarness = vi.hoisted(() => ({
-    get: vi.fn()
+    get: vi.fn(),
+    post: vi.fn()
 }))
 
 vi.mock('socket.io-client', () => ({
@@ -97,6 +98,7 @@ vi.mock('socket.io-client', () => ({
 vi.mock('axios', () => ({
     default: {
         get: axiosHarness.get,
+        post: axiosHarness.post,
         isAxiosError: (error: unknown) => (
             typeof error === 'object'
             && error !== null
@@ -1334,5 +1336,103 @@ describe('IncomingMessageFilter (HAPI Bot R3 finding #1)', () => {
         expect(filter.accept({ id: 'pending', seq: 7 })).toBe(false)
         expect(filter.accept({ id: 'a', seq: 8 })).toBe(true)
         expect(filter.accept({ id: 'b', seq: 9 })).toBe(true)
+    })
+})
+
+
+describe('ApiSessionClient self close', () => {
+    async function fixture() {
+        socketHarness.sockets.length = 0
+        axiosHarness.post.mockReset()
+        axiosHarness.post.mockImplementation(async (url: string) => ({
+            status: 200,
+            data: url.endsWith('/api/auth') ? { token: 'session-jwt' } : { ok: true }
+        }))
+        const client = new ApiSessionClient('session-token:namespace', createSession({ namespace: 'default' }))
+        const socket = socketHarness.sockets[0]!
+        client.keepAlive(true, 'remote')
+        await client.requestCloseAfterTurn()
+        return { client, socket, archiveCalls: () => axiosHarness.post.mock.calls.filter(([url]) => url.endsWith('/archive')) }
+    }
+
+    it('waits for idle and final-message acknowledgement, and archives only its own session once', async () => {
+        vi.useFakeTimers()
+        const { client, socket, archiveCalls } = await fixture()
+        try {
+            await client.requestCloseAfterTurn()
+            await vi.advanceTimersByTimeAsync(5_000)
+            expect(archiveCalls()).toHaveLength(0)
+            const flushed = deferred<unknown>()
+            socket.emitWithAckImpl = () => flushed.promise
+            client.sendAgentMessage({ type: 'message', message: 'Task committed and ready' })
+            client.keepAlive(false, 'remote')
+            await vi.advanceTimersByTimeAsync(500)
+            client.keepAlive(true, 'remote')
+            await vi.advanceTimersByTimeAsync(1_000)
+            expect(archiveCalls()).toHaveLength(0)
+            client.keepAlive(false, 'remote')
+            await vi.advanceTimersByTimeAsync(1_000)
+            expect(archiveCalls()).toHaveLength(0)
+            flushed.resolve({})
+            await vi.advanceTimersByTimeAsync(0)
+            expect(archiveCalls()).toEqual([[
+                expect.stringContaining(`/api/sessions/${client.sessionId}/archive`), {},
+                expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer session-jwt' }) })
+            ]])
+            expect(axiosHarness.post).toHaveBeenCalledWith(expect.stringContaining('/api/auth'),
+                { accessToken: 'session-token:namespace' }, expect.anything())
+            client.keepAlive(false, 'remote')
+            await vi.advanceTimersByTimeAsync(5_000)
+            expect(archiveCalls()).toHaveLength(1)
+        } finally {
+            client.close()
+            vi.useRealTimers()
+        }
+    })
+
+    it.each(['remote', 'native'] as const)('cancels close on new %s input while final messages are flushing', async (source) => {
+        vi.useFakeTimers()
+        const { client, socket, archiveCalls } = await fixture()
+        try {
+            const flushed = deferred<unknown>()
+            socket.emitWithAckImpl = () => flushed.promise
+            client.keepAlive(false, 'remote')
+            await vi.advanceTimersByTimeAsync(1_000)
+            if (source === 'remote') triggerIncomingUserMessage(socket, { seq: 1, text: 'One more change', sentFrom: 'webapp' })
+            else client.sendUserMessage('One more change')
+            flushed.resolve({})
+            await vi.advanceTimersByTimeAsync(5_000)
+            client.keepAlive(false, 'remote')
+            await vi.advanceTimersByTimeAsync(5_000)
+            expect(archiveCalls()).toHaveLength(0)
+        } finally {
+            client.close()
+            vi.useRealTimers()
+        }
+    })
+
+    it.each(['flush', 'archive'] as const)('reports a failed %s and keeps the session open', async (failure) => {
+        vi.useFakeTimers()
+        const { client, socket, archiveCalls } = await fixture()
+        try {
+            if (failure === 'flush') socket.emitWithAckImpl = async () => { throw new Error('hub unavailable') }
+            else axiosHarness.post.mockRejectedValueOnce(new Error('hub archive unavailable'))
+            client.keepAlive(false, 'remote')
+            await vi.advanceTimersByTimeAsync(1_000)
+            expect(archiveCalls()).toHaveLength(failure === 'archive' ? 1 : 0)
+            expect(socket.connected).toBe(true)
+            expect(socket.emitted).toContainEqual(expect.objectContaining({
+                event: 'message', args: [expect.objectContaining({
+                    message: expect.objectContaining({ content: expect.objectContaining({
+                        type: 'event', data: expect.objectContaining({
+                            type: 'error', message: expect.stringContaining(failure === 'flush' ? 'Final messages could not be confirmed' : 'hub archive unavailable')
+                        })
+                    }) })
+                })]
+            }))
+        } finally {
+            client.close()
+            vi.useRealTimers()
+        }
     })
 })
