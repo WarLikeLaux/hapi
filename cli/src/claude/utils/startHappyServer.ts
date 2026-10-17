@@ -31,6 +31,7 @@ import { buildSessionTitleMcpInstructions } from '@/modules/common/sessionTitleP
 import { applySessionDisplayRename, normalizeSessionDisplayTitle } from "@/agent/sessionDisplayRename";
 import { createAgentLauncher } from '@/modules/pingPeer/launchAgent';
 import { launchAgentSchema, launchOptionsSchema, LAUNCH_AGENT_DESCRIPTION, LAUNCH_OPTIONS_DESCRIPTION, type LaunchAgentArgs } from '@/modules/pingPeer/launchAgentTools';
+import { closeSessionSchema, CLOSE_SESSION_DESCRIPTION } from '@/modules/common/closeSessionTool';
 
 type StartHappyServerOptions = {
     /**
@@ -228,6 +229,22 @@ function createHapiMcpServer(
             };
         });
     }
+
+    mcp.registerTool<any, any>('close_session', {
+        description: CLOSE_SESSION_DESCRIPTION,
+        title: 'Close Current Session',
+        inputSchema: closeSessionSchema,
+    }, async () => {
+        try {
+            // Shared Codex descendants inherit the bridge. Only the root's live
+            // tool receipt may arm closure, just like root title side effects.
+            const deferredToRoot = !emitTitleSummary && mcp.server.getClientVersion()?.name === 'hapi-stdio-bridge';
+            if (!deferredToRoot) await client.requestCloseAfterTurn();
+            return { content: [{ type: 'text' as const, text: 'Session close requested for the end of this turn. Send the final handoff now.' }], isError: false };
+        } catch (error) {
+            return { content: [{ type: 'text' as const, text: `Failed to request session close: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+        }
+    });
 
     mcp.registerTool<any, any>('display_image', {
         description: `Display a local image file to the human user inline in the current HAPI chat session. ${DISPLAY_IMAGE_PROMPT_CURSOR}`,
@@ -597,6 +614,7 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
         toolNames.push('skill_lookup');
     }
     toolNames.push('list_launch_options', 'launch_agent');
+    toolNames.push('close_session');
 
     return {
         url: mcpUrl,

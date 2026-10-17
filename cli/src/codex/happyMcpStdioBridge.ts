@@ -1,7 +1,7 @@
 /**
  * HAPI MCP STDIO Bridge
  *
- * Minimal STDIO MCP server exposing HAPI tools such as `change_title`, `display_image`, `display_video`, `display_media`, `list_peers`, `ping_peer`, and `inspect_peer`.
+ * Minimal STDIO MCP server exposing HAPI tools such as `change_title`, `display_image`, `display_video`, `display_media`, `list_peers`, `ping_peer`, `inspect_peer`, and `close_session`.
  * On invocation it forwards the tool call to an existing HAPI HTTP MCP server
  * using the StreamableHTTPClientTransport.
  *
@@ -24,8 +24,9 @@ import {
 } from '@hapi/protocol/sessionCitation';
 import { buildSessionTitleMcpInstructions } from '@/modules/common/sessionTitlePrompt';
 import { launchAgentSchema, launchOptionsSchema, LAUNCH_AGENT_DESCRIPTION, LAUNCH_OPTIONS_DESCRIPTION } from '@/modules/pingPeer/launchAgentTools';
+import { closeSessionSchema, CLOSE_SESSION_DESCRIPTION } from '@/modules/common/closeSessionTool';
 
-const DEFAULT_TOOL_NAMES = ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer', 'list_launch_options', 'launch_agent'];
+const DEFAULT_TOOL_NAMES = ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer', 'list_launch_options', 'launch_agent', 'close_session'];
 
 function parseArgs(argv: string[]): { url: string | null; toolNames: Set<string> } {
   let url: string | null = null;
@@ -81,6 +82,7 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
     });
 
     for (const tool of [
+      { name: 'close_session', title: 'Close Current Session', description: CLOSE_SESSION_DESCRIPTION, schema: closeSessionSchema },
       { name: 'list_launch_options', title: 'List Agent Launch Options', description: LAUNCH_OPTIONS_DESCRIPTION, schema: launchOptionsSchema },
       { name: 'launch_agent', title: 'Launch Agent Session', description: LAUNCH_AGENT_DESCRIPTION, schema: launchAgentSchema },
     ]) {

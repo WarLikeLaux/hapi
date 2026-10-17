@@ -42,6 +42,7 @@ export class SharedCodexProjection {
     // Unlike transcript emission, title side effects survive reset/replay.
     private readonly pendingTitles = new Map<string, string>();
     private readonly completedTitles = new Set<string>();
+    private readonly completedCloseRequests = new Set<string>();
     private titleRevision = 0;
     private readonly answeredAsyncQuestions = new Map<string, Record<string, { answers: string[] }>>();
     private readonly dismissedAsyncQuestions = new Set<string>();
@@ -131,6 +132,18 @@ export class SharedCodexProjection {
         const item = record(p.item);
         if (!this.parentThreadId && p.threadId === this.threadId && string(item.id)) {
             const key = `${string(p.turnId) ?? 'thread'}:${item.id}`;
+            if (method === 'item/completed' && item.type === 'mcpToolCall' && item.server === 'hapi'
+                && item.tool === 'close_session' && item.status === 'completed' && item.error == null
+                && item.result != null && !('Err' in record(item.result))
+                && record(item.result).isError !== true && record(record(item.result).Ok).isError !== true
+                && !this.completedCloseRequests.has(key)) {
+                this.completedCloseRequests.add(key);
+                try {
+                    await this.session.requestCloseAfterTurn();
+                } catch (error) {
+                    this.session.sendSessionEvent({ type: 'error', message: `Failed to request session close: ${error instanceof Error ? error.message : String(error)}` });
+                }
+            }
             if (!this.completedTitles.has(key)) {
                 const title = requestedTitle(item);
                 if (method === 'item/started' && title) this.pendingTitles.set(key, title);

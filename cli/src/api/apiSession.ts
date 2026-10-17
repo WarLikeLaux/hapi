@@ -45,6 +45,7 @@ import { applyVersionedAck } from './versionedUpdate'
 import { buildHubRequestHeaders, buildSocketIoExtraHeaderOptions } from './hubExtraHeaders'
 import { WorkspaceChangesTracker } from '@/modules/common/workspaceChanges'
 import { applySessionTitleFallback } from '@/modules/common/sessionTitleFallback'
+import { connectPeerHub } from '@/modules/pingPeer/pingPeer'
 import {
     buildSessionTitleTurnReminder,
     stripHapiTitleReminder,
@@ -323,6 +324,12 @@ export class ApiSessionClient extends EventEmitter {
     private workspaceChangesPollTimer: ReturnType<typeof setInterval> | null = null
     private workspaceChangesPollInFlight = false
     private currentThinking = false
+    private selfCloseRevision = 0
+    private selfCloseRequest: {
+        hub: Awaited<ReturnType<typeof connectPeerHub>>
+        timer?: ReturnType<typeof setTimeout>
+        checking?: boolean
+    } | null = null
     private emittedBusyForCurrentThinking = false
     /**
      * Whether the HAPI change_title MCP tool is exposed for this session's
@@ -840,6 +847,7 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     private enqueueUserMessage(message: UserMessage, localId?: string): void {
+        this.cancelSelfClose()
         const hasTitle = Boolean(this.metadata?.name?.trim() || this.metadata?.summary?.text.trim())
         if (!message.meta?.isMeta && !hasTitle) {
             applySessionTitleFallback(this, message.content.text)
@@ -1285,7 +1293,61 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     notifyUserActivity(): void {
+        this.cancelSelfClose()
         void this.materialize()
+    }
+
+    /** Arm self-archive without interrupting the tool call or final answer. */
+    async requestCloseAfterTurn(): Promise<void> {
+        if (this.selfCloseRequest) return
+        if (this.state !== 'active' || this.hubArchived) {
+            throw new Error('Only an active HAPI session can close itself')
+        }
+        const revision = this.selfCloseRevision
+        const hub = await connectPeerHub({ accessToken: this.token })
+        if (revision !== this.selfCloseRevision) throw new Error('New user input canceled session close')
+        if (this.state !== 'active' || this.hubArchived) {
+            throw new Error('HAPI session is no longer active')
+        }
+        this.selfCloseRequest ??= { hub }
+    }
+
+    private cancelSelfClose(): void {
+        this.selfCloseRevision++
+        if (this.selfCloseRequest?.timer) clearTimeout(this.selfCloseRequest.timer)
+        this.selfCloseRequest = null
+    }
+
+    private scheduleSelfClose(thinking: boolean): void {
+        const request = this.selfCloseRequest
+        if (!request) return
+        if (thinking) {
+            if (request.timer) clearTimeout(request.timer)
+            request.timer = undefined
+            return
+        }
+        if (request.timer || request.checking) return
+        // A stable idle boundary lets the final transcript and MCP reply drain.
+        request.timer = setTimeout(async () => {
+            request.timer = undefined
+            request.checking = true
+            try {
+                const flushed = await this.flush()
+                if (this.selfCloseRequest !== request || this.currentThinking || this.state !== 'active') return
+                if (!flushed) throw new Error('Final messages could not be confirmed by the hub')
+                this.selfCloseRequest = null
+                const result = await request.hub.post<{ ok?: boolean }>(`/sessions/${encodeURIComponent(this.sessionId)}/archive`, {})
+                if (result.ok !== true) throw new Error('Hub did not confirm session archive')
+            } catch (error) {
+                if (this.selfCloseRequest === request) this.selfCloseRequest = null
+                const message = `Automatic session close failed: ${error instanceof Error ? error.message : String(error)}`
+                logger.debug('[API]', message)
+                if (this.state === 'active') this.sendSessionEvent({ type: 'error', message })
+            } finally {
+                request.checking = false
+            }
+        }, 1_000)
+        request.timer.unref()
     }
 
     sendAgentMessage(body: unknown, localId?: string): void {
@@ -1456,6 +1518,7 @@ export class ApiSessionClient extends EventEmitter {
         }
     ): void {
         this.currentThinking = thinking
+        this.scheduleSelfClose(thinking)
         if (!thinking) {
             this.emittedBusyForCurrentThinking = false
         }
@@ -1873,6 +1936,7 @@ export class ApiSessionClient extends EventEmitter {
             return
         }
         this.state = 'closed'
+        this.cancelSelfClose()
         this.stopWorkspaceChangesPolling()
         this.materializationAbortController?.abort()
         this.materializationAbortController = null
