@@ -1,8 +1,8 @@
 /**
  * Hardcoded model shortlists for the Create Session form.
  *
- * These flavors always run a single model on this machine, so the form shows
- * badges instead of a catalog dropdown. Wire ids are literals — no catalog
+ * The form shows quick picks before the full catalog dropdown.
+ * Wire ids are literals — no catalog
  * lookup, no resolution. If a provider renames a model, update the literal.
  */
 
@@ -25,6 +25,10 @@ export const CLAUDE_GLM_HARDCODED_LABEL = 'GLM 5.3 Flash'
 /** OpenCode runs the backend default; null = Default. */
 export const OPENCODE_HARDCODED_MODEL_ID = 'opencode-go/muse-spark-1.3-contributor'
 export const OPENCODE_HARDCODED_LABEL = 'Muse Spark 1.3 Contributor'
+export const OPENCODE_HARDCODED_OPTIONS = [
+    { value: 'auto', label: OPENCODE_HARDCODED_LABEL },
+    { value: 'opencode-go/deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash' },
+]
 
 /** MiniMax runs its native default; the raw catalog name keeps dashes and a Preview suffix. */
 export const MINIMAX_HARDCODED_LABEL = 'MiniMax M3.1 Flash'

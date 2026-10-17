@@ -87,7 +87,7 @@ import {
     CODEX_DEFAULT_MODEL_ID,
     CODEX_HARDCODED_OPTIONS,
     MINIMAX_HARDCODED_LABEL,
-    OPENCODE_HARDCODED_LABEL,
+    OPENCODE_HARDCODED_OPTIONS,
 } from './hardcodedModels'
 import { orderCreateSessionAgents, resolveDefaultMachineDirectory } from './defaults'
 import { usesNativePermissionSelect, usesSharedPermissionModeState } from '@/lib/codexFamilyPermissionAgents'
@@ -128,8 +128,7 @@ function QuickPickChips(props: {
         </div>
     )
 }
-// Hardcoded model badges: a labeled chip row replacing the catalog dropdown
-// for flavors that always run a single model on this machine.
+// Quick model choices shown before the optional full catalog dropdown.
 function ModelBadges(props: {
     label?: string
     options: Array<{ value: string; label: string }>
@@ -552,11 +551,6 @@ export function NewSession(props: {
             setAgySelectedModel(null)
         }
     }, [agent, agySelectedModel, showAllModels])
-    useEffect(() => {
-        if (agent === 'opencode' && !showAllModels && opencodeSelectedModel !== null) {
-            setOpencodeSelectedModel(null)
-        }
-    }, [agent, opencodeSelectedModel, showAllModels])
     const cursorModelsState = useCursorModelsForMachine({
         api: props.api,
         machineId,
@@ -1047,18 +1041,9 @@ export function NewSession(props: {
         ) {
             return
         }
-        // null = explicit "Default" choice (or a restored Default preference) —
-        // never overwrite it with a concrete model. Only `undefined` (no choice
-        // made yet) triggers initialization.
-        if (opencodeSelectedModel === null) {
-            return
-        }
-        if (
-            opencodeSelectedModel !== undefined
-            && opencodeModelsState.availableModels.some(
-                (candidate) => candidate.modelId === opencodeSelectedModel
-            )
-        ) {
+        // Preserve explicit choices, including Default (null) and quick picks
+        // missing from a stale catalog. Only undefined needs initialization.
+        if (opencodeSelectedModel !== undefined) {
             return
         }
         const rememberedModel = machineId
@@ -2172,10 +2157,10 @@ export function NewSession(props: {
             ) : agent === 'opencode' ? (
                 <>
                     <ModelBadges
-                        options={[{ value: 'auto', label: OPENCODE_HARDCODED_LABEL }]}
-                        activeValue="auto"
+                        options={OPENCODE_HARDCODED_OPTIONS}
+                        activeValue={opencodeSelectedModel ?? 'auto'}
                         isDisabled={isFormDisabled || !machineId}
-                        onToggle={() => {}}
+                        onToggle={(value) => setOpencodeSelectedModel(value === 'auto' ? null : value)}
                         footer={showAllModels ? null : (
                             <OtherModelsButton
                                 isDisabled={isFormDisabled || !machineId}
