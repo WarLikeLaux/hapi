@@ -23,7 +23,7 @@ import { CloseIcon } from '@/components/icons'
 import { ShareTurnDialog } from '@/components/AssistantChat/ShareTurnDialog'
 import { useSessionModelLabel } from '@/hooks/useSessionModelLabel'
 import { getSessionTitle } from '@/lib/sessionTitle'
-import { isFastServiceTier } from '@/components/AssistantChat/codexFastMode'
+import { isSessionFastMode } from '@/lib/sessionFastMode'
 import type { OlderLoadOutcome } from '@/lib/message-window-store'
 import { useSessionHeaderMetadata } from '@/hooks/useSessionHeaderMetadata'
 import { useMachines } from '@/hooks/queries/useMachines'
@@ -610,9 +610,7 @@ export function HappyThread(props: {
         const createdAtLabel = formatSessionHeaderTimestamp(props.session.createdAt, locale)
         const updatedAtLabel = formatSessionHeaderTimestamp(props.session.updatedAt, locale)
         const worktreeBranch = props.session.metadata?.worktree?.branch?.trim() || null
-        const showFastBadge = (agentFlavor === 'codex'
-            && isFastServiceTier(props.serviceTier ?? props.session.serviceTier))
-            || (agentFlavor === 'cursor' && /fast/i.test(props.session.model ?? ''))
+        const showFastBadge = isSessionFastMode(agentFlavor, props.serviceTier ?? props.session.serviceTier, props.session.model)
 
         return selectShareTurnMetadata(headerMetadata, {
             agent: agentLabel ? { text: agentLabel, flavor: agentFlavor } : undefined,
@@ -624,7 +622,7 @@ export function HappyThread(props: {
                 text: `${headerMetadata.showLabels ? `${t(modelLabel.key)}: ` : ''}${modelLabel.value}`,
             } : undefined,
             reasoning: reasoningLabel ? { text: reasoningLabel } : undefined,
-            fastMode: showFastBadge ? { text: 'fast' } : undefined,
+            fastMode: showFastBadge ? { text: 'Fast' } : undefined,
             createdAt: createdAtLabel ? {
                 text: `${headerMetadata.showLabels ? `${t('session.header.createdAt')}: ` : ''}${createdAtLabel}`,
             } : undefined,

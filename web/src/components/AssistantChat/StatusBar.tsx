@@ -11,7 +11,7 @@ import { useMemo } from 'react'
 import type { AgentState, CodexCollaborationMode, PermissionMode } from '@/types/api'
 import type { ConversationStatus } from '@/realtime/types'
 import { getContextBudgetTokens } from '@/chat/modelConfig'
-import { isFastServiceTier } from './codexFastMode'
+import { isSessionFastMode } from '@/lib/sessionFastMode'
 import { useTranslation } from '@/lib/use-translation'
 import { AGENT_ACTIVITY_LABELS, type AgentActivity } from '@/lib/agentActivity'
 
@@ -153,16 +153,6 @@ export function getContextUsageDetails(
     }
 }
 
-export function shouldShowCodexFastBadge(
-    agentFlavor: string | null | undefined,
-    serviceTier: string | null | undefined,
-    model?: string | null
-): boolean {
-    if (agentFlavor === 'codex') return isFastServiceTier(serviceTier)
-    if (agentFlavor === 'cursor') return /fast/i.test(model ?? '')
-    return false
-}
-
 export function StatusBar(props: {
     active: boolean
     thinking: boolean
@@ -244,6 +234,7 @@ export function StatusBar(props: {
     const copilotAgentModeLabel = displayCopilotAgentMode
         ? getCopilotAgentModeLabel(displayCopilotAgentMode)
         : null
+    const fastMode = isSessionFastMode(props.agentFlavor, props.serviceTier, props.model)
     return (
         <div className="flex min-w-0 items-baseline justify-between gap-2 px-2 pb-1">
             <div className="flex min-w-0 items-baseline gap-2">
@@ -317,6 +308,11 @@ export function StatusBar(props: {
             </div>
 
             <div className="flex min-w-0 shrink-0 items-baseline gap-2">
+                {fastMode ? (
+                    <span className="whitespace-nowrap text-xs text-[#34C759]">
+                        Fast
+                    </span>
+                ) : null}
                 {collaborationModeLabel ? (
                     <span className="whitespace-nowrap text-xs text-blue-500">
                         {collaborationModeLabel}

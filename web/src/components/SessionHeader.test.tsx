@@ -376,7 +376,7 @@ describe('SessionHeader', () => {
 
     it('shows an inherited catalog-default Fast tier', () => {
         renderHeader(baseSession(), { serviceTier: 'priority' })
-        expect(screen.getByTestId('session-header-fast')).toHaveTextContent('fast')
+        expect(screen.getByTestId('session-header-fast')).toHaveTextContent('Fast')
         expect(screen.queryByText('reasoning default')).not.toBeInTheDocument()
     })
 
@@ -457,7 +457,7 @@ describe('SessionHeader', () => {
         }), { serviceTier: 'fast' })
 
         const chip = screen.getByTestId('session-header-model')
-        expect(chip).toHaveTextContent('GPT-6.1 Sol (High, fast)')
+        expect(chip).toHaveTextContent('GPT-6.1 Sol Fast (High)')
         expect(chip.querySelector('svg, img')).not.toBeNull()
         expect(chip.textContent).not.toMatch(/model:/)
         expect(chip.parentElement?.textContent).not.toMatch(/\bcodex\b/)

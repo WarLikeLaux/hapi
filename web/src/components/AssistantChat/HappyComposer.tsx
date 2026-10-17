@@ -50,7 +50,8 @@ import { getEffectiveComposerEnterBehavior, useComposerEnterBehavior } from '@/h
 import { FloatingOverlay } from '@/components/ChatInput/FloatingOverlay'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import type { AgentActivity } from '@/lib/agentActivity'
-import { StatusBar, shouldShowCodexFastBadge } from '@/components/AssistantChat/StatusBar'
+import { StatusBar } from '@/components/AssistantChat/StatusBar'
+import { isSessionFastMode } from '@/lib/sessionFastMode'
 import { modelChipText } from '@/lib/modelChipLabel'
 import { OPENCODE_HARDCODED_LABEL } from '@/components/NewSession/hardcodedModels'
 import { ComposerButtons } from '@/components/AssistantChat/ComposerButtons'
@@ -1812,7 +1813,7 @@ export function HappyComposer(props: {
         return option?.label
             ?? (modelReasoningEffort ? formatCodexReasoningEffortLabel(modelReasoningEffort) : 'Default')
     }, [isNarrowViewport, onModelReasoningEffortChange, agentFlavor, modelReasoningEffort, codexReasoningEffortOptions])
-    // One pill: icon + pretty name + (Effort, fast). Effort is display-only.
+    // One pill: icon + pretty name + Fast + (Effort). Effort is display-only.
     const modelPillLabel = useMemo(() => {
         if (!modelValueLabel) return undefined
         return modelChipText({
@@ -1822,7 +1823,7 @@ export function HappyComposer(props: {
             modelReasoningEffort,
             effort: isGlmBrandedClaude ? undefined : effort,
             effortLabel: effortValueLabel ?? reasoningEffortValueLabel,
-            fast: shouldShowCodexFastBadge(agentFlavor, serviceTier, model),
+            fast: isSessionFastMode(agentFlavor, serviceTier, model),
         })
     }, [modelValueLabel, model, agentFlavor, modelReasoningEffort, effort, effortValueLabel, reasoningEffortValueLabel, serviceTier, isGlmBrandedClaude])
 

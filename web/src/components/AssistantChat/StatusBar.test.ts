@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     formatContextUsageLabel,
     getContextWarning,
-    getContextUsageDetails,
-    shouldShowCodexFastBadge
+    getContextUsageDetails
 } from './StatusBar'
 
 describe('context warning colors', () => {
@@ -43,15 +42,5 @@ describe('context usage labels', () => {
             usedPercentage: 35,
             remainingPercentage: 65
         })
-    })
-})
-
-describe('shouldShowCodexFastBadge', () => {
-    it('uses only the effective service tier', () => {
-        expect(shouldShowCodexFastBadge('codex', undefined)).toBe(false)
-        expect(shouldShowCodexFastBadge('codex', 'standard')).toBe(false)
-        expect(shouldShowCodexFastBadge('codex', 'fast')).toBe(true)
-        expect(shouldShowCodexFastBadge('codex', 'priority')).toBe(true)
-        expect(shouldShowCodexFastBadge('claude', 'fast')).toBe(false)
     })
 })

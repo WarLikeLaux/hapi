@@ -23,7 +23,7 @@ import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { getProjectLabelHue } from '@/components/SessionRowSummary'
 import { basename } from '@/utils/path'
-import { isFastServiceTier } from '@/components/AssistantChat/codexFastMode'
+import { isSessionFastMode } from '@/lib/sessionFastMode'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { useToast } from '@/lib/toast-context'
 import { queryKeys } from '@/lib/query-keys'
@@ -249,10 +249,7 @@ export function SessionHeader(props: {
     const reasoningLabel = reasoningEffort
         ? formatReasoningLabel(reasoningEffort, headerMetadata.showLabels)
         : null
-    // Match expected Fast badge semantics (#1004): only explicit service tier, no effort/model heuristics.
-    // Cursor composer fast variants surface the same badge from the model id.
-    const isCursorFastModel = agentFlavor === 'cursor' && /fast/i.test(session.model ?? '')
-    const showFastBadge = (agentFlavor === 'codex' && isFastServiceTier(props.serviceTier ?? session.serviceTier)) || isCursorFastModel
+    const showFastBadge = isSessionFastMode(agentFlavor, props.serviceTier ?? session.serviceTier, session.model)
     const createdAtLabel = headerMetadata.createdAt ? formatSessionHeaderTimestamp(session.createdAt, locale) : null
     const updatedAtLabel = headerMetadata.updatedAt ? formatSessionHeaderTimestamp(session.updatedAt, locale) : null
     const codexSessionId = session.metadata?.flavor === 'codex'
@@ -299,7 +296,7 @@ export function SessionHeader(props: {
         : mobileSecondary === 'updatedAt' ? updatedAtLabel
         : mobileSecondary === 'createdAt' ? createdAtLabel
         : mobileSecondary === 'worktree' ? worktreeBranch
-        : mobileSecondary === 'fastMode' ? 'fast'
+        : mobileSecondary === 'fastMode' ? 'Fast'
         : null
     const mobileModelChip = modelChip?.startsWith('Muse Spark ')
         ? modelChip.replace(/\s+Contributor\b/, '')
@@ -594,7 +591,7 @@ export function SessionHeader(props: {
                             ) : null}
                             {headerMetadata.fastMode && showFastBadge && !modelChip ? (
                                 <span data-testid="session-header-fast" className="text-[#34C759]">
-                                    fast
+                                    Fast
                                 </span>
                             ) : null}
                             {createdAtLabel ? <span>{headerMetadata.showLabels ? `${t('session.header.createdAt')}: ` : ''}{createdAtLabel}</span> : null}

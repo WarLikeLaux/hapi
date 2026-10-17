@@ -66,6 +66,47 @@ describe('StatusBar context details popover', () => {
         expect(screen.getByText('permission required')).toBeVisible()
     })
 
+    it.each(['fast', 'priority'])('shows a separate Fast label beside Yolo for %s and removes it when disabled', (tier) => {
+        const view = (serviceTier: string | null) => (
+            <I18nProvider>
+                <StatusBar active thinking={false} agentState={null} agentFlavor="codex"
+                    permissionMode="yolo" model="gpt-6.1-sol" serviceTier={serviceTier} />
+            </I18nProvider>
+        )
+        const { rerender } = render(view(tier))
+        expect(screen.getByText('Fast')).toBeVisible()
+        expect(screen.getByText('Yolo')).toBeVisible()
+        rerender(view('standard'))
+        expect(screen.queryByText('Fast')).toBeNull()
+        expect(screen.getByText('Yolo')).toBeVisible()
+        rerender(view(null))
+        expect(screen.queryByText('Fast')).toBeNull()
+    })
+
+    it.each(['codex', 'claude'])('does not infer Fast from model or effort for %s', (agentFlavor) => {
+        render(
+            <I18nProvider>
+                <StatusBar active thinking={false} agentState={null} agentFlavor={agentFlavor}
+                    model="gpt-6.1-sol-fast" modelReasoningEffort="high" />
+            </I18nProvider>
+        )
+        expect(screen.queryByText('Fast')).toBeNull()
+    })
+
+    it('tracks Cursor Fast variants including explicit fast=false', () => {
+        const view = (model: string) => (
+            <I18nProvider>
+                <StatusBar active thinking={false} agentState={null} agentFlavor="cursor" model={model} />
+            </I18nProvider>
+        )
+        const { rerender } = render(view('composer-2.5-fast'))
+        expect(screen.getByText('Fast')).toBeVisible()
+        rerender(view('composer-2.5[fast=false]'))
+        expect(screen.queryByText('Fast')).toBeNull()
+        rerender(view('composer-2.5[fast=true]'))
+        expect(screen.getByText('Fast')).toBeVisible()
+    })
+
     it('hides context usage on mobile and keeps the desktop detail order', async () => {
         localStorage.setItem('hapi-lang', 'zh-CN')
         render(
