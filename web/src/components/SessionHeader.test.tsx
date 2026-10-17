@@ -100,9 +100,9 @@ describe('resolveSessionHeaderMachineLabel', () => {
 })
 
 describe('SessionHeader', () => {
-    it('opens the exact worktree folder in Code from the header and menu', () => {
+    it('opens the exact worktree folder in Code with readable slashes from the header and menu', () => {
         renderHeader(baseSession({ metadata: { path: '/repo worktrees/feature #1', host: 'machine' } }))
-        const href = 'https://code.local/?folder=%2Frepo+worktrees%2Ffeature+%231'
+        const href = 'https://code.local/?folder=/repo%20worktrees/feature%20%231'
         const link = screen.getByRole('link', { name: 'Open in Code' })
         expect(link).toHaveAttribute('href', href)
         expect(link).toHaveAttribute('target', '_blank')
