@@ -1,5 +1,5 @@
 {
-    "description": "title-changed is synthesized from a mcp__hapi__change_title tool_use (no tool card, one event even though tool_use and tool_result both mention it). dedupeAgentEvents then drops a message event echoing the exact title and folds consecutive identical message events into one.",
+    "description": "Session title changes and their message echoes stay out of the chat timeline. Consecutive identical status messages still fold into one.",
     "expected": {
         "blocks": [
             {
@@ -8,15 +8,6 @@
                 "kind": "user-text",
                 "localId": null,
                 "text": "Rename this session appropriately."
-            },
-            {
-                "createdAt": 1755000002000,
-                "event": {
-                    "title": "Fix pagination cursor math",
-                    "type": "title-changed"
-                },
-                "id": "msg-agent-332:0",
-                "kind": "agent-event"
             },
             {
                 "createdAt": 1755000003500,
@@ -37,15 +28,6 @@
                 "kind": "user-text",
                 "localId": null,
                 "text": "Rename this session appropriately."
-            },
-            {
-                "createdAt": 1755000002000,
-                "event": {
-                    "title": "Fix pagination cursor math",
-                    "type": "title-changed"
-                },
-                "id": "msg-agent-332:0",
-                "kind": "agent-event"
             },
             {
                 "createdAt": 1755000003500,

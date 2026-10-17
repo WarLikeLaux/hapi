@@ -80,24 +80,25 @@ function isRedundantGoalStatusMessage(event: AgentEvent): boolean {
     return isRedundantGoalStatusMessageText(event.message)
 }
 
-function isSilentGoalEventBlock(block: ChatBlock): boolean {
+function isSilentEventBlock(block: ChatBlock): boolean {
     return block.kind === 'agent-event'
         && (
-            block.event.type === 'thread-goal-updated'
+            block.event.type === 'title-changed'
+            || block.event.type === 'thread-goal-updated'
             || block.event.type === 'thread-goal-cleared'
             || isRedundantGoalStatusMessage(block.event)
         )
 }
 
-function filterSilentGoalBlocks(blocks: ChatBlock[]): ChatBlock[] {
+function filterSilentBlocks(blocks: ChatBlock[]): ChatBlock[] {
     const filtered: ChatBlock[] = []
 
     for (const block of blocks) {
-        if (isSilentGoalEventBlock(block)) continue
+        if (isSilentEventBlock(block)) continue
         if (block.kind === 'tool-call' && block.children.length > 0) {
             filtered.push({
                 ...block,
-                children: filterSilentGoalBlocks(block.children)
+                children: filterSilentBlocks(block.children)
             })
             continue
         }
@@ -194,7 +195,7 @@ export function reduceChatBlocks(
     }
 
     return {
-        blocks: filterSilentGoalBlocks(suppressResolvedRetryErrors(dedupeAgentEvents(foldApiErrorEvents(rootResult.blocks)))),
+        blocks: filterSilentBlocks(suppressResolvedRetryErrors(dedupeAgentEvents(foldApiErrorEvents(rootResult.blocks)))),
         hasReadyEvent,
         latestUsage,
         latestGoal: getLatestThreadGoal(options.goalStateMessages ?? normalized)
