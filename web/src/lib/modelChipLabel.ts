@@ -92,7 +92,7 @@ function effortWord(
     return formatCodexReasoningEffortLabel(raw)
 }
 
-/** Icon sits beside this string: "Grok 4.7 (XHigh, fast)". */
+/** Icon sits beside this string: "Grok 4.7 Fast (XHigh)". */
 export function modelChipText(args: {
     name: string
     wireId?: string | null
@@ -103,13 +103,13 @@ export function modelChipText(args: {
     fast?: boolean
 }): string {
     const given = args.name.trim()
-    const parsed = parseSlug((args.wireId?.trim() || given))
-    const name = given && /[A-Z ]/.test(given) ? given : parsed.name
-    const parts: string[] = []
+    const wireId = args.wireId?.trim() || given
+    const parsed = parseSlug(wireId)
+    const knownName = KNOWN_MODEL_NAMES[wireId] ?? KNOWN_MODEL_NAMES[basename(wireId)]
+    let name = knownName ?? (given && /[A-Z ]/.test(given) ? given : parsed.name)
     const effort = effortWord(args.flavor, args.modelReasoningEffort, args.effort, args.effortLabel, parsed.effort)
-    if (effort) parts.push(effort)
-    if ((args.fast || parsed.fast) && !/fast/i.test(name)) parts.push('fast')
-    return parts.length ? `${name} (${parts.join(', ')})` : name
+    if ((args.fast || parsed.fast) && !/\bfast\b/i.test(name)) name += ' Fast'
+    return effort ? `${name} (${effort})` : name
 }
 
 export function prettyModelName(label: string): string {
