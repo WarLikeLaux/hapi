@@ -343,6 +343,21 @@ describe('cursorAcpRemoteLauncher', () => {
         _resetSharedCursorModelsCacheForTests();
     });
 
+    it('waits for remote launcher teardown when the session is killed while idle', async () => {
+        const session = makeSession(null, false);
+        const running = cursorAcpRemoteLauncher(session);
+        try {
+            await vi.waitFor(() => expect(harness.newSessionCalled).toBe(true));
+            expect(harness.overlayCleanup).not.toHaveBeenCalled();
+            await session.kill();
+            expect(harness.overlayCleanup).toHaveBeenCalledOnce();
+            expect(await running).toBe('exit');
+        } finally {
+            session.queue.close();
+            await running;
+        }
+    });
+
     it('ends the launcher when a soft steer outlives an abort', async () => {
         let releasePrompt!: () => void;
         harness.deferPrompt = new Promise((resolve) => { releasePrompt = resolve; });

@@ -93,10 +93,21 @@ class CursorAcpRemoteLauncher extends RemoteLauncherBase {
     }
 
     public async launch(): Promise<RemoteLauncherExitReason> {
-        return this.start({
+        const running = this.start({
             onExit: () => this.handleExitFromUi(),
             onSwitchToLocal: () => this.handleSwitchFromUi()
         });
+        // Archive/SIGTERM must reach the launcher's finally block before the
+        // wrapper exits, so disconnect and MCP overlay cleanup can finish.
+        this.session.setKillHandler(async () => {
+            await this.handleExitFromUi();
+            await running;
+        });
+        try {
+            return await running;
+        } finally {
+            this.session.setKillHandler(() => {});
+        }
     }
 
     protected createDisplay(context: RemoteLauncherDisplayContext): React.ReactElement {

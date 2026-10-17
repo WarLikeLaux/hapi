@@ -22,6 +22,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { spawn } from 'child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, unlinkSync, readFileSync, writeFileSync, readdirSync } from 'fs';
 import path, { join } from 'path';
 import { configuration } from '@/configuration';
@@ -172,6 +173,44 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
   it('should list sessions (initially empty)', async () => {
     const sessions = await listRunnerSessions();
     expect(sessions).toEqual([]);
+  });
+
+  it.skipIf(process.platform !== 'linux')('stops orphaned session agents and detached servers without stopping another session', async () => {
+    const sessionId = randomUUID();
+    const siblingSessionId = randomUUID();
+    const pidsFile = join(configuration.happyHomeDir, 'cursor-orphan-pids.json');
+    const wrapper = spawn(process.execPath, ['-e', `
+      const { spawn } = require('node:child_process');
+      const { writeFileSync } = require('node:fs');
+      const keepAlive = 'setInterval(() => {}, 1000)';
+      const children = [process.env.HAPI_SESSION_ID, process.env.HAPI_SESSION_ID, '${siblingSessionId}'].map(id => {
+        const child = spawn(process.execPath, ['-e', keepAlive], {
+          detached: true,
+          stdio: 'ignore',
+          env: { ...process.env, HAPI_SESSION_ID: id }
+        });
+        child.unref();
+        return child.pid;
+      });
+      writeFileSync(${JSON.stringify(pidsFile)}, JSON.stringify(children));
+    `], {
+      stdio: 'ignore',
+      env: { ...buildTestChildEnv(), HAPI_SESSION_ID: sessionId }
+    });
+    trackChildProcess(wrapper, 'cursor-orphan-wrapper');
+    await waitFor(async () => existsSync(pidsFile) && wrapper.exitCode !== null);
+    const [agentPid, serverPid, siblingPid] = JSON.parse(readFileSync(pidsFile, 'utf8')) as number[];
+    for (const pid of [agentPid, serverPid, siblingPid]) {
+      trackRunnerPid(pid, 'cursor-orphan-fixture');
+      expect(isProcessAlive(pid)).toBe(true);
+    }
+
+    // The wrapper has exited: neither runner tracking nor argv can identify
+    // these processes, and each child has its own process group.
+    expect(await stopRunnerSession(sessionId)).toBe('stopped');
+    expect(isProcessAlive(agentPid)).toBe(false);
+    expect(isProcessAlive(serverPid)).toBe(false);
+    expect(isProcessAlive(siblingPid)).toBe(true);
   });
 
   it('preserves shared Codex support after a runner heartbeat', async () => {
