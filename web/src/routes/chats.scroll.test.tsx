@@ -164,14 +164,23 @@ describe('chats scroll-to-bottom', () => {
     it('lands at the bottom of the new chat when switching conversations inside the same pane', async () => {
         stubScrollGeometry()
         context.conversationId = 'tg:chat:1'
+        const chatOne = [{ ...message('a1', 'chat one latest'), conversationId: 'tg:chat:1' }]
+        const chatTwo = [{ ...message('b1', 'chat two latest'), conversationId: 'tg:chat:2' }]
         context.api = baseApi({
             getExternalConversations: async () => ({ conversations: [conversation('tg:chat:1'), conversation('tg:chat:2')] }),
-            getExternalMessages: async () => ({ messages: [], participants: [] }),
+            // Conversation-aware: the pane refetches on mount and prefetches
+            // siblings, so the mock must return each chat's own messages.
+            // A blanket `[]` would overwrite the seeded cache with an empty
+            // list and the assertion below would race the refetch.
+            getExternalMessages: async (id: string) => ({
+                messages: id === 'tg:chat:2' ? chatTwo : id === 'tg:chat:1' ? chatOne : [],
+                participants: [],
+            }),
         })
         const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
         client.setQueryData(queryKeys.externalConversations, [conversation('tg:chat:1'), conversation('tg:chat:2')])
-        seedMessages(client, 'tg:chat:1', [message('a1', 'chat one latest')])
-        seedMessages(client, 'tg:chat:2', [message('b1', 'chat two latest')])
+        seedMessages(client, 'tg:chat:1', chatOne)
+        seedMessages(client, 'tg:chat:2', chatTwo)
         const view = renderPane(client)
         await screen.findByText('chat one latest')
         await flushFrames()
