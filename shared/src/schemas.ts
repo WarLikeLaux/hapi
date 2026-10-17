@@ -124,6 +124,8 @@ export const MetadataSchema = z.object({
     // Durable user intent for cold-start recovery. Explicit archive/stop writes
     // false; a later runner-backed resume writes true again.
     restoreOnRestart: z.boolean().optional(),
+    // Hub-authored read watermark after a successful close_session, including its final reply.
+    readThrough: z.number().finite().nonnegative().optional(),
     // 'running' | 'idle' | 'archived' (see shared/src/sessionLifecycle.ts).
     // 'idle' is written by the hub's keepalive-idle reconciler (tiann/hapi#1820)
     // and reverts to 'running' on the next agent progress.
