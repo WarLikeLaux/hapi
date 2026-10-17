@@ -305,7 +305,10 @@ export function SessionHeader(props: {
         : mobileSecondary === 'worktree' ? worktreeBranch
         : mobileSecondary === 'fastMode' ? 'fast'
         : null
-    const mobileSummary = showMobileModel ? modelChip : mobileSecondaryValue
+    const mobileModelChip = modelChip?.startsWith('Muse Spark ')
+        ? modelChip.replace(/\s+Contributor\b/, '')
+        : modelChip
+    const mobileSummary = showMobileModel ? mobileModelChip : mobileSecondaryValue
 
     const [menuOpen, setMenuOpen] = useState(false)
     const [detailsOpen, setDetailsOpen] = useState(false)
