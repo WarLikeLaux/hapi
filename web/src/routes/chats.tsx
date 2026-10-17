@@ -1850,24 +1850,26 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                     </div>
                 ) : null}
                 {replyTo ? (
-                    <div
-                        className="mx-auto mb-1 flex max-w-content items-center gap-2 rounded-xl border-l-4 border-[#2AABEE] bg-[var(--app-secondary-bg)] py-1.5 pl-2 pr-1"
-                        data-testid="chats-reply-bar"
-                    >
-                        <div className="min-w-0 flex-1">
-                            <div className="truncate text-xs font-semibold text-[#168AC4] dark:text-[#2AABEE]">
-                                {replyTo.direction === 'outgoing' ? t('chats.reply.you') : replyTo.senderName || conversation.title}
+                    <div className="mx-auto mb-1 w-full max-w-content">
+                        <div
+                            className="flex w-fit max-w-full items-center gap-2 rounded-xl border-l-4 border-[#2AABEE] bg-[var(--app-secondary-bg)] py-1.5 pl-2 pr-1"
+                            data-testid="chats-reply-bar"
+                        >
+                            <div className="min-w-0 flex-1">
+                                <div className="truncate text-xs font-semibold text-[#168AC4] dark:text-[#2AABEE]">
+                                    {replyTo.direction === 'outgoing' ? t('chats.reply.you') : replyTo.senderName || conversation.title}
+                                </div>
+                                <div className="truncate text-xs text-[var(--app-hint)]">
+                                    {replyTo.text.trim() || (replyTo.media?.[0] ? mediaLabel(replyTo.media[0]) : '') || t('chats.reply.unavailable')}
+                                </div>
                             </div>
-                            <div className="truncate text-xs text-[var(--app-hint)]">
-                                {replyTo.text.trim() || (replyTo.media?.[0] ? mediaLabel(replyTo.media[0]) : '') || t('chats.reply.unavailable')}
-                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setReplyTo(null)}
+                                aria-label={t('chats.reply.cancel')}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)]"
+                            >×</button>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => setReplyTo(null)}
-                            aria-label={t('chats.reply.cancel')}
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)]"
-                        >×</button>
                     </div>
                 ) : null}
                 {pendingMedia.length > 0 && !editingMessage ? (
