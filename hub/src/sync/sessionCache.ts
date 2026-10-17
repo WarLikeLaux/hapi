@@ -1225,7 +1225,7 @@ export class SessionCache {
                 newMetadata,
                 session.metadataVersion,
                 session.namespace,
-                { touchUpdatedAt: false }
+                { touchUpdatedAt: false, titleOperation: 'user' }
             )
 
             if (result.result === 'error') {
@@ -1568,25 +1568,33 @@ export class SessionCache {
             this.emitScratchlistChanged(oldSessionId)
         }
 
-        const mergedMetadata = this.mergeSessionMetadata(oldStored.metadata, newStored.metadata)
-        if (mergedMetadata !== null && mergedMetadata !== newStored.metadata) {
-            for (let attempt = 0; attempt < 2; attempt += 1) {
-                const latest = this.store.sessions.getSessionByNamespace(newSessionId, namespace)
-                if (!latest) break
-                const result = this.store.sessions.updateSessionMetadata(
-                    newSessionId,
-                    mergedMetadata,
-                    latest.metadataVersion,
-                    namespace,
-                    { touchUpdatedAt: false }
-                )
-                if (result.result === 'success') {
-                    break
-                }
-                if (result.result === 'error') {
-                    break
-                }
+        let metadataTransferred = false
+        for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
+            const latest = this.store.sessions.getSessionByNamespace(newSessionId, namespace)
+            if (!latest) throw new Error('Resumed session not found during metadata transfer')
+            const source = this.store.sessions.getSessionByNamespace(oldSessionId, namespace) ?? oldStored
+            const mergedMetadata = this.mergeSessionMetadata(source.metadata, latest.metadata)
+            if (mergedMetadata === null || mergedMetadata === latest.metadata) {
+                metadataTransferred = true
+                break
             }
+            const result = this.store.sessions.updateSessionMetadata(
+                newSessionId,
+                mergedMetadata,
+                latest.metadataVersion,
+                namespace,
+                { touchUpdatedAt: false, titleOperation: 'transfer' }
+            )
+            if (result.result === 'success') {
+                metadataTransferred = true
+                break
+            }
+            if (result.result === 'error') {
+                throw new Error('Failed to transfer session metadata')
+            }
+        }
+        if (!metadataTransferred) {
+            throw new Error('Session was modified concurrently during metadata transfer')
         }
 
         if (newStored.model === null && oldStored.model !== null) {
@@ -1736,7 +1744,15 @@ export class SessionCache {
         const merged: Record<string, unknown> = { ...newObj }
         let changed = false
 
-        if (typeof oldObj.name === 'string' && typeof newObj.name !== 'string') {
+        const oldProtected = oldObj.nameLock === 'user' || oldObj.nameLock === 'agent'
+        const newProtected = newObj.nameLock === 'user' || newObj.nameLock === 'agent'
+        // A resumed runner may already have generated its own title. Carry the
+        // original protected choice with its owner, retaining a newer user choice.
+        if (oldProtected && (!newProtected || (oldObj.nameLock === 'user' && newObj.nameLock !== 'user'))) {
+            merged.name = oldObj.name
+            merged.nameLock = oldObj.nameLock
+            changed = true
+        } else if (typeof oldObj.name === 'string' && typeof newObj.name !== 'string' && !newProtected) {
             merged.name = oldObj.name
             changed = true
         }

@@ -140,6 +140,31 @@ export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
     return merged ?? next
 }
 
+// Only explicit hub operations may establish or replace title ownership.
+// Ordinary CLI/native metadata writes cannot remove protection, even with a
+// fresh version or a sparse/null snapshot after reconnect.
+function preserveSessionTitle(prior: unknown, next: unknown, operation?: 'user' | 'pin' | 'transfer'): unknown {
+    const current = isPlainObject(prior) ? prior : {}
+    const locked = current.nameLock === 'user' || current.nameLock === 'agent'
+    if (operation === 'user' && isPlainObject(next)) {
+        return { ...next, nameLock: 'user' }
+    }
+    if (operation === 'pin' && isPlainObject(next) && !locked) {
+        return { ...next, nameLock: 'agent' }
+    }
+    if (operation === 'transfer' && isPlainObject(next)) {
+        return next
+    }
+    if (!isPlainObject(next)) return locked ? prior : next
+    const result = { ...next }
+    delete result.nameLock
+    if (locked) {
+        result.name = current.name
+        result.nameLock = current.nameLock
+    }
+    return result
+}
+
 type DbSessionRow = {
     id: string
     tag: string | null
@@ -372,7 +397,7 @@ export function adoptPreallocatedSession(
         }
 
         const now = Date.now()
-        const metadataJson = JSON.stringify(metadata)
+        const metadataJson = JSON.stringify(preserveSessionTitle(existing.metadata, metadata))
         const agentStateJson = agentState === null || agentState === undefined ? null : JSON.stringify(agentState)
         const stubTag = machineSpawnPreallocTag(id)
 
@@ -421,7 +446,7 @@ export function updateSessionMetadata(
     metadata: unknown,
     expectedVersion: number,
     namespace: string,
-    options?: { touchUpdatedAt?: boolean; allowUnarchive?: boolean }
+    options?: { touchUpdatedAt?: boolean; allowUnarchive?: boolean; titleOperation?: 'user' | 'pin' | 'transfer' }
 ): VersionedUpdateResult<unknown | null> {
     const now = Date.now()
     const touchUpdatedAt = options?.touchUpdatedAt !== false
@@ -435,7 +460,7 @@ export function updateSessionMetadata(
             }
 
             const prior = existing.metadata
-            let merged = mergeSessionMetadata(prior, metadata)
+            let merged = preserveSessionTitle(prior, mergeSessionMetadata(prior, metadata), options?.titleOperation)
 
             // #1911 M1: unauthorized un-archive of hub-archived rows.
             // Return success + merge-preserved archive fields — NOT version-mismatch
@@ -483,6 +508,9 @@ export function updateSessionMetadata(
             if (
                 result.result === 'success'
                 && isMachineSpawnPreallocatedStub(existing)
+                // A title edit before the runner connects is not adoption.
+                && options?.titleOperation !== 'user'
+                && options?.titleOperation !== 'pin'
                 && !isHubArchivedSessionMetadata(merged)
             ) {
                 const liveTag = randomUUID()

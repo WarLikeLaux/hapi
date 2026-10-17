@@ -4,6 +4,8 @@ import { Store, type StoredSession } from '../../../store'
 import type { SyncEvent } from '../../../sync/syncEngine'
 import type { CliSocketWithData } from '../../socketTypes'
 import { registerSessionHandlers } from './sessionHandlers'
+import { SessionCache } from '../../../sync/sessionCache'
+import type { EventPublisher } from '../../../sync/eventPublisher'
 
 class FakeSocket {
     readonly roomEvents: Array<{ room: string; event: string; data: unknown }> = []
@@ -53,6 +55,38 @@ function reasoningTextOf(message: { content: unknown }): string {
 }
 
 describe('cli session handlers', () => {
+    it('keeps a user rename through stale and sparse agent writes while acknowledging the persisted title', async () => {
+        const store = new Store(':memory:')
+        const cache = new SessionCache(store, { emit() {} } as unknown as EventPublisher)
+        const session = cache.getOrCreateSession('user-title', { path: '/tmp', host: 'localhost' }, null, 'default')
+        const socket = new FakeSocket()
+        registerSessionHandlers(socket as unknown as CliSocketWithData, {
+            store,
+            resolveSessionAccess: () => ({ ok: true, value: store.sessions.getSession(session.id)! }),
+            emitAccessError() {},
+        })
+        const write = (metadata: unknown, expectedVersion = store.sessions.getSession(session.id)!.metadataVersion) => {
+            let ack: unknown
+            socket.trigger('update-metadata', { sid: session.id, expectedVersion, metadata }, response => { ack = response })
+            return ack
+        }
+
+        // Ordinary agent naming is still available before the user takes ownership.
+        expect(write({ path: '/tmp', host: 'localhost', name: 'Automatic title' })).toMatchObject({ result: 'success' })
+        await cache.renameSession(session.id, 'Координатор')
+        expect(write({ name: 'Stale automatic title' }, 1)).toMatchObject({ result: 'version-mismatch' })
+        for (const metadata of [{ name: 'Changed objective' }, { summary: { text: 'Native title', updatedAt: 10 } }, null]) {
+            expect(write(metadata)).toMatchObject({ result: 'success', metadata: { name: 'Координатор' } })
+            expect(store.sessions.getSession(session.id)?.metadata).toMatchObject({ name: 'Координатор' })
+        }
+        // A second user rename must remain possible after protection has been set.
+        await cache.renameSession(session.id, 'Мой координатор')
+        expect(write({ name: 'Another task' })).toMatchObject({ result: 'success', metadata: { name: 'Мой координатор' } })
+        const lastBroadcast = socket.roomEvents.at(-1)?.data as { body: { metadata: { value: unknown } } }
+        expect(lastBroadcast.body.metadata.value).toMatchObject({ name: 'Мой координатор' })
+        store.close()
+    })
+
     it('forwards a reliable session-busy boundary for an authorized session', () => {
         const store = new Store(':memory:')
         const session = store.sessions.getOrCreateSession('session-busy', {}, null, 'default')

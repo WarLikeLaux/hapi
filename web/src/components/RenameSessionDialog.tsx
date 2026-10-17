@@ -24,7 +24,6 @@ export function RenameSessionDialog(props: RenameSessionDialogProps) {
     const [name, setName] = useState(currentName)
     const [error, setError] = useState<string | null>(null)
     const [draftSource, setDraftSource] = useState<'manual' | 'generated'>('manual')
-    const [draftEdited, setDraftEdited] = useState(false)
     const [isGenerating, setIsGenerating] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const generationRef = useRef(0)
@@ -47,7 +46,6 @@ export function RenameSessionDialog(props: RenameSessionDialogProps) {
             setName(currentName)
             setError(null)
             setDraftSource('manual')
-            setDraftEdited(false)
             setIsGenerating(false)
             setTimeout(() => {
                 inputRef.current?.focus()
@@ -82,7 +80,7 @@ export function RenameSessionDialog(props: RenameSessionDialogProps) {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         const trimmed = name.trim()
-        if (!trimmed || (!draftEdited && draftSource === 'manual' && trimmed === currentName)) {
+        if (!trimmed) {
             handleClose()
             return
         }
@@ -121,7 +119,6 @@ export function RenameSessionDialog(props: RenameSessionDialogProps) {
                         onChange={(e) => {
                             setName(e.target.value)
                             setDraftSource('manual')
-                            setDraftEdited(true)
                         }}
                         onKeyDown={handleKeyDown}
                         placeholder={t('dialog.rename.placeholder')}
