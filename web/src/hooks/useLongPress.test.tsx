@@ -59,6 +59,34 @@ describe('useLongPress', () => {
         expect(onClick).toHaveBeenCalledTimes(1)
     })
 
+    it.each([
+        { button: 2, menuBeforeRelease: true },
+        { button: 2, menuBeforeRelease: false },
+        { button: 1, menuBeforeRelease: false },
+    ])('does not select a row for mouse button $button (menu before release: $menuBeforeRelease)', ({ button, menuBeforeRelease }) => {
+        const onClick = vi.fn()
+        const onLongPress = vi.fn()
+        const { getByTestId } = render(<Probe onClick={onClick} onLongPress={onLongPress} />)
+        const row = getByTestId('row')
+
+        fireEvent.mouseDown(row, { button, clientX: 10, clientY: 10 })
+        if (button === 2 && menuBeforeRelease) {
+            fireEvent.contextMenu(row, { button, clientX: 10, clientY: 10 })
+        }
+        fireEvent.mouseUp(row, { button, clientX: 10, clientY: 10 })
+        if (button === 2 && !menuBeforeRelease) {
+            fireEvent.contextMenu(row, { button, clientX: 10, clientY: 10 })
+        }
+
+        expect(onClick).not.toHaveBeenCalled()
+        expect(onLongPress).toHaveBeenCalledTimes(button === 2 ? 1 : 0)
+
+        // Opening a context menu must not swallow the next ordinary selection.
+        fireEvent.mouseDown(row, { button: 0, clientX: 10, clientY: 10 })
+        fireEvent.mouseUp(row, { button: 0, clientX: 10, clientY: 10 })
+        expect(onClick).toHaveBeenCalledOnce()
+    })
+
     it('fires onClick once for a touch tap (ignores the browser-synthesized mouse events that follow)', () => {
         // Real touch browsers (Android Chrome, etc.) emit a compatibility
         // mousedown/mouseup/click ~300ms after touchend for any touch the page
