@@ -90,6 +90,10 @@ export class TelegramConnector implements MessengerConnector {
         await this.request('messages.read', { remoteId, maxProviderMessageId })
     }
 
+    async markVoiceListened(remoteId: string, providerMessageId: string): Promise<void> {
+        await this.request('messages.voiceListened', { remoteId, providerMessageId })
+    }
+
     async downloadMedia(remoteId: string, providerMessageId: string, mediaIndex: number): Promise<DownloadedExternalMedia> {
         const result = await this.request('media.download', { remoteId, providerMessageId, mediaIndex }, 180_000) as DownloadedExternalMedia
         const mediaRoot = resolve(this.options.dataDir, 'media-cache')

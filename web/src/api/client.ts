@@ -178,6 +178,7 @@ export class ApiError extends Error {
 }
 
 export class ApiClient {
+    private readonly voiceListeningReceipts = new Map<string, Promise<void>>()
     private token: string
     private readonly baseUrl: string | null
     private readonly getToken: (() => string | null) | null
@@ -426,6 +427,22 @@ export class ApiClient {
             method: 'POST',
             body: JSON.stringify({ active })
         })
+    }
+
+    markExternalVoiceListened(conversationId: string, providerMessageId: string): Promise<void> {
+        const key = JSON.stringify([conversationId, providerMessageId])
+        const existing = this.voiceListeningReceipts.get(key)
+        if (existing) return existing
+        const receipt = this.request(`/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(providerMessageId)}/voice-listened`, {
+            method: 'POST'
+        }).then(() => {}).catch((error: unknown) => {
+            // A later real playback may retry a failed receipt; successful and
+            // in-flight receipts stay deduplicated for this API client.
+            this.voiceListeningReceipts.delete(key)
+            throw error
+        })
+        this.voiceListeningReceipts.set(key, receipt)
+        return receipt
     }
 
     async sendExternalMessage(

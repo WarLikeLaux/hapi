@@ -1135,12 +1135,16 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                     mediaIndex,
                     title: media.fileName ?? mediaLabel(media),
                     chatTitle: conversation?.title,
-                    duration: media.duration ?? null
+                    duration: media.duration ?? null,
+                    onPlaybackStarted: api && conversation?.provider === 'telegram'
+                        && message.direction === 'incoming' && media.kind === 'voice'
+                        ? () => api.markExternalVoiceListened(conversationId, message.providerMessageId)
+                        : undefined
                 })
             })
         }
         return items
-    }, [conversationId, conversation?.title, messages.data?.messages])
+    }, [api, conversationId, conversation?.provider, conversation?.title, messages.data?.messages])
     const startVoicePlayback = useCallback((key: string, src: string | null) => {
         const index = voiceQueue.findIndex((item) => item.key === key)
         if (index < 0 || !api) return

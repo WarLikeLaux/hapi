@@ -154,6 +154,18 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
         }
     })
 
+    app.post('/conversations/:id/messages/:messageId/voice-listened', async (c) => {
+        try {
+            await manager.markVoiceListened(c.get('namespace'), c.req.param('id'), c.req.param('messageId'))
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = errorMessage(error)
+            const status = message === 'Conversation not found' || message === 'Message not found' ? 404
+                : message === 'Message is not an incoming Telegram voice' ? 400 : 502
+            return c.json({ error: message }, status)
+        }
+    })
+
     app.get('/conversations/:id/participants', (c) => {
         try {
             return c.json({ participants: manager.listParticipants(c.get('namespace'), c.req.param('id')) })
