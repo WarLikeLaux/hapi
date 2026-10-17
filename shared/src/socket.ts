@@ -281,7 +281,7 @@ export interface ClientToServerEvents {
     /** Native shared-engine queue projection. null = positively acknowledged removal. */
     'native-queue-message': (data: { sid: string; localId: string; text: string | null }) => void
     'messages-steer-state': (data: { sid: string; localIds: string[]; state: 'queued' | 'dispatching' }, cb: (response: { ok: boolean }) => void) => void
-    'update-metadata': (data: { sid: string; expectedVersion: number; metadata: unknown }, cb: (answer: UpdateMetadataAck) => void) => void
+    'update-metadata': (data: { sid: string; expectedVersion: number; metadata: unknown; pinTitle?: boolean }, cb: (answer: UpdateMetadataAck) => void) => void
     'update-state': (data: { sid: string; expectedVersion: number; agentState: unknown | null }, cb: (answer: UpdateStateAck) => void) => void
     'machine-alive': (data: { machineId: string; time: number; health?: unknown }) => void
     'machine-update-metadata': (data: { machineId: string; expectedVersion: number; metadata: unknown }, cb: (answer: MachineUpdateMetadataAck) => void) => void

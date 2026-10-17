@@ -4,6 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { Metadata } from '@/api/types'
 import type { ApiSessionClient } from '@/api/apiSession'
 import { startHappyServer, toClaudeAllowedHapiMcpTools } from './startHappyServer'
 
@@ -179,11 +180,12 @@ describe('startHappyServer skill_lookup', () => {
     })
 
     it('persists direct platform change_title calls when launcher-side handling is disabled', async () => {
-        const updateMetadata = vi.fn()
+        let metadata: Metadata = { path: '/repo', host: 'test' }
         const sessionClient = {
-            updateMetadata,
-            sendAgentMessage: vi.fn(),
-            sendClaudeSessionMessage: vi.fn()
+            getMetadata: () => metadata,
+            flushMetadata: async () => true,
+            updateMetadata: (handler: (value: Metadata) => Metadata) => { metadata = handler(metadata) },
+            sendAgentMessage: vi.fn()
         } as unknown as ApiSessionClient
         const server = await startHappyServer(sessionClient, { emitTitleSummary: false })
         stopServer = server.stop
@@ -191,16 +193,16 @@ describe('startHappyServer skill_lookup', () => {
         client = mcp
         await mcp.connect(new StreamableHTTPClientTransport(new URL(server.url)))
 
-        await mcp.callTool({ name: 'change_title', arguments: { title: 'Useful title' } })
-
-        const titleUpdater = updateMetadata.mock.calls.at(-1)?.[0] as ((metadata: Record<string, unknown>) => Record<string, unknown>)
-        expect(titleUpdater({ path: '/repo' })).toEqual({ path: '/repo', name: 'Useful title' })
+        const result = await mcp.callTool({ name: 'change_title', arguments: { title: 'Useful title', pin: true } }) as ToolResult
+        expect(result.isError).toBe(false)
+        expect(metadata).toMatchObject({ name: 'Useful title', nameLock: 'agent' })
     })
 
     it('leaves stdio-bridge title persistence to the parent launcher', async () => {
         const updateMetadata = vi.fn()
         const sessionClient = {
             updateMetadata,
+            getMetadata: () => null,
             sendAgentMessage: vi.fn(),
             sendClaudeSessionMessage: vi.fn()
         } as unknown as ApiSessionClient
@@ -241,49 +243,47 @@ describe('startHappyServer change_title', () => {
     }
 
     it('renames via metadata.name so spawn --name sessions update visibly', async () => {
-        const updateMetadata = vi.fn()
-        const sendClaudeSessionMessage = vi.fn()
+        let metadata: Metadata = { path: '/tmp', host: 'localhost', name: 'issue-triage-#54', summary: { text: 'stale', updatedAt: 1 } }
         const sessionClient = {
-            updateMetadata,
-            sendAgentMessage: vi.fn(),
-            sendClaudeSessionMessage
+            getMetadata: () => metadata,
+            flushMetadata: async () => true,
+            updateMetadata: (handler: (value: Metadata) => Metadata) => { metadata = handler(metadata) },
+            sendAgentMessage: vi.fn()
         } as unknown as ApiSessionClient
-
         const mcp = await connectChangeTitleServer(sessionClient)
-        updateMetadata.mockClear()
-        sendClaudeSessionMessage.mockClear()
-
-        const result = await mcp.callTool({
-            name: 'change_title',
-            arguments: { title: '  Renamed triage peer  ' }
-        }) as ToolResult
-
+        const result = await mcp.callTool({ name: 'change_title', arguments: { title: '  Renamed triage peer  ' } }) as ToolResult
         expect(result.isError).toBe(false)
         expect(result.content?.[0]?.text).toContain('Successfully changed chat title to: "Renamed triage peer"')
-        expect(updateMetadata).toHaveBeenCalledTimes(1)
-        const handler = updateMetadata.mock.calls[0]?.[0] as (metadata: {
-            path: string
-            host: string
-            name?: string
-            summary?: { text: string }
-        }) => {
-            path: string
-            host: string
-            name?: string
-            summary?: { text: string }
+        expect(metadata).toMatchObject({ name: 'Renamed triage peer', summary: { text: 'stale' } })
+        expect(metadata.nameLock).toBeUndefined()
+    })
+
+    it('pins through MCP and preserves the title after reconnect and later ordinary renames', async () => {
+        let metadata: Metadata = { path: '/repo', host: 'test', name: 'Task' }
+        const sessionClient = {
+            getMetadata: () => metadata,
+            flushMetadata: async () => true,
+            updateMetadata: (handler: (value: Metadata) => Metadata) => { metadata = handler(metadata) },
+            sendAgentMessage: vi.fn()
+        } as unknown as ApiSessionClient
+        const mcp = await connectChangeTitleServer(sessionClient)
+        const pin = await mcp.callTool({ name: 'change_title', arguments: { title: ' Координатор ', pin: true } }) as ToolResult
+        expect(pin.isError).toBe(false)
+        expect(metadata).toMatchObject({ name: 'Координатор', nameLock: 'agent' })
+
+        // Recreate the MCP server from persisted session metadata.
+        metadata = JSON.parse(JSON.stringify(metadata))
+        await client!.close()
+        stopServer!()
+        const resumed = await connectChangeTitleServer(sessionClient)
+        const repeat = await resumed.callTool({ name: 'change_title', arguments: { title: 'Координатор', pin: true } }) as ToolResult
+        expect(repeat.isError).toBe(false)
+        for (const args of [{ title: 'New task' }, { title: 'New task', pin: false }, { title: 'Интегратор', pin: true }]) {
+            const rejected = await resumed.callTool({ name: 'change_title', arguments: args }) as ToolResult
+            expect(rejected.isError).toBe(true)
+            expect(rejected.content?.[0]?.text).toContain('protected')
+            expect(metadata).toMatchObject({ name: 'Координатор', nameLock: 'agent' })
         }
-        expect(handler({
-            path: '/tmp',
-            host: 'localhost',
-            name: 'issue-triage-#54',
-            summary: { text: 'stale' }
-        })).toEqual({
-            path: '/tmp',
-            host: 'localhost',
-            name: 'Renamed triage peer',
-            summary: { text: 'stale' }
-        })
-        expect(sendClaudeSessionMessage).not.toHaveBeenCalled()
     })
 
     it('returns an error for blank titles instead of claiming success', async () => {

@@ -75,7 +75,7 @@ function createHapiMcpServer(
     skillLookup: StartHappyServerOptions['skillLookup'],
     launcher: ReturnType<typeof createAgentLauncher>
 ): McpServer {
-    const handler = async (title: string) => {
+    const handler = async (title: string, pin = false) => {
         logger.debug('[hapiMCP] Changing title to:', title);
         try {
             // Codex app-server normally reaches this HTTP server through our
@@ -91,8 +91,19 @@ function createHapiMcpServer(
             if (!normalizedTitle) {
                 return { success: false, error: 'Title must not be empty' };
             }
+            const current = client.getMetadata();
+            if (current?.nameLock && normalizeSessionDisplayTitle(current.name) !== normalizedTitle) {
+                return { success: false, error: 'The session title is protected. The user can rename it through HAPI.' };
+            }
             if (shouldPersistDirectly) {
-                applySessionDisplayRename(client, normalizedTitle);
+                applySessionDisplayRename(client, normalizedTitle, { pin });
+                if (!await client.flushMetadata()) {
+                    return { success: false, error: 'Title update could not be confirmed by the hub' };
+                }
+                const metadata = client.getMetadata();
+                if (metadata?.name !== normalizedTitle || (pin && !metadata.nameLock)) {
+                    return { success: false, error: 'The session title is protected or the update was not applied. The user can rename it through HAPI.' };
+                }
             }
             return { success: true };
         } catch (error) {
@@ -109,6 +120,7 @@ function createHapiMcpServer(
 
     const changeTitleInputSchema: z.ZodTypeAny = z.object({
         title: z.string().describe('The new title for the chat session'),
+        pin: z.boolean().optional().describe('Set true to protect this title from future agent renames. Existing protected titles cannot be replaced. False does not unpin.'),
     });
 
     const displayImageInputSchema: z.ZodTypeAny = z.object({
@@ -201,8 +213,8 @@ function createHapiMcpServer(
             description: buildSessionTitleMcpInstructions(),
             title: 'Change Chat Title',
             inputSchema: changeTitleInputSchema,
-        }, async (args: { title: string }) => {
-            const response = await handler(args.title);
+        }, async (args: { title: string; pin?: boolean }) => {
+            const response = await handler(args.title, args.pin);
             logger.debug('[hapiMCP] Response:', response);
             const displayTitle = normalizeSessionDisplayTitle(args.title) ?? args.title;
 
@@ -211,7 +223,7 @@ function createHapiMcpServer(
                     content: [
                         {
                             type: 'text' as const,
-                            text: `Successfully changed chat title to: "${displayTitle}"`,
+                            text: `Successfully changed chat title to: "${displayTitle}"${args.pin ? ' (pinned)' : ''}`,
                         },
                     ],
                     isError: false,

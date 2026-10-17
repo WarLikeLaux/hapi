@@ -18,7 +18,7 @@ function fixture(parentThreadId?: string, deferWrites = false) {
     } as unknown as ApiSessionClient;
     return {
         projection: new SharedCodexProjection(session, 'thread', committed, parentThreadId),
-        metadata: () => metadata, update, send, committed,
+        metadata: () => metadata, update, send, committed, session,
         flush: () => { for (const fn of queued.splice(0)) metadata = fn(metadata); }
     };
 }
@@ -47,6 +47,21 @@ describe('shared Codex titles', () => {
         await f.projection.history(history(item));
         await f.projection.notification('item/completed', params(item));
         expect(f.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a root pin across argument-less completion, queued renames and a new projection', async () => {
+        const f = fixture(undefined, true);
+        const pin = { ...titleItem('pin', 'Координатор'), arguments: { title: 'Координатор', pin: true } };
+        await f.projection.notification('item/started', params(pin));
+        await f.projection.notification('item/completed', params({ ...pin, arguments: undefined }));
+        await f.projection.notification('item/completed', params(titleItem('later', 'Other task')));
+        f.flush();
+        expect(f.metadata()).toMatchObject({ name: 'Координатор', nameLock: 'agent' });
+        const resumed = new SharedCodexProjection(f.session, 'thread', f.committed);
+        await resumed.history(history(pin, titleItem('later', 'Other task')));
+        await resumed.notification('item/completed', params(titleItem('next-turn', 'Next task'), 'next-turn'));
+        f.flush();
+        expect(f.metadata()).toMatchObject({ name: 'Координатор', nameLock: 'agent' });
     });
 
     it('handles a complete item without a start and orders successive titles across deferred writes', async () => {

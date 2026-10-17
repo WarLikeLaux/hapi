@@ -105,6 +105,7 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
     // Register tools and forward to HTTP MCP
     const changeTitleInputSchema: z.ZodTypeAny = z.object({
       title: z.string().describe('The new title for the chat session'),
+      pin: z.boolean().optional().describe('Set true to protect this title from future agent renames. Existing protected titles cannot be replaced. False does not unpin.'),
     });
 
     if (toolNames.has('change_title')) {

@@ -65,7 +65,8 @@ const messageSchema = z.object({
 const updateMetadataSchema = z.object({
     sid: z.string(),
     expectedVersion: z.number().int(),
-    metadata: z.unknown()
+    metadata: z.unknown(),
+    pinTitle: z.boolean().optional()
 })
 
 const updateStateSchema = z.object({
@@ -295,7 +296,11 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
             return
         }
 
-        const { sid, metadata, expectedVersion } = parsed.data
+        const { sid, metadata, expectedVersion, pinTitle } = parsed.data
+        if (pinTitle && !z.object({ name: z.string().trim().min(1) }).safeParse(metadata).success) {
+            cb({ result: 'error' })
+            return
+        }
         // Fresh resolve: preserveHubOwnedMetadata below merges against
         // sessionAccess.value.metadata, so the base must be the live row.
         // A memo-stale base would drop a concurrently-set hub-owned key or
@@ -310,7 +315,8 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
             sid,
             preserveHubOwnedMetadata(metadata, sessionAccess.value.metadata),
             expectedVersion,
-            sessionAccess.value.namespace
+            sessionAccess.value.namespace,
+            pinTitle ? { titleOperation: 'pin' } : undefined
         )
         if (result.result === 'success') {
             cb({ result: 'success', version: result.version, metadata: result.value })

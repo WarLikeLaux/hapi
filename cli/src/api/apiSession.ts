@@ -1654,7 +1654,7 @@ export class ApiSessionClient extends EventEmitter {
         })
     }
 
-    updateMetadata(handler: (metadata: Metadata) => Metadata): void {
+    updateMetadata(handler: (metadata: Metadata) => Metadata, options?: { pinTitle?: boolean }): void {
         if (this.state !== 'active') {
             if (this.state === 'closed') return
             const current = this.metadata ?? ({} as Metadata)
@@ -1679,7 +1679,8 @@ export class ApiSessionClient extends EventEmitter {
                 const answer = await this.socket.emitWithAck('update-metadata', {
                     sid: this.sessionId,
                     expectedVersion: this.metadataVersion,
-                    metadata: updated
+                    metadata: updated,
+                    ...(options?.pinTitle ? { pinTitle: true } : {})
                 }) as unknown
 
                 try {

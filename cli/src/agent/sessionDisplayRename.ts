@@ -4,9 +4,9 @@ import type { Metadata } from '@/api/types';
 type SessionDisplayRenameClient = Pick<ApiSessionClient, 'updateMetadata'>;
 
 /**
- * Explicit agent/operator rename: set metadata.name (same field as web
- * renameSession / PATCH /sessions/:id). Distinct from native/generated
- * summaries, which must not overwrite an intentional name.
+ * Agent rename: preserve user-set and pinned names. Pin requests also mark
+ * the versioned metadata write for the hub to establish ownership. Native/generated
+ * summaries must not overwrite an intentional name.
  */
 export function normalizeSessionDisplayTitle(title: unknown): string | null {
     if (typeof title !== 'string') {
@@ -18,7 +18,8 @@ export function normalizeSessionDisplayTitle(title: unknown): string | null {
 
 export function applySessionDisplayRename(
     client: SessionDisplayRenameClient,
-    title: unknown
+    title: unknown,
+    options?: { pin?: boolean }
 ): boolean {
     const normalized = normalizeSessionDisplayTitle(title);
     if (!normalized) {
@@ -26,13 +27,14 @@ export function applySessionDisplayRename(
     }
 
     client.updateMetadata((metadata: Metadata) => {
-        if (metadata.name?.trim() === normalized) {
+        if (metadata.nameLock || (metadata.name?.trim() === normalized && !options?.pin)) {
             return metadata;
         }
         return {
             ...metadata,
-            name: normalized
+            name: normalized,
+            ...(options?.pin ? { nameLock: 'agent' as const } : {})
         };
-    });
+    }, options?.pin ? { pinTitle: true } : undefined);
     return true;
 }

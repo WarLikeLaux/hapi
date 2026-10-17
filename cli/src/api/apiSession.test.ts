@@ -662,6 +662,24 @@ describe('ApiSessionClient lazy materialization', () => {
         client.close()
     })
 
+    it('sends an explicit pin intent and keeps hub title ownership across the metadata acknowledgement', async () => {
+        socketHarness.sockets.length = 0
+        axiosHarness.get.mockResolvedValue({ data: { messages: [] } })
+        const client = new ApiSessionClient('token', createSession({ metadataVersion: 1, metadata: { path: '/repo', host: 'test' } }))
+        const socket = socketHarness.sockets[0]!
+        const requests: unknown[] = []
+        socket.emitWithAckImpl = async (event, data) => {
+            if (event !== 'update-metadata') return {}
+            requests.push(data)
+            return { result: 'success', version: 2, metadata: { path: '/repo', host: 'test', name: 'Координатор', nameLock: 'agent' } }
+        }
+        client.updateMetadata(metadata => ({ ...metadata, name: 'Координатор' }), { pinTitle: true })
+        expect(await client.flushMetadata()).toBe(true)
+        expect(requests).toEqual([{ sid: client.sessionId, expectedVersion: 1, metadata: { path: '/repo', host: 'test', name: 'Координатор' }, pinTitle: true }])
+        expect(client.getMetadata()).toMatchObject({ name: 'Координатор', nameLock: 'agent' })
+        client.close()
+    })
+
     it('stops metadata CAS when hub returns archived on version-mismatch (#1911 M1)', async () => {
         socketHarness.sockets.length = 0
         axiosHarness.get.mockResolvedValue({ data: { messages: [] } })
@@ -1126,7 +1144,7 @@ describe('ApiSessionClient HAPI title reminder injection', () => {
         })
         client.close()
         expect(delivered[0]).toContain('explicitly requests regeneration')
-        expect(delivered[0]).toContain('do not send any user-facing text')
+        expect(delivered[0]).toContain('Do not send any user-facing text')
     })
 
     it('does not inject for cli-originated native-queued prompts (concurrent replay)', () => {

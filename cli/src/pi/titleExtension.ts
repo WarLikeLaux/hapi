@@ -27,6 +27,7 @@ const TITLE_INSTRUCTION = [
     '',
     '## Session title',
     'For a new chat, call the "' + TOOL_NAME + '" tool once after the user\\'s initial request is clear - ideally as your very first action, before starting any work - and set a concise task title.',
+    'Preserve user-set and MCP-pinned titles across topic changes and continued sessions. Project-required pinned role titles override ordinary task naming and length guidance.',
     'Reassess the title on every user turn and rename it when the primary objective materially changes or the existing title becomes vague or misleading.',
     'Write titles in Russian, preferably 3-7 words. Do not use task IDs, branch names, commit hashes, machine names, or a bare repository name.',
     'Do not rename the chat for routine progress, substeps, implementation details, or a slightly better wording.',

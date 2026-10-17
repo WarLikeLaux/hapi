@@ -473,10 +473,10 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             return toolName === 'mcp__hapi__change_title';
         };
 
-        const sendTitleSummary = (title: string): void => {
+        const sendTitleSummary = (request: { title: string; pin: boolean }): void => {
             // Matches MCP change_title / web rename: set metadata.name so a
             // prior spawn --name does not hide the agent rename.
-            applySessionDisplayRename(session.client, title);
+            applySessionDisplayRename(session.client, request.title, { pin: request.pin });
         };
 
         const formatOutputPreview = (value: unknown): string => {
@@ -671,7 +671,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         const diffProcessor = new DiffProcessor((message) => {
             session.sendAgentMessage(message);
         });
-        const mcpTitleByCallId = new Map<string, string>();
+        const mcpTitleByCallId = new Map<string, { title: string; pin: boolean }>();
         const agentCardByAgentId = new Map<string, string>();
         const agentSummaryByCardId = new Map<string, string>();
         const agentSummaryByAgentId = new Map<string, string>();
@@ -3336,7 +3336,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     const inputRecord = asRecord(input);
                     const requestedTitle = inputRecord ? asString(inputRecord.title) : null;
                     if (isHapiChangeTitleToolName(name) && requestedTitle) {
-                        mcpTitleByCallId.set(callId, requestedTitle);
+                        mcpTitleByCallId.set(callId, { title: requestedTitle, pin: inputRecord?.pin === true });
                     }
                     session.sendAgentMessage({
                         type: 'tool-call',
