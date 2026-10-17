@@ -122,6 +122,18 @@ export function HappyAssistantMessage() {
     const visiblePartsGrouping = useMemo(
         () => () => {
             const visibleIndices = compactParts?.visibleIndices ?? messageParts.map((_, index) => index)
+            if (compactParts) {
+                // Preserve the order around questions: prose before and after
+                // a decision card must not be joined above that card.
+                const groups: { groupKey: string | undefined; indices: number[] }[] = []
+                for (const index of visibleIndices) {
+                    const text = messageParts[index].type === 'text'
+                    const previous = groups.at(-1)
+                    if (text && previous?.groupKey === 'response-text') previous.indices.push(index)
+                    else groups.push({ groupKey: text ? 'response-text' : undefined, indices: [index] })
+                }
+                return groups
+            }
             const textIndices = visibleIndices.filter((index) => messageParts[index].type === 'text')
             // Keep streaming prose in one stable bubble, with work and media
             // below it. Individual text parts retain their source anchors.
@@ -166,8 +178,8 @@ export function HappyAssistantMessage() {
         })
     })
     // Copy must match what the bubble shows: when the response is compacted,
-    // only the final prose (+ recap/media) stays visible, the rest lives in
-    // the Work dialog and must not leak into the clipboard.
+    // public prose (+ recap/media) stays visible, internal work lives in the
+    // Work dialog and must not leak into the clipboard.
     const visibleCopyText = useMemo(() => {
         if (!compactParts) return copyText
         const visible = compactParts.visibleIndices

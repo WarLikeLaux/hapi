@@ -45,7 +45,7 @@ describe('shouldCompactResponse', () => {
 })
 
 describe('partitionCompletedResponseParts', () => {
-    it('keeps only the final prose answer in the chat', () => {
+    it('keeps public prose in the chat and folds internal work', () => {
         const parts = [
             { type: 'reasoning', text: 'Thinking' },
             { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', args: {}, argsText: '{}' },
@@ -54,8 +54,8 @@ describe('partitionCompletedResponseParts', () => {
         ] satisfies ThreadAssistantMessagePart[]
 
         expect(partitionCompletedResponseParts(parts)).toEqual({
-            visibleIndices: [3],
-            detailIndices: [0, 1, 2],
+            visibleIndices: [2, 3],
+            detailIndices: [0, 1],
         })
     })
 
