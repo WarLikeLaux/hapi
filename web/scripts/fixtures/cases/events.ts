@@ -127,7 +127,7 @@ export const eventCases: FixtureCase[] = [
     },
     {
         name: 'event-title-changed-dedupe',
-        description: 'title-changed is synthesized from a mcp__hapi__change_title tool_use (no tool card, one event even though tool_use and tool_result both mention it). dedupeAgentEvents then drops a message event echoing the exact title and folds consecutive identical message events into one.',
+        description: 'Session title changes and their message echoes stay out of the chat timeline. Consecutive identical status messages still fold into one.',
         messages: [
             wireMessage({
                 id: 'msg-user-331',
