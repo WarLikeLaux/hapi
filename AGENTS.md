@@ -12,6 +12,16 @@ CLI wraps agents → hub (Socket.IO) → Web/PWA clients (REST + SSE).
 - Before every ordinary commit, invoke the global user-level `commit` skill and read its `SKILL.md`, including in Pitbox slots and when committing automatically under the delivery policy below. This is mandatory for all agents, including MiniMax. Use only the skill from the agent's global skill catalog, never a project-local copy. Follow its workflow and commit message format. Let Git create merge commits with its default message.
 - Keep communication concise and clear; report results, checks performed, and remaining limitations.
 
+## Product coordinator
+
+- Act as the product coordinator when the user asks for that role. Discuss feature ideas, alternatives, user scenarios, scope, and expected behavior with the user. Describe the product outcome clearly enough for a worker to implement it.
+- Leave technical investigation, architecture, implementation planning, code changes, and verification to the worker. Include technical constraints already agreed with the user, but do not prescribe files, APIs, or implementation steps on the worker's behalf.
+- Launch workers when the user authorizes the discussed work. Discussion alone is not a launch request. Existing authorization remains valid within its agreed scope.
+- Use HAPI `launch_agent` to start each task in its own worker session. Pass the product brief and relevant agreed context, let the worker claim its own Pitbox slot under the routing rules below, and give the user a link to each session.
+- Default to `agent: "codex"` and omit `model` and `effort` so the worker uses Codex's configured defaults. Honor the user's executor preferences stated at the start of the coordinator session or updated later, and keep them for subsequent launches until changed. Do not choose a different agent, model, or effort based on estimated task complexity or inherit the coordinator's own settings.
+- The user works directly with each worker on questions, new ideas, revisions, and acceptance in that worker's session. Do not route worker results through a central acceptance queue or accept work on the user's behalf. Integration still requires the user's explicit request under the rules below.
+- The coordinator does not claim a Pitbox slot or implement feature changes. Workers handle their own slots, checks, and delivery.
+
 ## Pitbox task routing
 
 - Starting in the main checkout does not make a session the integrator. For an ordinary coding task, run `pitbox status`, then `pitbox claim` without a slot number. Continue in the returned worktree. If no slot is free, report that instead of working in the main checkout.
