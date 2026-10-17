@@ -1,6 +1,6 @@
 /**
- * Argv-based discovery of runner-spawned driver CLI processes that are no
- * longer present in the runner's in-memory / resume-process maps.
+ * Discovery of session processes that are no longer present in the runner's
+ * in-memory / resume-process maps.
  *
  * Detached children (PPID=1 after KillMode=process runner bounce) can survive
  * with no tracking entry. `stopSession` must still be able to reap them when
@@ -12,6 +12,7 @@
  */
 
 import spawn from 'cross-spawn'
+import { readFileSync } from 'node:fs'
 import { getProcessStartMarker, isProcessAlive, windowsProcessListCimCommand } from '@/utils/process'
 
 export type ProcessSnapshot = {
@@ -24,6 +25,8 @@ export type ProcessSnapshot = {
      * Windows: Win32_Process.CreationDate as UTC ISO 'o' — same as getProcessStartMarker.
      */
     startMarker?: string | null
+    /** Linux descendants retain this identity even after their wrapper exits. */
+    hapiSessionId?: string
 }
 
 export type OrphanTarget = {
@@ -76,8 +79,10 @@ export function selectOrphanTargetsForSession(
         if (pid === self) continue
         const cmd = proc.cmd || ''
         const name = proc.name || ''
-        if (!isHapiDriverCliCommand(cmd, name)) continue
-        if (!commandMatchesRunnerSpawnedSession(cmd, sessionId)) continue
+        const matchesArgv = isHapiDriverCliCommand(cmd, name)
+            && commandMatchesRunnerSpawnedSession(cmd, sessionId)
+        const matchesEnvironment = Boolean(sessionId) && proc.hapiSessionId === sessionId
+        if (!matchesArgv && !matchesEnvironment) continue
         targets.push({
             pid,
             startMarker: proc.startMarker === undefined ? null : proc.startMarker,
@@ -130,11 +135,26 @@ export function listPosixProcessesWithStartMarker(): ProcessSnapshot[] {
         if (!match) continue
         const pid = Number(match[1])
         if (!Number.isFinite(pid) || pid <= 0) continue
+        let hapiSessionId: string | undefined
+        if (process.platform === 'linux') {
+            try {
+                // Read only for matching; never retain or log the environment,
+                // which may contain credentials. Other users' processes and
+                // processes that exited during the snapshot can be skipped.
+                const entry = readFileSync(`/proc/${pid}/environ`, 'utf8')
+                    .split('\0').find((value) => value.startsWith('HAPI_SESSION_ID='))
+                hapiSessionId = entry?.slice('HAPI_SESSION_ID='.length)
+            } catch (error) {
+                const code = (error as NodeJS.ErrnoException).code
+                if (!['ENOENT', 'ESRCH', 'EACCES', 'EPERM'].includes(code ?? '')) throw error
+            }
+        }
         snapshots.push({
             pid,
             startMarker: match[2],
             cmd: match[3] ?? '',
             name: '',
+            hapiSessionId,
         })
     }
     return snapshots
@@ -208,7 +228,7 @@ export async function findRunnerSpawnedOrphanTargets(
 }
 
 /**
- * Production stopSession orphan discovery: argv match + same-snapshot markers,
+ * Production stopSession orphan discovery: session identity + snapshot markers,
  * then optional PID skip (shared wrappers / sibling roots). Callers must use
  * this (or an equivalent findTargets that keeps startMarker) — never strip to
  * bare PIDs via findRunnerSpawnedOrphanPids / findOrphans (#1911 Overseer).
@@ -233,7 +253,7 @@ export async function findRunnerSpawnedOrphanPids(
 }
 
 /**
- * Tree-kill every argv-matched orphan for `sessionId`.
+ * Tree-kill every session-matched orphan for `sessionId`.
  * Returns null when none were found (caller continues to other stop paths).
  * Returns still_alive when the process scan fails — empty is not proof gone.
  *

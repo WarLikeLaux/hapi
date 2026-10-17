@@ -82,7 +82,8 @@ export async function runCursor(opts: {
     const lifecycle = createRunnerLifecycle({
         session,
         logTag: 'cursor',
-        stopKeepAlive: () => sessionWrapperRef.current?.stopKeepAlive()
+        stopKeepAlive: () => sessionWrapperRef.current?.stopKeepAlive(),
+        onBeforeClose: () => sessionWrapperRef.current?.kill()
     });
 
     lifecycle.registerProcessHandlers();
