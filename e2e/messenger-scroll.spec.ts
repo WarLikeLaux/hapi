@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 test('switching messenger chats stays at the newest message through queued scroll events and late media sizing', async ({ page }) => {
     await page.goto('/e2e-fixtures/messenger-scroll-fixture.html')
-    const viewport = page.locator('.overflow-y-auto')
+    const viewport = page.locator('.chat-wallpaper')
     const gap = () => viewport.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)
     await expect(page.getByText('short message 29', { exact: true })).toBeVisible()
     await expect.poll(gap).toBeLessThan(2)
@@ -79,7 +79,7 @@ test('opening another conversation starts with fresh pane state instead of carry
 test('keyboard navigation can leave the newest message and return to it', async ({ page }) => {
     await page.goto('/e2e-fixtures/messenger-scroll-fixture.html')
     await page.getByRole('button', { name: 'Open long', exact: true }).click()
-    const viewport = page.locator('.overflow-y-auto')
+    const viewport = page.locator('.chat-wallpaper')
     const gap = () => viewport.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)
     await expect(page.getByText('long message 69', { exact: true })).toBeVisible()
     await expect.poll(gap).toBeLessThan(2)
@@ -98,7 +98,7 @@ test.describe('touch scrolling over messenger media', () => {
     test('a downward finger swipe starting on a photo releases the newest-message pin', async ({ page }) => {
         await page.goto('/e2e-fixtures/messenger-scroll-fixture.html')
         await page.getByRole('button', { name: 'Open long', exact: true }).click()
-        const viewport = page.locator('.overflow-y-auto')
+        const viewport = page.locator('.chat-wallpaper')
         const photo = viewport.locator('[data-provider-message-id="long-69"] [data-image-preview-trigger]')
         await expect(photo).toBeVisible()
         await expect.poll(() => photo.locator('img').evaluate(image => image.complete && image.naturalHeight > 0)).toBe(true)
