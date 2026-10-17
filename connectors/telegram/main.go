@@ -2403,6 +2403,15 @@ func (s *service) handle(req rpcRequest) (any, error) {
 		}
 		items, err := s.loadMessages(ctx, params.RemoteID, params.Limit)
 		return map[string]any{"messages": items}, err
+	case "messages.voiceListened":
+		var params struct {
+			RemoteID          string `json:"remoteId"`
+			ProviderMessageID string `json:"providerMessageId"`
+		}
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, s.markVoiceListened(ctx, params.RemoteID, params.ProviderMessageID)
 	case "messages.read":
 		var params struct {
 			RemoteID             string `json:"remoteId"`

@@ -9,8 +9,72 @@ import type { SSEManager } from '../../sse/sseManager'
 import type { ExternalConversation, ExternalMessage } from '@hapi/protocol'
 import type { WebAppEnv } from '../middleware/auth'
 import { createMessengerRoutes } from './messengers'
+import type { MessengerConnectorFactory } from '../../messengers/types'
 
 describe('messenger routes', () => {
+    it('addresses voice receipts only to a selected incoming Telegram voice in the authenticated account', async () => {
+        const store = new Store(':memory:')
+        const dataDir = await mkdtemp(join(tmpdir(), 'hapi-voice-receipts-'))
+        const conversation: ExternalConversation = {
+            id: 'telegram:user:42', provider: 'telegram', remoteId: 'user:42', title: 'Chat', kind: 'direct',
+            selected: true, lastMessageAt: 1, lastMessagePreview: 'Voice', unreadCount: 0
+        }
+        const voice: ExternalMessage = {
+            id: 'voice', conversationId: conversation.id, providerMessageId: '5', senderId: 'peer',
+            senderName: 'Peer', direction: 'incoming', text: '', createdAt: 1, editedAt: null,
+            media: [{ kind: 'voice', mimeType: 'audio/ogg', fileName: null, size: null, thumbnailDataUrl: null }]
+        }
+        const calls: unknown[][] = []
+        const manager = new MessengerManager({ dataDir, store,
+            sseManager: { broadcast: () => {} } as unknown as SSEManager })
+        const factories = (manager as unknown as { factories: Map<string, MessengerConnectorFactory> }).factories
+        factories.set('telegram', ({ namespace }) => ({
+            provider: 'telegram', getConnection: () => ({ provider: 'telegram', state: 'ready', accountLabel: namespace, detail: null }),
+            configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [],
+            loadMessages: async () => [], sendText: async () => {}, setReactions: async () => {},
+            sendMedia: async () => {}, stop: async () => {}, downloadMedia: async () => { throw new Error('No media') },
+            markRead: async () => { throw new Error('History receipts must not be used') },
+            markVoiceListened: async (...args) => { calls.push([namespace, ...args]) }
+        }))
+        for (const namespace of ['owner', 'other-owner']) {
+            store.messengers.upsertConversation(namespace, conversation)
+            store.messengers.upsertMessage(namespace, voice)
+        }
+        store.messengers.upsertMessage('owner', { ...voice, id: 'outgoing', providerMessageId: '6', direction: 'outgoing' })
+        store.messengers.upsertMessage('owner', { ...voice, id: 'music', providerMessageId: '7', media: [{ kind: 'audio', mimeType: 'audio/ogg', fileName: null, size: null, thumbnailDataUrl: null }] })
+        store.messengers.upsertConversation('other-owner', { ...conversation, id: 'foreign', remoteId: 'user:43' })
+        store.messengers.upsertMessage('other-owner', { ...voice, id: 'foreign', conversationId: 'foreign' })
+        store.messengers.upsertConversation('owner', { ...conversation, id: 'hidden', remoteId: 'user:44', selected: false })
+        store.messengers.upsertMessage('owner', { ...voice, id: 'hidden', conversationId: 'hidden' })
+        store.messengers.upsertConversation('owner', { ...conversation, id: 'yandex', provider: 'yandex' })
+        store.messengers.upsertMessage('owner', { ...voice, id: 'yandex', conversationId: 'yandex' })
+        const appFor = (namespace: string) => {
+            const app = new Hono<WebAppEnv>()
+            app.use('*', async (c, next) => { c.set('namespace', namespace); await next() })
+            app.route('/', createMessengerRoutes(manager))
+            return app
+        }
+        const app = appFor('owner')
+        const path = (chat: string, id = '5') => `/conversations/${encodeURIComponent(chat)}/messages/${id}/voice-listened`
+        try {
+            for (const [chat, id, status] of [
+                [conversation.id, '6', 400], [conversation.id, '7', 400], [conversation.id, '99', 404],
+                ['foreign', '5', 404], ['hidden', '5', 404], ['missing', '5', 404], ['yandex', '5', 400]
+            ] as const) {
+                expect((await app.request(path(chat, id), { method: 'POST' })).status).toBe(status)
+            }
+            expect(calls).toEqual([])
+            expect((await app.request(path(conversation.id), { method: 'POST' })).status).toBe(200)
+            expect(calls).toEqual([['owner', 'user:42', '5']])
+            expect((await appFor('other-owner').request(path(conversation.id), { method: 'POST' })).status).toBe(200)
+            expect(calls).toEqual([['owner', 'user:42', '5'], ['other-owner', 'user:42', '5']])
+        } finally {
+            await manager.stop()
+            store.close()
+            await rm(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('returns 404 for disabled MAX entry points before reading request bodies', async () => {
         const store = new Store(':memory:')
         const dataDir = await mkdtemp(join(tmpdir(), 'hapi-disabled-messenger-routes-'))

@@ -524,6 +524,21 @@ export class MessengerManager {
         return result
     }
 
+    async markVoiceListened(namespace: string, conversationId: string, providerMessageId: string): Promise<void> {
+        const conversation = this.getAvailableConversation(namespace, conversationId)
+        if (!conversation?.selected) throw new Error('Conversation not found')
+        const message = this.options.store.messengers.listMessages(namespace, conversationId, 200)
+            .find((item) => item.providerMessageId === providerMessageId)
+        if (!message) throw new Error('Message not found')
+        if (conversation.provider !== 'telegram' || message.direction !== 'incoming'
+            || !message.media?.some((media) => media.kind === 'voice')) {
+            throw new Error('Message is not an incoming Telegram voice')
+        }
+        const connector = await this.requireConnector(namespace, conversation.provider)
+        if (!connector.markVoiceListened) throw new Error('Voice listening receipts are not supported')
+        await connector.markVoiceListened(conversation.remoteId, providerMessageId)
+    }
+
     async downloadMedia(
         namespace: string,
         conversationId: string,

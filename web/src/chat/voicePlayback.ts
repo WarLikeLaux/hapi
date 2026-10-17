@@ -19,6 +19,7 @@ export type VoiceQueueItem = {
     // Object URL adopted from an already-preloaded MediaAttachment; the store
     // then owns its lifetime (see isVoicePlaybackOwnedUrl).
     src?: string
+    onPlaybackStarted?: () => Promise<void>
 }
 
 export type VoicePlaybackStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'failed'
@@ -130,6 +131,7 @@ function clearAudioSource(element: HTMLAudioElement): void {
 
 function stopInternal(): void {
     playToken += 1
+    if (audio) audio.onplaying = null
     if (audio) {
         audio.pause()
         clearAudioSource(audio)
@@ -154,6 +156,7 @@ async function playIndex(index: number): Promise<void> {
     const item = state.queue[index]
     if (!item || !fetchBlob) return
     const token = ++playToken
+    if (audio) audio.onplaying = null
     setState({
         index,
         conversationId: item.conversationId,
@@ -180,6 +183,17 @@ async function playIndex(index: number): Promise<void> {
         const element = ensureAudio()
         pauseOtherDomAudio(element)
         element.src = url
+        let reported = false
+        element.onplaying = () => {
+            // `play` fires before buffering/permission failures; only `playing`
+            // confirms actual playback. Ignore replaced sources and resumes.
+            if (reported || token !== playToken || element.paused || element.src !== url) return
+            reported = true
+            void item.onPlaybackStarted?.().catch(() => {
+                // Receipt failure must never interrupt audio. Replaying later
+                // can retry it through the API client's deduplication.
+            })
+        }
         await element.play()
         if (token === playToken) setState({ status: 'playing' })
     } catch {

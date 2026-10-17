@@ -1,3 +1,4 @@
+import { ApiClient } from '../api/client'
 import { fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -40,6 +41,81 @@ describe('voicePlayback queue', () => {
     afterEach(() => {
         stopVoicePlayback()
         vi.restoreAllMocks()
+    })
+
+    it('reports actual playback once per voice and client, including queue continuation', async () => {
+        const request = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'))
+        const api = new ApiClient('account-one')
+        const voice = (id: string) => item(`chat:${id}:0`, {
+            conversationId: 'telegram:user /42', providerMessageId: id,
+            onPlaybackStarted: () => api.markExternalVoiceListened('telegram:user /42', id)
+        })
+        const first = voice('5')
+        const second = voice('6')
+        startVoiceQueue([first, second], 0, blobFetcher())
+        await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
+        const audio = document.querySelector('audio')!
+        vi.spyOn(audio, 'paused', 'get').mockReturnValue(false)
+        // Loading and even the early `play` event do not prove playback.
+        fireEvent(audio, new Event('play'))
+        expect(request).not.toHaveBeenCalled()
+        fireEvent(audio, new Event('playing'))
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1))
+        expect(request).toHaveBeenLastCalledWith(
+            '/api/conversations/telegram%3Auser%20%2F42/messages/5/voice-listened',
+            expect.objectContaining({ method: 'POST' })
+        )
+        expect(new Headers(request.mock.calls[0]?.[1]?.headers).get('authorization')).toBe('Bearer account-one')
+        fireEvent(audio, new Event('pause'))
+        fireEvent(audio, new Event('playing'))
+        expect(request).toHaveBeenCalledTimes(1)
+        fireEvent(audio, new Event('ended'))
+        await vi.waitFor(() => expect(getVoicePlaybackState().index).toBe(1))
+        await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
+        // The next queued voice is reported only when it actually starts.
+        expect(request).toHaveBeenCalledTimes(1)
+        fireEvent(audio, new Event('playing'))
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2))
+        expect(request.mock.calls[1]?.[0]).toContain('/messages/6/voice-listened')
+        startVoiceQueue([first], 0, blobFetcher())
+        await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
+        fireEvent(audio, new Event('playing'))
+        await Promise.resolve()
+        expect(request).toHaveBeenCalledTimes(2)
+        // Another authenticated client must not share this client's receipts.
+        await new ApiClient('account-two').markExternalVoiceListened('telegram:user /42', '5')
+        expect(request).toHaveBeenCalledTimes(3)
+    })
+
+    it('does not report a rejected or superseded start and can retry a failed receipt', async () => {
+        const request = vi.spyOn(globalThis, 'fetch')
+            .mockRejectedValueOnce(new Error('offline'))
+            .mockImplementation(async () => new Response('{}'))
+        const api = new ApiClient('account-one')
+        const first = item('c:5:0', { onPlaybackStarted: () => api.markExternalVoiceListened('c', '5') })
+        vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new Error('blocked'))
+        startVoiceQueue([first], 0, blobFetcher())
+        await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('failed'))
+        const audio = document.querySelector('audio')!
+        fireEvent(audio, new Event('play'))
+        expect(request).not.toHaveBeenCalled()
+        toggleVoicePlayback()
+        await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
+        vi.spyOn(audio, 'paused', 'get').mockReturnValue(false)
+        fireEvent(audio, new Event('playing'))
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1))
+        expect(getVoicePlaybackState().status).toBe('playing')
+        startVoiceQueue([first], 0, blobFetcher())
+        await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
+        fireEvent(audio, new Event('playing'))
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2))
+        // Replace the source with one still downloading. A late playing event
+        // from the previous source cannot mark the pending voice as listened.
+        startVoiceQueue([item('c:6:0', { onPlaybackStarted: () => api.markExternalVoiceListened('c', '6') })],
+            0, () => new Promise(() => {}))
+        fireEvent(audio, new Event('playing'))
+        expect(request).toHaveBeenCalledTimes(2)
+        stopVoicePlayback()
     })
 
     it('continues into the next message when one ends', async () => {
