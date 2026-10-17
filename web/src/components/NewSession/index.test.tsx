@@ -1024,7 +1024,11 @@ describe('NewSession launch preferences', () => {
         expect(getMachineOpencodeModelVariants.mock.calls.length).toBe(0)
         expect(screen.getByTestId('create')).toBeEnabled()
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: undefined })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'opencode',
+            model: undefined,
+            modelReasoningEffort: 'max'
+        })))
         view.unmount()
         client.clear()
     })
@@ -1047,7 +1051,11 @@ describe('NewSession launch preferences', () => {
         expect(getMachineOpencodeModelsForCwd.mock.calls.length).toBe(0)
         expect(getMachineOpencodeModelVariants.mock.calls.length).toBe(0)
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: undefined })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'opencode',
+            model: undefined,
+            modelReasoningEffort: 'max'
+        })))
         view.unmount()
         client.clear()
     })
@@ -1070,7 +1078,11 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('opencode-session'))
         // Spawn omits model and the hardcoded choice sticks.
-        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: undefined }))
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'opencode',
+            model: undefined,
+            modelReasoningEffort: 'max'
+        }))
         expect(screen.getByRole('button', { name: 'Muse Spark 1.3 Contributor' })).toBeInTheDocument()
     })
 
@@ -1114,7 +1126,11 @@ describe('NewSession launch preferences', () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         await waitFor(() => expect(screen.getByRole('button', { name: 'Muse Spark 1.3 Contributor' })).toBeInTheDocument())
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: undefined })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'opencode',
+            model: undefined,
+            modelReasoningEffort: 'max'
+        })))
     })
 
     it('launches AGY with the backend default and saves auto only after a successful launch', async () => {

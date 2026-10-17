@@ -1052,7 +1052,8 @@ function SessionChatInner(props: SessionChatProps) {
     const opencodeReasoningEffortState = useOpencodeReasoningEffortOptions({
         api: props.api,
         sessionId: props.session.id,
-        enabled: agentFlavor === 'opencode' && props.session.active,
+        // Effort is pinned to max and the picker is hidden.
+        enabled: false,
         sessionModel: props.session.model
     })
     const opencodeModelOptions = useMemo(() => {
@@ -1309,6 +1310,31 @@ function SessionChatInner(props: SessionChatProps) {
         agentFlavor,
         codexCollaborationModeSupported
     )
+
+    const opencodeMaxPinnedSessionId = useRef<string | null>(null)
+    useEffect(() => {
+        if (agentFlavor !== 'opencode' || !props.session.active || controlledByUser) return
+        if (props.session.modelReasoningEffort === 'max') {
+            opencodeMaxPinnedSessionId.current = props.session.id
+            return
+        }
+        if (opencodeMaxPinnedSessionId.current === props.session.id) return
+        opencodeMaxPinnedSessionId.current = props.session.id
+        void setModelReasoningEffort('max')
+            .then(() => props.onRefresh())
+            .catch((error) => {
+                opencodeMaxPinnedSessionId.current = null
+                console.error('Failed to set OpenCode effort to max:', error)
+            })
+    }, [
+        agentFlavor,
+        controlledByUser,
+        props.session.active,
+        props.session.id,
+        props.session.modelReasoningEffort,
+        props.onRefresh,
+        setModelReasoningEffort
+    ])
 
     // Voice assistant integration
     const voice = useVoiceOptional()
@@ -2258,10 +2284,9 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onModelReasoningEffortChange={
-                            (agentFlavor === 'codex' || agentFlavor === 'opencode')
+                            agentFlavor === 'codex'
                                 && props.session.active
                                 && !controlledByUser
-                                && (agentFlavor !== 'opencode' || opencodeReasoningEffortState.options.length > 0)
                                 ? handleModelReasoningEffortChange
                                 : undefined
                         }

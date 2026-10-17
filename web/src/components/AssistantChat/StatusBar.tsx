@@ -11,15 +11,8 @@ import { useMemo } from 'react'
 import type { AgentState, CodexCollaborationMode, PermissionMode } from '@/types/api'
 import type { ConversationStatus } from '@/realtime/types'
 import { getContextBudgetTokens } from '@/chat/modelConfig'
-import {
-    formatReasoningLabel,
-    formatCompactReasoningLabel,
-    getReasoningEffortForFlavor,
-    shouldShowReasoningStatusLabel
-} from '@/lib/codexStatusLabels'
 import { isFastServiceTier } from './codexFastMode'
 import { useTranslation } from '@/lib/use-translation'
-import { useSessionHeaderMetadata } from '@/hooks/useSessionHeaderMetadata'
 import { AGENT_ACTIVITY_LABELS, type AgentActivity } from '@/lib/agentActivity'
 
 const PERMISSION_TONE_CLASSES: Record<PermissionModeTone, string> = {
@@ -197,7 +190,6 @@ export function StatusBar(props: {
     voiceStatus?: ConversationStatus
 }) {
     const { t } = useTranslation()
-    const { preferences: headerMetadata } = useSessionHeaderMetadata()
     const connectionStatus = useMemo(
         () => getConnectionStatus(props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount ?? 0, props.activity, t),
         [props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount, props.activity, t]
@@ -252,20 +244,6 @@ export function StatusBar(props: {
     const copilotAgentModeLabel = displayCopilotAgentMode
         ? getCopilotAgentModeLabel(displayCopilotAgentMode)
         : null
-    const reasoningEffort = getReasoningEffortForFlavor(
-        props.agentFlavor,
-        props.modelReasoningEffort,
-        props.effort
-    )
-    const displaysReasoning = shouldShowReasoningStatusLabel(props.agentFlavor, reasoningEffort)
-    const reasoningLabel = displaysReasoning
-        ? formatReasoningLabel(reasoningEffort, headerMetadata.showLabels)
-        : null
-    const compactReasoningLabel = displaysReasoning
-        ? formatCompactReasoningLabel(reasoningEffort)
-        : null
-    const codexFastMode = shouldShowCodexFastBadge(props.agentFlavor, props.serviceTier, props.model)
-
     return (
         <div className="flex min-w-0 items-baseline justify-between gap-2 px-2 pb-1">
             <div className="flex min-w-0 items-baseline gap-2">
@@ -339,17 +317,6 @@ export function StatusBar(props: {
             </div>
 
             <div className="flex min-w-0 shrink-0 items-baseline gap-2">
-                {reasoningLabel ? (
-                    <span className="whitespace-nowrap text-xs text-[var(--app-hint)]">
-                        <span className="sm:hidden">{compactReasoningLabel}</span>
-                        <span className="hidden sm:inline">{reasoningLabel}</span>
-                    </span>
-                ) : null}
-                {codexFastMode ? (
-                    <span className="whitespace-nowrap text-xs text-[#34C759]">
-                        fast
-                    </span>
-                ) : null}
                 {collaborationModeLabel ? (
                     <span className="whitespace-nowrap text-xs text-blue-500">
                         {collaborationModeLabel}

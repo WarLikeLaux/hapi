@@ -36,7 +36,8 @@ export type EffortFieldProps = {
  */
 export function EffortField(props: EffortFieldProps) {
     const { t } = useTranslation()
-    if (props.agent === 'codex') {
+    // Codex uses its configured effort; OpenCode always launches at max.
+    if (props.agent === 'codex' || props.agent === 'opencode') {
         return null
     }
     const descriptor = getAgentConfigDescriptor(props.agent)

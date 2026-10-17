@@ -1,6 +1,7 @@
 import { ComposerPrimitive } from '@assistant-ui/react'
 import type { ConversationStatus } from '@/realtime/types'
 import { useTranslation } from '@/lib/use-translation'
+import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { ScheduleIcon } from '@/components/icons'
 import { ScheduleTimePicker } from './ScheduleTimePicker'
 import type { PendingSchedule } from './ScheduleTimePicker'
@@ -631,9 +632,10 @@ export function ComposerButtons(props: {
     // The composer must surface that constraint at UI time so the user never
     // builds a submission the hub will reject — see hub/web/routes/messages.ts.
     hasAttachments?: boolean
-    // Display-only model pill (label may include the effort, e.g.
-    // "GPT-6-Sol (High)"); both are picked in the settings sheet)
+    // Display-only model pill: icon, pretty name, effort in parentheses.
     modelValueLabel?: string
+    modelWireId?: string | null
+    agentFlavor?: string | null
     // Scratchlist drawer toggle. When `onScratchlistToggle` is provided, a
     // notepad icon appears next to the schedule-send icon. Click toggles
     // composer-send-routing between chat and scratchlist; SessionChat owns
@@ -711,9 +713,12 @@ export function ComposerButtons(props: {
                     settings sheet, so the label is not a control. */}
                 {props.modelValueLabel ? (
                     <span
-                        title={props.modelValueLabel}
-                        className="flex h-8 items-center rounded-full px-1 text-xs font-medium text-[var(--app-fg)]/60"
+                        title={props.modelWireId || props.modelValueLabel}
+                        className="flex h-8 items-center gap-1 rounded-full px-1 text-xs font-medium text-[var(--app-fg)]/60"
                     >
+                        {props.agentFlavor ? (
+                            <AgentFlavorIcon flavor={props.agentFlavor} className="h-3.5 w-3.5 shrink-0" />
+                        ) : null}
                         {props.modelValueLabel}
                     </span>
                 ) : null}

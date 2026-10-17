@@ -29,13 +29,13 @@ describe('EffortField', () => {
         expect(screen.queryByText('Reasoning effort')).toBeNull()
     })
 
-    it('still offers OpenCode reasoning variants', () => {
+    it('hides the effort picker for OpenCode even when variants are available', () => {
         renderEffortField({
             agent: 'opencode',
-            opencodeVariantOptions: ['low', 'high']
+            opencodeVariantOptions: ['minimal', 'max']
         })
 
-        expect(screen.getByRole('combobox')).toBeTruthy()
-        expect(screen.getByRole('option', { name: 'high' })).toBeTruthy()
+        expect(screen.queryByRole('combobox')).toBeNull()
+        expect(screen.queryByRole('option')).toBeNull()
     })
 })

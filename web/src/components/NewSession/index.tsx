@@ -1850,9 +1850,11 @@ export function NewSession(props: {
             const resolvedEffort = ((agent === 'claude' && !claudeGlmBranded) || agent === 'grok' || agent === 'pi') && effort !== 'auto'
                 ? effort
                 : undefined
-            const resolvedModelReasoningEffort = (agent === 'codex' || agent === 'opencode') && modelReasoningEffort !== 'default'
-                ? modelReasoningEffort
-                : undefined
+            const resolvedModelReasoningEffort = agent === 'opencode'
+                ? 'max'
+                : agent === 'codex' && modelReasoningEffort !== 'default'
+                    ? modelReasoningEffort
+                    : undefined
             const preferredLaunchSettings = {
                 model: agent === 'agy'
                     ? (agySelectedModel ?? 'auto')
