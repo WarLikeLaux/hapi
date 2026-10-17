@@ -13,6 +13,8 @@ jobs:
               run: node --test .github/scripts/pr-review.test.cjs
             - uses: oven-sh/setup-bun@v2
             - run: bun install --frozen-lockfile
+            - name: Test slot preview lifecycle
+              run: node --test scripts/tooling/slot-preview.test.mjs
             - run: bun typecheck
             - run: bunx playwright install --with-deps chromium
             # Required by cli/src/utils/windowsProcessTree.pwsh.test.ts — image
