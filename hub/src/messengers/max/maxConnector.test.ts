@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test'
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test'
+import * as messengers from '@hapi/protocol/messengers'
 import type { ServerWebSocket } from 'bun'
 import { Hono } from 'hono'
 import { createHash } from 'node:crypto'
@@ -103,6 +104,8 @@ async function eventually(check: () => void): Promise<void> {
 
 describe('MAX personal-account connector', () => {
     it('connects through authenticated REST, isolates credentials, preserves large ids, and delivers reads, replies and live updates', async () => {
+        // Exercise the retained integration as it will behave when MAX is re-enabled.
+        const enabled = spyOn(messengers, 'isMessengerProviderEnabled').mockReturnValue(true)
         const { server, sockets, packets } = serveMax()
         const dataDir = await mkdtemp(join(tmpdir(), 'hapi-max-'))
         const store = new Store(':memory:')
@@ -183,6 +186,7 @@ describe('MAX personal-account connector', () => {
             }
         } finally {
             await manager.stop()
+            enabled.mockRestore()
             server.stop(true)
             store.close()
             await rm(dataDir, { recursive: true, force: true })

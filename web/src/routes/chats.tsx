@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import type { ExternalConversation, ExternalMedia, ExternalMessage, ExternalMessagesResponse, ExternalParticipant, ExternalReaction, MessengerConnection, SubmitMessengerAuthRequest } from '@hapi/protocol/messengers'
+import { isMessengerProviderEnabled } from '@hapi/protocol/messengers'
 import { ExternalMessageText } from '@/components/ExternalMessageText'
 import { ExternalForwardHeader } from '@/components/ExternalForwardHeader'
 import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
@@ -57,7 +58,7 @@ function YandexMark(props: { className?: string }) {
 
 type ChatsProvider = 'telegram' | 'yandex' | 'max'
 
-const chatsProviders: ChatsProvider[] = ['telegram', 'yandex', 'max']
+const chatsProviders = (['telegram', 'yandex', 'max'] satisfies ChatsProvider[]).filter(isMessengerProviderEnabled)
 
 const PROVIDER_LABELS: Record<ChatsProvider, string> = { telegram: 'Telegram', yandex: 'Yandex', max: 'MAX' }
 const PROVIDER_BACKGROUNDS: Record<ChatsProvider, string> = { telegram: 'bg-[#2AABEE]', yandex: 'bg-[#FC3F1D]', max: 'bg-[#6654D9]' }
@@ -915,7 +916,7 @@ function ChatList(props: {
                         <span className="mx-auto mb-3 flex items-center justify-center gap-2">
                             <TelegramMark className="h-8 w-8 text-[#229ED9]" />
                             <YandexMark className="h-8 w-8 text-[#FC3F1D]" />
-                            <ProviderMark provider="max" className="h-8 w-8 text-[#6654D9]" />
+                            {isMessengerProviderEnabled('max') ? <ProviderMark provider="max" className="h-8 w-8 text-[#6654D9]" /> : null}
                         </span>
                         <span className="block text-sm font-medium">{t('chats.empty.title')}</span>
                         <span className="mt-1 block text-xs text-[var(--app-hint)]">{t('chats.empty.hint')}</span>

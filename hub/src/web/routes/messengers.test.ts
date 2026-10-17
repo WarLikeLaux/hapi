@@ -11,6 +11,30 @@ import type { WebAppEnv } from '../middleware/auth'
 import { createMessengerRoutes } from './messengers'
 
 describe('messenger routes', () => {
+    it('returns 404 for disabled MAX entry points before reading request bodies', async () => {
+        const store = new Store(':memory:')
+        const dataDir = await mkdtemp(join(tmpdir(), 'hapi-disabled-messenger-routes-'))
+        const manager = new MessengerManager({ dataDir, store,
+            sseManager: { broadcast: () => {} } as unknown as SSEManager })
+        const app = createMessengerRoutes(manager)
+        try {
+            for (const [method, path] of [
+                ['POST', '/messengers/max/configure'],
+                ['POST', '/messengers/max/auth'],
+                ['GET', '/messengers/max/candidates?refresh=1'],
+                ['PUT', '/messengers/max/selection']
+            ]) {
+                const response = await app.request(path, { method })
+                expect(response.status).toBe(404)
+                expect(await response.json()).toEqual({ error: 'Messenger provider is disabled' })
+            }
+        } finally {
+            await manager.stop()
+            store.close()
+            await rm(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('restricts changes to own messages in the authenticated namespace and publishes refreshed history', async () => {
         const store = new Store(':memory:')
         const dataDir = await mkdtemp(join(tmpdir(), 'hapi-own-message-'))

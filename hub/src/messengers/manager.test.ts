@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'bun:test'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { describe, expect, it, spyOn } from 'bun:test'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
@@ -8,9 +8,63 @@ import type { ExternalConversation, ExternalMessage, MessengerConnection } from 
 import { Store } from '../store'
 import type { SSEManager } from '../sse/sseManager'
 import { MessengerManager } from './manager'
+import { MaxConnector } from './max/maxConnector'
 import type { MessengerConnector, MessengerConnectorEvent, MessengerConnectorFactory } from './types'
 
 describe('MessengerManager', () => {
+    it('keeps MAX dormant and hidden with saved credentials and selected history intact', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-max-disabled-'))
+        const store = new Store(':memory:')
+        const namespace = 'default'
+        const hash = createHash('sha256').update(namespace).digest('hex').slice(0, 24)
+        const configPath = join(dataDir, 'messengers', hash, 'max', 'config.json')
+        const config = { token: 'saved-token', deviceId: 'c7059b91-4d2b-4fc0-bdcc-a5408e4ab5cc' }
+        await mkdir(join(dataDir, 'messengers', hash, 'max'), { recursive: true })
+        await writeFile(configPath, JSON.stringify(config))
+        const conversation: ExternalConversation = {
+            id: 'max:1', provider: 'max', remoteId: '1', title: 'Saved MAX chat', kind: 'direct',
+            selected: true, lastMessageAt: 1, lastMessagePreview: 'Saved message', unreadCount: 2
+        }
+        const message: ExternalMessage = {
+            id: 'max-message', conversationId: conversation.id, providerMessageId: '1',
+            senderId: 'peer', senderName: 'Friend', direction: 'incoming', text: 'Saved message',
+            createdAt: 1, editedAt: null
+        }
+        store.messengers.upsertConversation(namespace, conversation)
+        store.messengers.upsertMessage(namespace, message)
+        const savedConversation = store.messengers.getConversation(namespace, conversation.id)
+        const savedMessages = store.messengers.listMessages(namespace, conversation.id)
+        // Keep the pre-fix regression safe: restoring MAX must never use the network here.
+        const configure = spyOn(MaxConnector.prototype, 'configure').mockResolvedValue()
+        const manager = new MessengerManager({ dataDir, store,
+            sseManager: { broadcast: () => {} } as unknown as SSEManager })
+        try {
+            for (let attempt = 0; attempt < 2; attempt++) {
+                expect((await manager.getConnections(namespace)).map((item) => item.provider))
+                    .toEqual(['telegram', 'yandex'])
+                expect(manager.listConversations(namespace)).toEqual([])
+            }
+            expect(configure).not.toHaveBeenCalled()
+            await expect(manager.configureMax(namespace, { ...config, token: 'replacement' })).rejects.toThrow()
+            await expect(manager.submitAuth(namespace, 'max', { kind: 'code', value: '123' })).rejects.toThrow()
+            await expect(manager.listCandidates(namespace, 'max')).rejects.toThrow()
+            await expect(manager.selectConversations(namespace, 'max', [])).rejects.toThrow()
+            await expect(manager.listMessages(namespace, conversation.id)).rejects.toThrow('Conversation not found')
+            await expect(manager.sendText(namespace, conversation.id, 'New message')).rejects.toThrow()
+            await expect(manager.setConversationOpen(namespace, conversation.id, true)).rejects.toThrow()
+            expect(() => manager.listParticipants(namespace, conversation.id)).toThrow('Conversation not found')
+            expect(configure).not.toHaveBeenCalled()
+            expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual(config)
+            expect(store.messengers.getConversation(namespace, conversation.id)).toEqual(savedConversation)
+            expect(store.messengers.listMessages(namespace, conversation.id)).toEqual(savedMessages)
+        } finally {
+            await manager.stop()
+            configure.mockRestore()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('refreshes history started after a send before publishing the conversation preview', async () => {
         const store = new Store(':memory:')
         const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-send-sync-'))

@@ -15,6 +15,12 @@ Telegram bot + HTTP API + realtime updates for hapi hub.
 
 See `src/configuration.ts` for all options.
 
+### MAX account chats (temporarily disabled)
+
+MAX is paused through `MAX_MESSENGER_ENABLED` in [shared/src/messengers.ts](../shared/src/messengers.ts). The hub does not create its connector or restore saved credentials, and MAX is hidden from Chats and its connection settings. MAX provider endpoints return 404; saved MAX conversations are unavailable through conversation endpoints. Credentials, selected chats, and history remain stored.
+
+To restore MAX, set the constant to `true`, rebuild the hub and web app, and restart the hub. Opening Chats then resumes the saved account. Telegram and Yandex use their existing startup behavior.
+
 ### Required
 
 - `CLI_API_TOKEN` - Base shared secret used by CLI, web login and native pairing. Clients append `:<namespace>` for isolation. Auto-generated on first run if not set.
