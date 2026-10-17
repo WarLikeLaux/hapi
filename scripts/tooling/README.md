@@ -12,6 +12,10 @@ bun run --cwd web dev -- --port 5174 --strictPort
 
 Keep the server running while capturing. Use the same port in every capture command. `--strictPort` prevents accidentally using another checkout's preview. Vite proxies `/api` to `http://127.0.0.1:3006`. Set `VITE_HUB_PROXY` on the dev server if your hub uses a different address. This starts a preview, not a deployment.
 
+In a registered Pitbox slot, this command manages its own Vite child. The launcher checks slot state once a second and stops the preview after the task is marked `ready`, or when the slot changes branch or is removed. Commits and idle time do not stop an active task's preview. Finish visual review before marking the task ready. A preview deliberately started in an already-ready slot stays available until the next ready transition or slot reset, so integration review can still use it. Outside a registered slot, the command runs Vite without a slot lifecycle watcher.
+
+Cleanup belongs to the launcher and needs no integrator action or Pitbox plugin update. It never scans ports or kills other processes. Direct `vite` launches bypass it and remain the caller's responsibility. Closing a HAPI session alone does not prove that a slot is finished: the task must follow the usual `ready` handoff or have its slot released.
+
 ## Capture the changed state
 
 ```bash
