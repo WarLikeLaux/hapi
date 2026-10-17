@@ -18,9 +18,13 @@ export const CODEX_HARDCODED_OPTIONS: ReadonlyArray<{ value: string; label: stri
 
 /** Antigravity runs the backend default (Gemini 3.8 Flash Medium); null = Default. */
 export const AGY_HARDCODED_LABEL = 'Gemini 3.8 Flash (Medium)'
+export const AGY_HIGH_MODEL_ID = 'gemini-3.8-flash-high'
+export const AGY_HIGH_MODEL_LABEL = 'Gemini 3.8 Flash (High)'
 
-/** A GLM-branded claude runs GLM 5.3 Flash on `auto`; the selector is hidden. */
+/** Keep Flash as the native default; use a full id to bypass Claude aliases. */
 export const CLAUDE_GLM_HARDCODED_LABEL = 'GLM 5.3 Flash'
+export const CLAUDE_GLM_MODEL_ID = 'glm-5.3'
+export const CLAUDE_GLM_MODEL_LABEL = 'GLM 5.3'
 
 /** OpenCode runs the backend default; null = Default. */
 export const OPENCODE_HARDCODED_MODEL_ID = 'opencode-go/muse-spark-1.3-contributor'
