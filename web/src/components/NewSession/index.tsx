@@ -34,9 +34,7 @@ import { getCodexModelReasoningEfforts, resolveCodexModel } from '@/lib/codexMod
 import {
     buildNewSessionCursorModelCatalog,
     buildNewSessionCursorPickerState,
-    CURSOR_COMPOSER_FAST_WIRE,
     CURSOR_COMPOSER_STANDARD_WIRE,
-    CURSOR_GROK_XHIGH_FAST_WIRE,
     CURSOR_GROK_XHIGH_WIRE,
     getCursorModelSpeedOptions,
     isCursorEffortWireAllowed,
@@ -608,11 +606,12 @@ export function NewSession(props: {
     }, [agent, machineId])
     useEffect(() => {
         // Idempotent and coercive in badges mode: anything outside the
-        // hardcoded shortlist (including auto) snaps to Grok Extra High Fast.
-        // With the hatch open the user owns the selection.
+        // hardcoded shortlist (including auto) snaps to Grok Extra High.
+        // Fast stays off until the user picks it. With the hatch open the
+        // user owns the selection.
         if (agent !== 'cursor' || showAllCursorModels) return
         if (isHardcodedCursorModelId(model)) return
-        setModel(CURSOR_GROK_XHIGH_FAST_WIRE)
+        setModel(CURSOR_GROK_XHIGH_WIRE)
         setCursorSelectedBase('grok-4.7')
     }, [agent, model, showAllCursorModels])
     const cursorSpeedOptions = agent === 'cursor' ? getCursorModelSpeedOptions(model) : null
@@ -2225,7 +2224,7 @@ export function NewSession(props: {
                                     activeValue={cursorSpeedOptions?.standard ?? CURSOR_GROK_XHIGH_WIRE}
                                     isDisabled={isFormDisabled || !machineId}
                                     onToggle={(value) => {
-                                        setModel(value === CURSOR_COMPOSER_STANDARD_WIRE ? CURSOR_COMPOSER_FAST_WIRE : CURSOR_GROK_XHIGH_FAST_WIRE)
+                                        setModel(cursorServiceTier === 'fast' ? `${value}-fast` : value)
                                         setCursorSelectedBase(value === CURSOR_COMPOSER_STANDARD_WIRE ? 'composer-2.5' : 'grok-4.7')
                                     }}
                                 />

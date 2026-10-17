@@ -65,11 +65,9 @@ export function shouldShowNewSessionCursorVariantPicker(picker: CursorPickerStat
     return picker.mode === 'dual' && picker.showEffortPicker && picker.effortOptions.length > 1
 }
 
-/** Hardcoded cursor models: literal wire ids, no catalog lookup. */
+/** Hardcoded cursor models: literal wire ids, no catalog lookup. Fast is the `-fast` suffix of these. */
 export const CURSOR_GROK_XHIGH_WIRE = 'grok-4.7-xhigh'
-export const CURSOR_GROK_XHIGH_FAST_WIRE = 'grok-4.7-xhigh-fast'
 export const CURSOR_COMPOSER_STANDARD_WIRE = 'composer-2.5'
-export const CURSOR_COMPOSER_FAST_WIRE = 'composer-2.5-fast'
 
 export function getCursorModelSpeedOptions(modelId: string): { standard: string; fast: string } | null {
     const standard = modelId.replace(/-fast$/, '')

@@ -998,7 +998,7 @@ describe('NewSession launch preferences', () => {
         expect(getMachineOpencodeModelVariants.mock.calls.length).toBe(0)
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model: 'grok-4.7-xhigh-fast' })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model: 'grok-4.7-xhigh' })))
         view.unmount()
         client.clear()
     })
@@ -1775,11 +1775,11 @@ describe('NewSession fork launch defaults', () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
 
         expect(screen.getByRole('button', { name: 'Grok 4.7 Extra High' })).toHaveAttribute('aria-pressed', 'true')
-        expect(screen.getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.getByRole('button', { name: 'misc.fastModeStandard' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(screen.getByRole('button', { name: label }))
         expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'true')
-        expect(screen.getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true')
-        if (speed === 'standard') fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeStandard' }))
+        expect(screen.getByRole('button', { name: 'misc.fastModeStandard' })).toHaveAttribute('aria-pressed', 'true')
+        if (speed === 'fast') fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
         expect(screen.queryByText('newSession.yolo')).toBeNull()
 
         fireEvent.click(screen.getByTestId('create'))
@@ -1801,7 +1801,7 @@ describe('NewSession fork launch defaults', () => {
     it('keeps Grok High effort when enabling Fast through the full Cursor picker', async () => {
         savePreferredAgent('cursor')
         mocks.cursorModels = [{ modelId: 'grok-4.7', name: 'Grok 4.7' }]
-        mocks.cursorSkus = [{ modelId: 'grok-4.7-high' }, { modelId: 'grok-4.7-high-fast' }, { modelId: 'grok-4.7-xhigh-fast' }]
+        mocks.cursorSkus = [{ modelId: 'grok-4.7-high' }, { modelId: 'grok-4.7-high-fast' }, { modelId: 'grok-4.7-xhigh' }, { modelId: 'grok-4.7-xhigh-fast' }]
         mocks.nextModelValue = 'grok-4.7-high'
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'high-fast-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
