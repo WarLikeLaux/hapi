@@ -804,10 +804,10 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
     })
 
-    it('ignores the AGY model from a browse-return draft and pins the hardcoded default', async () => {
+    it.each(['gemini-3.6-flash-low', 'gemini-3.8-flash-high'])('restores only shortlisted AGY models from a browse-return draft: %s', async (draftModel) => {
         savePreferredAgent('agy')
         saveNewSessionFormDraft({
-            agent: 'agy', model: 'gemini-3.6-flash-low', cursorSelectedBase: 'auto', machineId: 'machine-1',
+            agent: 'agy', model: draftModel, cursorSelectedBase: 'auto', machineId: 'machine-1',
             effort: 'auto', modelReasoningEffort: 'default', serviceTier: 'standard', collaborationMode: 'default',
             copilotAgentMode: 'interactive', yoloMode: false, nativePermissionMode: 'default',
             grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
@@ -816,7 +816,7 @@ describe('NewSession launch preferences', () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: undefined })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: draftModel === 'gemini-3.8-flash-high' ? draftModel : undefined })))
     })
 
     it('keeps the hardcoded AGY badge when a browse-return draft names an unadvertised model', async () => {
@@ -860,6 +860,22 @@ describe('NewSession launch preferences', () => {
         // Default needs no catalog validation, so creation is not blocked.
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
         expect(screen.getByTestId('create')).toBeEnabled()
+    })
+
+    it.each([false, true])('launches the AGY High badge, returning to Medium: %s', async (returnToMedium) => {
+        savePreferredAgent('agy')
+        mocks.agyModelsLoading = true
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'agy-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' }))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toHaveAttribute('aria-pressed', 'true'))
+        if (returnToMedium) fireEvent.click(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' }))
+        expect(screen.getByTestId('create')).toBeEnabled()
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'agy', model: returnToMedium ? undefined : 'gemini-3.8-flash-high'
+        })))
     })
 
     it('reveals the full AGY catalog behind the load-other-models hatch', async () => {
@@ -1677,6 +1693,20 @@ describe('NewSession GLM-branded claude', () => {
 
     afterEach(() => {
         setClaudeGlmBranded(false)
+    })
+
+    it.each([false, true])('launches explicit GLM 5.3, returning to Flash: %s', async (returnToFlash) => {
+        savePreferredAgent('claude')
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.getByRole('button', { name: 'GLM 5.3 Flash' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(screen.getByRole('button', { name: 'GLM 5.3' }))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'GLM 5.3' })).toHaveAttribute('aria-pressed', 'true'))
+        if (returnToFlash) fireEvent.click(screen.getByRole('button', { name: 'GLM 5.3 Flash' }))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'claude', model: returnToFlash ? undefined : 'glm-5.3'
+        })))
     })
 
     it('hides the effort field and never passes the remembered effort', async () => {

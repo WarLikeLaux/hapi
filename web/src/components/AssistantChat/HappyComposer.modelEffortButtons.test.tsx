@@ -444,6 +444,28 @@ describe('HappyComposer generic model/effort value buttons', () => {
         expect(screen.queryByRole('button', { name: 'High' })).toBeNull()
     })
 
+    it('offers explicit GLM 5.3 in the sheet and keyboard cycle while keeping aliases', () => {
+        setClaudeGlmBranded(true)
+        const onModelChange = vi.fn()
+        renderComposer('claude', { model: null, onModelChange })
+        fireEvent.keyDown(window, { key: 'm', ctrlKey: true })
+        expect(onModelChange).toHaveBeenLastCalledWith('glm-5.3')
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        expect(screen.getByText('Sonnet')).toBeTruthy()
+        fireEvent.click(screen.getByRole('button', { name: 'GLM 5.3' }))
+        expect(onModelChange).toHaveBeenLastCalledWith('glm-5.3')
+    })
+
+    it.each([
+        ['claude', 'glm-5.3', 'GLM 5.3'],
+        ['agy', 'gemini-3.8-flash-high', 'Gemini 3.8 Flash (High)'],
+        ['agy', 'gemini-3.8-flash-medium', 'Gemini 3.8 Flash (Medium)'],
+    ])('shows the selected %s model %s distinctly in the composer', (flavor, model, label) => {
+        setClaudeGlmBranded(true)
+        renderComposer(flavor, { model })
+        expect(screen.getByText(label)).toBeTruthy()
+    })
+
     it('keeps the Model sheet section but drops Effort for GLM-branded claude', () => {
         setClaudeGlmBranded(true)
         renderComposer('claude', { model: null })

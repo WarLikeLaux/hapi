@@ -1,3 +1,4 @@
+import { CLAUDE_GLM_MODEL_ID, CLAUDE_GLM_MODEL_LABEL } from '@/components/NewSession/hardcodedModels'
 import {
     getCodexCollaborationModeOptions,
     getCopilotAgentModeOptions,
@@ -1063,9 +1064,15 @@ export function HappyComposer(props: {
             }
             // The no-pick option launches GLM 5.3 Flash, so it is named after
             // it instead of a blind "Default".
-            return options.map((option) => (option.value === null
+            const glmOptions = options.map((option) => (option.value === null || option.value === 'glm-5.3-flash'
                 ? { ...option, label: CLAUDE_GLM_DEFAULT_MODEL_LABEL }
-                : option))
+                : option.value === CLAUDE_GLM_MODEL_ID
+                    ? { ...option, label: CLAUDE_GLM_MODEL_LABEL }
+                    : option))
+            if (!glmOptions.some((option) => option.value === CLAUDE_GLM_MODEL_ID)) {
+                glmOptions.splice(1, 0, { value: CLAUDE_GLM_MODEL_ID, label: CLAUDE_GLM_MODEL_LABEL })
+            }
+            return glmOptions
         },
         [agentFlavor, model, availableModelOptions, isGlmBrandedClaude]
     )
@@ -1451,14 +1458,19 @@ export function HappyComposer(props: {
             if (agentFlavor === 'pi') return
             if (e.key === 'm' && (e.metaKey || e.ctrlKey) && onModelChange && supportsModelChange(agentFlavor)) {
                 e.preventDefault()
-                onModelChange(getNextModelForFlavor(agentFlavor, model, availableModelOptions))
+                if (isGlmBrandedClaude) {
+                    const currentIndex = modelOptions.findIndex((option) => option.value === (model ?? null))
+                    onModelChange(modelOptions[(currentIndex + 1) % modelOptions.length]?.value ?? null)
+                } else {
+                    onModelChange(getNextModelForFlavor(agentFlavor, model, availableModelOptions))
+                }
                 haptic('light')
             }
         }
 
         window.addEventListener('keydown', handleGlobalKeyDown)
         return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-    }, [model, onModelChange, haptic, agentFlavor, availableModelOptions])
+    }, [model, onModelChange, haptic, agentFlavor, availableModelOptions, isGlmBrandedClaude, modelOptions])
 
     const handleChange = useCallback((e: ReactChangeEvent<HTMLTextAreaElement>) => {
         const selection = {

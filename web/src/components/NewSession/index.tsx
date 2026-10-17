@@ -83,7 +83,11 @@ import {
 } from './preferences'
 import {
     AGY_HARDCODED_LABEL,
+    AGY_HIGH_MODEL_ID,
+    AGY_HIGH_MODEL_LABEL,
     CLAUDE_GLM_HARDCODED_LABEL,
+    CLAUDE_GLM_MODEL_ID,
+    CLAUDE_GLM_MODEL_LABEL,
     CODEX_DEFAULT_MODEL_ID,
     CODEX_HARDCODED_OPTIONS,
     MINIMAX_HARDCODED_LABEL,
@@ -542,12 +546,12 @@ export function NewSession(props: {
         setModel(CODEX_DEFAULT_MODEL_ID)
     }, [agent, model, showAllModels])
     useEffect(() => {
-        if (agent === 'claude' && claudeGlmBranded && model !== 'auto') {
+        if (agent === 'claude' && claudeGlmBranded && model !== 'auto' && model !== CLAUDE_GLM_MODEL_ID) {
             setModel('auto')
         }
     }, [agent, claudeGlmBranded, model])
     useEffect(() => {
-        if (agent === 'agy' && !showAllModels && agySelectedModel !== null) {
+        if (agent === 'agy' && !showAllModels && agySelectedModel !== null && agySelectedModel !== AGY_HIGH_MODEL_ID) {
             agyModelPickedByUserRef.current = false
             setAgySelectedModel(null)
         }
@@ -1020,6 +1024,7 @@ export function NewSession(props: {
             || agyModelsState.isLoading
             || agyModelsState.error
             || agySelectedModel === null
+            || agySelectedModel === AGY_HIGH_MODEL_ID
             || agyModelPickedByUserRef.current
         ) {
             return
@@ -2001,6 +2006,7 @@ export function NewSession(props: {
             && codexModelsState.isLoading)
         || (agent === 'agy'
             && agySelectedModel !== null
+            && agySelectedModel !== AGY_HIGH_MODEL_ID
             && agyModelsState.isLoading)
         || (agent === 'cursor'
             && model !== 'default[]'
@@ -2140,10 +2146,16 @@ export function NewSession(props: {
             {agent === 'dsh' ? null : agent === 'agy' ? (
                 <>
                     <ModelBadges
-                        options={[{ value: 'auto', label: AGY_HARDCODED_LABEL }]}
-                        activeValue="auto"
+                        options={[
+                            { value: 'auto', label: AGY_HARDCODED_LABEL },
+                            { value: AGY_HIGH_MODEL_ID, label: AGY_HIGH_MODEL_LABEL },
+                        ]}
+                        activeValue={agySelectedModel ?? 'auto'}
                         isDisabled={isFormDisabled || !machineId}
-                        onToggle={() => {}}
+                        onToggle={(value) => {
+                            agyModelPickedByUserRef.current = value !== 'auto'
+                            setAgySelectedModel(value === 'auto' ? null : value)
+                        }}
                         footer={showAllModels ? null : (
                             <OtherModelsButton
                                 isDisabled={isFormDisabled || !machineId}
@@ -2322,10 +2334,13 @@ export function NewSession(props: {
                     </>
                 ) : agent === 'claude' && claudeGlmBranded ? (
                     <ModelBadges
-                        options={[{ value: 'auto', label: CLAUDE_GLM_HARDCODED_LABEL }]}
-                        activeValue="auto"
+                        options={[
+                            { value: 'auto', label: CLAUDE_GLM_HARDCODED_LABEL },
+                            { value: CLAUDE_GLM_MODEL_ID, label: CLAUDE_GLM_MODEL_LABEL },
+                        ]}
+                        activeValue={model}
                         isDisabled={isFormDisabled || !machineId}
-                        onToggle={() => {}}
+                        onToggle={setModel}
                     />
                 ) : agent === 'minimax' ? (
                     <ModelBadges
