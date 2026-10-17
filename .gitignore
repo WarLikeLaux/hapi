@@ -45,6 +45,7 @@ cli/npm/main/
 .ace-tool/
 
 # Playwright e2e artifacts
+.playwright-mcp/
 test-results/
 playwright-report/
 e2e-output/
