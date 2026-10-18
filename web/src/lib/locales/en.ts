@@ -1,4 +1,6 @@
 export default {
+  'newSession.speed': 'Speed',
+  'newSession.moreRecentPaths': 'More recent paths',
   'batch.removeTitle': 'Remove this chat?',
   'batch.removeDescription': 'Its prompt and settings will be removed from this form.',
   'batch.singleChat': 'Single chat',

@@ -15,12 +15,13 @@ export function ActionButtons(props: {
 
     return (
         <div className="flex w-full flex-wrap justify-end gap-2 px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-            {props.onAddChat ? <Button variant="outline" onClick={props.onAddChat} disabled={props.isDisabled} className="mr-auto gap-1.5">
+            {props.onAddChat ? <Button variant="outline" onClick={props.onAddChat} disabled={props.isDisabled} className="mr-auto gap-1.5 max-sm:px-3">
                 <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
                 {t('batch.addAnother')}
             </Button> : null}
             <Button
                 variant="secondary"
+                className="max-sm:px-3"
                 onClick={props.onCancel}
                 disabled={props.isDisabled}
             >
@@ -30,7 +31,7 @@ export function ActionButtons(props: {
                 onClick={props.onCreate}
                 disabled={!props.canCreate}
                 aria-busy={props.isPending}
-                className="gap-2"
+                className="gap-2 max-sm:px-3"
             >
                 {props.isPending ? (
                     <>

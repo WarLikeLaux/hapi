@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionSummary } from '@/types/api'
-import { getProjectPaths, MIN_SESSIONS_FOR_PICKER, RECENT_PROJECT_PATHS_LIMIT } from './useProjectPaths'
+import { getProjectPaths, MIN_SESSIONS_FOR_PICKER, WORK_PROJECT_PATHS_LIMIT } from './useProjectPaths'
 
 function session(
     id: string,
@@ -116,7 +116,7 @@ describe('getProjectPaths', () => {
         expect(workPaths).toEqual(['/code/fresh', '/code/stale'])
     })
 
-    it('honors the recent path cap on each row independently', () => {
+    it('caps working projects while keeping recent projects available for responsive layout', () => {
         const sessions: SessionSummary[] = []
         // 12 work paths and 12 non-work paths, each with exactly 3 sessions.
         // Use letter-only suffixes so the TICKET_PATTERN heuristic does not
@@ -140,8 +140,8 @@ describe('getProjectPaths', () => {
             'm1',
             { workAliases: ['corp'] }
         )
-        expect(workPaths).toHaveLength(RECENT_PROJECT_PATHS_LIMIT)
-        expect(recentPaths).toHaveLength(RECENT_PROJECT_PATHS_LIMIT)
+        expect(workPaths).toHaveLength(WORK_PROJECT_PATHS_LIMIT)
+        expect(recentPaths).toHaveLength(12)
     })
 
     it('ignores sessions from other machines', () => {
@@ -169,6 +169,6 @@ describe('getProjectPaths', () => {
 
     it('exposes the threshold and cap as constants', () => {
         expect(MIN_SESSIONS_FOR_PICKER).toBe(3)
-        expect(RECENT_PROJECT_PATHS_LIMIT).toBe(10)
+        expect(WORK_PROJECT_PATHS_LIMIT).toBe(10)
     })
 })

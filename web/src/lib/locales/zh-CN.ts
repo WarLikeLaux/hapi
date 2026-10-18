@@ -1,4 +1,6 @@
 export default {
+  'newSession.speed': '速度',
+  'newSession.moreRecentPaths': '更多最近路径',
   'batch.removeTitle': '移除此聊天？',
   'batch.removeDescription': '该聊天的提示词和设置将从此表单中移除。',
   'batch.singleChat': '单个聊天',

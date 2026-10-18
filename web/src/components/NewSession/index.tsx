@@ -60,6 +60,7 @@ import type { LaunchSessionRequest } from '@hapi/protocol'
 import type { AgentType, LaunchEffort, CodexReasoningEffort, NewSessionServiceTier, SessionType } from './types'
 import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
+import { ChoiceLabel } from './ChoiceLabel'
 import { PiImportActions } from './PiImportActions'
 import { clearBatchImportedCodexSelection, resolveCodexImportRedirectSessionId } from './codexImportMerge'
 import { AgyModelSelector } from './AgyModelSelector'
@@ -125,7 +126,7 @@ function QuickPickChips(props: {
                     aria-pressed={props.activeValue === option.value}
                     disabled={props.isDisabled}
                     onClick={() => props.onToggle(option.value)}
-                    className={`rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                    className={`rounded-full border px-2 py-1 text-xs transition-colors sm:px-2.5 disabled:opacity-50 ${
                         props.activeValue === option.value
                             ? 'border-[var(--app-link)] bg-[var(--app-link)] font-medium text-[var(--app-bg)]'
                             : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)]'
@@ -147,8 +148,9 @@ function ModelBadges(props: {
 }) {
     const { t } = useTranslation()
     return (
-        <section aria-label={t('newSession.model')} className="flex flex-col gap-2 p-2 sm:gap-3 sm:p-3">
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <section aria-label={t('newSession.model')} className="flex min-w-0 flex-col gap-2 p-2 sm:flex-row sm:items-center sm:gap-3 sm:p-3">
+            <ChoiceLabel kind="model" />
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 sm:gap-3">
                 <QuickPickChips
                     options={props.options}
                     activeValue={props.activeValue}
@@ -173,7 +175,7 @@ function OtherModelsButton(props: {
             type="button"
             onClick={props.onClick}
             disabled={props.isDisabled}
-            className="inline-flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2.5 py-1 text-xs text-[var(--app-fg)] transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2 py-1 text-xs text-[var(--app-fg)] sm:px-2.5 transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50"
         >
             {t('newSession.model.loadOptions')}
             <svg aria-hidden="true" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2323,32 +2325,35 @@ export function NewSession(props: {
             ) : (
                 agent === 'cursor' ? (
                     <>
-                        <section aria-label={t('newSession.model')} className="flex flex-col gap-2 p-2 sm:gap-3 sm:p-3">
-                            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                                <QuickPickChips
-                                    options={hardcodedCursorOptions}
-                                    activeValue={cursorSpeedOptions?.standard ?? CURSOR_GROK_XHIGH_WIRE}
-                                    isDisabled={isFormDisabled || !machineId}
-                                    onToggle={(value) => {
-                                        setModel(cursorServiceTier === 'fast' ? `${value}-fast` : value)
-                                        setCursorSelectedBase(value === CURSOR_COMPOSER_STANDARD_WIRE ? 'composer-2.5' : 'grok-4.7')
-                                    }}
-                                />
-                                {showAllCursorModels ? null : (
-                                    <OtherModelsButton
+                        <section aria-label={t('newSession.model')} className="flex min-w-0 flex-col gap-2 p-2 sm:flex-row sm:items-center sm:gap-3 sm:p-3">
+                            <ChoiceLabel kind="model" />
+                            <div className="min-w-0 flex-1 space-y-1.5">
+                                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 sm:gap-3">
+                                    <QuickPickChips
+                                        options={hardcodedCursorOptions}
+                                        activeValue={cursorSpeedOptions?.standard ?? CURSOR_GROK_XHIGH_WIRE}
                                         isDisabled={isFormDisabled || !machineId}
-                                        onClick={() => {
-                                            setShowAllCursorModels(true)
-                                            setRequestedModelCatalog(modelCatalogTarget)
+                                        onToggle={(value) => {
+                                            setModel(cursorServiceTier === 'fast' ? `${value}-fast` : value)
+                                            setCursorSelectedBase(value === CURSOR_COMPOSER_STANDARD_WIRE ? 'composer-2.5' : 'grok-4.7')
                                         }}
                                     />
-                                )}
+                                    {showAllCursorModels ? null : (
+                                        <OtherModelsButton
+                                            isDisabled={isFormDisabled || !machineId}
+                                            onClick={() => {
+                                                setShowAllCursorModels(true)
+                                                setRequestedModelCatalog(modelCatalogTarget)
+                                            }}
+                                        />
+                                    )}
+                                </div>
+                                {cursorModelsState.error ? (
+                                    <button type="button" onClick={cursorModelsState.refetch} className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)]">
+                                        {t('newSession.opencodeModel.retry')}
+                                    </button>
+                                ) : null}
                             </div>
-                            {cursorModelsState.error ? (
-                                <button type="button" onClick={cursorModelsState.refetch} className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)]">
-                                    {t('newSession.opencodeModel.retry')}
-                                </button>
-                            ) : null}
                         </section>
                         {showAllCursorModels ? (
                             <>

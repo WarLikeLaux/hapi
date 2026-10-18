@@ -1,4 +1,5 @@
-import { useId, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import * as Popover from '@radix-ui/react-popover'
 import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import { FloatingOverlay } from '@/components/ChatInput/FloatingOverlay'
@@ -48,7 +49,7 @@ function PathChip(props: {
             type="button"
             onClick={() => props.onPathClick(props.path)}
             disabled={props.isDisabled}
-            className="rounded-[5px] border border-[var(--session-project-border)] bg-[var(--session-project-bg)] px-2 py-1 text-xs font-medium leading-tight text-[var(--session-project-fg)] transition-[filter] hover:brightness-110 truncate max-w-[200px] disabled:opacity-50"
+            className="shrink-0 rounded-[5px] border border-[var(--session-project-border)] bg-[var(--session-project-bg)] px-2 py-1 text-xs font-medium leading-tight text-[var(--session-project-fg)] transition-[filter] hover:brightness-110 truncate max-w-[200px] disabled:opacity-50"
             style={{
                 // Same hue hashing as the session list project
                 // badges, so one project keeps its color in both.
@@ -64,12 +65,14 @@ function PathChip(props: {
     )
 }
 
-function PathRow(props: {
+type PathRowProps = {
     label: string
     paths: readonly string[]
     isDisabled: boolean
     onPathClick: (path: string) => void
-}) {
+}
+
+function PathRow(props: PathRowProps) {
     if (props.paths.length === 0) return null
     return (
         <div className="flex flex-col gap-1 mt-1">
@@ -86,6 +89,79 @@ function PathRow(props: {
             </div>
         </div>
     )
+}
+
+/** Two compact rows on phones, one full row on wider screens. */
+function RecentPathRow(props: PathRowProps) {
+    const { t } = useTranslation()
+    const [visibleCount, setVisibleCount] = useState(props.paths.length)
+    const [open, setOpen] = useState(false)
+    const measurements = useRef<HTMLDivElement>(null)
+    const container = useRef<HTMLDivElement>(null)
+    const labelId = useId()
+    useEffect(() => { setOpen(false) }, [visibleCount, props.isDisabled])
+    useLayoutEffect(() => {
+        const root = container.current
+        const samples = measurements.current
+        if (!root || !samples) return
+        const wide = window.matchMedia('(min-width: 640px)')
+        let disposed = false
+        function measure() {
+            if (disposed || !root || !samples) return
+            const width = root.getBoundingClientRect().width
+            if (!width) return
+            const children = Array.from(samples.children) as HTMLElement[]
+            const moreWidth = children.pop()!.getBoundingClientRect().width
+            const widths = children.map(child => child.getBoundingClientRect().width)
+            const gap = parseFloat(getComputedStyle(samples).columnGap)
+            function fits(items: number[]) {
+                let row = 1
+                let used = 0
+                for (const item of items) {
+                    if (used && used + gap + item > width + 0.5) { row++; used = 0 }
+                    used += (used ? gap : 0) + item
+                    if (row > (wide.matches ? 1 : 2)) return false
+                }
+                return true
+            }
+            let count = widths.length
+            if (!fits(widths)) {
+                while (count && !fits([...widths.slice(0, count), moreWidth])) count--
+            }
+            setVisibleCount(count)
+        }
+        measure()
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+        observer?.observe(root)
+        wide.addEventListener('change', measure)
+        void document.fonts?.ready.then(measure)
+        return () => { disposed = true; observer?.disconnect(); wide.removeEventListener('change', measure) }
+    }, [props.paths])
+    const remaining = props.paths.slice(visibleCount)
+    const more = <button type="button" disabled={props.isDisabled} aria-label={t('newSession.moreRecentPaths')} title={t('newSession.moreRecentPaths')}
+        className="flex h-[25px] w-8 shrink-0 items-center justify-center rounded-[5px] border border-[var(--app-border)] text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></svg>
+    </button>
+    if (!props.paths.length) return null
+    return <div className="relative mt-1 flex min-w-0 flex-col gap-1">
+        <span id={labelId} className="text-xs text-[var(--app-hint)]">{props.label}:</span>
+        <div className="pointer-events-none invisible absolute inset-0 overflow-hidden" aria-hidden="true">
+            <div ref={measurements} className="flex w-max gap-2">
+                {props.paths.map(path => <PathChip key={path} path={path} isDisabled onPathClick={props.onPathClick} />)}
+                {more}
+            </div>
+        </div>
+        <div ref={container} role="group" aria-labelledby={labelId} className="flex min-w-0 flex-wrap gap-2">
+            {props.paths.slice(0, visibleCount).map(path => <PathChip key={path} path={path} isDisabled={props.isDisabled} onPathClick={props.onPathClick} />)}
+            {remaining.length ? <Popover.Root open={open && !props.isDisabled} onOpenChange={setOpen}>
+                <Popover.Trigger asChild>{more}</Popover.Trigger>
+                <Popover.Portal><Popover.Content aria-label={t('newSession.moreRecentPaths')} side="bottom" align="end" sideOffset={6} collisionPadding={12}
+                    className="z-50 flex max-h-[min(22rem,var(--radix-popover-content-available-height))] w-[min(24rem,calc(100vw-1.5rem))] flex-wrap gap-2 overflow-y-auto rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3 text-[var(--app-fg)] shadow-lg">
+                    {remaining.map(path => <PathChip key={path} path={path} isDisabled={props.isDisabled} onPathClick={path => { props.onPathClick(path); setOpen(false) }} />)}
+                </Popover.Content></Popover.Portal>
+            </Popover.Root> : null}
+        </div>
+    </div>
 }
 
 export function DirectorySection(props: {
@@ -179,7 +255,7 @@ export function DirectorySection(props: {
                 isDisabled={props.isDisabled}
                 onPathClick={props.onPathClick}
             />
-            <PathRow
+            <RecentPathRow
                 label={t('newSession.recent')}
                 paths={props.recentPaths}
                 isDisabled={props.isDisabled}

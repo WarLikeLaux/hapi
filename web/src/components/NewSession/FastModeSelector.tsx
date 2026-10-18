@@ -1,5 +1,6 @@
 import { useTranslation } from '@/lib/use-translation'
 import type { NewSessionServiceTier } from './types'
+import { ChoiceLabel } from './ChoiceLabel'
 
 export type { NewSessionServiceTier }
 
@@ -16,8 +17,9 @@ export function FastModeSelector(props: {
     }
 
     return (
-        <section className="p-2 sm:p-3" role="group" aria-label={t('newSession.fastMode')}>
-            <div className="flex flex-wrap gap-2 sm:gap-3">
+        <section className="flex min-w-0 flex-col p-2 sm:flex-row sm:items-center sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.speed')}>
+            <ChoiceLabel kind="speed" />
+            <div className="flex min-w-0 flex-1 flex-wrap gap-2 sm:gap-3">
                 {(['standard', 'fast'] as const).map((value) => (
                     <button
                         key={value}
