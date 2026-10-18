@@ -476,6 +476,21 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
             ref={menuRef}
             className="fixed z-50 box-border w-max max-w-[calc(100vw-16px)] rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-1 shadow-lg animate-menu-pop"
             style={menuStyle}
+            onKeyDown={event => {
+                if ((event.target as HTMLElement).getAttribute('role') === 'menuitemradio') return
+                if (event.key === 'Tab') { onClose(); return }
+                const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled]):not([aria-disabled="true"])') ?? [])
+                const current = items.indexOf(document.activeElement as HTMLElement)
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+                    : event.key === 'ArrowDown' ? (current + 1) % items.length
+                    : event.key === 'ArrowUp' ? (current + items.length - 1) % items.length : -1
+                if (next >= 0) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    items[next]?.focus()
+                    items[next]?.scrollIntoView({ block: 'nearest' })
+                }
+            }}
         >
             <div
                 id={headingId}
@@ -594,7 +609,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                 id={resolvedMenuId}
                 role="menu"
                 aria-labelledby={headingId}
-                className="flex flex-col gap-1"
+                className="flex max-h-[calc(100dvh-8rem)] flex-col gap-1 overflow-y-auto overscroll-contain"
             >
                 {codeOpenUrl ? (
                     <a

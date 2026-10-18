@@ -1,4 +1,8 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ToastProvider } from '@/lib/toast-context'
+import type { ApiClient } from '@/api/client'
+import type { ReactElement } from 'react'
+import { act, cleanup, fireEvent, render as renderComponent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useState } from 'react'
 import type { SessionGroup } from '@hapi/protocol'
@@ -7,6 +11,11 @@ import { I18nProvider } from '@/lib/i18n-context'
 import { getSessionLastSeenAt, markSessionUnread } from '@/lib/sessionLastSeen'
 import { useSelectedSessionSeen } from '@/hooks/useSelectedSessionSeen'
 import { SessionGroupWorkspace } from './SessionGroups'
+
+function render(ui: ReactElement) {
+    const client = new QueryClient()
+    return renderComponent(ui, { wrapper: ({ children }) => <QueryClientProvider client={client}><ToastProvider>{children}</ToastProvider></QueryClientProvider> })
+}
 
 const group: SessionGroup = { id: 'group', name: 'HAPI', version: 1, updatedAt: 1,
     members: [{ sessionId: 'first', pinned: true }, { sessionId: 'worker', pinned: false }] }
@@ -154,5 +163,45 @@ describe('group chat switcher', () => {
         fireEvent.change(select, { target: { value: 'worker' } })
         expect(worker()).toHaveAttribute('aria-selected', 'true')
         expect(screen.queryByRole('menu')).toBeNull()
+    })
+})
+
+describe('group tab session actions', () => {
+    it('copies and confirms actions for an inactive tab without switching the open chat', async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+        const archiveSession = vi.fn().mockResolvedValue(undefined)
+        const select = vi.fn()
+        render(<I18nProvider><SessionGroupWorkspace group={group} groups={[group]} sessions={chats(false)}
+            api={{ archiveSession } as unknown as ApiClient} selectedSessionId="first" onSelect={select}
+            onBack={vi.fn()} onNew={vi.fn()} onUpdate={vi.fn()} pending={false} /></I18nProvider>)
+        fireEvent.contextMenu(worker(), { clientX: 300, clientY: 40 })
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy reference' }))
+        await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('See session "worker" (/sessions/worker)')))
+        expect(select).not.toHaveBeenCalled()
+        expect(worker()).toHaveFocus()
+        expect(screen.queryByRole('menu')).toBeNull()
+        fireEvent.keyDown(worker(), { key: 'F10', shiftKey: true })
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Stop session' }))
+        expect(archiveSession).not.toHaveBeenCalled()
+        const dialog = await screen.findByRole('dialog')
+        expect(within(dialog).getByText(/worker/)).toBeVisible()
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Stop session' }))
+        await waitFor(() => expect(archiveSession).toHaveBeenCalledWith('worker'))
+        expect(select).not.toHaveBeenCalled()
+    })
+
+    it('keeps cursor reopen unavailable when the inactive tab has no chat store', async () => {
+        const sessions = chats(false).map(s => s.id === 'worker' ? { ...s, active: false,
+            metadata: { ...s.metadata!, flavor: 'cursor' as const, agentSessionId: 'native-worker' } } : s)
+        const getCursorChatStoreStatus = vi.fn().mockResolvedValue({ onDisk: false })
+        render(<I18nProvider><SessionGroupWorkspace group={group} groups={[group]} sessions={sessions}
+            api={{ getCursorChatStoreStatus } as unknown as ApiClient} selectedSessionId="first" onSelect={vi.fn()}
+            onBack={vi.fn()} onNew={vi.fn()} onUpdate={vi.fn()} pending={false} /></I18nProvider>)
+        fireEvent.contextMenu(worker())
+        await waitFor(() => expect(getCursorChatStoreStatus).toHaveBeenCalledWith('worker'))
+        await waitFor(() => expect(screen.getByRole('tooltip')).toHaveTextContent('Cursor chat data is no longer available on the recorded machine.'))
+        expect(screen.getByRole('menuitem', { name: 'Reopen' })).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.queryByRole('menuitem', { name: 'Restart session' })).toBeNull()
     })
 })

@@ -1,3 +1,7 @@
+import { SessionItemActions } from '@/components/SessionItemActions'
+import type { ApiClient } from '@/api/client'
+import type { SessionContextId, SessionContextOptions } from '@/lib/sessionContexts'
+import { resolveSessionContext } from '@/lib/sessionContexts'
 import { SessionRowLayout, SessionWorkingIcon, SESSION_LIST_ITEM_CLASS } from '@/components/SessionRowLayout'
 import { SessionAttentionGlyph, SessionQuestionIcon } from '@/components/SessionAttentionIndicator'
 import { formatRelativeTime } from '@/lib/relativeTime'
@@ -175,6 +179,8 @@ export function SessionGroupRows(props: {
 }
 
 export function SessionGroupWorkspace(props: {
+    api?: ApiClient | null; titleSuggestionAvailable?: boolean
+    contextOptions?: SessionContextOptions; onSetContext?: (id: string, context: SessionContextId | null) => void
     group: SessionGroup; groups: SessionGroup[]; sessions: SessionSummary[]; selectedSessionId: string | null
     onSelect: (id: string) => void; onBack: () => void; onNew: () => void
     onUpdate: (group: SessionGroup, patch: UpdateSessionGroup) => Promise<void>; pending: boolean; error?: string
@@ -205,12 +211,18 @@ export function SessionGroupWorkspace(props: {
         ;[next[from], next[to]] = [next[to], next[from]]
         void update(next)
     }
-    const tab = (member: typeof members[number]) => <button key={member.sessionId} type="button" role="tab" aria-selected={props.selectedSessionId === member.sessionId}
+    const tab = (member: typeof members[number]) => <SessionItemActions key={member.sessionId}
+        interaction="touch-only-native-click" session={member.session} api={props.api ?? null} onSelect={props.onSelect}
+        titleSuggestionAvailable={props.titleSuggestionAvailable}
+        currentContext={props.contextOptions ? resolveSessionContext(member.session, props.contextOptions) : undefined}
+        onSetContext={props.onSetContext ? context => props.onSetContext?.(member.sessionId, context) : undefined}>
+        {handlers => <button {...handlers} type="button" role="tab" aria-selected={props.selectedSessionId === member.sessionId}
         ref={props.selectedSessionId === member.sessionId ? selectedTab : undefined}
-        onClick={() => props.onSelect(member.sessionId)} title={`${getSessionTitle(member.session)} · ${member.session.metadata?.flavor ?? ''}`}
+        title={`${getSessionTitle(member.session)} · ${member.session.metadata?.flavor ?? ''}`}
         className={cn('flex min-h-11 min-w-0 w-full shrink-0 items-center gap-1.5 border-b-2 px-2 text-sm sm:w-auto sm:max-w-56 sm:gap-2 sm:px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-link)]', props.selectedSessionId === member.sessionId ? 'border-[var(--app-link)] bg-[var(--app-secondary-bg)] text-[var(--app-fg)]' : 'border-transparent text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]')}>
         {member.pinned ? <GroupIcon pin /> : null}<span className="min-w-0 truncate">{getSessionTitle(member.session)}</span><ChatStatus session={member.session} selected={props.selectedSessionId === member.sessionId} />
-    </button>
+    </button>}
+    </SessionItemActions>
     const candidates = props.sessions.filter(s => s.metadata?.lifecycleState !== 'archived' && !members.some(m => m.sessionId === s.id) && getSessionTitle(s).toLocaleLowerCase().includes(search.toLocaleLowerCase()))
     return <section aria-label={t('groups.workspace')} className="shrink-0 border-b border-[var(--app-border)] bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
         <div className="flex min-h-11 items-center gap-2 px-2">

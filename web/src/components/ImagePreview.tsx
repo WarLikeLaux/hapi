@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type SyntheticEvent } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { CloseIcon } from '@/components/icons'
 
@@ -60,6 +60,14 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
     )
 }
 
+const ImageGalleryContext = createContext<string | undefined>(undefined)
+
+/** One rendered message can join many wire records and tool results. */
+export function MessageImageGallery({ children }: { children: ReactNode }) {
+    const id = useId()
+    return <ImageGalleryContext.Provider value={id}>{children}</ImageGalleryContext.Provider>
+}
+
 export function ImagePreview(props: {
     src: string
     fileName: string
@@ -74,6 +82,8 @@ export function ImagePreview(props: {
     onTriggerClick?: (event: MouseEvent<HTMLButtonElement>) => void
 }) {
     const open = useContext(ImagePreviewContext)
+    const messageGalleryId = useContext(ImageGalleryContext)
+    const galleryId = props.galleryId ?? messageGalleryId
     const stopEvent = useCallback((event: SyntheticEvent) => event.stopPropagation(), [])
 
     const openViewer = useCallback((event: MouseEvent<HTMLButtonElement>) => {
@@ -81,9 +91,9 @@ export function ImagePreview(props: {
         event.preventDefault()
         event.stopPropagation()
         // Ungrouped previews are standalone; callers opt into message-local galleries.
-        const triggers = props.galleryId
+        const triggers = galleryId
             ? Array.from(document.querySelectorAll<HTMLButtonElement>('[data-image-preview-trigger]'))
-                .filter((trigger) => trigger.dataset.imagePreviewGallery === props.galleryId)
+                .filter((trigger) => trigger.dataset.imagePreviewGallery === galleryId)
             : [event.currentTarget]
         const images = triggers.flatMap((trigger): PreviewImage[] => {
             const image = trigger.querySelector('img')
@@ -96,7 +106,7 @@ export function ImagePreview(props: {
         })
         const index = triggers.indexOf(event.currentTarget)
         open(images, index >= 0 ? index : 0)
-    }, [open, props.galleryId])
+    }, [open, galleryId])
 
     const handleTriggerPointerDown = useCallback((event: PointerEvent<HTMLButtonElement>) => {
         props.onTriggerPointerDown?.(event)
@@ -121,7 +131,7 @@ export function ImagePreview(props: {
             data-image-preview-trigger=""
             data-image-preview-file-name={props.fileName}
             data-image-preview-label={props.label}
-            data-image-preview-gallery={props.galleryId ?? ''}
+            data-image-preview-gallery={galleryId ?? ''}
             className={props.buttonClassName ?? 'group flex min-h-[18rem] w-full items-center justify-center overflow-auto rounded-md border border-[var(--app-border)] bg-[var(--app-code-bg)] p-3 text-left'}
             title="Click to zoom"
         >
