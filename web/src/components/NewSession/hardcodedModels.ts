@@ -26,11 +26,12 @@ export const CLAUDE_GLM_HARDCODED_LABEL = 'GLM 5.3 Flash'
 export const CLAUDE_GLM_MODEL_ID = 'glm-5.3'
 export const CLAUDE_GLM_MODEL_LABEL = 'GLM 5.3'
 
-/** OpenCode runs the backend default; null = Default. */
-export const OPENCODE_HARDCODED_MODEL_ID = 'opencode-go/muse-spark-1.3-contributor'
-export const OPENCODE_HARDCODED_LABEL = 'Muse Spark 1.3 Contributor'
+/** The first OpenCode badge explicitly selects Argon, independently of CLI defaults. */
+export const OPENCODE_HARDCODED_MODEL_ID = 'opencode-go/gemini-4-argon-contributor'
+export const OPENCODE_HARDCODED_LABEL = 'Gemini 4 Argon'
 export const OPENCODE_HARDCODED_OPTIONS = [
     { value: 'auto', label: OPENCODE_HARDCODED_LABEL },
+    { value: 'opencode-go/muse-spark-1.3-contributor', label: 'Muse Spark 1.3' },
     { value: 'opencode-go/deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash' },
 ]
 

@@ -107,6 +107,7 @@ export function modelChipText(args: {
     const parsed = parseSlug(wireId)
     const knownName = KNOWN_MODEL_NAMES[wireId] ?? KNOWN_MODEL_NAMES[basename(wireId)]
     let name = knownName ?? (given && /[A-Z ]/.test(given) ? given : parsed.name)
+    if (args.flavor === 'opencode') name = name.replace(/\s+Contributor\b/gi, '')
     const effort = effortWord(args.flavor, args.modelReasoningEffort, args.effort, args.effortLabel, parsed.effort)
     if ((args.fast || parsed.fast) && !/\bfast\b/i.test(name)) name += ' Fast'
     return effort ? `${name} (${effort})` : name
