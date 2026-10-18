@@ -4,6 +4,7 @@ import { getFlavorLabel, type LaunchSessionRequest, type LaunchSessionResult } f
 import { NewSession, type SessionEditorState } from './index'
 import { MachineSelector } from './MachineSelector'
 import { ProjectDirectory } from './ProjectDirectory'
+import { Button } from '@/components/ui/button'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { useSessionGroups } from '@/hooks/queries/useSessionGroups'
 import { useSessions } from '@/hooks/queries/useSessions'
@@ -253,8 +254,8 @@ function BatchComposer(props: Props & {
     function openSession(id: string) {
         props.onSuccess(id, true)
     }
-    return <div ref={rootRef} className="mx-auto w-full max-w-4xl space-y-5 p-3 sm:p-5">
-        {!started ? <button type="button" className={`${action} -ml-3 inline-flex items-center gap-1.5 text-[var(--app-hint)]`} disabled={disabled} onClick={() => {
+    return <div ref={rootRef} className="w-full">
+        {!started ? <div className="border-b border-[var(--app-divider)] px-3 py-2"><button type="button" className={`${action} -ml-3 inline-flex items-center gap-1.5 text-[var(--app-hint)]`} disabled={disabled} onClick={() => {
             const first = composition.cards[0]
             const draft = prepared[first.id]?.draft ?? first.draft
             // Leaving batch mode is explicit. Keep the first chat's settings and placement.
@@ -266,40 +267,44 @@ function BatchComposer(props: Props & {
                 groupId: ['none', 'new'].includes(composition.placement) ? undefined : composition.placement,
                 groupName: groups.groups.find(group => group.id === composition.placement)?.name,
             })
-        }}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 19-7-7 7-7M5 12h14" /></svg>{t('batch.singleChat')}</button> : null}
+        }}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 19-7-7 7-7M5 12h14" /></svg>{t('batch.singleChat')}</button></div> : null}
         <details open={!started}>
             <summary className={started ? `${action} cursor-pointer text-[var(--app-hint)]` : 'hidden'}>{t('batch.launchSettings')}</summary>
-        <section className="space-y-3" aria-label={t('batch.sharedSettings')}>
-            {props.groupDefaultsUnavailable ? <p role="status" className="text-xs text-[var(--app-hint)]">{t('groups.defaultsUnavailable')}</p> : null}
+        <section className="flex flex-col divide-y divide-[var(--app-divider)] [&>div]:pr-[10px] lg:[&>div]:pr-3" aria-label={t('batch.sharedSettings')}>
+            {props.groupDefaultsUnavailable ? <p role="status" className="px-3 py-2 text-xs text-[var(--app-hint)]">{t('groups.defaultsUnavailable')}</p> : null}
+            <div className="space-y-3 px-3 py-3">
+                <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]">
+                    <span>{t('batch.placement')}</span>
+                    <select className={control} value={composition.placement} disabled={disabled || groups.query.isPending || groups.query.isError}
+                        onChange={e => setComposition(c => ({ ...c, placement: e.target.value }))}>
+                        <option value="none">{t('batch.noGroup')}</option><option value="new">{t('batch.newGroup')}</option>
+                        {groups.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}
+                    </select>
+                </label>
+                {groupMissing ? <p role="alert" className="text-sm text-red-600">{t('groups.loadError')}</p> : null}
+                {groups.query.isError ? <p role="alert" className="text-sm text-red-600">{t('groups.loadError')} <button className="underline" onClick={() => void groups.query.refetch()}>{t('button.retry')}</button></p> : null}
+                {composition.placement === 'new' ? <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]"><span>{t('groups.name')}</span>
+                    <input className={control} value={composition.groupName} maxLength={120} disabled={disabled}
+                        onChange={e => setComposition(c => ({ ...c, groupName: e.target.value, groupRequestId: crypto.randomUUID() }))} /></label> : null}
+            </div>
             {props.machines.length > 1 ? <MachineSelector machines={props.machines} machineId={composition.machineId} isLoading={props.isLoading}
                 isDisabled={disabled} onChange={machineId => {
                     const machine = props.machines.find(m => m.id === machineId)!
                     setComposition(c => ({ ...c, machineId, directory: resolveDefaultMachineDirectory(machine, getRecentProjectPaths(sessions, machineId)) }))
                 }} /> : null}
-            <div className="-mx-3">{directoryPicker(composition.directory, directory => { setComposition(c => ({ ...c, directory })); setMissingDirectories([]) }, 'common')}</div>
-            <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]">
-                <span className="font-medium">{t('batch.placement')}</span>
-                <select className={control} value={composition.placement} disabled={disabled || groups.query.isPending || groups.query.isError}
-                    onChange={e => setComposition(c => ({ ...c, placement: e.target.value }))}>
-                    <option value="none">{t('batch.noGroup')}</option><option value="new">{t('batch.newGroup')}</option>
-                    {groups.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}
-                </select>
-            </label>
-            {groupMissing ? <p role="alert" className="text-sm text-red-600">{t('groups.loadError')}</p> : null}
-            {groups.query.isError ? <p role="alert" className="text-sm text-red-600">{t('groups.loadError')} <button className="underline" onClick={() => void groups.query.refetch()}>{t('button.retry')}</button></p> : null}
-            {composition.placement === 'new' ? <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]"><span>{t('groups.name')}</span>
-                <input className={control} value={composition.groupName} maxLength={120} disabled={disabled}
-                    onChange={e => setComposition(c => ({ ...c, groupName: e.target.value, groupRequestId: crypto.randomUUID() }))} /></label> : null}
-            <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]">
-                <span className="font-medium">{t('batch.commonPrompt')}</span>
-                <textarea className={`${control} min-h-24 resize-y`} rows={3} maxLength={100000} value={composition.prompt} disabled={disabled}
-                    placeholder={t('batch.promptPlaceholder')} onChange={e => setComposition(c => ({ ...c, prompt: e.target.value }))} />
-            </label>
-            <p className="text-xs text-[var(--app-hint)]">{t('batch.promptHint')}</p>
+            {directoryPicker(composition.directory, directory => { setComposition(c => ({ ...c, directory })); setMissingDirectories([]) }, 'common')}
+            <div className="space-y-1.5 px-3 py-3">
+                <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]">
+                    <span>{t('batch.commonPrompt')}</span>
+                    <textarea className={`${control} min-h-24 resize-y`} rows={3} maxLength={100000} value={composition.prompt} disabled={disabled}
+                        placeholder={t('batch.promptPlaceholder')} onChange={e => setComposition(c => ({ ...c, prompt: e.target.value }))} />
+                </label>
+                <p className="text-xs text-[var(--app-hint)]">{t('batch.promptHint')}</p>
+            </div>
         </section>
         </details>
-        <section className="space-y-3" aria-label={t('batch.chats')}>
-            <div className="flex items-center justify-between gap-2"><h2 className="text-base font-semibold">{t('batch.chats')} <span className="text-[var(--app-hint)]">{composition.cards.length}</span></h2>
+        <section className="border-t border-[var(--app-divider)]" aria-label={t('batch.chats')}>
+            <div className="flex items-center justify-between gap-2 px-3 py-3"><h2 className="text-base font-semibold">{t('batch.chats')} <span className="text-[var(--app-hint)]">{composition.cards.length}</span></h2>
                 {!started ? <button className={`${action} border border-[var(--app-border)]`} disabled={disabled} onClick={() => {
                     const card = newCard(); setComposition(c => ({ ...c, cards: [...c.cards, card] })); setExpanded(card.id)
                 }}>{t('batch.add')}</button> : null}</div>
@@ -308,13 +313,13 @@ function BatchComposer(props: Props & {
                 const agent = card.launch?.input.agent ?? state?.input.agent
                 const prompt = card.ownPrompt && card.prompt.trim() ? card.prompt : composition.prompt
                 const isExpanded = expanded === card.id
-                return <article key={card.id} className="min-w-0 rounded-xl border border-[var(--app-border)]" aria-label={t('batch.chatNumber', { count: index + 1 })}>
+                return <article key={card.id} className="min-w-0 border-t border-[var(--app-divider)]" aria-label={t('batch.chatNumber', { count: index + 1 })}>
                     <div className="flex items-start gap-2 p-3">
                         {agent ? <AgentFlavorIcon flavor={agent} className="mt-1 h-5 w-5 shrink-0" /> : null}
                         <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--app-link)]" disabled={started} aria-expanded={started ? undefined : isExpanded} aria-controls={started ? undefined : `editor-${card.id}`}
                             onClick={() => setExpanded(isExpanded ? '' : card.id)}>
                             <span className="block text-sm font-semibold">{t('batch.chatNumber', { count: index + 1 })}{agent ? ` · ${getFlavorLabel(agent)}` : ''}</span>
-                            <span className="mt-1 block break-words text-xs text-[var(--app-hint)]">{state?.modelLabel ?? t('loading')} {state?.input.serviceTier === 'fast' ? ' · Fast' : ''}</span>
+                            <span className="mt-1 block break-words text-xs text-[var(--app-hint)]">{state?.modelLabel ?? t('loading')}</span>
                             <span className="mt-1 block break-all text-xs text-[var(--app-hint)]">{card.directory ?? composition.directory}</span>
                         </button>
                         {!started ? <div className="flex shrink-0 items-center gap-1">
@@ -359,20 +364,20 @@ function BatchComposer(props: Props & {
                 </article>
             })}
         </section>
-        {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
-        {missingDirectories.length ? <div className="space-y-2 text-sm" role="alert"><p>{t('batch.createDirectories')}</p>
+        {error ? <p role="alert" className="px-3 py-2 text-sm text-red-600">{error}</p> : null}
+        {missingDirectories.length ? <div className="space-y-2 px-3 py-3 text-sm" role="alert"><p>{t('batch.createDirectories')}</p>
             {missingDirectories.map(path => <p key={path} className="break-all text-xs">{path}</p>)}
             <button className={`${action} border border-[var(--app-border)]`} disabled={preparing} onClick={() => void start(true)}>{t('batch.confirmDirectories')}</button>
         </div> : null}
-        <div className="sticky bottom-0 -mx-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-3 sm:-mx-5 sm:px-5">
+        <div className="sticky bottom-0 pr-[10px] lg:pr-3 flex flex-wrap items-center justify-end gap-2 border-t border-[var(--app-border)] bg-[var(--app-bg)] px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
             {started ? <><button className={action} disabled={Object.values(busy).some(Boolean)} onClick={() => {
                 setComposition(c => ({ ...c, cards: [newCard()], groupRequestId: crypto.randomUUID() }))
                 setExpanded('')
             }}>{t('batch.prepareMore')}</button><p className="text-sm">{t('batch.results', { success: successCount, total: composition.cards.length })}</p>
                 {failureCount ? <button className={`${action} border border-[var(--app-border)]`} disabled={Object.values(busy).some(Boolean)} onClick={() => void Promise.allSettled(composition.cards.filter(card => card.result?.state === 'failed').map(card => launch(card, true)))}>{t('batch.retryFailed', { count: failureCount })}</button> : null}</>
-                : <><button className={action} disabled={preparing} onClick={() => { singleCompleted.current = true; props.onCancel() }}>{t('button.cancel')}</button>
-                    <button className={`${action} bg-[var(--app-button)] font-medium text-[var(--app-button-text)] hover:opacity-90`} disabled={!canStart || groups.query.isPending || groups.query.isError}
-                        onClick={() => void start()}>{preparing ? t('batch.launching') : composition.cards.length === 1 ? t('batch.launchOne') : t('batch.launchCount', { count: composition.cards.length })}</button></>}
+                : <><Button variant="secondary" disabled={preparing} onClick={() => { singleCompleted.current = true; props.onCancel() }}>{t('button.cancel')}</Button>
+                    <Button disabled={!canStart || groups.query.isPending || groups.query.isError}
+                        onClick={() => void start()}>{preparing ? t('batch.launching') : composition.cards.length === 1 ? t('batch.launchOne') : t('batch.launchCount', { count: composition.cards.length })}</Button></>}
         </div>
     </div>
 }

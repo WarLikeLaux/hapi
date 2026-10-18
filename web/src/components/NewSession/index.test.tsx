@@ -108,6 +108,7 @@ vi.mock('@/hooks/queries/useCodexModels', () => ({
                 id: 'gpt-6.1-sol',
                 displayName: 'GPT-6.1-Sol',
                 isDefault: true,
+                defaultReasoningEffort: 'high',
                 supportedReasoningEfforts: ['low', 'high', 'xhigh'],
                 serviceTiers: ['priority', 'fast']
             },
@@ -313,9 +314,9 @@ vi.mock('./ModelSelector', () => ({
     )
 }))
 vi.mock('./ActionButtons', () => ({
-    ActionButtons: (props: { onCreate: () => void; onAddChat?: () => void; onChooseFolder?: () => void; canCreate: boolean }) => (
+    ActionButtons: (props: { onCreate: () => void; onAddChat?: () => void; onChooseFolder?: () => void; canCreate: boolean; isDisabled: boolean }) => (
         <>
-            {props.onAddChat ? <button type="button" disabled={!props.canCreate} onClick={props.onAddChat}>batch.addAnother</button> : null}
+            {props.onAddChat ? <button type="button" disabled={props.isDisabled} onClick={props.onAddChat}>batch.addAnother</button> : null}
             <button type="button" data-testid="create" disabled={!props.canCreate} onClick={props.onCreate}>create</button>
             {props.onChooseFolder ? <button type="button" data-testid="browse" onClick={props.onChooseFolder}>browse</button> : null}
         </>
@@ -464,6 +465,36 @@ describe('NewSession launch preferences', () => {
         expect(screen.queryByRole('article')).toBeNull()
         expect(screen.getByRole('button', { name: 'batch.addAnother' })).toBeVisible()
         expect(launch).not.toHaveBeenCalled()
+    })
+
+    it('allows preparing another chat before the group name is filled', async () => {
+        const { ActionButtons } = await vi.importActual<typeof import('./ActionButtons')>('./ActionButtons')
+        const onAddChat = vi.fn()
+        render(<ActionButtons isPending={false} isDisabled={false} canCreate={false} onCancel={() => {}} onCreate={() => {}} onAddChat={onAddChat} />)
+        expect(screen.getByRole('button', { name: 'newSession.create' })).toBeDisabled()
+        const add = screen.getByRole('button', { name: 'batch.addAnother' })
+        expect(add).toBeEnabled()
+        fireEvent.click(add)
+        expect(onAddChat).toHaveBeenCalledOnce()
+    })
+
+    it('finishes naming a group after adding chats and keeps the first chat model and Fast setting', async () => {
+        const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'started' })
+        const { createGroup } = renderComposer(launch)
+        fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
+        fireEvent.click(screen.getByRole('checkbox', { name: 'groups.createWithChat' }))
+        expect(screen.getByTestId('create')).toBeDisabled()
+        fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
+        fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Compare' } })
+        const first = screen.getAllByRole('article')[0]
+        expect(within(first).getByText('GPT-6.1 Sol Fast (High)')).toBeVisible()
+        await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchCount' })).toBeEnabled())
+        expect(createGroup).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByRole('button', { name: 'batch.launchCount' }))
+        await waitFor(() => expect(launch).toHaveBeenCalledTimes(2))
+        expect(createGroup).toHaveBeenCalledWith('Compare', expect.any(String))
+        expect(launch.mock.calls[0][1]).toMatchObject({ groupId: 'new-group', model: 'gpt-6.1-sol', serviceTier: 'fast', directory: 'C:\\repo' })
+        expect(launch.mock.calls[0][1].modelReasoningEffort).toBeUndefined()
     })
 
     it('launches duplicate settings concurrently with replacement prompts, project overrides and one shared new group; retries only the rejected chat', async () => {
