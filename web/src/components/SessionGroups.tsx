@@ -190,6 +190,7 @@ export function SessionGroupWorkspace(props: {
     const [search, setSearch] = useState('')
     const [name, setName] = useState(props.group.name)
     const selectedTab = useRef<HTMLButtonElement | null>(null)
+    const tabList = useRef<HTMLDivElement | null>(null)
     useEffect(() => { setName(props.group.name) }, [props.group.id, props.group.name])
     const members = props.group.members.flatMap(member => {
         const session = props.sessions.find(s => s.id === member.sessionId)
@@ -197,7 +198,19 @@ export function SessionGroupWorkspace(props: {
     })
     const tabMembers = getSessionGroupMembers(props.group, props.sessions)
     const tabOrder = tabMembers.map(member => member.sessionId).join('\0')
-    useEffect(() => { selectedTab.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [props.selectedSessionId, props.group.id, tabOrder])
+    useEffect(() => {
+        const reveal = () => selectedTab.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+        reveal()
+        if (!tabList.current || typeof ResizeObserver === 'undefined') return
+        // Badges and responsive/pinned sections can move the selected tab without reordering it.
+        const resize = new ResizeObserver(reveal)
+        resize.observe(tabList.current)
+        for (const tab of tabList.current.querySelectorAll('[role="tab"]')) {
+            resize.observe(tab)
+            if (tab.parentElement) resize.observe(tab.parentElement)
+        }
+        return () => resize.disconnect()
+    }, [props.selectedSessionId, props.group.id, tabOrder])
     const update = (members: SessionGroup['members']) => props.onUpdate(props.group, { ...props.group,
         members: members.filter(member => !props.sessions.some(session => session.id === member.sessionId && session.metadata?.lifecycleState === 'archived')),
     })
@@ -231,7 +244,7 @@ export function SessionGroupWorkspace(props: {
             <button type="button" onClick={props.onNew} className={control}>{t('groups.newChat')}</button>
             <button type="button" onClick={() => setManage(!manage)} aria-expanded={manage} className={cn(control, manage && 'bg-[var(--app-secondary-bg)]')}>{t('groups.manage')}</button>
         </div>
-        {members.length ? <div className="flex min-w-0" role="tablist" aria-label={t('groups.tabs')} onKeyDown={event => {
+        {members.length ? <div ref={tabList} className="flex min-w-0" role="tablist" aria-label={t('groups.tabs')} onKeyDown={event => {
             if (!(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'tab') return
             const current = tabMembers.findIndex(m => m.sessionId === props.selectedSessionId)
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabMembers.length - 1 : event.key === 'ArrowRight' ? (current + 1) % tabMembers.length : event.key === 'ArrowLeft' ? (current < 0 ? tabMembers.length - 1 : (current + tabMembers.length - 1) % tabMembers.length) : -1

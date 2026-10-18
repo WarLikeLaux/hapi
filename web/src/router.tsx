@@ -60,6 +60,8 @@ import { refreshSessionDetailPreservingActive } from '@/lib/session-detail-optim
 import { inactiveSessionCanResume, resolveCursorReopenGate } from '@/lib/sessionResume'
 import { initializeSessionLastSeen } from '@/lib/sessionLastSeen'
 import { useSelectedSessionSeen } from '@/hooks/useSelectedSessionSeen'
+import { useDocumentVisibility } from '@/hooks/useDocumentVisibility'
+import { getGroupEntrySession, rememberGroupSession } from '@/lib/sessionGroupSelection'
 import { useSessionBrowserTitle } from '@/hooks/useSessionBrowserTitle'
 import { clearCodexImportedSession } from '@/lib/codexImportedSessions'
 import { getSupersedingSessionId, prepareFollowSupersedingSession, shouldFollowSupersedingSession } from '@/routes/sessions/followSupersedingSession'
@@ -189,9 +191,7 @@ function SessionsPage() {
         try { await groupState.mutation.mutateAsync({ id: group.id, patch }) } catch { /* rendered in workspace */ }
     }
     const openGroup = (group: SessionGroup) => {
-        const first = group.members[0]
-        if (first) navigate(getSessionListSelectionNavigation(first.sessionId))
-        else navigate({ to: '/sessions/groups/$groupId', params: { groupId: group.id } })
+        navigate({ to: '/sessions/groups/$groupId', params: { groupId: group.id }, ...PRESERVE_SESSION_SIDEBAR_SCROLL })
     }
     const { machines } = useMachines(api, true)
     const handleRefresh = useCallback(() => {
@@ -237,6 +237,23 @@ function SessionsPage() {
         initializeSessionLastSeen(baseUrl, sessions)
         setInitializedHub(baseUrl)
     }, [baseUrl, error, isLoading, sessions])
+    const entryGroupId = groupRoute ? groupRoute.groupId : null
+    useEffect(() => {
+        if (!entryGroupId || !selectedGroup || initializedHub !== baseUrl || isLoading || error
+            || groupState.query.isPending || groupState.query.isError) return
+        const sessionId = getGroupEntrySession(baseUrl, selectedGroup, sessions)
+        if (sessionId) void navigate({ ...getSessionListSelectionNavigation(sessionId), replace: true })
+    }, [entryGroupId, selectedGroup, initializedHub, baseUrl, isLoading, error,
+        groupState.query.isPending, groupState.query.isError, sessions, navigate])
+
+    const isDocumentVisible = useDocumentVisibility()
+    useEffect(() => {
+        // Files, terminals and the new-chat form do not count as viewing a chat.
+        if (!isDocumentVisible || !selectedGroup || !selectedSession
+            || selectedSession.metadata?.lifecycleState === 'archived'
+            || pathname !== `/sessions/${selectedSession.id}`) return
+        rememberGroupSession(baseUrl, selectedGroup.id, selectedSession.id)
+    }, [isDocumentVisible, selectedGroup, selectedSession, pathname, baseUrl])
     useSelectedSessionSeen(selectedSessionId, selectedSession?.lastAgentMessageAt)
     const isSessionsIndex = pathname === '/sessions' || pathname === '/sessions/'
     const sidebar = useSidebarResize()
