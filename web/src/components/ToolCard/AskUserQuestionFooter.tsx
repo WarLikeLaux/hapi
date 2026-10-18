@@ -22,6 +22,7 @@ import {
 import { cn } from '@/lib/utils'
 import { usePlatform } from '@/hooks/usePlatform'
 import { Spinner } from '@/components/Spinner'
+import { submitQuestionAnswerOnEnter } from './questionAnswerKeyboard'
 import { useTranslation } from '@/lib/use-translation'
 
 const questionNavButtonClassName = 'h-8 rounded-full border-[var(--app-border)] bg-[var(--app-tool-card-bg)] px-3.5 text-[var(--app-fg)] hover:border-[var(--app-md-quote-border)] hover:bg-[var(--app-subtle-bg)]'
@@ -120,6 +121,7 @@ export function AskUserQuestionFooter(props: {
     const [otherTextByQuestion, setOtherTextByQuestion] = useState<string[]>([])
     const [fallbackText, setFallbackText] = useState('')
 
+    const submittingRef = useRef(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -218,7 +220,7 @@ export function AskUserQuestionFooter(props: {
     )
 
     const submit = async () => {
-        if (loading) return
+        if (props.disabled || submittingRef.current) return
 
         const answers: Record<string, string[]> = {}
         if (questions.length === 0) {
@@ -244,8 +246,10 @@ export function AskUserQuestionFooter(props: {
             }
         }
 
+        submittingRef.current = true
         setLoading(true)
         await run(() => props.api.approvePermission(props.sessionId, permission.id, { answers }), 'success')
+        submittingRef.current = false
         setLoading(false)
     }
 
@@ -363,6 +367,7 @@ export function AskUserQuestionFooter(props: {
                     <textarea
                         value={fallbackText}
                         onChange={(e) => setFallbackText(e.target.value)}
+                        onKeyDown={(event) => submitQuestionAnswerOnEnter(event, submit)}
                         disabled={props.disabled || loading}
                         placeholder={t('tool.askUserQuestion.placeholder')}
                         className="mt-2 min-h-[88px] w-full resize-y rounded-xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] disabled:opacity-50"
@@ -419,6 +424,7 @@ export function AskUserQuestionFooter(props: {
                             <textarea
                                 value={otherTextByQuestion[clampedStep] ?? ''}
                                 onChange={(e) => updateOtherText(clampedStep, e.target.value)}
+                                onKeyDown={(event) => submitQuestionAnswerOnEnter(event, submit)}
                                 disabled={props.disabled || loading}
                                 placeholder={t('tool.askUserQuestion.otherPlaceholder')}
                                 className="mt-2 min-h-[88px] w-full resize-y rounded-xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] disabled:opacity-50"
