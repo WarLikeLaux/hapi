@@ -61,6 +61,7 @@ import { inactiveSessionCanResume, resolveCursorReopenGate } from '@/lib/session
 import { initializeSessionLastSeen } from '@/lib/sessionLastSeen'
 import { useSelectedSessionSeen } from '@/hooks/useSelectedSessionSeen'
 import { useDocumentVisibility } from '@/hooks/useDocumentVisibility'
+import { useGroupSessionCloseNavigation } from '@/hooks/useGroupSessionCloseNavigation'
 import { getGroupEntrySession, rememberGroupSession } from '@/lib/sessionGroupSelection'
 import { useSessionBrowserTitle } from '@/hooks/useSessionBrowserTitle'
 import { clearCodexImportedSession } from '@/lib/codexImportedSessions'
@@ -230,6 +231,12 @@ function SessionsPage() {
         () => selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null,
         [selectedSessionId, sessions]
     )
+    const returnToGroup = useCallback((groupId: string) => {
+        void navigate({ to: '/sessions/groups/$groupId', params: { groupId }, replace: true,
+            ...PRESERVE_SESSION_SIDEBAR_SCROLL })
+    }, [navigate])
+    useGroupSessionCloseNavigation({ scope: baseUrl, sessionId: selectedSessionId,
+        session: selectedSession, groups: groupState.groups, onReturnToGroup: returnToGroup })
     useEffect(() => {
         if (isLoading || error) {
             return
