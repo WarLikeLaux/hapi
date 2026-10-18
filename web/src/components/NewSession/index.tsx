@@ -197,6 +197,7 @@ export type SessionEditorState = {
 
 export function NewSession(props: {
     onAddChat?: (state: SessionEditorState) => void
+    initialDraft?: NewSessionFormDraft
     editor?: {
         initialDraft?: NewSessionFormDraft
         disabled: boolean
@@ -223,16 +224,16 @@ export function NewSession(props: {
     const { sessions, refetch: refetchSessions } = useSessions(props.api)
     const { getLastUsedMachineId, setLastUsedMachineId } = useLastUsedMachine()
 
-    const editorDraft = props.editor?.initialDraft
+    const editorDraft = props.editor?.initialDraft ?? props.initialDraft
     const continueFrom = props.continueFromSession
     const continueAgent = isKnownFlavor(continueFrom?.metadata?.flavor)
         ? continueFrom.metadata.flavor
         : null
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
-    const [createGroup, setCreateGroup] = useState(false)
-    const [groupName, setGroupName] = useState('')
-    const groupRequestRef = useRef<{ name: string; requestId: string } | null>(null)
+    const [createGroup, setCreateGroup] = useState(Boolean(editorDraft?.groupCreation))
+    const [groupName, setGroupName] = useState(editorDraft?.groupCreation?.name ?? '')
+    const groupRequestRef = useRef<{ name: string; requestId: string } | null>(editorDraft?.groupCreation ?? null)
     const [createdGroup, setCreatedGroup] = useState<{ id: string; name: string } | null>(null)
 
     const [suppressSuggestions, setSuppressSuggestions] = useState(false)
@@ -309,7 +310,7 @@ export function NewSession(props: {
         || isBulkImportingPiSessions
     )
     const worktreeInputRef = useRef<HTMLInputElement>(null)
-    const preserveRestoredDraftRef = useRef(Boolean(continueFrom || props.editor?.initialDraft))
+    const preserveRestoredDraftRef = useRef(Boolean(continueFrom || editorDraft))
 
     useEffect(() => {
         if (sessionType === 'worktree') {
@@ -368,7 +369,7 @@ export function NewSession(props: {
         if (restoredFromBrowseRef.current) {
             return
         }
-        if (continueFrom || props.editor) {
+        if (continueFrom || props.editor || props.initialDraft) {
             return
         }
         if (!shouldRestoreNewSessionFormDraft({
@@ -564,7 +565,7 @@ export function NewSession(props: {
     // Fork hardcoded models: these flavors always run one model, so the form
     // pins it instead of offering the catalog dropdown. Literals only.
     // The Other badge opens the full catalog selector as an escape hatch.
-    const [showAllModels, setShowAllModels] = useState(props.editor?.initialDraft?.showAllModels ?? false)
+    const [showAllModels, setShowAllModels] = useState(editorDraft?.showAllModels ?? false)
     useEffect(() => {
         if (!preserveRestoredDraftRef.current) setShowAllModels(false)
     }, [agent, machineId])
@@ -1931,14 +1932,14 @@ export function NewSession(props: {
             }
 
             const finishImportedSession = async (sessionId: string) => {
-                if (!props.groupId && targetGroupId) {
+                if (targetGroupId) {
                     try {
                         await props.api.addGroupChat(targetGroupId, sessionId)
                     } catch (error) {
                         addToast({ title: t('groups.addFailed'), body: error instanceof Error ? error.message : '', sessionId, url: `/sessions/${sessionId}` })
                     }
                 }
-                props.onSuccess(sessionId)
+                props.onSuccess(sessionId, true)
             }
 
             if (agent === 'codex' && selectedCodexImportSession) {
@@ -2028,7 +2029,7 @@ export function NewSession(props: {
                 savePreferredLaunchSettings(machineId, agent, preferredLaunchSettings)
                 clearNewSessionFormDraft()
                 setLastUsedMachineId(machineId)
-                props.onSuccess(result.sessionId)
+                props.onSuccess(result.sessionId, true)
                 return
             }
 
@@ -2153,14 +2154,14 @@ export function NewSession(props: {
             ) : null}
             {!props.editor ? <div className="px-3 py-3 text-sm">
                 {props.groupId || createdGroup ? <p className="text-[var(--app-hint)]">{t('groups.newChatIn', { name: props.groupName ?? createdGroup?.name ?? '' })}</p> : <>
-                    <label className="flex cursor-pointer items-center gap-2">
+                    <label className="flex min-h-8 cursor-pointer items-center gap-2 text-xs font-medium">
                         <input type="checkbox" checked={createGroup} disabled={isFormDisabled} onChange={event => setCreateGroup(event.target.checked)} className="h-4 w-4 accent-[var(--app-link)]" />
                         {t('groups.createWithChat')}
                     </label>
-                    {createGroup ? <div className="mt-3 flex flex-col gap-1 text-xs text-[var(--app-hint)]">
+                    {createGroup ? <div className="mt-2 flex flex-col gap-1.5 text-xs text-[var(--app-hint)]">
                         <label htmlFor="new-group-name">{t('groups.name')}</label>
                         <input id="new-group-name" aria-describedby="new-group-description" value={groupName} maxLength={120} disabled={isFormDisabled} onChange={event => setGroupName(event.target.value)} placeholder={t('groups.namePlaceholder')}
-                            className="min-h-10 rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 text-base text-[var(--app-fg)]" />
+                            className="min-h-10 rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 text-sm text-[var(--app-fg)]" />
                         <p id="new-group-description">{t('groups.firstChatHint')}</p>
                     </div> : null}
                 </>}

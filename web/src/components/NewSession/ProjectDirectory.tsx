@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { Machine, SessionSummary } from '@/types/api'
 import { DirectorySection } from './DirectorySection'
@@ -13,6 +13,7 @@ import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
 /** Shared and per-chat projects use the same recent paths, browsing and keyboard completion. */
 export function ProjectDirectory(props: {
     api: ApiClient; machine?: Machine; sessions: SessionSummary[]; value: string; disabled: boolean; compact?: boolean
+    label?: string; labelAction?: ReactNode
     onChange: (value: string) => void; onBrowse?: () => void
 }) {
     const [focused, setFocused] = useState(false)
@@ -42,7 +43,7 @@ export function ProjectDirectory(props: {
     }, [props.machine, props.api, allPaths, pathExistence])
     const [suggestions, selectedIndex, up, down, clear] = useActiveSuggestions(focused && !suppressed && !props.disabled ? props.value : null, suggest)
     function select(path: string) { setSuppressed(true); clear(); props.onChange(path) }
-    return <DirectorySection directory={props.value} suggestions={suggestions} selectedIndex={selectedIndex}
+    return <DirectorySection label={props.label} labelAction={props.labelAction} directory={props.value} suggestions={suggestions} selectedIndex={selectedIndex}
         isDisabled={props.disabled} workPaths={props.compact ? [] : workPaths} recentPaths={props.compact ? [] : recentPaths}
         onDirectoryChange={value => { setSuppressed(false); props.onChange(value) }}
         onDirectoryFocus={() => { setFocused(true); setSuppressed(false) }} onDirectoryBlur={() => setFocused(false)}

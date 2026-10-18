@@ -391,7 +391,7 @@ describe('NewSession launch preferences', () => {
             getGroups: vi.fn(async () => ({ groups: [{ id: 'existing-group', name: 'Existing', members: [], version: 1, updatedAt: 1 }] })),
             checkMachinePathsExists: vi.fn(async (_id: string, paths: string[]) => ({ exists: Object.fromEntries(paths.map(path => [path, true])) })),
         } as unknown as ApiClient
-        const view = render(<QueryClientProvider client={client}><SessionComposer api={composerApi} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} {...extra} /></QueryClientProvider>)
+        const view = render(<QueryClientProvider client={client}><SessionComposer api={composerApi} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} {...extra} /></QueryClientProvider>)
         return { ...view, createGroup }
     }
 
@@ -411,8 +411,58 @@ describe('NewSession launch preferences', () => {
         expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked()
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('ordinary-chat'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('ordinary-chat', true))
         expect(mocks.spawnSession).toHaveBeenCalledTimes(1)
+        expect(launch).not.toHaveBeenCalled()
+    })
+
+    it('returns to ordinary creation with the first chat settings and clears the batch mode', async () => {
+        const launch = vi.fn()
+        const view = renderComposer(launch)
+        fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
+        fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
+        fireEvent.change(screen.getByRole('combobox', { name: 'batch.placement' }), { target: { value: 'new' } })
+        fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Review' } })
+        fireEvent.click(screen.getByRole('button', { name: 'batch.singleChat' }))
+        expect(screen.queryByRole('article')).toBeNull()
+        expect(screen.getByRole('button', { name: 'GPT-6 Luna' })).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.getByRole('textbox', { name: 'groups.name' })).toHaveValue('Review')
+        expect(screen.getByLabelText('directory-test')).toHaveValue('C:\\repo')
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'returned-chat' })
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('returned-chat', true))
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6-luna', groupId: 'new-group' }))
+        expect(launch).not.toHaveBeenCalled()
+        view.unmount()
+        renderComposer(launch)
+        expect(screen.queryByRole('article')).toBeNull()
+    })
+
+    it.each(['none', 'existing-group'])('keeps placement %s when returning to one chat from an open group', async placement => {
+        renderComposer(vi.fn(), { groupId: 'existing-group' })
+        fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
+        await waitFor(() => expect(screen.getByRole('combobox', { name: 'batch.placement' })).toBeEnabled())
+        fireEvent.change(screen.getByRole('combobox', { name: 'batch.placement' }), { target: { value: placement } })
+        fireEvent.click(screen.getByRole('button', { name: 'batch.singleChat' }))
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'placed-chat' })
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('placed-chat', true))
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ groupId: placement === 'none' ? undefined : 'existing-group' }))
+    })
+
+    it('cancels the batch draft so opening Create Session again starts with one chat', () => {
+        const launch = vi.fn()
+        const onCancel = vi.fn()
+        const view = renderComposer(launch, { onCancel })
+        fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
+        fireEvent.click(screen.getByRole('button', { name: 'button.cancel' }))
+        expect(onCancel).toHaveBeenCalledOnce()
+        view.unmount()
+        renderComposer(launch)
+        expect(screen.queryByRole('article')).toBeNull()
+        expect(screen.getByRole('button', { name: 'batch.addAnother' })).toBeVisible()
         expect(launch).not.toHaveBeenCalled()
     })
 
@@ -439,13 +489,13 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(within(second).getByRole('checkbox', { name: 'batch.useOwn' }))
         fireEvent.change(within(second).getByRole('textbox', { name: 'batch.ownPrompt' }), { target: { value: 'Review security only.' } })
         fireEvent.click(within(second).getByRole('button', { name: 'batch.otherProject' }))
-        fireEvent.change(within(second).getByLabelText('directory-test'), { target: { value: 'C:\other' } })
+        fireEvent.change(within(second).getByLabelText('directory-test'), { target: { value: 'C:\\other' } })
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchCount' })).toBeEnabled())
         fireEvent.click(screen.getByRole('button', { name: 'batch.launchCount' }))
         await waitFor(() => expect(launch).toHaveBeenCalledTimes(2))
         expect(createGroup).toHaveBeenCalledTimes(1)
-        expect(launch.mock.calls[0]).toEqual(['machine-1', expect.objectContaining({ groupId: 'new-group', model: 'gpt-6-luna', initialPrompt: 'Compare the approaches.', directory: 'C:\repo' })])
-        expect(launch.mock.calls[1]).toEqual(['machine-1', expect.objectContaining({ groupId: 'new-group', model: 'gpt-6-luna', initialPrompt: 'Review security only.', directory: 'C:\other' })])
+        expect(launch.mock.calls[0]).toEqual(['machine-1', expect.objectContaining({ groupId: 'new-group', model: 'gpt-6-luna', initialPrompt: 'Compare the approaches.', directory: 'C:\\repo' })])
+        expect(launch.mock.calls[1]).toEqual(['machine-1', expect.objectContaining({ groupId: 'new-group', model: 'gpt-6-luna', initialPrompt: 'Review security only.', directory: 'C:\\other' })])
         await waitFor(() => expect(within(second).getByRole('button', { name: 'batch.retryChat' })).toBeEnabled())
         fireEvent.click(within(second).getByRole('button', { name: 'batch.retryChat' }))
         await waitFor(() => expect(launch).toHaveBeenCalledTimes(3))
@@ -507,7 +557,7 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledTimes(1))
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('new-chat'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('new-chat', true))
         expect(createGroup).toHaveBeenCalledTimes(2)
         expect(createGroup.mock.calls[0]).toEqual(['HAPI', expect.any(String)])
         expect(createGroup.mock.calls[1]).toEqual(createGroup.mock.calls[0])
@@ -941,7 +991,7 @@ describe('NewSession launch preferences', () => {
         expect(loadPreferredLaunchSettings('machine-1', 'codex')).toBeNull()
         fireEvent.click(screen.getByTestId('create'))
 
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: 'yolo' }))
         expect(loadPreferredLaunchSettings('machine-1', 'codex')).toEqual({
             model: 'gpt-6-luna',
@@ -1058,7 +1108,7 @@ describe('NewSession launch preferences', () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('dsh-session'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('dsh-session', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'dsh',
             yolo: undefined,
@@ -1073,7 +1123,7 @@ describe('NewSession launch preferences', () => {
 
         fireEvent.click(screen.getByTestId('create'))
 
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'claude',
             yolo: undefined,
@@ -1092,7 +1142,7 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(screen.getByDisplayValue('claude')).toBeChecked())
         fireEvent.click(screen.getByTestId('create'))
 
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'claude',
             permissionMode: 'bypassPermissions'
@@ -1145,7 +1195,7 @@ describe('NewSession launch preferences', () => {
         expect(screen.getByTestId('launch-effort')).toHaveTextContent('high')
         fireEvent.click(screen.getByTestId('create'))
 
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'claude',
             effort: 'high'
@@ -1288,7 +1338,7 @@ describe('NewSession launch preferences', () => {
         }
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('opencode-session'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('opencode-session', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'opencode',
             model: 'opencode-go/gemini-4-argon-contributor',
@@ -1350,7 +1400,7 @@ describe('NewSession launch preferences', () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('agy-session'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('agy-session', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: undefined }))
         expect(loadPreferredLaunchSettings('machine-1', 'agy')?.model).toBe('auto')
     })
@@ -1395,7 +1445,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(create)
         finishDirectoryCheck({ exists: { 'C:\\repo': true } })
 
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1', true))
         expect(mocks.checkPathsExists).toHaveBeenCalledTimes(1)
         expect(mocks.spawnSession).toHaveBeenCalledTimes(1)
     })
@@ -1439,7 +1489,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByTestId('select-pi-history'))
         fireEvent.click(screen.getByTestId('create'))
 
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('hapi-imported-1'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('hapi-imported-1', true))
         expect(piApi.importPiSessions).toHaveBeenCalledWith({
             sessionIds: ['pi-native-1'],
             cwd: 'C:\\repo',
@@ -1512,7 +1562,7 @@ describe('NewSession launch preferences', () => {
 
         fireEvent.click(screen.getByTestId('select-pi-history'))
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('hapi-machine-b'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('hapi-machine-b', true))
         expect(piApi.importPiSessions).toHaveBeenCalledWith({
             sessionIds: ['pi-machine-b'],
             cwd: 'C:\\repo',
@@ -1772,7 +1822,7 @@ describe('NewSession launch preferences', () => {
         })
         fireEvent.click(screen.getByTestId('create'))
 
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'pi',
             effort: undefined,
@@ -1811,7 +1861,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByTestId('model'))
         fireEvent.click(screen.getByTestId('create'))
 
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'pi',
             model: 'opencode-go/deepseek-v4-pro',
@@ -1854,7 +1904,7 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(screen.getByDisplayValue('codex')).toBeChecked())
         fireEvent.click(screen.getByTestId('create'))
 
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('continued-session'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('continued-session', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'codex',
             // The continued session named a non-shortlist model; the
@@ -1920,7 +1970,7 @@ describe('NewSession GLM-branded claude', () => {
         expect(screen.queryByTestId('launch-effort')).toBeNull()
         fireEvent.click(screen.getByTestId('create'))
 
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('claude-session', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'claude',
             effort: undefined
@@ -2024,7 +2074,7 @@ describe('NewSession fork launch defaults', () => {
         expect(screen.queryByText('newSession.yolo')).toBeNull()
 
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('fork-session'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('fork-session', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model, yolo: true, serviceTier: undefined }))
     })
 
