@@ -99,6 +99,9 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         const startingMode = parsed.data.startingMode
         const namespace = c.get('namespace')
 
+        if (parsed.data.groupId && !engine.groups.get(namespace, parsed.data.groupId)) {
+            return c.json({ error: 'Group not found' }, 404)
+        }
         const result = await engine.spawnSession(
             machineId,
             parsed.data.directory,
@@ -116,7 +119,8 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             parsed.data.collaborationMode,
             parsed.data.copilotAgentMode,
             startingMode,
-            namespace
+            namespace,
+            parsed.data.groupId
         )
         return c.json(result)
     })

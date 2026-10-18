@@ -1,3 +1,4 @@
+import { SessionRowLayout, SessionWorkingIcon } from '@/components/SessionRowLayout'
 import { useMemo, type CSSProperties } from 'react'
 import type { SessionSummary } from '@/types/api'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
@@ -21,21 +22,6 @@ function GitBranchIcon() {
             <circle cx="6" cy="18" r="3" />
             <circle cx="18" cy="6" r="3" />
             <path d="M18 9a9 9 0 0 1-9 9" />
-        </svg>
-    )
-}
-
-function LoaderIcon(props: { className?: string }) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
-            <line x1="12" y1="2" x2="12" y2="6" />
-            <line x1="12" y1="18" x2="12" y2="22" />
-            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
-            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
-            <line x1="2" y1="12" x2="6" y2="12" />
-            <line x1="18" y1="12" x2="22" y2="12" />
-            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
-            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
         </svg>
     )
 }
@@ -229,175 +215,167 @@ export function SessionRowSummary(props: {
     const timeLabel = getSessionTimeLabel(s, t, activityTimeBasis)
 
     return (
-        <div className={`flex w-full min-w-0 items-center gap-2.5 ${className ?? ''}`}>
-            <span className={`flex h-9 w-9 shrink-0 items-center justify-center text-[var(--app-fg)] ${!s.active ? 'opacity-50' : ''}`} aria-hidden="true">
-                <AgentFlavorIcon flavor={s.metadata?.flavor} className="h-full w-full" avatar />
-            </span>
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <div className={`grid grid-cols-[minmax(0,1fr)_minmax(0,max-content)] items-center gap-2 ${!s.active ? 'opacity-50' : ''}`}>
-                    <div className="flex min-w-0 items-center gap-2">
-                        <div
-                            className={`min-w-0 flex-1 truncate text-sm font-medium ${s.active ? 'text-[var(--app-fg)]' : 'text-[var(--app-hint)]'}`}
-                            title={sessionName}
-                        >
-                            {sessionName}
-                        </div>
-                        {s.active && s.thinking && questionAttention ? (
-                            <LoaderIcon className="h-3.5 w-3.5 shrink-0 animate-spin-slow text-[var(--app-badge-success-text)]" />
-                        ) : null}
-                        {attention?.kind === 'unread' && nestedTooltips && attentionId ? (
-                            <SessionAttentionIndicator
-                                attention={attention}
-                                summary={s}
-                                label={attentionLabel ?? ''}
-                                tooltipId={attentionId}
-                            />
-                        ) : attention?.kind === 'unread' ? (
-                            <span
-                                className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS.unread}`}
-                                title={attentionLabel ?? undefined}
-                                aria-label={attentionLabel ?? undefined}
-                            />
-                        ) : s.active && s.thinking && !questionAttention ? (
-                            <LoaderIcon className="h-3.5 w-3.5 shrink-0 animate-spin-slow text-[var(--app-badge-success-text)]" />
-                        ) : urgentAttention && nestedTooltips && attentionId ? (
-                            <SessionAttentionIndicator
-                                attention={attention}
-                                summary={s}
-                                label={attentionLabel ?? ''}
-                                tooltipId={attentionId}
-                            />
-                        ) : questionAttention ? (
-                            <SessionQuestionIcon
-                                label={(s.pendingAsyncQuestionsCount ?? 0) > 1 ? t('session.question.count', { count: s.pendingAsyncQuestionsCount! }) : attentionLabel ?? ''}
-                                title={attentionLabel ?? undefined}
-                            />
-                        ) : urgentAttention ? (
-                            <span
-                                className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS[attention.kind]}`}
-                                title={attentionLabel ?? undefined}
-                                aria-label={attentionLabel ?? undefined}
-                            />
-                        ) : showDetailedStatus && attention?.kind === 'background' && nestedTooltips && attentionId ? (
-                            <SessionAttentionIndicator
-                                attention={attention}
-                                summary={s}
-                                label={attentionLabel ?? ''}
-                                tooltipId={attentionId}
-                            />
-                        ) : showDetailedStatus && attention?.kind === 'background' ? (
-                            <span
-                                className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS.background}`}
-                                title={attentionLabel ?? undefined}
-                                aria-label={attentionLabel ?? undefined}
-                            />
-                        ) : s.active && (s.backgroundTaskCount ?? 0) > 0 ? (
-                            <span
-                                className="inline-flex shrink-0 items-center gap-1 text-[var(--app-badge-success-text)]"
-                                title={t('session.item.running')}
-                            >
-                                <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" aria-hidden="true" />
-                                {!inRunningSection ? (
-                                    <span className="text-[11px] font-medium leading-none">{t('session.item.running')}</span>
-                                ) : null}
-                            </span>
-                        ) : s.active && (s.pendingRequestsCount ?? 0) > 0 ? (
-                            <span
-                                className="inline-flex shrink-0 items-center gap-1 text-[var(--app-badge-warning-text)]"
-                                title={t('session.item.pending')}
-                            >
-                                <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" aria-hidden="true" />
-                                {!inRunningSection ? (
-                                    <span className="text-[11px] font-medium leading-none">{t('session.item.pending')}</span>
-                                ) : null}
-                            </span>
-                        ) : attention && nestedTooltips && attentionId ? (
-                            <SessionAttentionIndicator
-                                attention={attention}
-                                summary={s}
-                                label={attentionLabel ?? ''}
-                                tooltipId={attentionId}
-                            />
-                        ) : attention ? (
-                            <span
-                                className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS[attention.kind]}`}
-                                title={attentionLabel ?? undefined}
-                                aria-label={attentionLabel ?? undefined}
-                            />
-                        ) : null}
-                        {hasScheduleTooltip && nestedTooltips && scheduleId ? (
-                            <HoverTooltip
-                                id={scheduleId}
-                                target={<ScheduleIcon className="h-3.5 w-3.5 text-[var(--app-hint)]" />}
-                                side="bottom"
-                                align="start"
-                                className="shrink-0"
-                                revealOnParentFocusClass={SESSION_ROW_TOOLTIP_FOCUS_CLASS}
-                            >
-                                <span className="block">
-                                    <span className="block font-medium">{scheduledLabel}</span>
-                                    <span className="mt-1 block text-[var(--app-hint)]">
-                                        {formatScheduledTooltipDetail(s, t)}
-                                    </span>
-                                </span>
-                            </HoverTooltip>
-                        ) : hasScheduleTooltip ? (
-                            <span className="shrink-0" aria-label={scheduledLabel} title={scheduledLabel}>
-                                <ScheduleIcon className="h-3.5 w-3.5 text-[var(--app-hint)]" />
-                            </span>
-                        ) : null}
-                    </div>
-                    <div className="flex min-w-0 items-center justify-end gap-2 overflow-hidden text-xs">
-                        {todoProgress ? (
-                            <span className="flex shrink-0 items-center gap-1 text-[var(--app-hint)]">
-                                <BulbIcon className="h-3 w-3" />
-                                {todoProgress.completed}/{todoProgress.total}
-                            </span>
-                        ) : null}
-                        {!attention && s.pendingRequestsCount > 0 ? (
-                            <span className="shrink-0 text-[var(--app-badge-warning-text)]">
-                                {t('session.item.pending')} {s.pendingRequestsCount}
-                            </span>
-                        ) : null}
-                        {timeLabel ? (
-                            <span className="min-w-0 truncate whitespace-nowrap tabular-nums text-[var(--app-hint)]">{timeLabel}</span>
-                        ) : null}
-                    </div>
-                </div>
-                {projectLabel || machineLabel || branchLabel ? (
-                    <div className="flex min-w-0 items-center gap-2 text-xs text-[var(--app-hint)]" title={[projectTitle, machineLabel, branchLabel].filter(Boolean).join(' · ')}>
-                        {projectLabel ? (
-                            <span
-                                data-testid="session-project-label"
-                                className="min-w-0 max-w-full truncate rounded-[5px] border border-[var(--session-project-border)] bg-[var(--session-project-bg)] px-1.5 py-px font-medium leading-tight text-[var(--session-project-fg)]"
-                                style={{
-                                    '--session-project-fg': `light-dark(hsl(${projectLabelHue} 78% 27%), hsl(${projectLabelHue} 95% 88%))`,
-                                    '--session-project-bg': `light-dark(hsl(${projectLabelHue} 92% 89%), hsl(${projectLabelHue} 68% 30%))`,
-                                    '--session-project-border': `light-dark(hsl(${projectLabelHue} 70% 72%), hsl(${projectLabelHue} 68% 45%))`,
-                                } as CSSProperties}
-                            >
-                                {projectLabel}
-                            </span>
-                        ) : null}
-                        {machineLabel ? <span className="min-w-0 truncate">{machineLabel}</span> : null}
-                        {branchLabel ? (
-                            <span className="inline-flex min-w-0 items-center gap-1" title={branchLabel}>
-                                <GitBranchIcon />
-                                <span className="truncate">{branchLabel}</span>
-                            </span>
-                        ) : null}
-                    </div>
-                ) : showPath || worktreeLabel ? (
-                    <div
-                        className="truncate text-xs text-[var(--app-hint)]"
-                        title={worktreeLabel
-                            ? s.metadata?.worktree?.worktreePath ?? s.metadata?.path
-                            : undefined}
-                    >
-                        {worktreeLabel ?? s.metadata?.path ?? s.id}
-                    </div>
+        <SessionRowLayout
+            className={className}
+            active={s.active}
+            title={sessionName}
+            avatar={<span className="contents" aria-hidden="true"><AgentFlavorIcon flavor={s.metadata?.flavor} className="h-full w-full" avatar /></span>}
+            indicators={<>
+                {s.active && s.thinking && questionAttention ? (
+                    <SessionWorkingIcon />
                 ) : null}
-            </div>
-        </div>
+                {attention?.kind === 'unread' && nestedTooltips && attentionId ? (
+                    <SessionAttentionIndicator
+                        attention={attention}
+                        summary={s}
+                        label={attentionLabel ?? ''}
+                        tooltipId={attentionId}
+                    />
+                ) : attention?.kind === 'unread' ? (
+                    <span
+                        className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS.unread}`}
+                        title={attentionLabel ?? undefined}
+                        aria-label={attentionLabel ?? undefined}
+                    />
+                ) : s.active && s.thinking && !questionAttention ? (
+                    <SessionWorkingIcon />
+                ) : urgentAttention && nestedTooltips && attentionId ? (
+                    <SessionAttentionIndicator
+                        attention={attention}
+                        summary={s}
+                        label={attentionLabel ?? ''}
+                        tooltipId={attentionId}
+                    />
+                ) : questionAttention ? (
+                    <SessionQuestionIcon
+                        label={(s.pendingAsyncQuestionsCount ?? 0) > 1 ? t('session.question.count', { count: s.pendingAsyncQuestionsCount! }) : attentionLabel ?? ''}
+                        title={attentionLabel ?? undefined}
+                    />
+                ) : urgentAttention ? (
+                    <span
+                        className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS[attention.kind]}`}
+                        title={attentionLabel ?? undefined}
+                        aria-label={attentionLabel ?? undefined}
+                    />
+                ) : showDetailedStatus && attention?.kind === 'background' && nestedTooltips && attentionId ? (
+                    <SessionAttentionIndicator
+                        attention={attention}
+                        summary={s}
+                        label={attentionLabel ?? ''}
+                        tooltipId={attentionId}
+                    />
+                ) : showDetailedStatus && attention?.kind === 'background' ? (
+                    <span
+                        className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS.background}`}
+                        title={attentionLabel ?? undefined}
+                        aria-label={attentionLabel ?? undefined}
+                    />
+                ) : s.active && (s.backgroundTaskCount ?? 0) > 0 ? (
+                    <span
+                        className="inline-flex shrink-0 items-center gap-1 text-[var(--app-badge-success-text)]"
+                        title={t('session.item.running')}
+                    >
+                        <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" aria-hidden="true" />
+                        {!inRunningSection ? (
+                            <span className="text-[11px] font-medium leading-none">{t('session.item.running')}</span>
+                        ) : null}
+                    </span>
+                ) : s.active && (s.pendingRequestsCount ?? 0) > 0 ? (
+                    <span
+                        className="inline-flex shrink-0 items-center gap-1 text-[var(--app-badge-warning-text)]"
+                        title={t('session.item.pending')}
+                    >
+                        <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" aria-hidden="true" />
+                        {!inRunningSection ? (
+                            <span className="text-[11px] font-medium leading-none">{t('session.item.pending')}</span>
+                        ) : null}
+                    </span>
+                ) : attention && nestedTooltips && attentionId ? (
+                    <SessionAttentionIndicator
+                        attention={attention}
+                        summary={s}
+                        label={attentionLabel ?? ''}
+                        tooltipId={attentionId}
+                    />
+                ) : attention ? (
+                    <span
+                        className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS[attention.kind]}`}
+                        title={attentionLabel ?? undefined}
+                        aria-label={attentionLabel ?? undefined}
+                    />
+                ) : null}
+                {hasScheduleTooltip && nestedTooltips && scheduleId ? (
+                    <HoverTooltip
+                        id={scheduleId}
+                        target={<ScheduleIcon className="h-3.5 w-3.5 text-[var(--app-hint)]" />}
+                        side="bottom"
+                        align="start"
+                        className="shrink-0"
+                        revealOnParentFocusClass={SESSION_ROW_TOOLTIP_FOCUS_CLASS}
+                    >
+                        <span className="block">
+                            <span className="block font-medium">{scheduledLabel}</span>
+                            <span className="mt-1 block text-[var(--app-hint)]">
+                                {formatScheduledTooltipDetail(s, t)}
+                            </span>
+                        </span>
+                    </HoverTooltip>
+                ) : hasScheduleTooltip ? (
+                    <span className="shrink-0" aria-label={scheduledLabel} title={scheduledLabel}>
+                        <ScheduleIcon className="h-3.5 w-3.5 text-[var(--app-hint)]" />
+                    </span>
+                ) : null}
+            </>}
+            trailing={<>
+                {todoProgress ? (
+                    <span className="flex shrink-0 items-center gap-1 text-[var(--app-hint)]">
+                        <BulbIcon className="h-3 w-3" />
+                        {todoProgress.completed}/{todoProgress.total}
+                    </span>
+                ) : null}
+                {!attention && s.pendingRequestsCount > 0 ? (
+                    <span className="shrink-0 text-[var(--app-badge-warning-text)]">
+                        {t('session.item.pending')} {s.pendingRequestsCount}
+                    </span>
+                ) : null}
+                {timeLabel ? (
+                    <span className="min-w-0 truncate whitespace-nowrap tabular-nums text-[var(--app-hint)]">{timeLabel}</span>
+                ) : null}
+            </>}
+        >
+            {projectLabel || machineLabel || branchLabel ? (
+                <div className="flex min-w-0 items-center gap-2 text-xs text-[var(--app-hint)]" title={[projectTitle, machineLabel, branchLabel].filter(Boolean).join(' · ')}>
+                    {projectLabel ? (
+                        <span
+                            data-testid="session-project-label"
+                            className="min-w-0 max-w-full truncate rounded-[5px] border border-[var(--session-project-border)] bg-[var(--session-project-bg)] px-1.5 py-px font-medium leading-tight text-[var(--session-project-fg)]"
+                            style={{
+                                '--session-project-fg': `light-dark(hsl(${projectLabelHue} 78% 27%), hsl(${projectLabelHue} 95% 88%))`,
+                                '--session-project-bg': `light-dark(hsl(${projectLabelHue} 92% 89%), hsl(${projectLabelHue} 68% 30%))`,
+                                '--session-project-border': `light-dark(hsl(${projectLabelHue} 70% 72%), hsl(${projectLabelHue} 68% 45%))`,
+                            } as CSSProperties}
+                        >
+                            {projectLabel}
+                        </span>
+                    ) : null}
+                    {machineLabel ? <span className="min-w-0 truncate">{machineLabel}</span> : null}
+                    {branchLabel ? (
+                        <span className="inline-flex min-w-0 items-center gap-1" title={branchLabel}>
+                            <GitBranchIcon />
+                            <span className="truncate">{branchLabel}</span>
+                        </span>
+                    ) : null}
+                </div>
+            ) : showPath || worktreeLabel ? (
+                <div
+                    className="truncate text-xs text-[var(--app-hint)]"
+                    title={worktreeLabel
+                        ? s.metadata?.worktree?.worktreePath ?? s.metadata?.path
+                        : undefined}
+                >
+                    {worktreeLabel ?? s.metadata?.path ?? s.id}
+                </div>
+            ) : null}
+        </SessionRowLayout>
     )
 }

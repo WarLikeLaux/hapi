@@ -3,13 +3,14 @@ import { AgentFlavorSchema, CREATABLE_AGENT_FLAVORS } from '@hapi/protocol'
 import { PermissionModeSchema } from '@hapi/protocol/schemas'
 
 export const LAUNCH_OPTIONS_DESCRIPTION = 'Discover projects and installed agents for launching HAPI sessions, like the web + picker. Lists online runners, workspace directories, recent project paths and native default models in the current hub namespace. Use a returned project path and agent with launch_agent. Optional machineId narrows discovery.'
-export const LAUNCH_AGENT_DESCRIPTION = 'Launch another agent in a HAPI session and deliver its task once, like the web + picker. Select project and agent from list_launch_options. Defaults: Codex, native model/effort, maximum permissions (YOLO), remote mode. Omit machineId to use the caller runner (or the only online runner). Return includes session link for inspect_peer / ping_peer. Choose a unique requestId per task and reuse it with identical arguments on retries. Retry protection lasts for this caller MCP server lifetime. An uncertain spawn is never automatically repeated.'
+export const LAUNCH_AGENT_DESCRIPTION = 'Launch another agent in a HAPI session and deliver its task once, like the web + picker. Select project and agent from list_launch_options. Defaults: Codex, native model/effort, maximum permissions (YOLO), remote mode. Omit machineId to use the caller runner (or the only online runner). Return includes session link for inspect_peer / ping_peer. Choose a unique requestId per task and reuse it with identical arguments on retries. Retry protection lasts for this caller MCP server lifetime. An uncertain spawn is never automatically repeated. Pass groupId from get_group to create the chat in that group; omit for a standalone chat.'
 
 export const launchOptionsSchema = z.object({
     machineId: z.string().trim().min(1).optional().describe('Online runner ID or unique prefix; omit to discover all runners'),
 })
 
 export const launchAgentSchema = z.object({
+    groupId: z.string().trim().min(1).optional().describe('Add the new chat to this user-created group. Get its ID with get_group or list_groups. Omit for a standalone chat.'),
     project: z.string().trim().min(1).describe('Project directory path or unique project name from list_launch_options'),
     message: z.string().trim().min(1).describe('Initial task for the new agent'),
     agent: AgentFlavorSchema.refine((agent) => CREATABLE_AGENT_FLAVORS.includes(agent), 'Agent cannot be launched').optional().describe('Agent flavor, default codex'),

@@ -101,7 +101,10 @@ describe('resolveToolAutoApprovalDecision list_peers', () => {
         'hapi_list_launch_options',
         'happy__list_launch_options',
         'mcp__hapi__list_launch_options',
-        'List Agent Launch Options'
+        'List Agent Launch Options',
+        'list_groups', 'hapi_list_groups', 'happy__list_groups', 'mcp__hapi__list_groups',
+        'get_group', 'hapi_get_group', 'happy__get_group', 'mcp__hapi__get_group',
+        'List Chat Groups', 'Read Chat Group'
     ])('auto-approves the exact discovery tool name %s', (toolName) => {
         expect(resolveToolAutoApprovalDecision('default', toolName, 'call-1')).toBe('approved')
     })

@@ -42,7 +42,11 @@ const AUTO_APPROVE_EXACT_TOOL_NAMES = new Set([
     'hapi_list_launch_options',
     'happy__list_launch_options',
     'mcp__hapi__list_launch_options',
-    'list agent launch options'
+    'list agent launch options',
+    // Group metadata and summaries only. Chat history still requires inspect_peer.
+    'list_groups', 'hapi_list_groups', 'happy__list_groups', 'mcp__hapi__list_groups',
+    'get_group', 'hapi_get_group', 'happy__get_group', 'mcp__hapi__get_group',
+    'list chat groups', 'read chat group'
 ]);
 // ping_peer / inspect_peer intentionally omitted from always-approve: they can
 // resume+inject into another session or read peer histories, so permission

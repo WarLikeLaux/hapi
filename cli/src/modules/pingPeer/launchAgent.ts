@@ -124,7 +124,9 @@ export function createAgentLauncher(callerSessionId: string) {
             if (!exists.exists[directory]) throw new Error(`Project directory does not exist or is outside workspace roots: ${directory}`)
             if (args.permissionMode && !getLaunchPermissionModesForFlavor(agent).includes(args.permissionMode)) throw new Error(`Permission mode '${args.permissionMode}' is unsupported for ${agent}`)
             if (args.effort && !['claude', 'grok', 'pi', 'agy', 'codex', 'opencode'].includes(agent)) throw new Error(`Agent '${agent}' does not support a separate effort override; choose its native model variant instead`)
+            if (args.groupId) await hub.get(`/groups/${encodeURIComponent(args.groupId)}`)
             const payload: SpawnSessionRequest = {
+                groupId: args.groupId,
                 directory,
                 agent,
                 model: args.model,

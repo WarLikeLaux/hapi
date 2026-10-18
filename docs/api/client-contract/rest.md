@@ -14,6 +14,25 @@ does not mean an external client offers that feature.
 - **gzip:** the hub gzips `/api/*` JSON responses when `Accept-Encoding` accepts gzip. Negotiation is q-value aware (`acceptsGzip` in `hub/src/web/sseCompression.ts`): `gzip;q=0` is honored as a refusal, `*` counts unless a `gzip` entry overrides it. Send a normal `Accept-Encoding: gzip` and decompress transparently. The SSE stream is gzip-compressed separately with per-event flush — see [SSE](./sse.md). Source: `hub/src/web/server.ts`.
 - Several endpoints are **RPC-wrapped**: the hub forwards to the session's CLI process over Socket.IO and relays the result. These can fail with HTTP 200 + `{success: false, error}` or with 503 — see [Errors](./errors.md#rpc-wrapped-endpoints).
 
+## Chat groups
+
+Source: `hub/src/web/routes/groups.ts`. Shared shapes: `shared/src/sessionGroups.ts`. Groups contain equal chats and persist independently of their lifecycle. Archiving a chat removes its membership atomically while retaining its history. Closed chats cannot be added until reopened, and reopening does not restore old membership. Deleting a chat also removes its membership. Every operation uses the JWT namespace, including validation of all member IDs.
+
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/groups` | None | `{groups: SessionGroup[]}` |
+| `POST /api/groups` | `{name}` (trimmed, 1–120 characters) | `201 {group}` |
+| `GET /api/groups/:id` | None | `{group, sessions: SessionSummary[]}` in tab order |
+| `GET /api/sessions/:id/group` | None | `{group: SessionGroup \| null}` |
+| `PUT /api/groups/:id` | `{name, version, members: [{sessionId, pinned}]}` | `{group}` |
+| `POST /api/groups/:id/members` | `{sessionId}` | `{ok: true}`, idempotent append or move |
+
+`SessionGroup` contains `id`, `name`, `version`, `updatedAt` and ordered `members`. Pinned members appear first, preserving user order within each section. Each chat belongs to at most one group. Updating members moves incoming chats out of their previous groups and detaches omitted chats into standalone sessions without changing their metadata or history. The move and affected group versions update in one transaction. A stale `version` returns `409`, invalid input returns `400`, and unavailable or foreign groups/members return `404`. An inaccessible session on the current-group lookup follows ordinary session access errors.
+
+A namespaced `groups-updated` SSE event invalidates the group list, including after rename, reordering, pinning or moving a chat. After a reconnect gap, fetch groups again. Chat attention and unread state continue to use ordinary per-session updates and read watermarks. Selecting a tab marks only that chat read.
+
+`POST /api/machines/:id/spawn` accepts optional `groupId`. The hub validates group access before dispatch and binds the preallocated chat before starting the runner. An ambiguous spawn keeps the existing stub and its membership under the ordinary spawn lifecycle.
+
 ## Interactive client API
 
 ### Health

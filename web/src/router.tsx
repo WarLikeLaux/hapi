@@ -1,3 +1,6 @@
+import { useSessionGroups } from '@/hooks/queries/useSessionGroups'
+import { CreateGroupDialog, GroupIcon, SessionGroupWorkspace } from '@/components/SessionGroups'
+import type { SessionGroup, UpdateSessionGroup } from '@hapi/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -170,6 +173,22 @@ function SessionsPage() {
     const { sessions, isLoading, error, refetch } = useSessions(api)
     const [initializedHub, setInitializedHub] = useState<string | null>(null)
     const [limitsOpen, setLimitsOpen] = useState(false)
+    const groupState = useSessionGroups(api)
+    const [createGroupOpen, setCreateGroupOpen] = useState(false)
+    const groupRoute = matchRoute({ to: '/sessions/groups/$groupId', fuzzy: true })
+    const sessionSearch = useSearch({ strict: false })
+    const creationGroupId = pathname === '/sessions/new' ? sessionSearch.groupId : undefined
+    const groupedIds = useMemo(() => new Set(groupState.groups.flatMap(g => g.members.map(m => m.sessionId))), [groupState.groups])
+    const groupedSessions = useMemo(() => sessions.filter(s => groupedIds.has(s.id)), [sessions, groupedIds])
+    const standaloneSessions = useMemo(() => sessions.filter(s => !groupedIds.has(s.id)), [sessions, groupedIds])
+    const updateGroup = async (group: SessionGroup, patch: UpdateSessionGroup) => {
+        try { await groupState.mutation.mutateAsync({ id: group.id, patch }) } catch { /* rendered in workspace */ }
+    }
+    const openGroup = (group: SessionGroup) => {
+        const first = group.members[0]
+        if (first) navigate(getSessionListSelectionNavigation(first.sessionId))
+        else navigate({ to: '/sessions/groups/$groupId', params: { groupId: group.id } })
+    }
     const { machines } = useMachines(api, true)
     const handleRefresh = useCallback(() => {
         return (async () => {
@@ -201,7 +220,8 @@ function SessionsPage() {
         [machines]
     )
     const sessionMatch = matchRoute({ to: '/sessions/$sessionId', fuzzy: true })
-    const selectedSessionId = sessionMatch && sessionMatch.sessionId !== 'new' ? sessionMatch.sessionId : null
+    const selectedSessionId = !groupRoute && sessionMatch && sessionMatch.sessionId !== 'new' ? sessionMatch.sessionId : null
+    const selectedGroup = groupState.groups.find(group => groupRoute ? group.id === groupRoute.groupId : creationGroupId ? group.id === creationGroupId : group.members.some(m => m.sessionId === selectedSessionId))
     const selectedSession = useMemo(
         () => selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null,
         [selectedSessionId, sessions]
@@ -228,6 +248,9 @@ function SessionsPage() {
 
     return (
         <>
+            <CreateGroupDialog key={String(createGroupOpen)} open={createGroupOpen} onClose={() => setCreateGroupOpen(false)}
+                pending={groupState.mutation.isPending} error={groupState.mutation.error?.message}
+                onCreate={async name => { try { const { group } = await groupState.mutation.mutateAsync({ name }); setCreateGroupOpen(false); openGroup(group) } catch { /* displayed in dialog */ } }} />
             <QuotaLimitsModal isOpen={limitsOpen} onClose={() => setLimitsOpen(false)} />
             <div className="flex h-full min-h-0">
             <div
@@ -242,7 +265,13 @@ function SessionsPage() {
                     ) : null}
                     <SessionList
                         key={initializedHub === baseUrl ? 'last-seen-ready' : 'last-seen-pending'}
-                        sessions={sessions}
+                        sessions={groupState.query.isPending || groupState.query.isError ? [] : standaloneSessions}
+                        groupedSessions={groupedSessions}
+                        hasGroupRows={groupState.groups.length > 0 || groupState.query.isPending || groupState.query.isError}
+                        sessionGroups={groupState.groups}
+                        selectedGroupId={selectedGroup?.id}
+                        onSelectGroup={openGroup}
+                        groupsStatus={groupState.query.isError ? <button type="button" className="p-3 text-sm text-red-600" onClick={() => void groupState.query.refetch()}>{t('groups.loadError')}</button> : groupState.query.isPending ? <p className="p-3 text-sm text-[var(--app-hint)]">{t('groups.loadPending')}</p> : null}
                         selectedSessionId={selectedSessionId}
                         onSelect={(sessionId) => navigate(getSessionListSelectionNavigation(sessionId))}
                         onNewSession={() => navigate({
@@ -256,6 +285,8 @@ function SessionsPage() {
                         renderHeader={false}
                         headerActions={(
                             <div className="flex items-center gap-2">
+                                <button type="button" onClick={() => { groupState.mutation.reset(); setCreateGroupOpen(true) }} title={t('groups.create')} aria-label={t('groups.create')}
+                                    className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--app-link)] hover:bg-[var(--app-subtle-bg)]"><GroupIcon /></button>
                                 <button
                                     type="button"
                                     onClick={() => setLimitsOpen(true)}
@@ -302,6 +333,10 @@ function SessionsPage() {
             />
 
             <div className={`${isSessionsIndex ? 'hidden split:flex' : 'flex'} min-w-0 flex-1 flex-col bg-[var(--app-bg)]`}>
+                {selectedGroup ? <SessionGroupWorkspace key={selectedGroup.id} group={selectedGroup} groups={groupState.groups} sessions={sessions} selectedSessionId={selectedSessionId}
+                    onSelect={id => navigate(getSessionListSelectionNavigation(id))} onBack={() => navigate({ to: '/sessions' })}
+                    onNew={() => navigate({ to: '/sessions/new', search: { groupId: selectedGroup.id } })}
+                    onUpdate={updateGroup} pending={groupState.mutation.isPending} error={groupState.mutation.error?.message} /> : null}
                 <div className="flex-1 min-h-0">
                     <Outlet />
                 </div>
@@ -309,6 +344,11 @@ function SessionsPage() {
             </div>
         </>
     )
+}
+
+function GroupIndexPage() {
+    const { t } = useTranslation()
+    return <p className="p-6 text-center text-sm text-[var(--app-hint)]">{t('groups.choose')}</p>
 }
 
 function SessionsIndexPage() {
@@ -908,9 +948,11 @@ function NewSessionPage() {
     const queryClient = useQueryClient()
     const { machines, isLoading: machinesLoading, error: machinesError } = useMachines(api, true)
     const { t } = useTranslation()
+    const { addToast } = useToast()
     const {
         directory: initialDirectory,
         machineId: initialMachineId,
+        groupId,
         shareTransferId,
         continueFromSessionId,
     } = newSessionRoute.useSearch()
@@ -934,7 +976,15 @@ function NewSessionPage() {
         })
     }, [continueFromSessionId, navigate, shareTransferId])
 
-    const handleSuccess = useCallback((sessionId: string) => {
+    const handleSuccess = useCallback(async (sessionId: string) => {
+        if (groupId && api) {
+            try {
+                await api.addGroupChat(groupId, sessionId)
+                void queryClient.invalidateQueries({ queryKey: ['session-groups'] })
+            } catch (error) {
+                addToast({ title: t('groups.addFailed'), body: error instanceof Error ? error.message : '', sessionId, url: `/sessions/${sessionId}` })
+            }
+        }
         if (shareTransferId) {
             setSharePendingTransfer(shareTransferId, sessionId)
         }
@@ -953,7 +1003,7 @@ function NewSessionPage() {
                 ...PRESERVE_SESSION_SIDEBAR_SCROLL,
             })
         })
-    }, [navigate, queryClient, shareTransferId])
+    }, [api, groupId, addToast, t, navigate, queryClient, shareTransferId])
 
     const handleChooseFolder = useCallback((args: { machineId: string | null; directory: string }) => {
         // Forward the currently-selected machine so /browse opens scoped to
@@ -961,12 +1011,13 @@ function NewSessionPage() {
         // disagree if the user changed machines without yet creating a
         // session. Preserve shareTransferId so a share-target spawn that
         // detours through /browse still seeds the composer after success.
-        const search: { machineId?: string; shareTransferId?: string; continueFromSessionId?: string } = {}
+        const search: { machineId?: string; groupId?: string; shareTransferId?: string; continueFromSessionId?: string } = {}
+        if (groupId) search.groupId = groupId
         if (args.machineId) search.machineId = args.machineId
         if (shareTransferId) search.shareTransferId = shareTransferId
         if (continueFromSessionId) search.continueFromSessionId = continueFromSessionId
         navigate({ to: '/browse', search })
-    }, [continueFromSessionId, navigate, shareTransferId])
+    }, [groupId, continueFromSessionId, navigate, shareTransferId])
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -1006,6 +1057,7 @@ function NewSessionPage() {
                     onCancel={handleCancel}
                     onSuccess={handleSuccess}
                     onChooseFolder={handleChooseFolder}
+                    groupId={groupId}
                     initialDirectory={initialDirectory}
                     initialMachineId={initialMachineId}
                     continueFromSession={continueFromSession ?? undefined}
@@ -1021,7 +1073,7 @@ function BrowsePage() {
     const goBack = useAppGoBack()
     const { machines, isLoading: machinesLoading } = useMachines(api, true)
     const { t } = useTranslation()
-    const { machineId: initialMachineId, shareTransferId, continueFromSessionId } = browseRoute.useSearch()
+    const { machineId: initialMachineId, groupId, shareTransferId, continueFromSessionId } = browseRoute.useSearch()
 
     const handleStartSession = useCallback((machineId: string, directory: string) => {
         navigate({
@@ -1029,11 +1081,12 @@ function BrowsePage() {
             search: {
                 directory,
                 machineId,
+                ...(groupId ? { groupId } : {}),
                 ...(shareTransferId ? { shareTransferId } : {}),
                 ...(continueFromSessionId ? { continueFromSessionId } : {}),
             }
         })
-    }, [continueFromSessionId, navigate, shareTransferId])
+    }, [groupId, continueFromSessionId, navigate, shareTransferId])
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -1083,6 +1136,12 @@ const sessionsIndexRoute = createRoute({
     getParentRoute: () => sessionsRoute,
     path: '/',
     component: SessionsIndexPage,
+})
+
+const groupDetailRoute = createRoute({
+    getParentRoute: () => sessionsRoute,
+    path: 'groups/$groupId',
+    component: GroupIndexPage,
 })
 
 const sessionDetailRoute = createRoute({
@@ -1230,6 +1289,7 @@ const sessionFileRoute = createRoute({
 })
 
 type NewSessionSearch = {
+    groupId?: string
     directory?: string
     machineId?: string
     shareTransferId?: string
@@ -1241,6 +1301,7 @@ const newSessionRoute = createRoute({
     path: 'new',
     validateSearch: (search: Record<string, unknown>): NewSessionSearch => {
         const result: NewSessionSearch = {}
+        if (typeof search.groupId === 'string' && search.groupId) result.groupId = search.groupId
         if (typeof search.directory === 'string' && search.directory) {
             result.directory = search.directory
         }
@@ -1261,8 +1322,9 @@ const newSessionRoute = createRoute({
 const browseRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/browse',
-    validateSearch: (search: Record<string, unknown>): { machineId?: string; shareTransferId?: string; continueFromSessionId?: string } => {
-        const result: { machineId?: string; shareTransferId?: string; continueFromSessionId?: string } = {}
+    validateSearch: (search: Record<string, unknown>): { machineId?: string; groupId?: string; shareTransferId?: string; continueFromSessionId?: string } => {
+        const result: { machineId?: string; groupId?: string; shareTransferId?: string; continueFromSessionId?: string } = {}
+        if (typeof search.groupId === 'string' && search.groupId) result.groupId = search.groupId
         if (typeof search.machineId === 'string' && search.machineId) {
             result.machineId = search.machineId
         }
@@ -1371,6 +1433,7 @@ export const routeTree = rootRoute.addChildren([
     indexRoute,
     sessionsRoute.addChildren([
         sessionsIndexRoute,
+        groupDetailRoute,
         newSessionRoute,
         sessionChatRoute,
         sessionDetailRoute.addChildren([

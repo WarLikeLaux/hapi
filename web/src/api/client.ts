@@ -1,3 +1,4 @@
+import type { SessionGroup, UpdateSessionGroup } from '@hapi/protocol'
 import type {
     AttachmentMetadata,
     AuthResponse,
@@ -282,6 +283,22 @@ export class ApiClient {
         }
 
         return await res.json() as AuthResponse
+    }
+
+    async getGroups(): Promise<{ groups: SessionGroup[] }> {
+        return await this.request('/api/groups')
+    }
+
+    async createGroup(name: string): Promise<{ group: SessionGroup }> {
+        return await this.request('/api/groups', { method: 'POST', body: JSON.stringify({ name }) })
+    }
+
+    async updateGroup(id: string, input: UpdateSessionGroup): Promise<{ group: SessionGroup }> {
+        return await this.request(`/api/groups/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) })
+    }
+
+    async addGroupChat(groupId: string, sessionId: string): Promise<void> {
+        await this.request(`/api/groups/${encodeURIComponent(groupId)}/members`, { method: 'POST', body: JSON.stringify({ sessionId }) })
     }
 
     async getSessions(): Promise<SessionsResponse> {
@@ -1277,7 +1294,8 @@ export class ApiClient {
         serviceTier?: 'fast' | 'standard',
         collaborationMode?: CodexCollaborationMode,
         copilotAgentMode?: CopilotAgentMode,
-        startingMode?: 'remote' | 'pty'
+        startingMode?: 'remote' | 'pty',
+        groupId?: string
     ): Promise<SpawnResponse> {
         return await this.request<SpawnResponse>(`/api/machines/${encodeURIComponent(machineId)}/spawn`, {
             method: 'POST',
@@ -1294,7 +1312,8 @@ export class ApiClient {
                 serviceTier,
                 collaborationMode,
                 copilotAgentMode,
-                startingMode
+                startingMode,
+                groupId
             })
         })
     }

@@ -253,6 +253,16 @@ The result contains `sessionId`, a `/sessions/<id>` link and `messageDelivered: 
 
 Reuse the same `requestId` and identical arguments when retrying. During the caller's MCP server lifetime, concurrent calls share one launch and completed calls return the original receipt. If task delivery fails, the error includes the created session link, and a retry sends to that session with the same message ID. If the spawn response is lost, HAPI refuses to spawn again for that request and asks the caller to inspect `list_peers`. Receipts are kept for up to 100 distinct launch requests per caller server and do not survive a caller process restart. After a restart or uncertain spawn, inspect existing sessions before launching a replacement.
 
+## Chat groups through MCP
+
+Groups are user-managed workspaces containing equal, independent chats. They can span projects, agents and many tasks. Membership does not create parent/child relationships, merge histories or alter permissions, acceptance or session lifecycle. HAPI does not group chats automatically by directory.
+
+Use `list_groups` to discover groups in the caller's hub namespace. Call `get_group` without arguments for the current chat's group, or pass an exact `groupId`. The response includes the group name, version, persisted tab order and pins, plus each chat's ordinary session summary (agent, lifecycle, working state and pending requests). Closing or archiving a chat removes it from the group while preserving its history. Reopening leaves it standalone until the user adds it again. An ungrouped caller receives `group: null`. These tools expose no structure-changing operations.
+
+Read a listed chat with `inspect_peer({ sessionIdPrefix: sessionId })`. Its existing `beforeAt`/`beforeSeq` pagination reads older context without resuming the chat. Group membership grants no additional namespace access.
+
+To launch a chat in a group, pass `groupId` from `get_group` or `list_groups` to `launch_agent` together with the usual project, message and request ID. The hub assigns membership before starting the runner, so the new agent's first `get_group` already sees its workspace. Omit `groupId` for a standalone chat. Retry rules and launch permissions remain the same as for other launches. Existing agents need a restarted MCP bridge to discover the new tools.
+
 ## Pinning the session title through MCP
 
 Call `change_title` with `{ "title": "Координатор", "pin": true }` to set a title and protect it from later agent renames, native title updates and automatic naming. Omit `pin` for ordinary task naming. `pin: false` behaves like an ordinary rename and does not unpin a title. The protection is stored with the session and survives continuation or restart.

@@ -108,6 +108,8 @@ export async function buildHapiMcpBridge(
         };
     }
     // Discovery shortlist only - same trust as skill_lookup / change_title.
+    tools.list_groups = { approval_mode: 'approve' };
+    tools.get_group = { approval_mode: 'approve' };
     tools.list_peers = {
         approval_mode: 'approve'
     };

@@ -1,3 +1,4 @@
+import { detachSessionFromGroup } from './sessionGroupStore'
 import type { Database } from 'bun:sqlite'
 import { prepareCached } from './statementCache'
 import { bumpSessionDeletionEpoch } from './sessionInvalidation'
@@ -505,6 +506,10 @@ export function updateSessionMetadata(
                     touch_updated_at: touchUpdatedAt ? 1 : 0
                 }
             })
+
+            if (result.result === 'success' && isArchivedSessionMetadata(merged)) {
+                detachSessionFromGroup(db, id, namespace)
+            }
 
             // Reopen flavors (--existing-session-id) never call adopt; they only
             // updateMetadata. Release the machine-spawn stub tag here so live
