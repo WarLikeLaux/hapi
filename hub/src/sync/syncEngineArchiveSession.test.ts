@@ -62,7 +62,74 @@ describe('SyncEngine.archiveSession runner reaping (#1910)', () => {
 
     beforeEach(() => {
         store = new Store(':memory:')
-        engine = new SyncEngine(store, {} as never, new RpcRegistry(), { broadcast() {} } as never)
+        engine = new SyncEngine(store, { of: () => ({ to: () => ({ emit() {} }) }) } as never, new RpcRegistry(), { broadcast() {} } as never)
+    })
+
+    it.each([true, false])('stops only the selected idle process (connected=%s) and rejects late keepalives', async (connected) => {
+        const child = Bun.spawn([process.execPath, '-e', 'setInterval(() => {}, 1000)'])
+        const sibling = Bun.spawn([process.execPath, '-e', 'setInterval(() => {}, 1000)'])
+        try {
+            const sessionId = insertActiveSession('idle-process-stop', 'test-runner')
+            const siblingId = insertActiveSession('other-process', 'test-runner')
+            const row = store.sessions.getSession(sessionId)!
+            store.sessions.updateSessionMetadata(sessionId, { ...row.metadata!, lifecycleState: 'idle' }, row.metadataVersion, NAMESPACE)
+            cache().refreshSession(sessionId)
+            if (!connected) engine.handleSessionEnd({ sid: sessionId, time: Date.now() })
+            const message = store.messages.addMessage(sessionId, { role: 'user', content: { type: 'text', text: 'Preserved conversation' } })
+            const events: Array<{ type: string; sessionId?: string }> = []
+            engine.subscribe(event => events.push(event))
+            setKillSessionMissingTarget()
+            // Controlled runner double: its stop acknowledgement follows actual
+            // child exit. It can only signal the child owned by this scenario.
+            ;(engine as unknown as { rpcGateway: { stopRunnerSession: unknown } }).rpcGateway.stopRunnerSession =
+                async (machineId: string, targetId: string) => {
+                    expect(machineId).toBe('test-runner')
+                    expect(targetId).toBe(sessionId)
+                    child.kill()
+                    await child.exited
+                    return 'stopped'
+                }
+
+            await engine.archiveSession(sessionId)
+            expect(() => process.kill(child.pid, 0)).toThrow()
+            expect(() => process.kill(sibling.pid, 0)).not.toThrow()
+            expect(cache().getSession(siblingId)?.active).toBe(true)
+            expect(store.messages.getMessages(sessionId, 100)).toEqual([message])
+            expect(events.some(event => event.type === 'session-updated' && event.sessionId === sessionId)).toBe(true)
+            engine.handleSessionAlive({ sid: sessionId, time: Date.now() })
+            cache().reconcileKeepaliveIdle(Date.now() + 86_400_000, 1)
+            expect(cache().getSession(sessionId)?.active).toBe(false)
+            expect(cache().getSession(sessionId)?.metadata?.lifecycleState).toBe('archived')
+            expect(store.sessions.getSession(sessionId)?.metadata).toMatchObject({ restoreOnRestart: false })
+        } finally {
+            child.kill()
+            sibling.kill()
+            await Promise.all([child.exited, sibling.exited])
+        }
+    })
+
+    it('stops a parked session without requiring its former runner and preserves history', async () => {
+        const sessionId = insertActiveSession('parked-stop', 'machine-offline')
+        // Arrange an already confirmed parked row, as persisted by parkSession.
+        cache().markSessionParkedFromHub(sessionId, "Parked for test")
+        engine.handleSessionEnd({ sid: sessionId, time: Date.now() })
+        const message = store.messages.addMessage(sessionId, { role: 'user', content: { type: 'text', text: 'Retain this history' } })
+        setKillSessionMissingTarget()
+        let runnerCalls = 0
+        ;(engine as unknown as { rpcGateway: { stopRunnerSession: unknown } }).rpcGateway.stopRunnerSession =
+            async () => { runnerCalls++; throw new Error('machine offline') }
+
+        await engine.archiveSession(sessionId)
+
+        expect(runnerCalls).toBe(0)
+        expect(cache().getSession(sessionId)?.active).toBe(false)
+        expect(cache().getSession(sessionId)?.metadata?.lifecycleState).toBe('archived')
+        expect(cache().getSession(sessionId)?.metadata?.restoreOnRestart).toBe(false)
+        expect(store.messages.getMessages(sessionId, 100)).toEqual([message])
+        engine.handleSessionAlive({ sid: sessionId, time: Date.now() })
+        cache().reconcileKeepaliveIdle(Date.now() + 86_400_000, 1)
+        expect(cache().getSession(sessionId)?.active).toBe(false)
+        expect(cache().getSession(sessionId)?.metadata?.lifecycleState).toBe('archived')
     })
 
     it('does not archive when the runner confirms still_alive after KillSession miss', async () => {
@@ -115,19 +182,18 @@ describe('SyncEngine.archiveSession runner reaping (#1910)', () => {
         expect(session?.metadata?.lifecycleState).toBe('archived')
     })
 
-    it('falls back to archiving when the session has no known machine', async () => {
+    it('refuses to claim a stop when neither CLI nor machine can confirm termination', async () => {
         const sessionId = insertActiveSession('sess-no-machine')
         setKillSessionMissingTarget()
         let stopRunnerSessionCalled = false
         ;(engine as unknown as { rpcGateway: { stopRunnerSession: unknown } }).rpcGateway.stopRunnerSession =
             async () => { stopRunnerSessionCalled = true; return 'already_gone' }
 
-        await engine.archiveSession(sessionId)
+        await expect(engine.archiveSession(sessionId)).rejects.toThrow('Session is unreachable; termination could not be confirmed')
 
         expect(stopRunnerSessionCalled).toBe(false)
-        const session = cache().getSession(sessionId)
-        expect(session?.active).toBe(false)
-        expect(session?.metadata?.lifecycleState).toBe('archived')
+        expect(cache().getSession(sessionId)?.active).toBe(true)
+        expect(cache().getSession(sessionId)?.metadata?.lifecycleState).not.toBe('archived')
     })
 
     it('emits Socket.IO update-session when hub-authoring archive without a machine (#1910)', async () => {
@@ -145,7 +211,7 @@ describe('SyncEngine.archiveSession runner reaping (#1910)', () => {
         }
         engine = new SyncEngine(store, io as never, new RpcRegistry(), { broadcast() {} } as never)
         const sessionId = insertActiveSession('sess-hub-archive-socket')
-        setKillSessionMissingTarget()
+        setKillSessionOk()
 
         await engine.archiveSession(sessionId)
 
@@ -159,11 +225,15 @@ describe('SyncEngine.archiveSession runner reaping (#1910)', () => {
         expect(body.metadata.version).toBeGreaterThan(0)
     })
 
-    it('does NOT archive when both KillSession and machine StopSession targets are missing', async () => {
+    it.each([true, false])('does NOT archive an idle session (active=%s) when CLI and runner are unreachable', async (active) => {
         // #1911 bot Major: both RPC targets missing is not proof the detached
         // CLI exited (KillMode=process orphans survive). Keep the row
         // unconfirmed until StopSession can run after the runner reconnects.
         const sessionId = insertActiveSession('sess-machine-unreachable', 'machine-x')
+        const stored = store.sessions.getSession(sessionId)!
+        store.sessions.updateSessionMetadata(sessionId, { ...stored.metadata!, lifecycleState: 'idle' }, stored.metadataVersion, NAMESPACE)
+        cache().refreshSession(sessionId)
+        if (!active) engine.handleSessionEnd({ sid: sessionId, time: Date.now() })
         setKillSessionMissingTarget()
         ;(engine as unknown as { rpcGateway: { stopRunnerSession: unknown } }).rpcGateway.stopRunnerSession =
             async () => { throw new RpcTargetMissingError('StopSession', 'handler-not-registered') }
@@ -171,8 +241,8 @@ describe('SyncEngine.archiveSession runner reaping (#1910)', () => {
         await expect(engine.archiveSession(sessionId)).rejects.toThrow()
 
         const session = cache().getSession(sessionId)
-        expect(session?.active).toBe(true)
-        expect(session?.metadata?.lifecycleState).not.toBe('archived')
+        expect(session?.active).toBe(active)
+        expect(session?.metadata?.lifecycleState).toBe('idle')
     })
 
     it('does NOT archive when machine StopSession is missing but KillSession was reachable', async () => {
@@ -327,18 +397,20 @@ describe('SyncEngine.archiveSession runner reaping (#1910)', () => {
         expect(session?.metadata?.lifecycleState).not.toBe('archived')
     })
 
-    it('archives a terminal session when no runner is connected', async () => {
+    it.each([true, false])('requires a reachable terminal CLI (reachable=%s) when its runner is offline', async (reachable) => {
         const sessionId = insertActiveSession('sess-terminal-no-runner', 'machine-x', undefined, {
             startedBy: 'terminal',
         })
-        setKillSessionOk()
+        if (reachable) setKillSessionOk()
+        else setKillSessionMissingTarget()
         ;(engine as unknown as { rpcGateway: { stopRunnerSession: unknown } }).rpcGateway.stopRunnerSession =
             async () => { throw new Error('machine offline') }
 
-        await engine.archiveSession(sessionId)
+        if (reachable) await engine.archiveSession(sessionId)
+        else await expect(engine.archiveSession(sessionId)).rejects.toThrow('termination could not be confirmed')
 
-        expect(cache().getSession(sessionId)?.active).toBe(false)
-        expect(cache().getSession(sessionId)?.metadata?.lifecycleState).toBe('archived')
+        expect(cache().getSession(sessionId)?.active).toBe(!reachable)
+        expect(cache().getSession(sessionId)?.metadata?.lifecycleState === 'archived').toBe(reachable)
     })
 
     it('archives a never-started machine-spawn stub when StopSession returns unknown (no hostPid)', async () => {

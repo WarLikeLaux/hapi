@@ -1,3 +1,4 @@
+import { isLiveLifecycleState, isParkedLifecycleState } from '@hapi/protocol'
 import {
     useEffect,
     useId,
@@ -22,6 +23,7 @@ type SessionActionMenuProps = {
     sessionId: string
     sessionTitle: string
     sessionActive: boolean
+    sessionLifecycleState?: string
     onRename: () => void
     onRegenerateTitle?: () => void
     sessionPinned?: boolean
@@ -263,6 +265,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         sessionId,
         sessionTitle,
         sessionActive,
+        sessionLifecycleState,
         onRename,
         onRegenerateTitle,
         sessionPinned = false,
@@ -792,24 +795,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                                 {t('session.action.park')}
                             </button>
                         ) : null}
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={`${baseItemClassName} text-red-500 hover:bg-red-500/10`}
-                            onClick={handleArchive}
-                        >
-                            <StopIcon className="text-red-500" />
-                            {t('session.action.archive')}
-                        </button>
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={`${baseItemClassName} text-red-500 hover:bg-red-500/10`}
-                            onClick={handleDelete}
-                        >
-                            <TrashIcon className="text-red-500" />
-                            {t('session.action.delete')}
-                        </button>
                     </>
                 ) : (
                     <>
@@ -842,17 +827,28 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                                 {reopenDisabledReason ?? reopenHint ?? t('session.action.reopen')}
                             </HoverTooltip>
                         ) : null}
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={`${baseItemClassName} text-red-500 hover:bg-red-500/10`}
-                            onClick={handleDelete}
-                        >
-                            <TrashIcon className="text-red-500" />
-                            {t('session.action.delete')}
-                        </button>
                     </>
                 )}
+                {sessionActive || isLiveLifecycleState(sessionLifecycleState) || isParkedLifecycleState(sessionLifecycleState) ? (
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`${baseItemClassName} text-red-500 hover:bg-red-500/10`}
+                        onClick={handleArchive}
+                    >
+                        <StopIcon className="text-red-500" />
+                        {t('session.action.archive')}
+                    </button>
+                ) : null}
+                <button
+                    type="button"
+                    role="menuitem"
+                    className={`${baseItemClassName} text-red-500 hover:bg-red-500/10`}
+                    onClick={handleDelete}
+                >
+                    <TrashIcon className="text-red-500" />
+                    {t('session.action.delete')}
+                </button>
             </div>
         </div>
     )

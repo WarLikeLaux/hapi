@@ -178,6 +178,7 @@ export function SessionItemActions(props: {
             sessionId={s.id}
             sessionTitle={sessionName}
             sessionActive={s.active}
+            sessionLifecycleState={s.metadata?.lifecycleState}
             sessionPinned={Boolean(s.pinned)}
             sessionGlobalPinned={Boolean(s.globalPinned)}
             currentContext={props.currentContext}

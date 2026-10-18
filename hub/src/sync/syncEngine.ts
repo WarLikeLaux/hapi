@@ -7,7 +7,7 @@
  * - No E2E encryption; data is stored as JSON in SQLite
  */
 
-import { MACHINE_CAPABILITIES, isKnownFlavor, isLiveLifecycleState, isSteeringSupportedForSession, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
+import { MACHINE_CAPABILITIES, isKnownFlavor, isLiveLifecycleState, isParkedLifecycleState, isSteeringSupportedForSession, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
 import {
     cliBinaryUpdatedOnDisk,
     isMachineCapabilitySkewed,
@@ -70,6 +70,13 @@ import {
 } from './rpcGateway'
 import { SessionCache } from './sessionCache'
 import { ingestNotifySummaryFromMessage } from './workGraphNotifyIngest'
+
+export class SessionStopUnconfirmedError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'SessionStopUnconfirmedError'
+    }
+}
 
 type PiResumeAttempt = NonNullable<NonNullable<Session['metadata']>['piResumeAttempt']>
 type PtyResumeAttempt = NonNullable<NonNullable<Session['metadata']>['ptyResumeAttempt']>
@@ -615,6 +622,15 @@ export class SyncEngine {
         serviceTier?: string | null
         collaborationMode?: CodexCollaborationMode
     }): void {
+        const session = this.sessionCache.getSession(payload.sid)
+        if (session && !session.active && (
+            session.metadata?.lifecycleState === 'archived'
+            || isParkedLifecycleState(session.metadata?.lifecycleState)
+        )) {
+            // A queued keepalive from the stopped owner must not revive it.
+            // Explicit reopen clears the stopped lifecycle before spawning.
+            return
+        }
         this.sessionCache.handleSessionAlive(payload)
         this.messageService.replayImmediateQueuedMessages(payload.sid)
         this.triggerDedupIfNeeded(payload.sid)
@@ -2000,6 +2016,15 @@ export class SyncEngine {
         if (!preArchiveRow || !isMachineSpawnPreallocatedStub(preArchiveRow)) {
             this.sessionCache.setSessionRestoreOnRestart(sessionId, false)
         }
+        const session = this.sessionCache.getSession(sessionId)
+        if (session && !session.active && isParkedLifecycleState(session.metadata?.lifecycleState)) {
+            // Park already confirmed process termination. Stop now archives the
+            // retained row, even if its former runner has since gone offline.
+            this.sessionCache.markSessionArchivedFromHub(sessionId, 'Stopped parked session from hub')
+            this.emitCliSessionMetadataUpdate(sessionId)
+            this.handleSessionEnd({ sid: sessionId, time: Date.now() })
+            return
+        }
         let cliUnreachable = false
         let killPid: number | undefined
         let killProcessStartMarker: string | undefined
@@ -2086,17 +2111,23 @@ export class SyncEngine {
                 }
             }
             if (status === 'still_alive' || status === 'unknown') {
-                throw new Error('Session process is still running and could not be stopped')
+                throw new SessionStopUnconfirmedError('Session process is still running and could not be stopped. Reconnect its runner and retry.')
             }
-        } else if (machineId && !runnerSpawned) {
-            // Terminal / non-runner sessions: KillSession is the primary stop.
-            // Best-effort machine StopSession when a runner is connected; do not
-            // refuse archive when no runner exists (#1911 bot Major).
+        } else if (machineId) {
+            // Terminal sessions can have a runner, but KillSession remains the
+            // primary stop. If it was unreachable, require runner exit proof.
+            let runnerConfirmed = false
             try {
-                await this.rpcGateway.stopRunnerSession(machineId, sessionId)
+                const status = await this.rpcGateway.stopRunnerSession(machineId, sessionId)
+                runnerConfirmed = status === 'stopped' || status === 'already_gone'
             } catch {
-                // ignore — terminal archive proceeds after KillSession
+                // A missing runner is safe only after the CLI accepted Stop.
             }
+            if (cliUnreachable && !runnerConfirmed) {
+                throw new SessionStopUnconfirmedError('Session is unreachable; termination could not be confirmed. Reconnect its CLI or runner and retry.')
+            }
+        } else if (cliUnreachable) {
+            throw new SessionStopUnconfirmedError('Session is unreachable; termination could not be confirmed. Reconnect its CLI or runner and retry.')
         }
 
         // KillSession cleanup writes archive metadata asynchronously; StopSession
@@ -3723,7 +3754,8 @@ export class SyncEngine {
             // above already captured archiveSnapshot while the row was archived.
             const liveBeforeSpawn = this.sessionCache.getSessionByNamespace(access.sessionId, namespace)
                 ?? this.sessionCache.refreshSession(access.sessionId)
-            if (liveBeforeSpawn?.metadata?.lifecycleState === 'archived') {
+            if (liveBeforeSpawn?.metadata?.lifecycleState === 'archived'
+                || isParkedLifecycleState(liveBeforeSpawn?.metadata?.lifecycleState)) {
                 try {
                     await this.sessionCache.clearSessionArchiveMetadata(access.sessionId)
                 } catch (error) {

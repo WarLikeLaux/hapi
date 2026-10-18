@@ -1,3 +1,4 @@
+import { SessionStopUnconfirmedError } from '../../sync/syncEngine'
 import { describe, expect, it } from 'bun:test'
 import { Hono } from 'hono'
 import type { Session, SyncEngine } from '../../sync/syncEngine'
@@ -1513,7 +1514,7 @@ describe('sessions routes', () => {
         // session finally loses its socket it must stay archivable, exactly
         // like a stale 'running' row — comparing against the 'running'
         // literal here would strand it behind a 409.
-        it('archives an inactive session left in the keepalive-idle lifecycle', async () => {
+        it.each(['idle', 'parked'])('archives an inactive %s session from Idle', async (lifecycleState) => {
             const calls: string[] = []
             const session = createSession({
                 active: false,
@@ -1521,7 +1522,7 @@ describe('sessions routes', () => {
                     path: '/tmp/project',
                     host: 'localhost',
                     flavor: 'cursor',
-                    lifecycleState: 'idle'
+                    lifecycleState
                 }
             })
             const { app } = createApp(session, {
@@ -1591,6 +1592,15 @@ describe('sessions routes', () => {
 
             const response = await app.request('/api/sessions/session-1/archive', { method: 'POST' })
             expect(response.status).toBe(500)
+        })
+
+        it('returns a recoverable error when process termination cannot be confirmed', async () => {
+            const { app } = createApp(createSession({ active: true }), {
+                archiveSession: async () => { throw new SessionStopUnconfirmedError('Reconnect the runner and retry.') }
+            })
+            const response = await app.request('/api/sessions/session-1/archive', { method: 'POST' })
+            expect(response.status).toBe(409)
+            expect(await response.json()).toEqual({ error: 'Reconnect the runner and retry.', code: 'stop_unconfirmed' })
         })
 
         it('returns 404 when the session id is unknown', async () => {

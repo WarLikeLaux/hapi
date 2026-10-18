@@ -1038,10 +1038,21 @@ export class ApiClient {
     }
 
     async archiveSession(sessionId: string): Promise<void> {
-        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/archive`, {
-            method: 'POST',
-            body: JSON.stringify({})
-        })
+        try {
+            await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/archive`, {
+                method: 'POST',
+                body: JSON.stringify({})
+            })
+        } catch (error) {
+            if (error instanceof ApiError && error.code === 'stop_unconfirmed' && error.body) {
+                // The Stop dialog needs the actionable reason, without HTTP/JSON framing.
+                const payload = JSON.parse(error.body) as ErrorPayload
+                if (typeof payload.error === 'string') {
+                    throw new ApiError(payload.error, error.status, error.code, error.body)
+                }
+            }
+            throw error
+        }
     }
 
     async parkSession(sessionId: string): Promise<void> {
