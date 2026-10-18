@@ -3,7 +3,7 @@ import type { SessionSummary } from '@/types/api'
 import { getSessionUserActivityAt } from '@/components/SessionList'
 import { resolveSessionContext, type SessionContextId } from '@/lib/sessionContexts'
 
-export const RECENT_PROJECT_PATHS_LIMIT = 10
+export const WORK_PROJECT_PATHS_LIMIT = 10
 
 /**
  * Minimum lifetime session count for a project to appear in the Create Session
@@ -50,13 +50,14 @@ interface PathStats {
  * row (work-context paths, ordered by lifetime session count) and a "Recent"
  * row (everything else, ordered by recent activity). Both are filtered to
  * projects with at least {@link MIN_SESSIONS_FOR_PICKER} lifetime sessions and
- * capped at {@link recentLimit} entries per row.
+ * working projects are capped at {@link workLimit}; the Recent row fits its
+ * visible choices to the viewport and keeps the remaining projects accessible.
  */
 export function getProjectPaths(
     sessions: readonly SessionSummary[],
     machineId: string | null,
     options: SessionContextOptionsForPaths = {},
-    recentLimit: number = RECENT_PROJECT_PATHS_LIMIT,
+    workLimit: number = WORK_PROJECT_PATHS_LIMIT,
     minSessions: number = MIN_SESSIONS_FOR_PICKER
 ): ProjectPaths {
     const { workAliases = null, projectOverrides = null } = options
@@ -99,14 +100,13 @@ export function getProjectPaths(
             }
             return b.stats.latestActivity - a.stats.latestActivity
         })
-        .slice(0, recentLimit)
+        .slice(0, workLimit)
         .map((entry) => entry.path)
 
     // Recent: most recent activity first.
     const recentPaths = classified
         .filter((entry) => !entry.isWork)
         .sort((a, b) => b.stats.latestActivity - a.stats.latestActivity)
-        .slice(0, recentLimit)
         .map((entry) => entry.path)
 
     return { workPaths, recentPaths }

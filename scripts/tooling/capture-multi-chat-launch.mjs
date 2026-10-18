@@ -8,6 +8,9 @@ const origin = process.env.HAPI_PREVIEW_ORIGIN ?? 'http://127.0.0.1:5174'
 const commonPrompt = 'Найди причину медленного запуска сессий. Предложи исправление и проверь его целевыми тестами.'
 const ownPrompt = 'Проверь только обработку ошибок запуска. Опиши риски повторного создания чатов.'
 const captures = [
+    { name: 'phone-360', width: 360, height: 800, mode: 'single', dark: true },
+    { name: 'desktop', width: 1440, height: 1000, mode: 'single', dark: true },
+    { name: 'recent-overflow', width: 360, height: 800, mode: 'recent', dark: true },
     { name: 'mobile-remove-confirmation', width: 390, height: 844, mode: 'remove' },
     { name: 'menu-wide-dark', width: 1440, height: 1000, mode: 'menu', dark: true },
     { name: 'menu-mobile-dark', width: 390, height: 844, mode: 'menu', dark: true },
@@ -29,8 +32,8 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
     const requests = []
     console.log(JSON.stringify(await captureHapiUi({
         url: `${origin}/sessions/new?directory=${encodeURIComponent('/home/shandori/code/hapi')}`,
-        out: `/tmp/hapi-responsive-create-${shot.name}.png`, width: shot.width, height: shot.height,
-        expect: shot.mode === 'remove' ? '[role="dialog"]' : shot.mode === 'menu' ? '[role="menu"]' : shot.mode === 'other' ? 'article:nth-of-type(2) button:has-text("Another project")' : ['single', 'single-group', 'single-group-draft', 'return'].includes(shot.mode) ? 'button:has-text("Add another chat")' : shot.mode === 'settings' ? 'section[aria-label="Shared settings"] input[maxlength="120"]' : shot.mode === 'own' ? 'article:nth-of-type(2) input[type="text"]'
+        out: `/tmp/hapi-balanced-label-${shot.name}.png`, width: shot.width, height: shot.height,
+        expect: shot.mode === 'recent' ? '[role="dialog"][aria-label="More recent paths"]' : shot.mode === 'remove' ? '[role="dialog"]' : shot.mode === 'menu' ? '[role="menu"]' : shot.mode === 'other' ? 'article:nth-of-type(2) button:has-text("Another project")' : ['single', 'single-group', 'single-group-draft', 'return'].includes(shot.mode) ? 'button:has-text("Add another chat")' : shot.mode === 'settings' ? 'section[aria-label="Shared settings"] input[maxlength="120"]' : shot.mode === 'own' ? 'article:nth-of-type(2) input[type="text"]'
             : shot.mode === 'results' ? 'text=Launch outcome unknown' : 'button:has-text("Launch 3 chats")',
         prepare: async page => {
             await page.addInitScript(dark => {
@@ -63,15 +66,75 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
                 for (const selector of selectors) {
                     const spacing = await scope.locator(selector).evaluate(element => {
                         const block = getComputedStyle(element)
-                        const choices = getComputedStyle(element.firstElementChild)
+                        const choices = getComputedStyle(element.lastElementChild)
                         return { padding: [block.paddingTop, block.paddingRight, block.paddingBottom, block.paddingLeft], gap: [choices.rowGap, choices.columnGap] }
                     })
                     expect(spacing.padding).toEqual(Array(4).fill(shot.width >= 640 ? '12px' : '8px'))
-                    expect(spacing.gap).toEqual(Array(2).fill(shot.width >= 640 ? '12px' : '8px'))
+                    expect(spacing.gap).toEqual(Array(2).fill(shot.width >= 640 ? '12px' : selector.includes('Model') ? '4px' : '8px'))
                 }
             }
-            if (['single', 'single-group', 'single-group-draft'].includes(shot.mode)) {
-                await verifySpacing(page, ['fieldset[aria-label="Agent"]', 'section[aria-label="Model"]', 'section[aria-label="Fast mode"]'])
+            if (['single', 'single-group', 'single-group-draft', 'recent'].includes(shot.mode)) {
+                await verifySpacing(page, ['fieldset[aria-label="Agent"]', 'section[aria-label="Model"]', 'section[aria-label="Speed"]'])
+                const recent = page.getByRole('group', { name: 'Recent paths:', exact: true })
+                if (shot.name === 'phone-360') {
+                    await page.setViewportSize({ width: 1100, height: shot.height })
+                    await expect.poll(() => recent.locator('button').evaluateAll(buttons => new Set(buttons.map(button => Math.round(button.getBoundingClientRect().top))).size)).toBe(1)
+                    await page.setViewportSize({ width: shot.width, height: shot.height })
+                    await expect.poll(() => recent.locator('button').evaluateAll(buttons => new Set(buttons.map(button => Math.round(button.getBoundingClientRect().top))).size)).toBeLessThanOrEqual(2)
+                }
+                const recentRows = await recent.locator('button').evaluateAll(buttons => new Set(buttons.map(button => Math.round(button.getBoundingClientRect().top))).size)
+                expect(recentRows).toBeLessThanOrEqual(shot.width >= 640 ? 1 : 2)
+                if (shot.width < 640) {
+                    const add = await page.getByRole('button', { name: 'Add another chat', exact: true }).boundingBox()
+                    const create = await page.getByRole('button', { name: 'Create', exact: true }).boundingBox()
+                    expect(Math.abs(add.y - create.y)).toBeLessThanOrEqual(1)
+                    const agents = await page.locator('fieldset[aria-label="Agent"] label').evaluateAll(labels => new Set(labels.map(label => Math.round(label.getBoundingClientRect().top))).size)
+                    expect(agents).toBeLessThanOrEqual(2)
+                    const models = await page.locator('section[aria-label="Model"] button').evaluateAll(buttons => new Set(buttons.map(button => Math.round(button.getBoundingClientRect().top))).size)
+                    expect(models).toBe(1)
+                } else {
+                    const agentLabel = page.locator('fieldset[aria-label="Agent"]').getByText('Agent', { exact: true })
+                    const modelLabel = page.locator('section[aria-label="Model"]').getByText('Model', { exact: true })
+                    const speedLabel = page.getByRole('group', { name: 'Speed', exact: true }).getByText('Speed', { exact: true })
+                    await expect(speedLabel).toBeVisible()
+                    await expect(agentLabel).toBeVisible()
+                    await expect(modelLabel).toBeVisible()
+                    const agent = await agentLabel.boundingBox()
+                    const model = await modelLabel.boundingBox()
+                    expect(Math.abs(agent.x + agent.width - model.x - model.width)).toBeLessThanOrEqual(1)
+                    const speed = await speedLabel.boundingBox()
+                    expect(Math.abs(speed.x + speed.width - model.x - model.width)).toBeLessThanOrEqual(1)
+                    for (const label of [agentLabel, modelLabel, speedLabel]) {
+                        const spacing = await label.evaluate(element => {
+                            const caption = element.parentElement
+                            const rule = caption.getBoundingClientRect()
+                            const text = document.createRange()
+                            text.selectNodeContents(element)
+                            const firstChoice = caption.nextElementSibling.querySelector('button, label').getBoundingClientRect()
+                            return {
+                                before: rule.right - parseFloat(getComputedStyle(caption).borderRightWidth) - text.getBoundingClientRect().right,
+                                after: firstChoice.left - rule.right,
+                            }
+                        })
+                        expect(spacing.before).toBeCloseTo(12, 1)
+                        expect(spacing.after).toBeCloseTo(12, 1)
+                    }
+                }
+                if (shot.mode === 'recent') {
+                    await recent.getByRole('button', { name: 'More recent paths' }).click()
+                    const popover = page.getByRole('dialog', { name: 'More recent paths' })
+                    const path = await popover.getByRole('button').last().getAttribute('title')
+                    await popover.getByRole('button').last().click()
+                    await expect(page.getByRole('textbox', { name: 'Directory', exact: true })).toHaveValue(path)
+                    await expect(popover).toHaveCount(0)
+                    await recent.getByRole('button', { name: 'More recent paths' }).click()
+                    await page.setViewportSize({ width: 1440, height: shot.height })
+                    await expect(popover).toHaveCount(0)
+                    await page.setViewportSize({ width: shot.width, height: shot.height })
+                    await expect(recent.getByRole('button', { name: 'More recent paths' })).toBeVisible()
+                    await expect(popover).toHaveCount(0)
+                    await recent.getByRole('button', { name: 'More recent paths' }).click()
+                }
                 await expect(page.getByRole('article')).toHaveCount(0)
                 await expect(page.getByRole('textbox', { name: 'Shared initial prompt (optional)' })).toHaveCount(0)
                 if (shot.mode === 'single-group' || shot.mode === 'single-group-draft') {
@@ -178,8 +241,10 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
                     await expect(second.getByRole('textbox', { name: 'Another project', exact: true })).toHaveCount(0)
                 }
                 await verifySpacing(second, ['fieldset[aria-label="Agent"]', 'section[aria-label="Model"]'])
-                await expect(second.getByText('Agent', { exact: true })).toHaveCount(0)
-                await expect(second.getByText('Model', { exact: true })).toHaveCount(0)
+                for (const label of ['Agent', 'Model']) {
+                    if (shot.width >= 640) await expect(second.getByText(label, { exact: true })).toBeVisible()
+                    else await expect(second.getByText(label, { exact: true })).toBeHidden()
+                }
                 await second.getByRole('textbox', { name: 'Prompt for this chat (optional)' }).evaluate(element => element.scrollIntoView({ block: 'center' }))
             } else if (shot.mode === 'overview') {
                 await expect(page.getByText('Exact initial prompt', { exact: true })).toHaveCount(0)
