@@ -1,7 +1,7 @@
 import type { SessionGroup } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
 import { isWorkingSession } from './navigationBadges'
-import { getSessionUnreadActivityAt, sessionIsUnread } from './sessionAttention'
+import { classifySessionAttention } from './sessionAttention'
 
 export type GroupSection = 'active' | 'working' | 'idle' | 'recent'
 
@@ -16,12 +16,16 @@ export function presentSessionGroup(
         return chat && chat.metadata?.lifecycleState !== 'archived' ? [chat] : []
     })
     const questions = chats.filter(chat => (chat.pendingRequestsCount ?? 0) > 0 || (chat.pendingAsyncQuestionsCount ?? 0) > 0).length
-    const unread = chats.filter(chat => sessionIsUnread(chat, { lastSeenAt: lastSeenAt(chat.id) })
-        || manualUnreadAt(chat.id) === getSessionUnreadActivityAt(chat)).length
+    const unread = chats.filter(chat => classifySessionAttention(chat, {
+        selected: false, lastSeenAt: lastSeenAt(chat.id), manualUnreadAt: manualUnreadAt(chat.id),
+    })?.kind === 'unread').length
     const working = chats.filter(isWorkingSession).length
     const live = chats.filter(chat => chat.active)
     const flavors = [...new Set(live.flatMap(chat => chat.metadata?.flavor ? [chat.metadata.flavor] : []))].sort()
+    // Quiet, reachable chats remain ready in Active, just like standalone chats.
+    // Idle is a lifecycle state, not the absence of foreground work.
     const section: GroupSection = questions || unread ? 'active' : working ? 'working'
+        : live.some(chat => chat.metadata?.lifecycleState !== 'idle') ? 'active'
         : live.length || chats.some(chat => chat.metadata?.lifecycleState === 'parked') ? 'idle' : 'recent'
     return { chats, questions, unread, working, flavors, section,
         activityAt: Math.max(group.updatedAt, ...chats.map(chat => chat.lastAgentMessageAt ?? chat.updatedAt)) }

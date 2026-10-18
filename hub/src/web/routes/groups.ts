@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { CreateSessionGroupSchema, SessionGroupMemberSchema, UpdateSessionGroupSchema, toSessionSummary } from '@hapi/protocol'
 import { SessionGroupError } from '../../store/sessionGroupStore'
 import type { SyncEngine } from '../../sync/syncEngine'
@@ -34,12 +35,17 @@ export function createGroupsRoutes(getSyncEngine: () => SyncEngine | null): Hono
     app.post('/groups', async c => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) return engine
-        const input = CreateSessionGroupSchema.safeParse(await c.req.json().catch(() => null))
-        if (!input.success) return c.json({ error: 'Enter a group name (1–120 characters)' }, 400)
+        const input = CreateSessionGroupSchema.extend({ requestId: z.string().trim().min(1).max(512).optional() }).safeParse(await c.req.json().catch(() => null))
+        if (!input.success) return c.json({ error: 'Enter a group name (1–120 characters) and a valid request ID (1–512 characters) if supplied' }, 400)
         const namespace = c.get('namespace')
-        const group = engine.groups.create(namespace, input.data.name)
-        engine.publishGroupsChanged(namespace)
-        return c.json({ group }, 201)
+        try {
+            const group = engine.groups.create(namespace, input.data.name, input.data.requestId)
+            engine.publishGroupsChanged(namespace)
+            return c.json({ group }, 201)
+        } catch (error) {
+            if (error instanceof SessionGroupError) return c.json({ error: error.message }, error.status)
+            throw error
+        }
     })
     app.post('/groups/:id/members', async c => {
         const engine = requireSyncEngine(c, getSyncEngine)

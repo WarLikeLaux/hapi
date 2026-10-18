@@ -1,6 +1,7 @@
 import { useSessionGroups } from '@/hooks/queries/useSessionGroups'
-import { CreateGroupDialog, GroupIcon, SessionGroupWorkspace } from '@/components/SessionGroups'
-import type { SessionGroup, UpdateSessionGroup } from '@hapi/protocol'
+import { SessionGroupWorkspace } from '@/components/SessionGroups'
+import { CREATABLE_AGENT_FLAVORS, type SessionGroup, type UpdateSessionGroup } from '@hapi/protocol'
+import type { AgentType } from '@/components/NewSession/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -174,7 +175,6 @@ function SessionsPage() {
     const [initializedHub, setInitializedHub] = useState<string | null>(null)
     const [limitsOpen, setLimitsOpen] = useState(false)
     const groupState = useSessionGroups(api)
-    const [createGroupOpen, setCreateGroupOpen] = useState(false)
     const groupRoute = matchRoute({ to: '/sessions/groups/$groupId', fuzzy: true })
     const sessionSearch = useSearch({ strict: false })
     const creationGroupId = pathname === '/sessions/new' ? sessionSearch.groupId : undefined
@@ -248,9 +248,6 @@ function SessionsPage() {
 
     return (
         <>
-            <CreateGroupDialog key={String(createGroupOpen)} open={createGroupOpen} onClose={() => setCreateGroupOpen(false)}
-                pending={groupState.mutation.isPending} error={groupState.mutation.error?.message}
-                onCreate={async name => { try { const { group } = await groupState.mutation.mutateAsync({ name }); setCreateGroupOpen(false); openGroup(group) } catch { /* displayed in dialog */ } }} />
             <QuotaLimitsModal isOpen={limitsOpen} onClose={() => setLimitsOpen(false)} />
             <div className="flex h-full min-h-0">
             <div
@@ -285,8 +282,6 @@ function SessionsPage() {
                         renderHeader={false}
                         headerActions={(
                             <div className="flex items-center gap-2">
-                                <button type="button" onClick={() => { groupState.mutation.reset(); setCreateGroupOpen(true) }} title={t('groups.create')} aria-label={t('groups.create')}
-                                    className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--app-link)] hover:bg-[var(--app-subtle-bg)]"><GroupIcon /></button>
                                 <button
                                     type="button"
                                     onClick={() => setLimitsOpen(true)}
@@ -962,6 +957,17 @@ function NewSessionPage() {
         error: continueFromError,
     } = useSession(api, continueFromSessionId ?? null)
 
+    const creationGroups = useSessionGroups(api)
+    const creationSessions = useSessions(api)
+    const creationGroup = creationGroups.groups.find(group => group.id === groupId)
+    const firstChat = creationSessions.sessions.find(session => session.id === creationGroup?.members[0]?.sessionId)
+    const firstMachine = machines.find(machine => machine.id === firstChat?.metadata?.machineId)
+    const firstFlavor = firstChat?.metadata?.flavor
+    const firstAgent = firstFlavor && (CREATABLE_AGENT_FLAVORS as readonly string[]).includes(firstFlavor)
+        ? firstFlavor as AgentType : undefined
+    const groupLoading = Boolean(groupId) && (creationGroups.query.isPending || creationSessions.isLoading || machinesLoading)
+    const groupError = Boolean(groupId) && (creationGroups.query.isError || Boolean(creationSessions.error) || (!groupLoading && !creationGroup))
+
     const handleCancel = useCallback(() => {
         if (shareTransferId) {
             void deleteShareTransfer(shareTransferId)
@@ -1044,7 +1050,9 @@ function NewSessionPage() {
                     </div>
                 ) : null}
 
-                {continueFromSessionId && continueFromLoading ? (
+                {groupLoading ? <LoadingState label={t('groups.loadPending')} className="p-4 text-sm" />
+                : groupError ? <div role="alert" className="p-3 text-sm text-red-600">{t('groups.loadError')} <button type="button" className="underline" onClick={() => { void creationGroups.query.refetch(); void creationSessions.refetch() }}>{t('button.retry')}</button></div>
+                : continueFromSessionId && continueFromLoading ? (
                     <LoadingState label={t('newSession.continue.loading')} className="p-4 text-sm" />
                 ) : continueFromSessionId && !continueFromSession ? (
                     <div className="p-3 text-sm text-red-600">
@@ -1057,9 +1065,13 @@ function NewSessionPage() {
                     onCancel={handleCancel}
                     onSuccess={handleSuccess}
                     onChooseFolder={handleChooseFolder}
+                    key={groupId ?? 'standalone'}
                     groupId={groupId}
-                    initialDirectory={initialDirectory}
-                    initialMachineId={initialMachineId}
+                    groupName={creationGroup?.name}
+                    initialDirectory={initialDirectory ?? (firstMachine ? firstChat?.metadata?.path : undefined)}
+                    initialMachineId={initialMachineId ?? firstMachine?.id}
+                    initialAgent={firstAgent}
+                    groupDefaultsUnavailable={Boolean(firstChat && (!firstMachine || !firstAgent))}
                     continueFromSession={continueFromSession ?? undefined}
                 />}
             </div>

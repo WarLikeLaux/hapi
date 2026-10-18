@@ -186,6 +186,9 @@ function OtherModelsButton(props: {
 
 export function NewSession(props: {
     groupId?: string
+    groupName?: string
+    initialAgent?: AgentType
+    groupDefaultsUnavailable?: boolean
     api: ApiClient
     machines: Machine[]
     isLoading?: boolean
@@ -209,9 +212,14 @@ export function NewSession(props: {
         : null
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
+    const [createGroup, setCreateGroup] = useState(false)
+    const [groupName, setGroupName] = useState('')
+    const groupRequestRef = useRef<{ name: string; requestId: string } | null>(null)
+    const [createdGroup, setCreatedGroup] = useState<{ id: string; name: string } | null>(null)
+
     const [suppressSuggestions, setSuppressSuggestions] = useState(false)
     const [isDirectoryFocused, setIsDirectoryFocused] = useState(false)
-    const [agent, setAgent] = useState<AgentType>(() => continueAgent ?? loadPreferredAgent())
+    const [agent, setAgent] = useState<AgentType>(() => continueAgent ?? props.initialAgent ?? loadPreferredAgent())
     // Snapshot taken once at mount, before any savePreferredAgent() call this
     // component makes can overwrite the stored agent. savePreferredAgent()
     // runs on every agent change (below), so reading loadPreferredAgent()
@@ -241,7 +249,7 @@ export function NewSession(props: {
     // Fork: YOLO is the launch default for every flavor — native-select
     // flavors start at their own YOLO-equivalent mode (claude/grok map to
     // bypassPermissions, codex family to yolo).
-    const [nativePermissionMode, setNativePermissionMode] = useState<PermissionMode>(() => continueFrom?.permissionMode ?? continueFrom?.metadata?.preferredPermissionMode ?? resolveHapiYoloPermissionMode(continueAgent ?? loadPreferredAgent()) ?? 'default')
+    const [nativePermissionMode, setNativePermissionMode] = useState<PermissionMode>(() => continueFrom?.permissionMode ?? continueFrom?.metadata?.preferredPermissionMode ?? resolveHapiYoloPermissionMode(continueAgent ?? props.initialAgent ?? loadPreferredAgent()) ?? 'default')
     const [grokPermissionMode, setGrokPermissionMode] = useState<GrokPermissionMode>('bypassPermissions')
     const [sessionType, setSessionType] = useState<SessionType>('simple')
     const [worktreeName, setWorktreeName] = useState('')
@@ -351,13 +359,18 @@ export function NewSession(props: {
             return
         }
         const draft = loadNewSessionFormDraft()
-        if (!draft) {
+        if (!draft || draft.groupId !== props.groupId) {
             return
         }
         const targetMachineId = props.initialMachineId ?? machineId
         if (!newSessionDraftMatchesMachine(draft, targetMachineId)) {
             clearNewSessionFormDraft()
             return
+        }
+        if (!props.groupId && draft.groupCreation) {
+            setCreateGroup(true)
+            setGroupName(draft.groupCreation.name)
+            groupRequestRef.current = draft.groupCreation
         }
         restoredFromBrowseRef.current = true
         preserveRestoredDraftRef.current = true
@@ -1680,6 +1693,11 @@ export function NewSession(props: {
             return
         }
         saveNewSessionFormDraft({
+            groupId: props.groupId,
+            groupCreation: createGroup ? {
+                name: groupName.trim(),
+                requestId: groupRequestRef.current?.name === groupName.trim() ? groupRequestRef.current.requestId : crypto.randomUUID(),
+            } : undefined,
             agent,
             model: agent === 'agy'
                 ? (agySelectedModel ?? 'auto')
@@ -1702,6 +1720,9 @@ export function NewSession(props: {
         props.onChooseFolder({ machineId, directory: trimmedDirectory })
     }, [
         props.onChooseFolder,
+        props.groupId,
+        createGroup,
+        groupName,
         agent,
         model,
         opencodeSelectedModel,
@@ -1864,6 +1885,27 @@ export function NewSession(props: {
                 ? collaborationMode
                 : undefined
 
+            let targetGroupId = props.groupId
+            if (!targetGroupId && createGroup) {
+                const name = groupName.trim()
+                if (!name || name.length > 120) { setError(t('groups.invalidName')); return }
+                if (groupRequestRef.current?.name !== name) groupRequestRef.current = { name, requestId: crypto.randomUUID() }
+                const { group } = await props.api.createGroup(name, groupRequestRef.current.requestId)
+                setCreatedGroup(group)
+                targetGroupId = group.id
+            }
+
+            const finishImportedSession = async (sessionId: string) => {
+                if (!props.groupId && targetGroupId) {
+                    try {
+                        await props.api.addGroupChat(targetGroupId, sessionId)
+                    } catch (error) {
+                        addToast({ title: t('groups.addFailed'), body: error instanceof Error ? error.message : '', sessionId, url: `/sessions/${sessionId}` })
+                    }
+                }
+                props.onSuccess(sessionId)
+            }
+
             if (agent === 'codex' && selectedCodexImportSession) {
                 setIsImportingCodexSession(true)
                 const result = await props.api.syncCodexSession({
@@ -1894,7 +1936,7 @@ export function NewSession(props: {
                     savePreferredLaunchSettings(machineId, agent, preferredLaunchSettings)
                     clearNewSessionFormDraft()
                     setLastUsedMachineId(machineId)
-                    props.onSuccess(resumedSessionId)
+                    await finishImportedSession(resumedSessionId)
                     return
                 }
                 setIsImportingCodexSession(false)
@@ -1923,12 +1965,12 @@ export function NewSession(props: {
                 savePreferredLaunchSettings(machineId, agent, preferredLaunchSettings)
                 clearNewSessionFormDraft()
                 setLastUsedMachineId(machineId)
-                props.onSuccess(reopened.sessionId)
+                await finishImportedSession(reopened.sessionId)
                 return
             }
 
             const result = await spawnSession({
-                groupId: props.groupId,
+                groupId: targetGroupId,
                 machineId,
                 directory: trimmedDirectory,
                 agent,
@@ -2044,6 +2086,7 @@ export function NewSession(props: {
         && selectedAgentAvailable
         && !isLaunchPreferenceValidationPending
         && !fastModeSelectionPending
+        && (!createGroup || (groupName.trim().length > 0 && groupName.trim().length <= 120))
     )
 
     return (
@@ -2053,6 +2096,21 @@ export function NewSession(props: {
                     {t('newSession.continue.description', { title: getSessionTitle(continueFrom) })}
                 </div>
             ) : null}
+            <div className="px-3 py-3 text-sm">
+                {props.groupId || createdGroup ? <p className="text-[var(--app-hint)]">{t('groups.newChatIn', { name: props.groupName ?? createdGroup?.name ?? '' })}</p> : <>
+                    <label className="flex cursor-pointer items-center gap-2">
+                        <input type="checkbox" checked={createGroup} disabled={isFormDisabled} onChange={event => setCreateGroup(event.target.checked)} className="h-4 w-4 accent-[var(--app-link)]" />
+                        {t('groups.createWithChat')}
+                    </label>
+                    {createGroup ? <div className="mt-3 flex flex-col gap-1 text-xs text-[var(--app-hint)]">
+                        <label htmlFor="new-group-name">{t('groups.name')}</label>
+                        <input id="new-group-name" aria-describedby="new-group-description" value={groupName} maxLength={120} disabled={isFormDisabled} onChange={event => setGroupName(event.target.value)} placeholder={t('groups.namePlaceholder')}
+                            className="min-h-10 rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 text-base text-[var(--app-fg)]" />
+                        <p id="new-group-description">{t('groups.firstChatHint')}</p>
+                    </div> : null}
+                </>}
+                {props.groupDefaultsUnavailable || (props.initialAgent && !agentAvailability.isLoading && !agentAvailability.error && !availableAgents.includes(props.initialAgent)) ? <p role="status" className="mt-2 text-xs text-[var(--app-hint)]">{t('groups.defaultsUnavailable')}</p> : null}
+            </div>
             {/* Fork: a single-machine setup needs no picker; it would only be
                 one more thing to scroll past on the phone. */}
             {props.machines.length > 1 ? (

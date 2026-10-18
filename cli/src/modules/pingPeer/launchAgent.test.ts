@@ -21,6 +21,8 @@ describe('agent launch over HTTP MCP', () => {
     let stopMcp: () => void
     let mcpUrl: string
     let clients: Client[]
+    let groupBodies: Record<string, unknown>[]
+    let loseGroupResponse: boolean
     let spawnBodies: Record<string, unknown>[]
     let messageBodies: Record<string, unknown>[]
     let loseSpawnResponse: boolean
@@ -30,6 +32,8 @@ describe('agent launch over HTTP MCP', () => {
     beforeEach(async () => {
         clients = []
         spawnBodies = []
+        groupBodies = []
+        loseGroupResponse = false
         messageBodies = []
         loseSpawnResponse = false
         rejectMessageOnce = false
@@ -54,6 +58,11 @@ describe('agent launch over HTTP MCP', () => {
             }
             if (req.headers.authorization !== 'Bearer test-jwt') return reply({ error: 'unauthorized' }, 401)
             const group = { id: 'group-hapi', name: 'HAPI', version: 2, updatedAt: 100, members: [{ sessionId: 'caller', pinned: true }, { sessionId: 'spawned', pinned: false }] }
+            if (path === '/api/groups' && req.method === 'POST') {
+                groupBodies.push(body)
+                if (loseGroupResponse) { loseGroupResponse = false; return req.socket.destroy() }
+                return reply({ group }, 201)
+            }
             if (path === '/api/groups') return reply({ groups: [group] })
             if (path === '/api/sessions/caller/group') return reply({ group })
             if (path === '/api/groups/group-hapi') return reply({ group, sessions })
@@ -94,10 +103,10 @@ describe('agent launch over HTTP MCP', () => {
         await new Promise<void>((resolve) => hub.close(() => resolve()))
     })
 
-    async function connect() {
+    async function connect(url = mcpUrl) {
         const client = new Client({ name: 'launch-test', version: '1' })
         clients.push(client)
-        await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl)))
+        await client.connect(new StreamableHTTPClientTransport(new URL(url)))
         return client
     }
 
@@ -136,6 +145,29 @@ describe('agent launch over HTTP MCP', () => {
         expect(spawnBodies[0]?.groupId).toBe('group-hapi')
         expect((await client.callTool({ name: 'launch_agent', arguments: { ...task, requestId: 'foreign', groupId: 'foreign' } })).isError).toBe(true)
         expect(spawnBodies).toHaveLength(1)
+    })
+
+    it('creates a group through MCP and retries an uncertain response with the same caller-scoped ID', async () => {
+        const client = await connect()
+        const args = { name: '  HAPI  ', requestId: 'new-workspace' }
+        loseGroupResponse = true
+        expect((await client.callTool({ name: 'create_group', arguments: args }) as ToolReply).isError).toBe(true)
+        const result = await client.callTool({ name: 'create_group', arguments: args }) as ToolReply
+        expect(result.isError).toBe(false)
+        const info = JSON.parse(result.content[0]!.text!)
+        expect(info).toMatchObject({ groupId: 'group-hapi', group: { id: 'group-hapi', name: 'HAPI' } })
+        expect(groupBodies).toEqual(Array(2).fill({ name: 'HAPI', requestId: expect.stringMatching(/^mcp:[a-f0-9]{64}$/) }))
+        expect(groupBodies[1]).toEqual(groupBodies[0])
+        expect((await client.callTool({ name: 'launch_agent', arguments: { ...task, groupId: info.groupId } }) as ToolReply).isError).toBe(false)
+        expect(spawnBodies[0]?.groupId).toBe(info.groupId)
+        expect((await client.callTool({ name: 'create_group', arguments: { name: '   ', requestId: 'invalid' } }) as ToolReply).isError).toBe(true)
+        expect(groupBodies).toHaveLength(2)
+        const otherServer = await startHappyServer({ sessionId: 'other-caller', updateMetadata: vi.fn() } as unknown as ApiSessionClient)
+        try {
+            const other = await connect(otherServer.url)
+            expect((await other.callTool({ name: 'create_group', arguments: args }) as ToolReply).isError).toBe(false)
+            expect(groupBodies[2]?.requestId).not.toBe(groupBodies[0]?.requestId)
+        } finally { otherServer.stop() }
     })
 
     it('coalesces concurrent launches across MCP clients and returns the receipt on retry', async () => {

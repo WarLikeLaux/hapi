@@ -48,10 +48,11 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 39
+const SCHEMA_VERSION: number = 40
 const REQUIRED_TABLES = [
     'session_groups',
     'session_group_members',
+    'session_group_creation_requests',
     'sessions',
     'machines',
     'messages',
@@ -398,6 +399,7 @@ export class Store {
             36: () => this.migrateFromV36ToV37(),
             37: () => this.migrateFromV37ToV38(),
             38: () => createSessionGroupTables(this.db),
+            39: () => createSessionGroupTables(this.db),
         })
 
         if (currentVersion === 0) {

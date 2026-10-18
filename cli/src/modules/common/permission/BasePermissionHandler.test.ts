@@ -46,7 +46,11 @@ describe('resolveToolAutoApprovalDecision ping_peer', () => {
         'launch_agent',
         'mcp__hapi__launch_agent',
         'hapi_launch_agent',
-        'Launch Agent Session'
+        'Launch Agent Session',
+        'create_group',
+        'mcp__hapi__create_group',
+        'hapi_create_group',
+        'Create Chat Group'
     ])('does not auto-approve %s in default mode', (toolName) => {
         expect(resolveToolAutoApprovalDecision('default', toolName, 'call-1')).toBeNull()
     })
@@ -59,7 +63,11 @@ describe('resolveToolAutoApprovalDecision ping_peer', () => {
         'launch_agent',
         'mcp__hapi__launch_agent',
         'hapi_launch_agent',
-        'Launch Agent Session'
+        'Launch Agent Session',
+        'create_group',
+        'mcp__hapi__create_group',
+        'hapi_create_group',
+        'Create Chat Group'
     ])('does not auto-approve %s in read-only mode', (toolName) => {
         expect(resolveToolAutoApprovalDecision('read-only', toolName, 'call-1')).toBeNull()
     })

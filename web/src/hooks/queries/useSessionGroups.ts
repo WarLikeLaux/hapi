@@ -8,9 +8,9 @@ export function useSessionGroups(api: ApiClient | null) {
     const client = useQueryClient()
     const query = useQuery({ queryKey: sessionGroupsKey, queryFn: () => api!.getGroups(), enabled: Boolean(api) })
     const mutation = useMutation({
-        mutationFn: async (input: { id: string; patch: UpdateSessionGroup } | { name: string }) => {
+        mutationFn: async (input: { id: string; patch: UpdateSessionGroup }) => {
             if (!api) throw new Error('API unavailable')
-            return 'id' in input ? api.updateGroup(input.id, input.patch) : api.createGroup(input.name)
+            return api.updateGroup(input.id, input.patch)
         },
         onSettled: () => client.invalidateQueries({ queryKey: sessionGroupsKey }),
     })
