@@ -15,7 +15,8 @@ export function presentSessionGroup(
         const chat = sessions.get(member.sessionId)
         return chat && chat.metadata?.lifecycleState !== 'archived' ? [chat] : []
     })
-    const questions = chats.filter(chat => (chat.pendingRequestsCount ?? 0) > 0 || (chat.pendingAsyncQuestionsCount ?? 0) > 0).length
+    const questions = chats.filter(chat => chat.pendingRequestKinds?.includes('input') || (chat.pendingAsyncQuestionsCount ?? 0) > 0).length
+    const permissions = chats.filter(chat => chat.pendingRequestKinds?.includes('permission')).length
     const unread = chats.filter(chat => classifySessionAttention(chat, {
         selected: false, lastSeenAt: lastSeenAt(chat.id), manualUnreadAt: manualUnreadAt(chat.id),
     })?.kind === 'unread').length
@@ -24,9 +25,9 @@ export function presentSessionGroup(
     const flavors = [...new Set(live.flatMap(chat => chat.metadata?.flavor ? [chat.metadata.flavor] : []))].sort()
     // Quiet, reachable chats remain ready in Active, just like standalone chats.
     // Idle is a lifecycle state, not the absence of foreground work.
-    const section: GroupSection = questions || unread ? 'active' : working ? 'working'
+    const section: GroupSection = questions || permissions || unread ? 'active' : working ? 'working'
         : live.some(chat => chat.metadata?.lifecycleState !== 'idle') ? 'active'
         : live.length || chats.some(chat => chat.metadata?.lifecycleState === 'parked') ? 'idle' : 'recent'
-    return { chats, questions, unread, working, flavors, section,
+    return { chats, questions, permissions, unread, working, flavors, section,
         activityAt: Math.max(group.updatedAt, ...chats.map(chat => chat.lastAgentMessageAt ?? chat.updatedAt)) }
 }

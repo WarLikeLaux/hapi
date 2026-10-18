@@ -26,13 +26,13 @@ const group: SessionGroup = {
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.restoreAllMocks() })
 
-function mount(sessionId: string, groups: SessionGroup[] | null = [group], path: string | undefined = '/work') {
+function mount(sessionId: string, groups: SessionGroup[] | null = [group], path: string | undefined = '/work', summaries = sessions) {
     const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } })
     if (groups) client.setQueryData(sessionGroupsKey, { groups })
     vi.spyOn(api, 'getGroups').mockImplementation(() => new Promise(() => {}))
     function Chat() {
         const ref = useRef<HTMLDivElement>(null)
-        useSessionChatSwipe(ref, { api, sessionId, path, sessions })
+        useSessionChatSwipe(ref, { api, sessionId, path, sessions: summaries })
         return <div ref={ref}><p>Message</p><textarea aria-label="Draft" /></div>
     }
     const view = render(<QueryClientProvider client={client}><Chat /></QueryClientProvider>)
@@ -45,6 +45,13 @@ function swipe(target: Element, dx: number, dy = 1) {
 }
 
 describe('chat swipe navigation', () => {
+    it('uses the displayed priority order when a later tab needs an answer', () => {
+        const summaries = sessions.map((session): SessionSummary => session.id === 'third' ? { ...session, pendingRequestKinds: ['input'] } : session)
+        swipe(mount('second', [group], '/work', summaries).message, 100)
+        expect(navigate).toHaveBeenCalledExactlyOnceWith({
+            to: '/sessions/$sessionId', params: { sessionId: 'third' }, resetScroll: false,
+        })
+    })
     it.each([
         ['first', -100, 'second'],
         ['second', 100, 'first'],

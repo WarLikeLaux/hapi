@@ -1,5 +1,5 @@
 import { SessionRowLayout, SessionWorkingIcon, SESSION_LIST_ITEM_CLASS } from '@/components/SessionRowLayout'
-import { SessionQuestionIcon } from '@/components/SessionAttentionIndicator'
+import { SessionAttentionGlyph, SessionQuestionIcon } from '@/components/SessionAttentionIndicator'
 import { formatRelativeTime } from '@/lib/relativeTime'
 import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { useNarrowViewport } from '@/hooks/useNarrowViewport'
@@ -26,22 +26,18 @@ export function GroupIcon({ pin = false, className }: { pin?: boolean; className
     </svg>
 }
 
-function useChatStatus(session: SessionSummary, selected = false) {
+function ChatStatus({ session, selected = false }: { session: SessionSummary; selected?: boolean }) {
     useSessionLastSeenVersion()
     const { t } = useTranslation()
-    const attention = classifySessionAttention(session, { selected, lastSeenAt: getSessionLastSeenAt(session.id), manualUnreadAt: getSessionManualUnreadAt(session.id) })
+    let attention = classifySessionAttention(session, { selected, lastSeenAt: getSessionLastSeenAt(session.id), manualUnreadAt: getSessionManualUnreadAt(session.id) })
     const permission = session.pendingRequestKinds?.includes('permission')
-    const question = permission || (attention && ['input', 'async-input', 'permission'].includes(attention.kind))
-    const label = permission && (!attention || attention.kind === 'unread') ? t('session.item.permission') : attention ? t(getSessionAttentionLabelKey(attention)) : session.thinking ? t('groups.working') : session.active ? t('groups.idle') : t('groups.archived')
-    return { label, question, unread: attention?.kind === 'unread', working: session.thinking }
-}
-
-function ChatStatus({ session, selected = false }: { session: SessionSummary; selected?: boolean }) {
-    const status = useChatStatus(session, selected)
-    const { t } = useTranslation()
-    return <span title={status.label} aria-label={status.label} className={cn('flex shrink-0 items-center gap-1 text-xs', status.question ? 'text-[var(--app-badge-warning-text)]' : 'text-[var(--app-hint)]')}>
-        {status.question ? <span className="font-semibold">?</span> : status.working ? <svg className="h-3 w-3 motion-safe:animate-spin" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="2" strokeDasharray="23 9" /></svg> : null}
-        {status.unread ? <span aria-label={t('session.item.newActivity')} className="h-2 w-2 rounded-full bg-[var(--app-link)]" /> : null}
+    if (permission && !attention && !session.thinking) attention = { kind: 'permission' }
+    const question = attention?.kind === 'input' || attention?.kind === 'async-input'
+    const working = session.active && session.thinking && (question || attention?.kind !== 'unread')
+    return <span className="flex shrink-0 items-center gap-1 text-xs text-[var(--app-hint)]">
+        {working ? <span aria-label={t('groups.working')} title={t('groups.working')}><SessionWorkingIcon /></span> : null}
+        {attention && (!working || question) ? <SessionAttentionGlyph attention={attention}
+            label={t(getSessionAttentionLabelKey(attention))} title={t(getSessionAttentionLabelKey(attention))} /> : null}
     </span>
 }
 
@@ -146,7 +142,7 @@ export function SessionGroupRows(props: {
     const query = props.search.trim().toLocaleLowerCase()
     const sessionsById = useMemo(() => new Map(props.sessions.map(session => [session.id, session])), [props.sessions])
     return <>{props.groups.map(group => {
-        const { chats, questions, unread, working, flavors, section, activityAt } = presentSessionGroup(group, sessionsById, getSessionLastSeenAt, getSessionManualUnreadAt)
+        const { chats, questions, permissions, unread, working, flavors, section, activityAt } = presentSessionGroup(group, sessionsById, getSessionLastSeenAt, getSessionManualUnreadAt)
         if (query && ![group.name, ...chats.map(getSessionTitle)].some(name => name.toLocaleLowerCase().includes(query))) return null
         const questionLabel = t('groups.questions', { count: questions })
         const unreadLabel = t('groups.unreadCount', { count: unread })
@@ -164,6 +160,7 @@ export function SessionGroupRows(props: {
                 indicators={<>
                     {working ? <span className="inline-flex shrink-0" aria-label={t('groups.working')} title={t('groups.working')}><SessionWorkingIcon /></span> : null}
                     {questions ? <SessionQuestionIcon label={questionLabel} title={questionLabel} /> : null}
+                    {permissions ? <SessionAttentionGlyph attention={{ kind: 'permission' }} label={t('session.item.permission')} title={t('session.item.permission')} /> : null}
                     {unread ? <span aria-label={unreadLabel} title={unreadLabel} className="inline-flex h-2 w-2 shrink-0 rounded-full bg-[var(--app-link)]" /> : null}
                 </>}
                 trailing={<span className="min-w-0 truncate whitespace-nowrap tabular-nums text-[var(--app-hint)]">{formatRelativeTime(activityAt, t)}</span>}
@@ -188,18 +185,24 @@ export function SessionGroupWorkspace(props: {
     const [name, setName] = useState(props.group.name)
     const selectedTab = useRef<HTMLButtonElement | null>(null)
     useEffect(() => { setName(props.group.name) }, [props.group.id, props.group.name])
-    useEffect(() => { selectedTab.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [props.selectedSessionId, props.group.id, props.group.members])
     const members = props.group.members.flatMap(member => {
         const session = props.sessions.find(s => s.id === member.sessionId)
-        return session ? [{ ...member, session }] : []
+        return session && session.metadata?.lifecycleState !== 'archived' ? [{ ...member, session }] : []
     })
     const tabMembers = getSessionGroupMembers(props.group, props.sessions)
-    const update = (members: SessionGroup['members']) => props.onUpdate(props.group, { ...props.group, members })
+    const tabOrder = tabMembers.map(member => member.sessionId).join('\0')
+    useEffect(() => { selectedTab.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [props.selectedSessionId, props.group.id, tabOrder])
+    const update = (members: SessionGroup['members']) => props.onUpdate(props.group, { ...props.group,
+        members: members.filter(member => !props.sessions.some(session => session.id === member.sessionId && session.metadata?.lifecycleState === 'archived')),
+    })
     const move = (index: number, offset: number) => {
+        const member = members[index]
+        const neighbor = members[index + offset]
+        if (!member || !neighbor || member.pinned !== neighbor.pinned) return
         const next = [...props.group.members]
-        const swap = index + offset
-        if (swap < 0 || swap >= next.length || next[index].pinned !== next[swap].pinned) return
-        ;[next[index], next[swap]] = [next[swap], next[index]]
+        const from = next.findIndex(item => item.sessionId === member.sessionId)
+        const to = next.findIndex(item => item.sessionId === neighbor.sessionId)
+        ;[next[from], next[to]] = [next[to], next[from]]
         void update(next)
     }
     const tab = (member: typeof members[number]) => <button key={member.sessionId} type="button" role="tab" aria-selected={props.selectedSessionId === member.sessionId}

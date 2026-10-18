@@ -178,6 +178,11 @@ describe('useSSE connection liveness (mobile suspend/resume)', () => {
                 lastUserMessageAt: 1_000
             })]
         })
+        queryClient.setQueryData(queryKeys.session('session-1'), { session: {
+            ...makeSummary({ thinking: true, lastUserMessageAt: 1_000 }), createdAt: 500,
+            namespace: 'default', seq: 1, thinkingAt: 1_000, agentState: null,
+            metadata: null, serviceTier: null, modelReasoningEffort: null,
+        } as Session })
         const { unmount } = renderUseSSE({ scope: 'global', queryClient })
 
         act(() => {
@@ -195,6 +200,13 @@ describe('useSSE connection liveness (mobile suspend/resume)', () => {
         })
 
         expect(queryClient.getQueryData<SessionsResponse>(queryKeys.sessions)?.sessions[0]?.thinking).toBe(false)
+        expect(queryClient.getQueryData<SessionsResponse>(queryKeys.sessions)?.sessions[0]?.lastReadyAt).toBe(2_000)
+        expect(queryClient.getQueryData<{ session: Session }>(queryKeys.session('session-1'))?.session.lastReadyAt).toBe(2_000)
+        act(() => {
+            FakeEventSource.instances[0]?.simulateMessage({ type: 'session-updated', sessionId: 'session-1', data: { lastReadyAt: 1_500 } })
+        })
+        expect(queryClient.getQueryData<SessionsResponse>(queryKeys.sessions)?.sessions[0]?.lastReadyAt).toBe(2_000)
+        expect(queryClient.getQueryData<{ session: Session }>(queryKeys.session('session-1'))?.session.lastReadyAt).toBe(2_000)
         unmount()
     })
 
