@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => ({
     piDialogSelection: ['pi-native-1'] as string[],
     cursorModels: [] as Array<{ modelId: string; name?: string }>,
     cursorSkus: [] as Array<{ modelId: string; name?: string }>,
+    cursorCurrentModelId: null as string | null,
     cursorModelsLoading: false,
     cursorModelsError: null as string | null,
     piModels: [] as PiModelSummary[],
@@ -157,7 +158,7 @@ vi.mock('@/hooks/queries/useCursorModelsForMachine', async (importOriginal) => {
         useCursorModelsForMachine: (args: Parameters<typeof actual.useCursorModelsForMachine>[0]) => mocks.useRealCatalogHooks ? actual.useCursorModelsForMachine(args) : ({
             availableModels: mocks.cursorModels,
             cliModelSkus: mocks.cursorSkus,
-            currentModelId: null,
+            currentModelId: mocks.cursorCurrentModelId,
             isLoading: mocks.cursorModelsLoading,
             error: mocks.cursorModelsError,
             refetch: vi.fn()
@@ -342,6 +343,7 @@ describe('NewSession launch preferences', () => {
         mocks.popularModels = []
         mocks.codexDefaultModelId = 'gpt-6.1-sol'
         mocks.cursorModelsError = null
+        mocks.cursorCurrentModelId = null
         mocks.useRealCatalogHooks = false
         localStorage.clear()
         sessionStorage.clear()
@@ -1213,22 +1215,24 @@ describe('NewSession launch preferences', () => {
         })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         expect(screen.queryByRole('button', { name: 'Claude Opus 4.6 (Thinking)' })).not.toBeInTheDocument()
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
     })
 
-    it.each(['gemini-3.6-flash-low', 'gemini-3.8-flash-high'])('restores advertised AGY models from a browse-return draft: %s', async (draftModel) => {
+    it('keeps Antigravity on Gemini 3.8 Flash High when a browse-return draft names another model', async () => {
         savePreferredAgent('agy')
         saveNewSessionFormDraft({
-            agent: 'agy', model: draftModel, cursorSelectedBase: 'auto', machineId: 'machine-1',
+            agent: 'agy', model: 'gemini-3.6-flash-low', cursorSelectedBase: 'auto', machineId: 'machine-1',
             effort: 'auto', modelReasoningEffort: 'default', serviceTier: 'standard', collaborationMode: 'default',
             copilotAgentMode: 'interactive', yoloMode: false, nativePermissionMode: 'default',
             grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
         })
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'agy-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toHaveAttribute('aria-pressed', 'true'))
+        expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toHaveTextContent('(High)')
+        expect(screen.queryByRole('button', { name: 'Gemini 3.6 Flash (Low)' })).toBeNull()
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: draftModel })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-3.8-flash-high' })))
     })
 
     it('keeps the hardcoded AGY badge when a browse-return draft names an unadvertised model', async () => {
@@ -1240,7 +1244,7 @@ describe('NewSession launch preferences', () => {
             grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
         })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
     })
 
     it('keeps the hardcoded AGY badge when the machine catalog changes under the form', async () => {
@@ -1249,19 +1253,19 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('agy')
         const view = render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
 
         mocks.agyModels = [{ modelId: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' }]
         view.rerender(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
     })
 
     it('pins the hardcoded AGY badge even with a remembered model, without blocking creation', async () => {
         savePreferredAgent('agy')
         savePreferredLaunchSettings('machine-1', 'agy', { model: 'removed-model', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
     })
 
     it('starts AGY at the hardcoded default even with a remembered model', async () => {
@@ -1270,23 +1274,25 @@ describe('NewSession launch preferences', () => {
         mocks.agyModelsLoading = true
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         // Default needs no catalog validation, so creation is not blocked.
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
         expect(screen.getByTestId('create')).toBeEnabled()
     })
 
-    it.each([false, true])('launches the AGY High badge, returning to Medium: %s', async (returnToMedium) => {
+    it('launches Antigravity as Gemini 3.8 Flash High', async () => {
         savePreferredAgent('agy')
         mocks.agyModelsLoading = true
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'agy-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toHaveAttribute('aria-pressed', 'true')
-        fireEvent.click(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' }))
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toHaveAttribute('aria-pressed', 'true'))
-        if (returnToMedium) fireEvent.click(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' }))
+        fireEvent.click(screen.getByRole('radio', { name: 'Antigravity' }))
+        const high = screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })
+        expect(high).toHaveAttribute('aria-pressed', 'true')
+        expect(high).toHaveTextContent('(High)')
+        expect(high.querySelector('svg')).toBeNull()
+        expect(screen.queryByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeNull()
         expect(screen.getByTestId('create')).toBeEnabled()
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
-            agent: 'agy', model: returnToMedium ? undefined : 'gemini-3.8-flash-high'
+            agent: 'agy', model: 'gemini-3.8-flash-high'
         })))
     })
 
@@ -1604,11 +1610,11 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('agy')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'agy-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('agy-session', true))
-        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: undefined }))
-        expect(loadPreferredLaunchSettings('machine-1', 'agy')?.model).toBe('auto')
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-3.8-flash-high' }))
+        expect(loadPreferredLaunchSettings('machine-1', 'agy')?.model).toBe('gemini-3.8-flash-high')
     })
 
     it('does not persist launch settings after a failed AGY launch', async () => {
@@ -1622,7 +1628,7 @@ describe('NewSession launch preferences', () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         // The remembered model is pinned to the hardcoded default; the failed
         // launch leaves the saved preference untouched.
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (Medium)' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.notification).toHaveBeenCalledWith('error'))
         expect(loadPreferredLaunchSettings('machine-1', 'agy')?.model).toBe('gemini-3.5-flash-low')
@@ -2129,6 +2135,7 @@ describe('NewSession GLM-branded claude', () => {
         mocks.popularModels = []
         mocks.codexDefaultModelId = 'gpt-6.1-sol'
         mocks.cursorModelsError = null
+        mocks.cursorCurrentModelId = null
         mocks.useRealCatalogHooks = false
         localStorage.clear()
         sessionStorage.clear()
@@ -2190,6 +2197,7 @@ describe('NewSession fork launch defaults', () => {
         mocks.popularModels = []
         mocks.codexDefaultModelId = 'gpt-6.1-sol'
         mocks.cursorModelsError = null
+        mocks.cursorCurrentModelId = null
         mocks.useRealCatalogHooks = false
         localStorage.clear()
         sessionStorage.clear()
@@ -2340,6 +2348,31 @@ describe('NewSession fork launch defaults', () => {
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent, model: agent === 'codex' ? 'gpt-6-luna' : undefined, serviceTier: undefined })))
     })
 
+    it('maps the verbose Cursor default onto Grok and keeps Standard/Fast', async () => {
+        savePreferredAgent('cursor')
+        mocks.availableAgents.find((entry) => entry.agent === 'cursor')!.defaultModelName = 'Grok 4.7 256K Extra High Fast'
+        mocks.cursorCurrentModelId = 'grok-4.7[fast=true,reasoning_effort=xhigh]'
+        mocks.cursorModels = [{ modelId: 'grok-4.7' }, { modelId: 'composer-2.5' }]
+        mocks.cursorSkus = [{ modelId: 'grok-4.7-xhigh' }, { modelId: 'grok-4.7-xhigh-fast' }, { modelId: 'composer-2.5' }, { modelId: 'composer-2.5-fast' }]
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'cursor-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        fireEvent.click(screen.getByRole('radio', { name: 'Cursor' }))
+
+        const grok = screen.getByRole('button', { name: 'Grok 4.7 Extra High' })
+        expect(grok).toHaveAttribute('aria-pressed', 'true')
+        expect(grok).toHaveTextContent('Grok 4.7')
+        expect(grok).not.toHaveTextContent('256')
+        expect(grok.querySelector('svg')).toBeNull()
+        expect(screen.queryByRole('button', { name: /256/ })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Composer 2.5' })).toHaveAttribute('aria-pressed', 'false')
+        expect(screen.getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeStandard' }))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'cursor', model: 'grok-4.7-xhigh', serviceTier: undefined
+        })))
+    })
+
     it('hides Cursor Speed without an advertised fast counterpart and launches the standard wire', async () => {
         mocks.cursorModels = [{ modelId: 'composer-2.5' }]
         mocks.cursorSkus = []
@@ -2381,8 +2414,10 @@ describe('NewSession fork launch defaults', () => {
         const choices = screen.getByRole('region', { name: 'newSession.model' })
         expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Composer 2.5', 'Muse Spark 1.3 (Max)', 'GPT-6.1 Sol'])
         expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' }).querySelector('svg')).not.toBeNull()
         expect(screen.queryByRole('button', { name: 'GPT-6 Luna' })).toBeNull()
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
+        expect(screen.getByRole('button', { name: 'GPT-6 Luna' }).querySelector('svg')).toBeNull()
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
         fireEvent.click(screen.getByRole('radio', { name: 'newSession.allAgents' }))
         expect(screen.getByRole('button', { name: 'GPT-6 Luna' })).toHaveAttribute('aria-pressed', 'true')

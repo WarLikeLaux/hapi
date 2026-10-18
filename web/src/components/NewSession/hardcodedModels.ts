@@ -16,8 +16,7 @@ export const CODEX_HARDCODED_OPTIONS: ReadonlyArray<{ value: string; label: stri
     { value: CODEX_ASTRA_MODEL_ID, label: 'GPT-6 Astra' },
 ]
 
-/** Antigravity runs the backend default (Gemini 3.8 Flash Medium); null = Default. */
-export const AGY_HARDCODED_LABEL = 'Gemini 3.8 Flash (Medium)'
+/** Antigravity launches Gemini 3.8 Flash at high effort. */
 export const AGY_HIGH_MODEL_ID = 'gemini-3.8-flash-high'
 export const AGY_HIGH_MODEL_LABEL = 'Gemini 3.8 Flash (High)'
 
