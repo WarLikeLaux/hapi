@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom'
 import { useNavigate } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { PRESERVE_SESSION_SIDEBAR_SCROLL } from '@/lib/sessionNavigation'
-import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe'
+import { useSessionChatSwipe } from '@/hooks/useSessionChatSwipe'
 import { AssistantRuntimeProvider, useAui, useAuiState } from '@assistant-ui/react'
 import { DragDropZone } from '@/components/AssistantChat/DragDropZone'
 import { ApiError, type ApiClient } from '@/api/client'
@@ -1756,27 +1756,11 @@ function SessionChatInner(props: SessionChatProps) {
         })
     }, [navigate, props.session.id])
 
-    // Phone navigation follows the platform stack model: swipe right goes
-    // back to the session list, swipe left goes deeper into the full diff
-    // (when the session has a project to diff).
+    // Group chats swipe through tabs; standalone chats retain stack navigation.
     const chatSwipeRef = useRef<HTMLDivElement>(null)
-    useHorizontalSwipe(chatSwipeRef, {
-        onSwipeLeft: props.session.metadata?.path
-            ? () => {
-                navigate({
-                    to: '/sessions/$sessionId/files',
-                    params: { sessionId: props.session.id },
-                    search: { tab: 'changes', display: 'diff' },
-                    ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-                })
-            }
-            : undefined,
-        onSwipeRight: () => {
-            navigate({
-                to: '/sessions',
-                ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-            })
-        },
+    useSessionChatSwipe(chatSwipeRef, {
+        api: props.api, sessionId: props.session.id, path: props.session.metadata?.path,
+        sessions: allSessions,
     })
 
     const handleToggleOutline = useCallback(() => {
