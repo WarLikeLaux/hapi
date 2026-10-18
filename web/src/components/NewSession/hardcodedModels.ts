@@ -1,9 +1,9 @@
 /**
  * Hardcoded model shortlists for the Create Session form.
  *
- * The form shows quick picks before the full catalog dropdown.
- * Wire ids are literals — no catalog
- * lookup, no resolution. If a provider renames a model, update the literal.
+ * The desktop All agents filter combines these quick picks.
+ * Wire ids are literals. Speed support is checked separately against discovery.
+ * If a provider renames a model, update the literal.
  */
 
 export const CODEX_DEFAULT_MODEL_ID = 'gpt-6.1-sol'

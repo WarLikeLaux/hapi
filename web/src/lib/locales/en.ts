@@ -551,6 +551,8 @@ export default {
   'newSession.type.worktree': 'Worktree',
   'newSession.type.worktree.desc': 'Create a new worktree next to repo (Cursor uses native ~/.cursor/worktrees)',
   'newSession.type.worktree.placeholder': 'feature-x (default 1228-xxxx)',
+  'newSession.popularModels.hint': 'Most-used agent/model pairs in the last 7 days. Choose an agent to see all its choices. Without recent history, quick picks are shown.',
+  'newSession.allAgents': 'All agents',
   'newSession.agent': 'Agent',
   'newSession.agentAvailabilityLoading': 'Checking installed Agents…',
   'newSession.agentAvailabilityFailed': 'Could not check installed Agents.',

@@ -555,6 +555,8 @@ export default {
   'newSession.type.worktree': '工作树',
   'newSession.type.worktree.desc': '在仓库旁创建新工作树（Cursor 使用原生 ~/.cursor/worktrees）',
   'newSession.type.worktree.placeholder': 'feature-x (默认 1228-xxxx)',
+  'newSession.popularModels.hint': '最近 7 天最常用的智能体和模型组合。选择智能体可查看其全部选项。没有近期记录时显示快捷选项。',
+  'newSession.allAgents': '所有智能体',
   'newSession.agent': '代理',
   'newSession.agentAvailabilityLoading': '正在检查已安装的 Agent…',
   'newSession.agentAvailabilityFailed': '无法检查已安装的 Agent。',

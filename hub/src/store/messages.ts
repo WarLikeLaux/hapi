@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { prepareCached } from './statementCache'
+import { recordMessageUsage } from './recordMessageUsage'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
@@ -87,7 +88,9 @@ export function addImportedMessage(
         if (previousHead && stampedAt < previousHead.at) bumpMessageEpoch(db, sessionId)
         const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
         if (!row) throw new Error('Failed to create imported message')
-        return { message: toStoredMessage(row), inserted: true }
+        const message = toStoredMessage(row)
+        recordMessageUsage(db, message, getMessageEpoch(db, sessionId))
+        return { message, inserted: true }
     })()
 }
 
@@ -186,7 +189,9 @@ export function addMessageWithStatus(
         if (previousHead && positionAt < previousHead.at) bumpMessageEpoch(db, sessionId)
         const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
         if (!row) throw new Error('Failed to create message')
-        return { message: toStoredMessage(row), inserted: true }
+        const message = toStoredMessage(row)
+        recordMessageUsage(db, message, getMessageEpoch(db, sessionId))
+        return { message, inserted: true }
     })()
 }
 
@@ -273,7 +278,9 @@ export function copyMessageToSession(
     // still land behind a Web client's cached composite tail cursor. Mark the
     // target history as structurally changed so incremental readers reset.
     bumpMessageEpoch(db, sessionId)
-    return toStoredMessage(row)
+    const stored = toStoredMessage(row)
+    recordMessageUsage(db, stored, getMessageEpoch(db, sessionId))
+    return stored
 }
 
 /**
@@ -313,8 +320,9 @@ export function copyMessagesToSession(
                 localId = `merged-scheduled:${randomUUID()}`
             }
             const invokedAt = localId ? message.invokedAt : (message.invokedAt ?? createdAt)
+            const id = randomUUID()
             insert.run({
-                id: randomUUID(),
+                id,
                 session_id: sessionId,
                 content: encodeMessageContent(message.content),
                 search_text: messageSearchText(message.content),
@@ -325,6 +333,7 @@ export function copyMessagesToSession(
                 scheduled_at: message.scheduledAt ?? null,
                 delivery_state: message.deliveryState ?? 'queued'
             })
+            recordMessageUsage(db, { ...message, id, sessionId, createdAt, localId, invokedAt, seq: nextSeq }, getMessageEpoch(db, sessionId))
             nextSeq += 1
         }
 
@@ -361,11 +370,12 @@ export function getAllMessages(
 export function getMessagesAfterSeq(
     db: Database,
     sessionId: string,
-    afterSeq: number
+    afterSeq: number,
+    limit?: number
 ): StoredMessage[] {
     const rows = prepareCached(db,
-        'SELECT * FROM messages WHERE session_id = ? AND seq > ? ORDER BY seq ASC'
-    ).all(sessionId, afterSeq) as DbMessageRow[]
+        'SELECT * FROM messages WHERE session_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?'
+    ).all(sessionId, afterSeq, limit ?? -1) as DbMessageRow[]
 
     return rows.map(toStoredMessage)
 }

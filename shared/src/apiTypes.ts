@@ -1144,6 +1144,16 @@ export type SqliteStorageUsageResponse = {
     totalBytes: number
 }
 
+export type PopularModelsResponse = {
+    range: { from: number; to: number }
+    models: Array<{
+        agent: z.infer<typeof AgentFlavorSchema>
+        model: string
+        sessionCount: number
+        lastUsedAt: number
+    }>
+}
+
 export type UsageSummaryBucket = {
     key: string
     inputTokens: number

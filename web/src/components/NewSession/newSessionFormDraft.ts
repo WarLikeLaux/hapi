@@ -15,9 +15,7 @@ import { LEGACY_YOLO_BRIDGE_AGENTS } from '@/lib/codexFamilyPermissionAgents'
 const DRAFT_STORAGE_KEY = 'hapi:new-session-form-draft'
 
 export type NewSessionFormDraft = {
-    showAllModels?: boolean
-    showAllCursorModels?: boolean
-    modelCatalogRequested?: boolean
+    agentFilter?: AgentType | 'all'
     groupId?: string
     groupCreation?: { name: string; requestId: string }
     agent: AgentType
@@ -66,6 +64,7 @@ export function loadNewSessionFormDraft(): NewSessionFormDraft | null {
             groupId: typeof parsed.groupId === 'string' ? parsed.groupId : undefined,
             groupCreation: typeof parsed.groupCreation?.name === 'string' && typeof parsed.groupCreation?.requestId === 'string'
                 ? parsed.groupCreation : undefined,
+            agentFilter: parsed.agentFilter === 'all' || (CREATABLE_AGENT_FLAVORS as readonly string[]).includes(parsed.agentFilter ?? '') ? parsed.agentFilter : 'all',
             agent: restoredAgent,
             model: agentPreserved ? parsed.model : 'auto',
             cursorSelectedBase: agentPreserved && typeof parsed.cursorSelectedBase === 'string'

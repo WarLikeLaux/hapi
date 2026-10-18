@@ -69,12 +69,24 @@ export function shouldShowNewSessionCursorVariantPicker(picker: CursorPickerStat
 export const CURSOR_GROK_XHIGH_WIRE = 'grok-4.7-xhigh'
 export const CURSOR_COMPOSER_STANDARD_WIRE = 'composer-2.5'
 
-export function getCursorModelSpeedOptions(modelId: string): { standard: string; fast: string } | null {
-    const standard = modelId.replace(/-fast$/, '')
-    if (standard !== CURSOR_COMPOSER_STANDARD_WIRE && !/^grok-4\.7-(low|medium|high|xhigh)$/.test(standard)) {
-        return null
+/** Only advertise Speed when discovery provides both wires for the same model/effort. */
+export function getCursorModelSpeedOptions(modelId: string, models: readonly CursorModelSummary[]): { standard: string; fast: string } | null {
+    if (modelId === 'auto' || modelId === 'default[]') return null
+    function identity(wire: string): { key: string; fast: boolean } {
+        const bracket = wire.indexOf('[')
+        if (bracket === -1) return { key: wire.replace(/-fast$/, ''), fast: wire.endsWith('-fast') }
+        const params = wire.slice(bracket + 1, -1).split(',').filter(Boolean)
+        return {
+            key: wire.slice(0, bracket) + params.filter(param => !param.startsWith('fast=')).sort().join(','),
+            fast: params.includes('fast=true'),
+        }
     }
-    return { standard, fast: `${standard}-fast` }
+    const selected = identity(modelId)
+    const matching = models.filter(model => identity(model.modelId).key === selected.key)
+    const standard = matching.find(model => model.modelId === modelId && !selected.fast)
+        ?? matching.find(model => !identity(model.modelId).fast)
+    const fast = matching.find(model => identity(model.modelId).fast)
+    return standard && fast ? { standard: standard.modelId, fast: fast.modelId } : null
 }
 
 export function isHardcodedCursorModelId(modelId: string | null | undefined): boolean {
