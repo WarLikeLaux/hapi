@@ -89,6 +89,32 @@ export function getCursorModelSpeedOptions(modelId: string, models: readonly Cur
     return standard && fast ? { standard: standard.modelId, fast: fast.modelId } : null
 }
 
+/** Map the live Cursor model or its verbose display name onto a hardcoded quick pick. */
+export function resolveCursorQuickPickValue(
+    currentModelId: string | null | undefined,
+    defaultName: string | null | undefined
+): string | undefined {
+    const blob = `${currentModelId ?? ''}\n${defaultName ?? ''}`.toLowerCase()
+    if (/grok[- ]4[.-]7/.test(blob)) return CURSOR_GROK_XHIGH_WIRE
+    if (/composer[- ]2[.-]5/.test(blob)) return CURSOR_COMPOSER_STANDARD_WIRE
+    return undefined
+}
+
+/** Fast tier of the live Cursor selection, including parameterized `fast=true` wires. */
+export function cursorSelectionIsFast(
+    modelId: string | null | undefined,
+    defaultName?: string | null
+): boolean {
+    if (modelId && modelId !== 'auto' && modelId !== 'default[]') {
+        const bracket = modelId.indexOf('[')
+        if (bracket !== -1) {
+            return modelId.slice(bracket + 1, -1).split(',').some(param => param.trim() === 'fast=true')
+        }
+        return /-fast$/i.test(modelId)
+    }
+    return /\bfast\b/i.test(defaultName ?? '')
+}
+
 export function isHardcodedCursorModelId(modelId: string | null | undefined): boolean {
     if (!modelId) return false
     const lower = modelId.toLowerCase()

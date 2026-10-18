@@ -38,8 +38,10 @@ import {
     buildNewSessionCursorModelCatalog,
     CURSOR_COMPOSER_STANDARD_WIRE,
     CURSOR_GROK_XHIGH_WIRE,
+    cursorSelectionIsFast,
     getCursorModelSpeedOptions,
     isHardcodedCursorModelId,
+    resolveCursorQuickPickValue,
 } from './newSessionCursorModels'
 import {
     clearNewSessionFormDraft,
@@ -79,7 +81,6 @@ import {
     savePreferredYoloMode,
 } from './preferences'
 import {
-    AGY_HARDCODED_LABEL,
     AGY_HIGH_MODEL_ID,
     AGY_HIGH_MODEL_LABEL,
     CLAUDE_GLM_HARDCODED_LABEL,
@@ -499,10 +500,16 @@ export function NewSession(props: {
         [cursorModelsState.availableModels, cursorModelsState.cliModelSkus]
     )
     const cursorEffectiveModel = model === 'auto' ? cursorModelsState.currentModelId : model
+    const cursorQuickPick = model === 'auto' || model === 'default[]'
+        ? resolveCursorQuickPickValue(cursorModelsState.currentModelId, configuredDefaultModelName)
+        : undefined
+    const cursorSpeedLookup = cursorQuickPick ?? cursorEffectiveModel ?? 'auto'
     const cursorSpeedOptions = agent === 'cursor' && !cursorModelsState.isLoading && !cursorModelsState.error
-        ? getCursorModelSpeedOptions(cursorEffectiveModel ?? 'auto', [...cursorModelsState.availableModels, ...cursorModelsState.cliModelSkus])
+        ? getCursorModelSpeedOptions(cursorSpeedLookup, [...cursorModelsState.availableModels, ...cursorModelsState.cliModelSkus])
         : null
-    const cursorServiceTier = cursorSpeedOptions?.fast === cursorEffectiveModel ? 'fast' : 'standard'
+    const cursorServiceTier = model === 'auto' || model === 'default[]'
+        ? (cursorSelectionIsFast(cursorModelsState.currentModelId, configuredDefaultModelName) ? 'fast' : 'standard')
+        : (cursorSpeedOptions?.fast === cursorEffectiveModel ? 'fast' : 'standard')
 
     useEffect(() => {
         if (
@@ -1471,7 +1478,6 @@ export function NewSession(props: {
             { value: CLAUDE_GLM_MODEL_ID, label: CLAUDE_GLM_MODEL_LABEL },
         ] : undefined,
         agy: [
-            { value: 'auto', label: AGY_HARDCODED_LABEL },
             { value: AGY_HIGH_MODEL_ID, label: AGY_HIGH_MODEL_LABEL },
         ],
         opencode: OPENCODE_HARDCODED_OPTIONS,
@@ -1481,11 +1487,11 @@ export function NewSession(props: {
         ],
         minimax: [{ value: 'auto', label: MINIMAX_HARDCODED_LABEL }],
     }
-    const selectedModel = agent === 'agy' ? agySelectedModel ?? 'auto'
+    const selectedModel = agent === 'agy' ? AGY_HIGH_MODEL_ID
         : agent === 'opencode' ? opencodeSelectedModel ?? 'auto'
         : agent === 'cursor' ? cursorSpeedOptions?.standard ?? model : model
     const cursorDefaultChoice = model === 'auto' && agent === 'cursor'
-        ? quickModels.cursor?.find(option => option.value === cursorSpeedOptions?.standard || option.value === cursorEffectiveModel || option.label === nativeDefaultModelName)?.value
+        ? cursorQuickPick ?? quickModels.cursor?.find(option => option.value === cursorSpeedOptions?.standard || option.value === cursorEffectiveModel || option.label === nativeDefaultModelName)?.value
         : undefined
     let displayedModel = cursorDefaultChoice ?? selectedModel
     if (agent === 'codex' && model === 'auto') {
@@ -1661,7 +1667,7 @@ export function NewSession(props: {
         const resolvedModel = agent === 'opencode'
             ? (!opencodeSelectedModel || opencodeSelectedModel === 'auto' ? OPENCODE_HARDCODED_MODEL_ID : opencodeSelectedModel)
             : agent === 'agy'
-                ? (agySelectedModel ?? undefined)
+                ? AGY_HIGH_MODEL_ID
                 : agent === 'cursor'
                     ? (model === 'auto' || !model ? undefined : model)
                     : (model !== 'auto' ? model : undefined)
@@ -1742,7 +1748,7 @@ export function NewSession(props: {
             const { model: resolvedModel, modelReasoningEffort: resolvedModelReasoningEffort, serviceTier: resolvedServiceTier, collaborationMode: resolvedCollaborationMode } = buildLaunchInput()
             const preferredLaunchSettings = {
                 model: agent === 'agy'
-                    ? (agySelectedModel ?? 'auto')
+                    ? AGY_HIGH_MODEL_ID
                     : agent === 'opencode'
                         ? (opencodeSelectedModel ?? 'auto')
                         : model,
@@ -1881,10 +1887,6 @@ export function NewSession(props: {
         (agent === 'codex'
             && (model !== 'auto' || modelReasoningEffort !== 'default')
             && codexModelsState.isLoading)
-        || (agent === 'agy'
-            && agySelectedModel !== null
-            && agySelectedModel !== AGY_HIGH_MODEL_ID
-            && agyModelsState.isLoading)
         || (agent === 'cursor'
             && model !== 'default[]'
             && (model !== 'auto' || cursorSelectedBase !== 'auto')
@@ -1943,7 +1945,7 @@ export function NewSession(props: {
         const defaultCodexEffort = agent === 'codex' ? resolveCodexModel(codexModelsState.models, null)?.defaultReasoningEffort : undefined
         const selectedChoice = modelChoices.find(choice => choice.agent === agent && choice.value === displayedModel)
         const modelName = selectedChoice?.label ?? (agent === 'claude' && claudeGlmBranded ? (model === 'auto' ? CLAUDE_GLM_HARDCODED_LABEL : CLAUDE_GLM_MODEL_LABEL) : undefined)
-            ?? (agent === 'agy' ? agySelectedModel === AGY_HIGH_MODEL_ID ? AGY_HIGH_MODEL_LABEL : !agySelectedModel ? AGY_HARDCODED_LABEL : undefined : undefined)
+            ?? (agent === 'agy' ? AGY_HIGH_MODEL_LABEL : undefined)
             ?? (agent === 'opencode' ? OPENCODE_HARDCODED_OPTIONS.find(option => option.value === (opencodeSelectedModel ?? 'auto'))?.label : undefined)
             ?? (agent === 'minimax' && model === 'auto' ? MINIMAX_HARDCODED_LABEL : undefined)
             ?? namedLaunchModelOptions.find(option => option.value === (input.model ?? 'auto'))?.label

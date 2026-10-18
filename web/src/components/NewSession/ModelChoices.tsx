@@ -7,8 +7,9 @@ import type { AgentType } from './types'
 
 export type ModelChoice = { agent: AgentType; value: string; label: string }
 
-// Keep effort in launch summaries and accessible names, but save space in the picker.
-export function modelChoiceLabel(label: string): string {
+// Effort stays in the accessible name. The picker shows it only for Antigravity.
+export function modelChoiceLabel(label: string, keepEffort = false): string {
+    if (keepEffort) return label
     return label.replace(/\s+(?:\((?:minimal|low|medium|high|extra[ -]?high|xhigh|max|ultra)\)|(?:minimal|low|medium|high|extra[ -]?high|xhigh|max|ultra))$/i, '')
 }
 
@@ -71,6 +72,7 @@ export function ModelChoices(props: {
     const visible = props.singleRow && visibleKeys
         ? visibleKeys.flatMap(id => props.options.find(choice => key(choice) === id) ?? [])
         : props.options
+    const choiceText = (choice: ModelChoice) => modelChoiceLabel(choice.label, choice.agent === 'agy')
     const chipClass = (choice: ModelChoice) => `inline-flex min-h-8 max-w-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--app-bg)] disabled:opacity-50 ${key(choice) === selectedKey
         ? 'border-[var(--app-link)] bg-[var(--app-link)] font-medium text-[var(--app-bg)]'
         : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)]'}`
@@ -84,8 +86,8 @@ export function ModelChoices(props: {
                 {props.singleRow ? <div aria-hidden="true" className="pointer-events-none invisible absolute inset-x-0 top-0 h-0 overflow-hidden">
                     <div ref={measurement} className="flex w-max gap-3">
                     {props.options.map(choice => <span key={key(choice)} className={chipClass(choice)}>
-                        <AgentFlavorIcon flavor={choice.agent} className="h-3.5 w-3.5 shrink-0" />
-                        <span>{modelChoiceLabel(choice.label)}</span>
+                        {props.singleRow ? <AgentFlavorIcon flavor={choice.agent} className="h-3.5 w-3.5 shrink-0" /> : null}
+                        <span>{choiceText(choice)}</span>
                     </span>)}
                     </div>
                 </div> : null}
@@ -104,8 +106,8 @@ export function ModelChoices(props: {
                         className={chipClass(choice)}
                     >
                         <span id={`${descriptionId}-${index}`} className="sr-only">{getFlavorLabel(choice.agent)}</span>
-                        <AgentFlavorIcon flavor={choice.agent} className="h-3.5 w-3.5 shrink-0" />
-                        <span className="min-w-0 truncate">{modelChoiceLabel(choice.label)}</span>
+                        {props.singleRow ? <AgentFlavorIcon flavor={choice.agent} className="h-3.5 w-3.5 shrink-0" /> : null}
+                        <span className="min-w-0 truncate">{choiceText(choice)}</span>
                     </button>
                 })}
                     {props.isLoading ? <span role="status" className="text-xs text-[var(--app-hint)]">{t('newSession.model.loading')}</span> : null}
