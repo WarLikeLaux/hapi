@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { fireEvent, render as renderComponent, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ImagePreview, ImagePreviewProvider } from './ImagePreview'
+import { MessageAttachments } from './AssistantChat/messages/MessageAttachments'
 
 function render(ui: ReactElement) {
     return renderComponent(ui, { wrapper: ImagePreviewProvider })
@@ -10,8 +11,8 @@ function render(ui: ReactElement) {
 function renderGallery() {
     render(
         <>
-            <ImagePreview src="/first.png" fileName="first.png" label="First image" />
-            <ImagePreview src="/second.png" fileName="second.png" label="Second image" />
+            <ImagePreview src="/first.png" fileName="first.png" label="First image" galleryId="example-message" />
+            <ImagePreview src="/second.png" fileName="second.png" label="Second image" galleryId="example-message" />
         </>
     )
 }
@@ -62,6 +63,55 @@ describe('ImagePreview gallery navigation', () => {
         fireEvent.click(within(dialog).getByRole('button', { name: 'Next image' }))
         expect(screen.getByRole('dialog', { name: 'Second draft' })).toBeInTheDocument()
         expect(within(screen.getByRole('dialog')).queryByRole('img', { name: 'Sent image' })).not.toBeInTheDocument()
+    })
+
+    it('keeps standalone previews separate unless a gallery is explicitly supplied', () => {
+        render(<>
+            <ImagePreview src="/one.png" fileName="one.png" label="Standalone one" />
+            <ImagePreview src="/two.png" fileName="two.png" label="Standalone two" />
+        </>)
+        fireEvent.click(screen.getByRole('button', { name: /standalone two/i }))
+        fireEvent.keyDown(window, { key: 'ArrowLeft' })
+        const dialog = screen.getByRole('dialog', { name: 'Standalone two' })
+        expect(within(dialog).queryByRole('button', { name: 'Previous image' })).not.toBeInTheDocument()
+        expect(within(dialog).queryByRole('button', { name: 'Next image' })).not.toBeInTheDocument()
+    })
+
+    it('opens the clicked message attachment and retains only its ordered images across chat updates', () => {
+        const attachments = (names: string[]) => names.map(name => ({
+            id: name, filename: `${name}.png`, mimeType: 'image/png', size: 100,
+            path: `/uploads/${name}.png`, previewUrl: `/${name}.png`
+        }))
+        const source = <MessageAttachments attachments={attachments(['first', 'second'])} />
+        const single = <MessageAttachments attachments={attachments(['single'])} />
+        const { rerender } = render(<>{source}{single}</>)
+        fireEvent.click(screen.getByRole('button', { name: /second.png/i }))
+        expect(within(screen.getByRole('dialog')).getByText('2 / 2')).toBeInTheDocument()
+        expect(within(screen.getByRole('dialog')).getByRole('img')).toHaveAttribute('src', '/second.png')
+        expect(screen.getByRole('button', { name: 'Next image' })).toBeDisabled()
+
+        rerender(<>
+            <MessageAttachments attachments={attachments(['older-one', 'older-two', 'older-three'])} />
+            {source}{single}
+            <MessageAttachments attachments={attachments(['new-one', 'new-two'])} />
+        </>)
+        fireEvent.keyDown(window, { key: 'ArrowRight' })
+        expect(within(screen.getByRole('dialog')).getByText('2 / 2')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Previous image' }))
+        expect(within(screen.getByRole('dialog')).getByRole('img')).toHaveAttribute('src', '/first.png')
+        expect(within(screen.getByRole('dialog')).getByText('1 / 2')).toBeInTheDocument()
+        fireEvent.keyDown(window, { key: 'ArrowLeft' })
+        expect(screen.getByRole('button', { name: 'Previous image' })).toBeDisabled()
+        fireEvent.keyDown(window, { key: 'ArrowRight' })
+        expect(within(screen.getByRole('dialog')).getByRole('img')).toHaveAttribute('src', '/second.png')
+
+        fireEvent.click(screen.getByTitle('Close'))
+        fireEvent.click(screen.getByRole('button', { name: /single.png/i }))
+        fireEvent.keyDown(window, { key: 'ArrowLeft' })
+        fireEvent.keyDown(window, { key: 'ArrowRight' })
+        expect(within(screen.getByRole('dialog')).getByRole('img')).toHaveAttribute('src', '/single.png')
+        expect(screen.queryByRole('button', { name: 'Next image' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Previous image' })).not.toBeInTheDocument()
     })
 
     it('exposes trigger pointer and context-menu hooks for sortable image attachments', () => {

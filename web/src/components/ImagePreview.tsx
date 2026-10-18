@@ -80,9 +80,11 @@ export function ImagePreview(props: {
         if (!open) throw new Error('ImagePreview requires ImagePreviewProvider')
         event.preventDefault()
         event.stopPropagation()
-        const galleryId = props.galleryId ?? ''
-        const triggers = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-image-preview-trigger]'))
-            .filter((trigger) => (trigger.dataset.imagePreviewGallery ?? '') === galleryId)
+        // Ungrouped previews are standalone; callers opt into message-local galleries.
+        const triggers = props.galleryId
+            ? Array.from(document.querySelectorAll<HTMLButtonElement>('[data-image-preview-trigger]'))
+                .filter((trigger) => trigger.dataset.imagePreviewGallery === props.galleryId)
+            : [event.currentTarget]
         const images = triggers.flatMap((trigger): PreviewImage[] => {
             const image = trigger.querySelector('img')
             if (!image) return []

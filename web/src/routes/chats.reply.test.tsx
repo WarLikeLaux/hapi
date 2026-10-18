@@ -56,6 +56,34 @@ function swipe(element: Element, points: Array<{ x: number; y: number }>) {
 }
 
 describe('messenger reply gestures', () => {
+    it('limits media navigation to the opened external message', async () => {
+        vi.stubGlobal('IntersectionObserver', undefined)
+        vi.stubGlobal('URL', class extends URL {
+            static createObjectURL() { return 'blob:gallery-image' }
+            static revokeObjectURL() {}
+        })
+        const image = (fileName: string) => ({
+            kind: 'image' as const, mimeType: 'image/png', fileName, size: 100, thumbnailDataUrl: null,
+        })
+        renderChat({
+            getExternalMediaBlob: async () => new Blob(['image'], { type: 'image/png' }),
+            getExternalMessages: async () => ({ messages: [
+                { ...message, media: [image('one.png'), image('two.png')] },
+                { ...message, id: 'm2', providerMessageId: 'pm2', text: 'Another message', media: [image('single.png')] },
+            ], participants: [] }),
+        })
+        fireEvent.click(await screen.findByRole('button', { name: 'Photo two.png' }))
+        expect(within(screen.getByRole('dialog')).getByText('2 / 2')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Next image' })).toBeDisabled()
+        fireEvent.keyDown(window, { key: 'ArrowLeft' })
+        expect(within(screen.getByRole('dialog')).getByText('one.png')).toBeInTheDocument()
+        fireEvent.click(screen.getByTitle('Close'))
+        fireEvent.click(await screen.findByRole('button', { name: 'Photo single.png' }))
+        fireEvent.keyDown(window, { key: 'ArrowLeft' })
+        expect(within(screen.getByRole('dialog')).getByText('single.png')).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Next image' })).not.toBeInTheDocument()
+    })
+
     it('renders telegram dice as a static tile without fetching media', async () => {
         vi.stubGlobal('matchMedia', () => ({ matches: true }))
         const getExternalMediaBlob = vi.fn(async () => new Blob(['x']))

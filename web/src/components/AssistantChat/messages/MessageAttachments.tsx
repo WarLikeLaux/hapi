@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import type { AttachmentMetadata } from '@/types/api'
 import { FileIcon } from '@/components/FileIcon'
 import { isImageMimeType } from '@/lib/fileAttachments'
@@ -9,13 +10,14 @@ function formatFileSize(bytes: number): string {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function ImageAttachment(props: { attachment: AttachmentMetadata }) {
+function ImageAttachment(props: { attachment: AttachmentMetadata; galleryId: string }) {
     const { attachment } = props
     return (
         <ImagePreview
             src={attachment.previewUrl ?? ''}
             fileName={attachment.filename}
             label={attachment.filename}
+            galleryId={props.galleryId}
             buttonClassName="relative overflow-hidden rounded-lg text-left cursor-zoom-in"
             imageClassName="max-h-48 max-w-full object-contain"
             caption={(
@@ -48,6 +50,7 @@ function FileAttachment(props: { attachment: AttachmentMetadata }) {
 
 export function MessageAttachments(props: { attachments: AttachmentMetadata[] }) {
     const { attachments } = props
+    const galleryId = useId()
     if (!attachments || attachments.length === 0) return null
 
     const images = attachments.filter(a => isImageMimeType(a.mimeType) && a.previewUrl)
@@ -61,7 +64,7 @@ export function MessageAttachments(props: { attachments: AttachmentMetadata[] })
                     data-hapi-image-count={images.length}
                 >
                     {images.map(attachment => (
-                        <ImageAttachment key={attachment.id} attachment={attachment} />
+                        <ImageAttachment key={attachment.id} attachment={attachment} galleryId={galleryId} />
                     ))}
                 </div>
             )}
