@@ -167,12 +167,17 @@ describe('group chat switcher', () => {
 })
 
 describe('group tab session actions', () => {
-    it('copies and confirms actions for an inactive tab without switching the open chat', async () => {
+    it.each([
+        { active: true, lifecycleState: 'running' },
+        { active: true, lifecycleState: 'idle' },
+        { active: false, lifecycleState: 'idle' },
+        { active: false, lifecycleState: 'parked' },
+    ])('copies and stops the intended $lifecycleState tab (active=$active) without switching chat', async ({ active, lifecycleState }) => {
         const writeText = vi.fn().mockResolvedValue(undefined)
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
         const archiveSession = vi.fn().mockResolvedValue(undefined)
         const select = vi.fn()
-        render(<I18nProvider><SessionGroupWorkspace group={group} groups={[group]} sessions={chats(false)}
+        render(<I18nProvider><SessionGroupWorkspace group={group} groups={[group]} sessions={chats(false, { active, metadata: { path: "/work", name: "worker", flavor: "codex", lifecycleState } })}
             api={{ archiveSession } as unknown as ApiClient} selectedSessionId="first" onSelect={select}
             onBack={vi.fn()} onNew={vi.fn()} onUpdate={vi.fn()} pending={false} /></I18nProvider>)
         fireEvent.contextMenu(worker(), { clientX: 300, clientY: 40 })

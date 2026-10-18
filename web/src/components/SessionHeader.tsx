@@ -714,6 +714,7 @@ export function SessionHeader(props: {
                 sessionId={session.id}
                 sessionTitle={title}
                 sessionActive={session.active}
+                sessionLifecycleState={session.metadata?.lifecycleState}
                 sessionPinned={Boolean(session.pinned)}
                 sessionGlobalPinned={Boolean(session.globalPinned)}
                 currentContext={resolveSessionContext(session, contextOptions)}

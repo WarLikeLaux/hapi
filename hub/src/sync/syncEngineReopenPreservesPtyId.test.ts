@@ -131,19 +131,20 @@ describe('SyncEngine reopen/resume PTY session id preservation', () => {
 
 
 
-    it('clears archive metadata on PTY reopen before spawn (#1911 M1)', async () => {
+    it.each(['archived', 'parked'])('clears %s metadata on PTY reopen before spawn', async (lifecycleState) => {
         // Hub store rejects un-archive without allowUnarchive, so reopen must
         // clear archive before spawn (same as non-PTY). Attempt row carries
         // archiveSnapshot for rollback / quarantine durability.
         const sessionId = insertSession(
             'pty-session-archive-clear',
-            baseMetadata({ lifecycleState: 'archived', archivedBy: 'hub', archiveReason: 'inactivity' }),
+            baseMetadata({ lifecycleState, archivedBy: 'hub', archiveReason: 'inactivity' }),
             { startingMode: 'pty' }
         ).id
 
         const result = await engine.reopenSession(sessionId, NAMESPACE)
 
         expect(result).toEqual({ type: 'success', sessionId, resumed: true })
+        expect(engine.getSession(sessionId)?.metadata?.lifecycleState).not.toBe('parked')
         const metadata = store.sessions.getSession(sessionId)?.metadata as Record<string, unknown> | undefined
         expect(metadata?.lifecycleState).not.toBe('archived')
         expect(metadata?.archivedBy).toBeUndefined()

@@ -15,6 +15,16 @@ describe('ApiClient error mapping', () => {
         globalThis.fetch = originalFetch
     })
 
+    it('shows the stop failure reason while preserving its status and code', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+            error: 'Reconnect its runner and retry.', code: 'stop_unconfirmed'
+        }), { status: 409, statusText: 'Conflict' }))
+        const api = new ApiClient('test-token')
+        await expect(api.archiveSession('selected-idle')).rejects.toMatchObject({
+            status: 409, code: 'stop_unconfirmed', message: 'Reconnect its runner and retry.'
+        })
+    })
+
     it.each([
         ['initial load', undefined, 'force-cache'],
         ['explicit retry', { forceReload: true }, 'reload'],
