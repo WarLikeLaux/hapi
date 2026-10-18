@@ -22,7 +22,10 @@ export function presentSessionGroup(
     const working = chats.filter(isWorkingSession).length
     const live = chats.filter(chat => chat.active)
     const flavors = [...new Set(live.flatMap(chat => chat.metadata?.flavor ? [chat.metadata.flavor] : []))].sort()
+    // Quiet, reachable chats remain ready in Active, just like standalone chats.
+    // Idle is a lifecycle state, not the absence of foreground work.
     const section: GroupSection = questions || unread ? 'active' : working ? 'working'
+        : live.some(chat => chat.metadata?.lifecycleState !== 'idle') ? 'active'
         : live.length || chats.some(chat => chat.metadata?.lifecycleState === 'parked') ? 'idle' : 'recent'
     return { chats, questions, unread, working, flavors, section,
         activityAt: Math.max(group.updatedAt, ...chats.map(chat => chat.lastAgentMessageAt ?? chat.updatedAt)) }
