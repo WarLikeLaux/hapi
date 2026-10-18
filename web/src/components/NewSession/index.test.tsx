@@ -403,16 +403,24 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(await screen.findByRole('menuitemradio', { name: value === 'new' ? 'batch.newGroup' : value === 'none' ? 'batch.noGroup' : 'Existing' }))
     }
 
-    function enterBatchWithOneChat() {
+    async function removeChat(number: number) {
+        fireEvent.click(screen.getByRole('button', { name: `batch.remove ${number}` }))
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'batch.remove' }))
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    }
+
+    async function enterBatchWithOneChat() {
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
-        fireEvent.click(screen.getByRole('button', { name: 'batch.remove 2' }))
+        await removeChat(2)
         fireEvent.click(within(screen.getByRole('article')).getByRole('button', { expanded: false }))
     }
 
     it('keeps ordinary creation on the original form until another chat is requested', async () => {
         const launch = vi.fn()
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'ordinary-chat' })
-        renderComposer(launch)
+        const { createGroup } = renderComposer(launch)
+        expect(screen.getByRole('textbox', { name: 'groups.name' })).toHaveValue('')
+        expect(screen.queryByRole('checkbox', { name: 'groups.createWithChat' })).toBeNull()
         expect(screen.queryByRole('article')).toBeNull()
         expect(screen.queryByRole('textbox', { name: 'batch.commonPrompt' })).toBeNull()
         expect(screen.queryByRole('button', { name: /^batch.placement/ })).toBeNull()
@@ -421,6 +429,8 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('ordinary-chat', true))
         expect(mocks.spawnSession).toHaveBeenCalledTimes(1)
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ groupId: undefined }))
+        expect(createGroup).not.toHaveBeenCalled()
         expect(launch).not.toHaveBeenCalled()
     })
 
@@ -450,6 +460,10 @@ describe('NewSession launch preferences', () => {
     it.each(['none', 'existing-group'])('keeps placement %s when returning to one chat from an open group', async placement => {
         renderComposer(vi.fn(), { groupId: 'existing-group' })
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
+        fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Temporary group' } })
+        expect(screen.getByRole('button', { name: /^batch.placement/ })).toHaveTextContent('batch.newGroup')
+        fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: '' } })
+        expect(screen.getByRole('button', { name: /^batch.placement/ })).toHaveTextContent('batch.noGroup')
         await selectPlacement(placement)
         fireEvent.click(screen.getByRole('button', { name: 'batch.singleChat' }))
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'placed-chat' })
@@ -457,6 +471,22 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('placed-chat', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ groupId: placement === 'none' ? undefined : 'existing-group' }))
+    })
+
+    it('preserves a prepared chat on cancel and removes only the confirmed chat', async () => {
+        const launch = vi.fn()
+        renderComposer(launch)
+        fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
+        const second = screen.getAllByRole('article')[1]
+        fireEvent.change(within(second).getByRole('textbox', { name: 'batch.chatPrompt' }), { target: { value: 'Keep this task until removal is confirmed.' } })
+        fireEvent.click(screen.getByRole('button', { name: 'batch.remove 2' }))
+        expect(screen.getAllByRole('article', { hidden: true })).toHaveLength(2)
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'button.cancel' }))
+        expect(within(second).getByRole('textbox', { name: 'batch.chatPrompt' })).toHaveValue('Keep this task until removal is confirmed.')
+        await removeChat(2)
+        expect(screen.getAllByRole('article')).toHaveLength(1)
+        expect(screen.getByRole('article')).not.toBe(second)
+        expect(launch).not.toHaveBeenCalled()
     })
 
     it('cancels the batch draft so opening Create Session again starts with one chat', () => {
@@ -488,8 +518,7 @@ describe('NewSession launch preferences', () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'started' })
         const { createGroup } = renderComposer(launch)
         fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
-        fireEvent.click(screen.getByRole('checkbox', { name: 'groups.createWithChat' }))
-        expect(screen.getByTestId('create')).toBeDisabled()
+        expect(screen.getByTestId('create')).toBeEnabled()
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Compare' } })
         const first = screen.getAllByRole('article')[0]
@@ -515,19 +544,17 @@ describe('NewSession launch preferences', () => {
         const { createGroup } = renderComposer(launch)
         expect(screen.queryByRole('textbox', { name: 'batch.commonPrompt' })).toBeNull()
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
-        fireEvent.click(screen.getByRole('checkbox', { name: 'groups.createWithChat' }))
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Comparison' } })
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         expect(screen.getByRole('button', { name: /^batch.placement/ })).toHaveTextContent('batch.newGroup')
         expect(screen.getByRole('textbox', { name: 'groups.name' })).toHaveValue('Comparison')
         expect(createGroup).not.toHaveBeenCalled()
         fireEvent.change(screen.getByRole('textbox', { name: 'batch.commonPrompt' }), { target: { value: 'Compare the approaches.' } })
-        fireEvent.click(screen.getByRole('button', { name: 'batch.remove 2' }))
+        await removeChat(2)
         fireEvent.click(screen.getByRole('button', { name: 'batch.duplicate 1' }))
         const second = screen.getAllByRole('article')[1]
         expect(within(second).getByRole('button', { name: 'GPT-6 Luna' })).toHaveAttribute('aria-pressed', 'true')
-        fireEvent.click(within(second).getByRole('checkbox', { name: 'batch.useOwn' }))
-        fireEvent.change(within(second).getByRole('textbox', { name: 'batch.ownPrompt' }), { target: { value: 'Review security only.' } })
+        fireEvent.change(within(second).getByRole('textbox', { name: 'batch.chatPrompt' }), { target: { value: 'Review security only.' } })
         fireEvent.click(within(second).getByRole('button', { name: 'batch.otherProject' }))
         fireEvent.change(within(second).getByLabelText('directory-test'), { target: { value: 'C:\\other' } })
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchCount' })).toBeEnabled())
@@ -551,7 +578,7 @@ describe('NewSession launch preferences', () => {
         const launch = vi.fn().mockRejectedValueOnce(new Error('Response lost'))
             .mockResolvedValueOnce({ state: 'succeeded', sessionId: 'late-chat' })
         const view = renderComposer(launch, { groupId: 'existing-group', initialAgent: 'claude' })
-        enterBatchWithOneChat()
+        await enterBatchWithOneChat()
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchOne' })).toBeEnabled())
         fireEvent.click(screen.getByRole('button', { name: 'batch.launchOne' }))
         await waitFor(() => expect(screen.getByText('batch.indeterminate')).toBeVisible())
@@ -568,9 +595,11 @@ describe('NewSession launch preferences', () => {
     it('uses the common prompt when the individual prompt is empty and permits an empty regular chat', async () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'chat' })
         const view = renderComposer(launch)
-        enterBatchWithOneChat()
+        await enterBatchWithOneChat()
         fireEvent.change(screen.getByRole('textbox', { name: 'batch.commonPrompt' }), { target: { value: 'Common task' } })
-        fireEvent.click(screen.getByRole('checkbox', { name: 'batch.useOwn' }))
+        fireEvent.change(screen.getByRole('textbox', { name: 'batch.chatPrompt' }), { target: { value: '   ' } })
+        await selectPlacement('new')
+        expect(screen.getByRole('textbox', { name: 'groups.name' })).toHaveValue('')
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchOne' })).toBeEnabled())
         fireEvent.click(screen.getByRole('button', { name: 'batch.launchOne' }))
         await waitFor(() => expect(launch).toHaveBeenCalledTimes(1))
@@ -578,7 +607,7 @@ describe('NewSession launch preferences', () => {
         view.unmount()
         sessionStorage.clear()
         renderComposer(launch)
-        enterBatchWithOneChat()
+        await enterBatchWithOneChat()
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchOne' })).toBeEnabled())
         fireEvent.click(screen.getByRole('button', { name: 'batch.launchOne' }))
         await waitFor(() => expect(launch).toHaveBeenCalledTimes(2))
@@ -589,9 +618,8 @@ describe('NewSession launch preferences', () => {
         const createGroup = vi.fn(async () => ({ group: { id: 'created-group', name: 'HAPI' } }))
         mocks.spawnSession.mockRejectedValueOnce(new Error('Runner unavailable')).mockResolvedValueOnce({ type: 'success', sessionId: 'new-chat' })
         render(<NewSession api={{ ...api, createGroup } as unknown as ApiClient} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        expect(screen.queryByRole('textbox', { name: 'groups.name' })).toBeNull()
-        fireEvent.click(screen.getByRole('checkbox', { name: 'groups.createWithChat' }))
-        expect(screen.getByTestId('create')).toBeDisabled()
+        expect(screen.getByRole('textbox', { name: 'groups.name' })).toHaveValue('')
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: '  HAPI  ' } })
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledTimes(1))

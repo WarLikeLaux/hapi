@@ -16,11 +16,8 @@ export function FastModeSelector(props: {
     }
 
     return (
-        <div className="flex flex-col gap-1.5 px-3 py-3" role="group" aria-label={t('newSession.fastMode')}>
-            <div className="text-xs font-medium text-[var(--app-hint)]">
-                {t('newSession.fastMode')}
-            </div>
-            <div className="flex flex-wrap gap-x-2 gap-y-3">
+        <section className="p-2 sm:p-3" role="group" aria-label={t('newSession.fastMode')}>
+            <div className="flex flex-wrap gap-2 sm:gap-3">
                 {(['standard', 'fast'] as const).map((value) => (
                     <button
                         key={value}
@@ -38,6 +35,6 @@ export function FastModeSelector(props: {
                     </button>
                 ))}
             </div>
-        </div>
+        </section>
     )
 }
