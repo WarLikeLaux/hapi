@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test'
 import { RpcRegistry } from '../socket/rpcRegistry'
 import { Store } from '../store'
+import type { SessionCache } from './sessionCache'
 import { SyncEngine, type SyncEvent } from './syncEngine'
 
 function createEngine(onCliEmit?: (payload: unknown) => void) {
@@ -537,11 +538,11 @@ describe('SyncEngine.clearOpenCodeSession', () => {
         const { store, engine } = createEngine()
         try {
             const source = engine.getOrCreateSession('abort-retry-source', {
-                path: '/tmp/project', host: 'host', machineId: 'machine-1', flavor: 'opencode', startedBy: 'runner',
-                lifecycleState: 'archived', archiveReason: 'Archived before clear abort'
+                path: '/tmp/project', host: 'host', machineId: 'machine-1', flavor: 'opencode', startedBy: 'runner'
             }, null, 'default')
             engine.handleSessionAlive({ sid: source.id, time: Date.now() })
             expect(engine.reserveOpenCodeClearSession(source.id, 'default')).toMatchObject({ type: 'success' })
+            ;(engine as unknown as { sessionCache: SessionCache }).sessionCache.markSessionArchivedFromHub(source.id, 'Archived before clear abort')
             await engine.sendMessage(source.id, { text: 'restore atomically', localId: 'atomic-held' })
             const original = store.abortOpenCodeClearOperation.bind(store)
             let fail = true
@@ -826,8 +827,14 @@ describe('SyncEngine.clearOpenCodeSession', () => {
     it('refuses before spawning while the source is still active', async () => {
         const { engine } = createEngine()
         try {
-            const source = createClearSource(engine)
+            const source = createClearSource(engine, { lifecycleState: 'running', archiveReason: undefined })
             engine.handleSessionAlive({ sid: source.id, time: Date.now() })
+            // The CLI can publish archive metadata before its process exits;
+            // a late keepalive must not be used to reactivate an archived row.
+            ;(engine as unknown as { sessionCache: SessionCache }).sessionCache.markSessionArchivedFromHub(source.id, 'Cleared by /clear')
+            expect(engine.getSessionByNamespace(source.id, 'default')).toMatchObject({
+                active: true, metadata: { lifecycleState: 'archived', archiveReason: 'Cleared by /clear' }
+            })
             const spawnSession = mock(async () => ({ type: 'success' as const, sessionId: 'must-not-spawn' }))
             setSpawn(engine, spawnSession)
 
