@@ -226,9 +226,8 @@ export function SessionGroupWorkspace(props: {
             if (next >= 0) { event.preventDefault(); props.onSelect(tabMembers[next].sessionId); requestAnimationFrame(() => selectedTab.current?.focus()) }
         }}>
             <div className="min-w-0 flex-1 overflow-x-auto sm:flex sm:overflow-visible">
-                {/* Fill the available row before wrapping. Grow horizontally only when two rows are full. */}
-                <div className="grid min-w-[calc(var(--group-tab-columns)*var(--group-tab-width))] grid-cols-[repeat(auto-fill,var(--group-tab-width))] sm:flex sm:min-w-0 sm:flex-1"
-                    style={{ '--group-tab-columns': Math.ceil(tabMembers.length / 2), '--group-tab-width': 'clamp(8rem, 40vw, 10rem)' } as CSSProperties}>
+                <div className="grid grid-rows-2 grid-cols-[repeat(var(--group-tab-columns),minmax(8rem,10rem))] sm:flex sm:min-w-0 sm:flex-1"
+                    style={{ '--group-tab-columns': Math.ceil(tabMembers.length / 2) } as CSSProperties}>
                     {tabMembers.some(m => m.pinned) ? <div className="contents sm:flex sm:max-w-[48%] sm:shrink-0 sm:overflow-x-auto sm:border-r sm:border-[var(--app-border)]" aria-label={t('groups.pinned')}>{tabMembers.filter(m => m.pinned).map(tab)}</div> : null}
                     <div className="contents sm:flex sm:min-w-0 sm:flex-1 sm:overflow-x-auto">{tabMembers.filter(m => !m.pinned).map(tab)}</div>
                 </div>
