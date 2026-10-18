@@ -20,7 +20,7 @@ export function FastModeSelector(props: {
             <div className="text-xs font-medium text-[var(--app-hint)]">
                 {t('newSession.fastMode')}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-x-2 gap-y-3">
                 {(['standard', 'fast'] as const).map((value) => (
                     <button
                         key={value}

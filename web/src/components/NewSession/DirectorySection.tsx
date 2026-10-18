@@ -74,7 +74,7 @@ function PathRow(props: {
     return (
         <div className="flex flex-col gap-1 mt-1">
             <span className="text-xs text-[var(--app-hint)]">{props.label}:</span>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-x-2 gap-y-3">
                 {props.paths.map((path) => (
                     <PathChip
                         key={path}
