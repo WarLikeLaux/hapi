@@ -152,6 +152,7 @@ for request/response shapes and error semantics, and `src/web/routes/` for all e
 ### Usage (`src/web/routes/usage.ts`)
 
 - `GET /api/usage/summary` - Get cache-aware token usage for the owner namespace (`range=7d|30d|all`).
+- `GET /api/usage/popular-models` - Rank executor/model pairs by distinct chats used in the last seven days, within the authenticated namespace. Reads the persisted SQLite usage index, updated when messages arrive. Empty chats are excluded; Standard/Fast variants share one model count. Legacy or rewritten history is indexed in background batches, then reused across hub restarts. No agent/model requests or daily cache files are needed.
 
 ### Storage (`src/web/routes/storage.ts`)
 

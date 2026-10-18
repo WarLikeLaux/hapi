@@ -637,7 +637,7 @@ describe('usage service', () => {
 
         store.messages.bumpMessageEpoch(session.id)
         expect(getUsageSummary(store, 'default', 'all').totals.requests).toBe(1)
-        expect(afterSeqs).toEqual([0, 1, 0])
+        expect(afterSeqs).toEqual([1, 2, 0])
         store.close()
     })
 

@@ -20,6 +20,7 @@ describe('newSessionFormDraft', () => {
 
     it('round-trips cursor model fields through sessionStorage', () => {
         saveNewSessionFormDraft({
+            agentFilter: 'cursor',
             agent: 'cursor',
             model: 'composer-2.5[fast=false]',
             cursorSelectedBase: 'composer-2.5',
@@ -37,6 +38,7 @@ describe('newSessionFormDraft', () => {
         })
 
         expect(loadNewSessionFormDraft()).toEqual({
+            agentFilter: 'cursor',
             agent: 'cursor',
             model: 'composer-2.5[fast=false]',
             cursorSelectedBase: 'composer-2.5',

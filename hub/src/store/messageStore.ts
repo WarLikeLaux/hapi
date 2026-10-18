@@ -104,8 +104,8 @@ export class MessageStore {
         return getAllMessages(this.db, sessionId)
     }
 
-    getMessagesAfterSeq(sessionId: string, afterSeq: number): StoredMessage[] {
-        return getMessagesAfterSeq(this.db, sessionId, afterSeq)
+    getMessagesAfterSeq(sessionId: string, afterSeq: number, limit?: number): StoredMessage[] {
+        return getMessagesAfterSeq(this.db, sessionId, afterSeq, limit)
     }
 
     getSeqById(sessionId: string, messageId: string): number | null {

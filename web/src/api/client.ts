@@ -67,6 +67,7 @@ import type {
     UpdateHubSettingsRequest,
     UpdateWorkspacePinsRequest,
     WorkspacePinsResponse,
+    PopularModelsResponse,
     UsageSummaryResponse,
     UploadFileResponse,
     WorkspaceTurnDiffResponse
@@ -1227,6 +1228,10 @@ export class ApiClient {
             method: 'PUT',
             body: JSON.stringify(settings)
         })
+    }
+
+    async getPopularModels(): Promise<PopularModelsResponse> {
+        return this.request('/api/usage/popular-models')
     }
 
     async getUsageSummary(

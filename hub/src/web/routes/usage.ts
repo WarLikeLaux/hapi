@@ -3,9 +3,16 @@ import type { UsageSummaryResponse } from '@hapi/protocol/apiTypes'
 import type { WebAppEnv } from '../middleware/auth'
 import type { Store } from '../../store'
 import { getUsageSummary } from '../../sync/usageService'
+import { PopularModelsIndex } from '../../sync/popularModelsIndex'
 
 export function createUsageRoutes(store: Store): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
+    const popularModels = new PopularModelsIndex(store)
+
+    app.get('/usage/popular-models', c => {
+        c.header('Cache-Control', 'no-store')
+        return c.json(popularModels.get(c.get('namespace')))
+    })
 
     app.get('/usage/summary', (c) => {
         if (c.get('namespace') !== 'default') {

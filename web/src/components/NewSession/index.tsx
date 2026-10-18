@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary, Session } from '@/types/api'
 import { getPinnedOpencodeReasoningEffort, isKnownFlavor, isRemovedAgyModel, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
@@ -6,6 +6,8 @@ import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFa
 import { usePlatform } from '@/hooks/usePlatform'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
 import { useSpawnSession } from '@/hooks/mutations/useSpawnSession'
+import { usePopularModels } from '@/hooks/queries/usePopularModels'
+import { popularModelChoices } from './popularModelChoices'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
 import { useCursorModelsForMachine } from '@/hooks/queries/useCursorModelsForMachine'
 import { useAgyModels } from '@/hooks/queries/useAgyModels'
@@ -34,19 +36,11 @@ import { getCodexModelReasoningEfforts, resolveCodexModel } from '@/lib/codexMod
 import { modelChipText } from '@/lib/modelChipLabel'
 import {
     buildNewSessionCursorModelCatalog,
-    buildNewSessionCursorPickerState,
     CURSOR_COMPOSER_STANDARD_WIRE,
     CURSOR_GROK_XHIGH_WIRE,
     getCursorModelSpeedOptions,
-    isCursorEffortWireAllowed,
     isHardcodedCursorModelId,
-    resolveCursorBaseFromWire,
-    resolveNewSessionCursorBaseSelectValue,
-    resolveNewSessionCursorEffortSelectValue,
-    resolveWireIdForBaseChange,
-    shouldShowCursorModelsUnavailable
 } from './newSessionCursorModels'
-import { buildCursorEffortPickerOptions, resolveCursorVariantOptions } from '@/lib/cursorModelOptions'
 import {
     clearNewSessionFormDraft,
     loadNewSessionFormDraft,
@@ -60,16 +54,15 @@ import type { LaunchSessionRequest } from '@hapi/protocol'
 import type { AgentType, LaunchEffort, CodexReasoningEffort, NewSessionServiceTier, SessionType } from './types'
 import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
-import { ChoiceLabel } from './ChoiceLabel'
+import { ModelChoices, modelChoiceLabel, type ModelChoice } from './ModelChoices'
+import { useNarrowViewport } from '@/hooks/useNarrowViewport'
 import { PiImportActions } from './PiImportActions'
 import { clearBatchImportedCodexSelection, resolveCodexImportRedirectSessionId } from './codexImportMerge'
-import { AgyModelSelector } from './AgyModelSelector'
 import { DirectorySection } from './DirectorySection'
 import { CopilotAgentModeSelector } from './CopilotAgentModeSelector'
 import { FastModeSelector } from './FastModeSelector'
 import { MachineSelector } from './MachineSelector'
 import { ModelSelector } from './ModelSelector'
-import { OpencodeModelSelector } from './OpencodeModelSelector'
 import { EffortField } from './EffortField'
 import { shouldEnableOpencodeModelDiscovery } from './opencodeModelsGate'
 import { buildGrokEffortOptions, buildGrokModelOptions, shouldEnableGrokModelDiscovery } from './grokModels'
@@ -92,7 +85,6 @@ import {
     CLAUDE_GLM_HARDCODED_LABEL,
     CLAUDE_GLM_MODEL_ID,
     CLAUDE_GLM_MODEL_LABEL,
-    CODEX_DEFAULT_MODEL_ID,
     CODEX_HARDCODED_OPTIONS,
     MINIMAX_HARDCODED_LABEL,
     OPENCODE_HARDCODED_LABEL,
@@ -110,82 +102,6 @@ import { useToast } from '@/lib/toast-context'
 import { buildSessionReferenceText } from '@/lib/sessionReference'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { makeClientSideId } from '@/lib/messages'
-
-function QuickPickChips(props: {
-    options: Array<{ value: string; label: string }>
-    activeValue: string | null
-    isDisabled: boolean
-    onToggle: (value: string) => void
-}) {
-    return (
-        <div className="contents">
-            {props.options.map((option) => (
-                <button
-                    key={option.value}
-                    type="button"
-                    aria-pressed={props.activeValue === option.value}
-                    disabled={props.isDisabled}
-                    onClick={() => props.onToggle(option.value)}
-                    className={`rounded-full border px-2 py-1 text-xs transition-colors sm:px-2.5 disabled:opacity-50 ${
-                        props.activeValue === option.value
-                            ? 'border-[var(--app-link)] bg-[var(--app-link)] font-medium text-[var(--app-bg)]'
-                            : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)]'
-                    }`}
-                >
-                    {option.label}
-                </button>
-            ))}
-        </div>
-    )
-}
-// Quick model choices shown before the optional full catalog dropdown.
-function ModelBadges(props: {
-    options: Array<{ value: string; label: string }>
-    activeValue: string | null
-    isDisabled: boolean
-    onToggle: (value: string) => void
-    footer?: ReactNode
-}) {
-    const { t } = useTranslation()
-    return (
-        <section aria-label={t('newSession.model')} className="flex min-w-0 flex-col gap-2 p-2 sm:flex-row sm:items-center sm:gap-3 sm:p-3">
-            <ChoiceLabel kind="model" />
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 sm:gap-3">
-                <QuickPickChips
-                    options={props.options}
-                    activeValue={props.activeValue}
-                    isDisabled={props.isDisabled}
-                    onToggle={props.onToggle}
-                />
-                {props.footer}
-            </div>
-        </section>
-    )
-}
-
-// Escape hatch behind the hardcoded badges: reveals the full catalog
-// selector for the day a hardcoded wire goes stale.
-function OtherModelsButton(props: {
-    isDisabled: boolean
-    onClick: () => void
-}) {
-    const { t } = useTranslation()
-    return (
-        <button
-            type="button"
-            onClick={props.onClick}
-            disabled={props.isDisabled}
-            className="inline-flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2 py-1 text-xs text-[var(--app-fg)] sm:px-2.5 transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50"
-        >
-            {t('newSession.model.loadOptions')}
-            <svg aria-hidden="true" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m6 9 6 6 6-6" />
-            </svg>
-        </button>
-    )
-}
-
-
 
 export type SessionEditorState = {
     input: Omit<LaunchSessionRequest, 'requestId' | 'initialPrompt'>
@@ -237,6 +153,10 @@ export function NewSession(props: {
 
     const [suppressSuggestions, setSuppressSuggestions] = useState(false)
     const [isDirectoryFocused, setIsDirectoryFocused] = useState(false)
+    const isNarrow = useNarrowViewport()
+    const popular = usePopularModels(props.api)
+    const [agentFilter, setAgentFilter] = useState<AgentType | 'all'>(editorDraft?.agentFilter ?? 'all')
+    const pendingModelChoice = useRef<ModelChoice | null>(null)
     const [agent, setAgent] = useState<AgentType>(() => editorDraft?.agent ?? continueAgent ?? props.initialAgent ?? loadPreferredAgent())
     // Snapshot taken once at mount, before any savePreferredAgent() call this
     // component makes can overwrite the stored agent. savePreferredAgent()
@@ -248,16 +168,12 @@ export function NewSession(props: {
     )
     const [model, setModel] = useState(() => editorDraft?.model ?? continueFrom?.model ?? 'auto')
     const [cursorSelectedBase, setCursorSelectedBase] = useState(editorDraft?.cursorSelectedBase ?? 'auto')
-    const pendingCursorBaseRef = useRef<string | null>(null)
     const [effort, setEffort] = useState<LaunchEffort>(() => editorDraft?.effort ?? continueFrom?.effort ?? 'auto')
     const [modelReasoningEffort, setModelReasoningEffort] = useState<CodexReasoningEffort>(() => editorDraft?.modelReasoningEffort ?? continueFrom?.modelReasoningEffort ?? 'default')
     const [opencodeSelectedModel, setOpencodeSelectedModel] = useState<string | null | undefined>(() => {
         const selected = editorDraft?.agent === 'opencode' ? editorDraft.model : continueAgent === 'opencode' ? continueFrom?.model : null
         return selected && selected !== 'auto' ? selected : null
     })
-    const [requestedModelCatalog, setRequestedModelCatalog] = useState<string | null>(() => editorDraft?.modelCatalogRequested ? JSON.stringify([agent, machineId, agent === 'opencode' ? directory.trim() : null]) : null)
-    const modelCatalogTarget = JSON.stringify([agent, machineId, agent === 'opencode' ? directory.trim() : null])
-    const modelCatalogRequested = requestedModelCatalog === modelCatalogTarget
     const [serviceTier, setServiceTier] = useState<NewSessionServiceTier>(() => (editorDraft?.serviceTier ?? continueFrom?.serviceTier) === 'fast' ? 'fast' : 'standard')
     // Fork: the collaboration-mode selector is dormant; a hidden field must
     // not carry a non-default mode into the spawn, so it stays at 'default'.
@@ -331,10 +247,8 @@ export function NewSession(props: {
         setServiceTier('standard')
         setCollaborationMode('default')
         setCopilotAgentMode('interactive')
-        if (agent !== 'cursor') {
-            setModel('auto')
-            setCursorSelectedBase('auto')
-        }
+        setModel('auto')
+        setCursorSelectedBase('auto')
     }, [agent])
 
     useEffect(() => {
@@ -396,6 +310,7 @@ export function NewSession(props: {
         restoredFromBrowseRef.current = true
         preserveRestoredDraftRef.current = true
         setAgent(draft.agent)
+        setAgentFilter(draft.agentFilter ?? 'all')
         setModel(draft.model)
         setCursorSelectedBase(draft.cursorSelectedBase)
         setEffort(draft.effort)
@@ -462,7 +377,6 @@ export function NewSession(props: {
         api: props.api,
         machineId,
     })
-    const cursorDefaultModelName = agentAvailability.agents.find((entry) => entry.agent === 'cursor')?.defaultModelName
     const configuredDefaultModelName = agentAvailability.agents.find((entry) => entry.agent === agent)?.defaultModelName
     const availableAgents = useMemo(
         () => orderCreateSessionAgents(agentAvailability.agents
@@ -563,49 +477,16 @@ export function NewSession(props: {
             setServiceTier('standard')
         }
     }, [agent, codexModelsState.isLoading, showCodexFastMode, serviceTier])
-    // Fork hardcoded models: these flavors always run one model, so the form
-    // pins it instead of offering the catalog dropdown. Literals only.
-    // The Other badge opens the full catalog selector as an escape hatch.
-    const [showAllModels, setShowAllModels] = useState(editorDraft?.showAllModels ?? false)
-    useEffect(() => {
-        if (!preserveRestoredDraftRef.current) setShowAllModels(false)
-    }, [agent, machineId])
-    useEffect(() => {
-        if (agent !== 'codex' || showAllModels) {
-            return
-        }
-        if (model !== 'auto' && CODEX_HARDCODED_OPTIONS.some((option) => option.value === model)) {
-            return
-        }
-        setModel(CODEX_DEFAULT_MODEL_ID)
-    }, [agent, model, showAllModels])
     useEffect(() => {
         if (agent === 'claude' && claudeGlmBranded && model !== 'auto' && model !== CLAUDE_GLM_MODEL_ID) {
             setModel('auto')
         }
     }, [agent, claudeGlmBranded, model])
-    useEffect(() => {
-        if (agent === 'agy' && !showAllModels && agySelectedModel !== null && agySelectedModel !== AGY_HIGH_MODEL_ID) {
-            agyModelPickedByUserRef.current = false
-            setAgySelectedModel(null)
-        }
-    }, [agent, agySelectedModel, showAllModels])
     const cursorModelsState = useCursorModelsForMachine({
         api: props.api,
         machineId,
         enabled: agent === 'cursor' && Boolean(machineId)
-            && (modelCatalogRequested
-                || (model !== 'auto' && model !== 'default[]')
-                || (cursorSelectedBase !== 'auto' && cursorSelectedBase !== 'default[]'))
     })
-    const cursorPicker = useMemo(
-        () => buildNewSessionCursorPickerState(
-            cursorModelsState.availableModels,
-            model,
-            cursorModelsState.cliModelSkus
-        ),
-        [cursorModelsState.availableModels, cursorModelsState.cliModelSkus, model]
-    )
     const availableCursorCatalog = useMemo(
         () => buildNewSessionCursorModelCatalog(
             cursorModelsState.availableModels,
@@ -614,31 +495,11 @@ export function NewSession(props: {
         ),
         [cursorModelsState.availableModels, cursorModelsState.cliModelSkus]
     )
-    // Cursor models are hardcoded literals, no catalog lookup.
-    const hardcodedCursorOptions = useMemo(
-        () => [
-            { value: CURSOR_GROK_XHIGH_WIRE, label: 'Grok 4.7 Extra High' },
-            { value: CURSOR_COMPOSER_STANDARD_WIRE, label: 'Composer 2.5' },
-        ],
-        []
-    )
-    // Escape hatch behind the hardcoded badges: reveals the full catalog picker.
-    const [showAllCursorModels, setShowAllCursorModels] = useState(editorDraft?.showAllCursorModels ?? false)
-    useEffect(() => {
-        if (!preserveRestoredDraftRef.current) setShowAllCursorModels(false)
-    }, [agent, machineId])
-    useEffect(() => {
-        // Idempotent and coercive in badges mode: anything outside the
-        // hardcoded shortlist (including auto) snaps to Grok Extra High.
-        // Fast stays off until the user picks it. With the hatch open the
-        // user owns the selection.
-        if (agent !== 'cursor' || showAllCursorModels) return
-        if (isHardcodedCursorModelId(model)) return
-        setModel(CURSOR_GROK_XHIGH_WIRE)
-        setCursorSelectedBase('grok-4.7')
-    }, [agent, model, showAllCursorModels])
-    const cursorSpeedOptions = agent === 'cursor' ? getCursorModelSpeedOptions(model) : null
-    const cursorServiceTier = cursorSpeedOptions?.fast === model ? 'fast' : 'standard'
+    const cursorEffectiveModel = model === 'auto' ? cursorModelsState.currentModelId : model
+    const cursorSpeedOptions = agent === 'cursor' && !cursorModelsState.isLoading && !cursorModelsState.error
+        ? getCursorModelSpeedOptions(cursorEffectiveModel ?? 'auto', [...cursorModelsState.availableModels, ...cursorModelsState.cliModelSkus])
+        : null
+    const cursorServiceTier = cursorSpeedOptions?.fast === cursorEffectiveModel ? 'fast' : 'standard'
 
     useEffect(() => {
         if (
@@ -648,7 +509,8 @@ export function NewSession(props: {
         ) {
             return
         }
-        if (model !== 'auto' && model !== 'default[]' && !isHardcodedCursorModelId(model) && !availableCursorCatalog.wireToBase.has(model)) {
+        if (model !== 'auto' && model !== 'default[]' && !isHardcodedCursorModelId(model) && !availableCursorCatalog.wireToBase.has(model)
+            && ![...cursorModelsState.availableModels, ...cursorModelsState.cliModelSkus].some(option => option.modelId === model)) {
             setModel('auto')
             setCursorSelectedBase('auto')
             return
@@ -666,95 +528,11 @@ export function NewSession(props: {
         availableCursorCatalog,
         cursorModelsState.error,
         cursorModelsState.isLoading,
+        cursorModelsState.availableModels,
+        cursorModelsState.cliModelSkus,
         cursorSelectedBase,
         model
     ])
-
-    const cursorBaseSelectValue = useMemo(
-        () => resolveNewSessionCursorBaseSelectValue(cursorPicker, cursorSelectedBase),
-        [cursorPicker, cursorSelectedBase]
-    )
-
-    const cursorVariantOptions = useMemo(() => {
-        if (cursorPicker.mode !== 'dual') {
-            return cursorPicker.effortOptions
-        }
-        const baseKey = cursorBaseSelectValue !== 'auto' && cursorBaseSelectValue !== 'default[]'
-            ? cursorBaseSelectValue
-            : cursorPicker.baseKey
-        return buildCursorEffortPickerOptions(resolveCursorVariantOptions(baseKey ?? null, cursorPicker.catalog))
-    }, [cursorPicker, cursorBaseSelectValue])
-
-    const cursorVariantSelectOptions = useMemo(() => {
-        if (cursorVariantOptions.length === 0) {
-            return []
-        }
-        return [
-            { value: 'auto', label: t('newSession.model.selectVariant') },
-            ...cursorVariantOptions
-        ]
-    }, [cursorVariantOptions, t])
-
-    const cursorEffortSelectValue = useMemo(
-        () => resolveNewSessionCursorEffortSelectValue(model, cursorVariantOptions),
-        [model, cursorVariantOptions]
-    )
-
-    useEffect(() => {
-        if (agent !== 'cursor' || cursorModelsState.isLoading) {
-            return
-        }
-        if (model === 'auto' && cursorSelectedBase !== 'auto') {
-            return
-        }
-        if (model === 'auto' || model === 'default[]') {
-            return
-        }
-        const base = resolveCursorBaseFromWire(model, cursorPicker.catalog)
-        if (cursorSelectedBase === base) {
-            return
-        }
-        setCursorSelectedBase(base)
-    }, [
-        agent,
-        model,
-        cursorModelsState.isLoading,
-        cursorPicker.catalog,
-        cursorSelectedBase
-    ])
-
-    const showCursorVariantPicker = showAllCursorModels && model !== 'auto' && model !== 'default[]' && cursorPicker.mode === 'dual' && cursorVariantOptions.length > 1
-
-    useEffect(() => {
-        if (agent !== 'cursor' || cursorModelsState.isLoading) {
-            return
-        }
-        const pendingBase = pendingCursorBaseRef.current
-        if (!pendingBase) {
-            return
-        }
-        if (cursorPicker.catalog.variantsByBase.size === 0) {
-            return
-        }
-        pendingCursorBaseRef.current = null
-        if (pendingBase === 'auto') {
-            setModel('auto')
-            return
-        }
-        setModel(resolveWireIdForBaseChange(pendingBase, cursorPicker.catalog, model) ?? 'auto')
-    }, [
-        agent,
-        cursorModelsState.isLoading,
-        cursorPicker.catalog,
-        model
-    ])
-    const cursorModelPickersDisabled = isFormDisabled || !machineId
-    const cursorModelsUnavailable = modelCatalogRequested && shouldShowCursorModelsUnavailable({
-        agent,
-        isLoading: cursorModelsState.isLoading,
-        error: cursorModelsState.error,
-        availableModels: cursorModelsState.availableModels
-    })
 
     const recentPaths = useMemo(
         () => getRecentProjectPaths(sessions, machineId),
@@ -813,7 +591,7 @@ export function NewSession(props: {
         // Gate on positive existence: typing partial paths must not spawn an
         // expensive `opencode acp` probe for a non-existent cwd while the
         // existence check is in flight.
-        enabled: (modelCatalogRequested || Boolean(opencodeSelectedModel) || modelReasoningEffort !== 'default')
+        enabled: (Boolean(opencodeSelectedModel) || modelReasoningEffort !== 'default')
             && shouldEnableOpencodeModelDiscovery({
                 agent,
                 machineId,
@@ -858,7 +636,7 @@ export function NewSession(props: {
         // and a per-render options array would retrigger the reset effect below.
     }, [agent, machineId, opencodeSelectedModel, opencodeModelsState.currentModelId, opencodeVariantsState.variants, opencodeVariantsState.isLoading, opencodeVariantsState.error])
     const opencodeCatalogPending = agent === 'opencode'
-        && (modelCatalogRequested || Boolean(opencodeSelectedModel) || modelReasoningEffort !== 'default')
+        && (Boolean(opencodeSelectedModel) || modelReasoningEffort !== 'default')
         && deferredDirectory !== ''
         && (
             deferredDirectoryExists === undefined
@@ -1134,12 +912,9 @@ export function NewSession(props: {
         // The model choice is deliberately not remembered: every fresh form
         // starts at the agent's own default (its CLI config decides), and a
         // concrete model is picked per launch. The per-machine preference only
-        // carries effort/permission touches. Cursor badges own their model via
-        // the pin effect above, so they are exempt here.
-        if (agent !== 'cursor') {
-            setModel('auto')
-            setCursorSelectedBase('auto')
-        }
+        // carries effort/permission touches.
+        setModel('auto')
+        setCursorSelectedBase('auto')
         // A GLM-branded claude hides the effort field; the remembered value
         // must not silently survive where the user cannot see or change it.
         setEffort(agent === 'claude' && getClaudeGlmBranded() ? 'auto' : preferred.effort)
@@ -1662,6 +1437,84 @@ export function NewSession(props: {
         setAgent(newAgent)
     }, [])
 
+    function applyModelChoice(choice: ModelChoice) {
+        setServiceTier('standard')
+        if (choice.agent === 'agy') {
+            agyModelPickedByUserRef.current = choice.value !== 'auto'
+            setAgySelectedModel(choice.value === 'auto' ? null : choice.value)
+        } else if (choice.agent === 'opencode') {
+            setOpencodeSelectedModel(choice.value === 'auto' ? null : choice.value)
+        } else {
+            setModel(choice.value)
+            if (choice.agent === 'cursor') setCursorSelectedBase('auto')
+        }
+    }
+
+    // Agent-change effects reset permissions/effort before applying the explicit
+    // pair. Otherwise those resets could silently replace a clicked model.
+    useEffect(() => {
+        const choice = pendingModelChoice.current
+        if (choice?.agent === agent) {
+            pendingModelChoice.current = null
+            applyModelChoice(choice)
+        }
+    }, [agent])
+
+    const effectiveFilter = agentFilter !== 'all' && !availableAgents.includes(agentFilter) ? 'all' : agentFilter
+    const quickModels: Partial<Record<AgentType, readonly { value: string; label: string }[]>> = {
+        codex: CODEX_HARDCODED_OPTIONS,
+        claude: claudeGlmBranded ? [
+            { value: 'auto', label: CLAUDE_GLM_HARDCODED_LABEL },
+            { value: CLAUDE_GLM_MODEL_ID, label: CLAUDE_GLM_MODEL_LABEL },
+        ] : undefined,
+        agy: [
+            { value: 'auto', label: AGY_HARDCODED_LABEL },
+            { value: AGY_HIGH_MODEL_ID, label: AGY_HIGH_MODEL_LABEL },
+        ],
+        opencode: OPENCODE_HARDCODED_OPTIONS,
+        cursor: [
+            { value: CURSOR_GROK_XHIGH_WIRE, label: 'Grok 4.7 Extra High' },
+            { value: CURSOR_COMPOSER_STANDARD_WIRE, label: 'Composer 2.5' },
+        ],
+        minimax: [{ value: 'auto', label: MINIMAX_HARDCODED_LABEL }],
+    }
+    const selectedModel = agent === 'agy' ? agySelectedModel ?? 'auto'
+        : agent === 'opencode' ? opencodeSelectedModel ?? 'auto'
+        : agent === 'cursor' ? cursorSpeedOptions?.standard ?? model : model
+    const cursorDefaultChoice = model === 'auto' && agent === 'cursor'
+        ? quickModels.cursor?.find(option => option.value === cursorSpeedOptions?.standard || option.value === cursorEffectiveModel || option.label === nativeDefaultModelName)?.value
+        : undefined
+    let displayedModel = cursorDefaultChoice ?? selectedModel
+    if (agent === 'codex' && model === 'auto') {
+        displayedModel = resolveCodexModel(codexModelsState.models, null)?.id ?? 'auto'
+    } else if (agent === 'cursor' && selectedModel.endsWith('[fast=false]')) {
+        displayedModel = selectedModel.slice(0, -12)
+    }
+    const modelChoices: ModelChoice[] = availableAgents
+        .filter(flavor => effectiveFilter === 'all' || flavor === effectiveFilter)
+        .flatMap(flavor => {
+            const defaultName = agentAvailability.agents.find(entry => entry.agent === flavor)?.defaultModelName
+            const options = (quickModels[flavor] ?? []).map(option => {
+                if (option.value !== 'auto' || flavor === 'opencode' || !defaultName) return option
+                // Keep the readable badge for matching native names, including
+                // MiniMax's dashed Preview suffix; changed defaults use their real name.
+                const normalize = (name: string) => name.toLowerCase().replace(/[^a-z0-9.]/g, '')
+                return { ...option, label: normalize(defaultName).startsWith(normalize(option.label)) ? option.label : defaultName }
+            })
+            if (quickModels[flavor] && flavor === agent && !options.some(option => option.value === displayedModel) && flavor !== 'dsh') {
+                options.unshift({ value: displayedModel, label: displayedModel === 'auto'
+                    ? nativeDefaultModelName ?? t('newSession.model.default')
+                    : (agent === 'codex' ? resolveCodexModel(codexModelsState.models, displayedModel)?.displayName : undefined) ?? namedLaunchModelOptions.find(option => option.value === displayedModel)?.label ?? displayedModel })
+            }
+            return options.map(option => ({ ...option, agent: flavor }))
+        })
+
+    const selectedModelChoice = modelChoices.find(choice => choice.agent === agent && choice.value === displayedModel)
+    const visibleModelChoices = effectiveFilter === 'all'
+        ? popular.isLoading ? selectedModelChoice ? [selectedModelChoice] : []
+            : popularModelChoices(modelChoices, popular.models, selectedModelChoice)
+        : modelChoices
+
     const handleMachineChange = useCallback((newMachineId: string) => {
         preserveRestoredDraftRef.current = false
         setMachineId(newMachineId)
@@ -1679,41 +1532,12 @@ export function NewSession(props: {
             : '')
     }, [sessions, props.machines])
 
-    const handleCursorBaseChange = useCallback((baseKey: string) => {
-        if (baseKey === 'auto' || baseKey === 'default[]') {
-            pendingCursorBaseRef.current = null
-            setCursorSelectedBase(baseKey)
-            setModel(baseKey)
-            return
-        }
-        setCursorSelectedBase(baseKey)
-        if (cursorModelsState.isLoading || cursorPicker.catalog.variantsByBase.size === 0) {
-            pendingCursorBaseRef.current = baseKey
-            return
-        }
-        pendingCursorBaseRef.current = null
-        setModel(resolveWireIdForBaseChange(baseKey, cursorPicker.catalog, model) ?? 'auto')
-    }, [cursorModelsState.isLoading, cursorPicker.catalog, model])
-
-    const handleCursorEffortChange = useCallback((wireId: string) => {
-        if (wireId === 'auto') {
-            setModel('auto')
-            return
-        }
-        const baseKey = cursorSelectedBase !== 'auto'
-            ? cursorSelectedBase
-            : cursorPicker.baseKey
-        if (baseKey && !isCursorEffortWireAllowed(wireId, cursorPicker.catalog, baseKey)) {
-            return
-        }
-        setModel(wireId)
-    }, [cursorPicker.catalog, cursorPicker.baseKey, cursorSelectedBase])
-
     const handleChooseFolderClick = useCallback(() => {
         if (!props.onChooseFolder) {
             return
         }
         saveNewSessionFormDraft({
+            agentFilter,
             groupId: props.groupId,
             groupCreation: createGroup ? {
                 name: groupName.trim(),
@@ -1741,6 +1565,7 @@ export function NewSession(props: {
         props.onChooseFolder({ machineId, directory: trimmedDirectory })
     }, [
         props.onChooseFolder,
+        agentFilter,
         props.groupId,
         createGroup,
         groupName,
@@ -1903,11 +1728,6 @@ export function NewSession(props: {
                 return
             }
 
-            if (cursorVariantMissing) {
-                haptic.notification('error')
-                setError(t('newSession.model.selectVariant'))
-                return
-            }
 
             const { model: resolvedModel, modelReasoningEffort: resolvedModelReasoningEffort, serviceTier: resolvedServiceTier, collaborationMode: resolvedCollaborationMode } = buildLaunchInput()
             const preferredLaunchSettings = {
@@ -2093,12 +1913,6 @@ export function NewSession(props: {
     const fastModeSelectionPending = agent === 'codex'
         && serviceTier === 'fast'
         && codexModelsState.isLoading
-    const cursorVariantMissing = agent === 'cursor'
-        && cursorPicker.mode === 'dual'
-        && cursorBaseSelectValue !== 'auto'
-        && cursorBaseSelectValue !== 'default[]'
-        && cursorVariantOptions.length > 1
-        && !cursorVariantOptions.some((option) => option.value === model)
     const canCreate = Boolean(
         machineId
         && trimmedDirectory
@@ -2110,14 +1924,15 @@ export function NewSession(props: {
         && selectedAgentAvailable
         && !isLaunchPreferenceValidationPending
         && !fastModeSelectionPending
-        && !cursorVariantMissing
         && (!createGroup || (groupName.trim().length > 0 && groupName.trim().length <= 120))
     )
 
     function buildEditorState(): SessionEditorState {
         const input = buildLaunchInput()
         const codexModel = agent === 'codex' ? resolveCodexModel(codexModelsState.models, input.model) : null
-        const modelName = (agent === 'claude' && claudeGlmBranded ? (model === 'auto' ? CLAUDE_GLM_HARDCODED_LABEL : CLAUDE_GLM_MODEL_LABEL) : undefined)
+        const defaultCodexEffort = agent === 'codex' ? resolveCodexModel(codexModelsState.models, null)?.defaultReasoningEffort : undefined
+        const selectedChoice = modelChoices.find(choice => choice.agent === agent && choice.value === displayedModel)
+        const modelName = selectedChoice?.label ?? (agent === 'claude' && claudeGlmBranded ? (model === 'auto' ? CLAUDE_GLM_HARDCODED_LABEL : CLAUDE_GLM_MODEL_LABEL) : undefined)
             ?? (agent === 'agy' ? agySelectedModel === AGY_HIGH_MODEL_ID ? AGY_HIGH_MODEL_LABEL : !agySelectedModel ? AGY_HARDCODED_LABEL : undefined : undefined)
             ?? (agent === 'opencode' ? OPENCODE_HARDCODED_OPTIONS.find(option => option.value === (opencodeSelectedModel ?? 'auto'))?.label : undefined)
             ?? (agent === 'minimax' && model === 'auto' ? MINIMAX_HARDCODED_LABEL : undefined)
@@ -2126,13 +1941,16 @@ export function NewSession(props: {
         return {
             input, canCreate,
             modelLabel: modelChipText({
-                name: modelName, wireId: input.model ?? codexModel?.id, flavor: agent,
-                modelReasoningEffort: input.modelReasoningEffort ?? codexModel?.defaultReasoningEffort,
+                name: agent === 'opencode' || agent === 'cursor' ? modelChoiceLabel(modelName) : modelName,
+                wireId: input.model ?? codexModel?.id, flavor: agent,
+                // Unspecified effort inherits CLI config, which discovery puts on
+                // the default model; another model's catalog default does not override it.
+                modelReasoningEffort: input.modelReasoningEffort ?? defaultCodexEffort ?? codexModel?.defaultReasoningEffort,
                 effort: input.effort, fast: input.serviceTier === 'fast',
             }),
             draft: { agent, model: agent === 'agy' ? (agySelectedModel ?? 'auto') : agent === 'opencode' ? (opencodeSelectedModel ?? 'auto') : model,
                 cursorSelectedBase, machineId, effort, modelReasoningEffort, serviceTier, collaborationMode, copilotAgentMode,
-                yoloMode, nativePermissionMode, grokPermissionMode, sessionType, worktreeName, showAllModels, showAllCursorModels, modelCatalogRequested }
+                yoloMode, nativePermissionMode, grokPermissionMode, sessionType, worktreeName, agentFilter }
         }
     }
 
@@ -2211,9 +2029,16 @@ export function NewSession(props: {
                 (`sessionType` stays 'simple'; the draft restore clamps it). */}
             <AgentSelector
                 agent={agent}
+                filter={effectiveFilter}
+                showAllAgents={!isNarrow}
+                allowClear={isNarrow}
+                onFilterChange={value => {
+                    setAgentFilter(value)
+                    if (value !== 'all' && value !== agent) handleAgentChange(value)
+                }}
                 agents={availableAgents}
                 isDisabled={isFormDisabled || agentAvailability.isLoading || Boolean(agentAvailability.error)}
-                onAgentChange={handleAgentChange}
+                onAgentChange={value => { setAgentFilter(value); handleAgentChange(value) }}
             />
             {agentAvailability.isLoading ? (
                 <div className="px-3 py-2 text-xs text-[var(--app-hint)]">
@@ -2250,241 +2075,38 @@ export function NewSession(props: {
                     onClear={() => setSelectedPiImportSessionId(null)}
                 />
             ) : null}
-            {agent === 'dsh' ? null : agent === 'agy' ? (
-                <>
-                    <ModelBadges
-                        options={[
-                            { value: 'auto', label: AGY_HARDCODED_LABEL },
-                            { value: AGY_HIGH_MODEL_ID, label: AGY_HIGH_MODEL_LABEL },
-                        ]}
-                        activeValue={agySelectedModel ?? 'auto'}
-                        isDisabled={isFormDisabled || !machineId}
-                        onToggle={(value) => {
-                            agyModelPickedByUserRef.current = value !== 'auto'
-                            setAgySelectedModel(value === 'auto' ? null : value)
-                        }}
-                        footer={showAllModels ? null : (
-                            <OtherModelsButton
-                                isDisabled={isFormDisabled || !machineId}
-                                onClick={() => setShowAllModels(true)}
-                            />
-                        )}
-                    />
-                    {showAllModels ? (
-                        <AgyModelSelector
-                            machineId={machineId}
-                            isLoading={agyModelsState.isLoading}
-                            error={agyModelsState.error}
-                            warning={agyModelsState.warning}
-                            isFetching={agyModelsState.isFetching}
-                            availableModels={agyModelsState.availableModels}
-                            defaultModelName={configuredDefaultModelName}
-                            selectedModel={agySelectedModel}
-                            onModelChange={(modelId) => {
-                                agyModelPickedByUserRef.current = modelId !== null
-                                setAgySelectedModel(modelId)
-                            }}
-                            onRetry={agyModelsState.refetch}
-                        />
-                    ) : null}
-                </>
-            ) : agent === 'opencode' ? (
-                <>
-                    <ModelBadges
-                        options={OPENCODE_HARDCODED_OPTIONS}
-                        activeValue={opencodeSelectedModel ?? 'auto'}
-                        isDisabled={isFormDisabled || !machineId}
-                        onToggle={(value) => setOpencodeSelectedModel(value === 'auto' ? null : value)}
-                        footer={showAllModels ? null : (
-                            <OtherModelsButton
-                                isDisabled={isFormDisabled || !machineId}
-                                onClick={() => {
-                                    setShowAllModels(true)
-                                    setRequestedModelCatalog(modelCatalogTarget)
-                                }}
-                            />
-                        )}
-                    />
-                    {showAllModels ? (
-                        <OpencodeModelSelector
-                            cwd={deferredDirectory}
-                            machineId={machineId}
-                            isLoading={opencodeModelsState.isLoading}
-                            error={opencodeModelsState.error}
-                            availableModels={opencodeModelsState.availableModels}
-                            currentModelId={OPENCODE_HARDCODED_MODEL_ID}
-                            defaultModelName={OPENCODE_HARDCODED_LABEL}
-                            selectedModel={opencodeSelectedModel}
-                            onModelChange={setOpencodeSelectedModel}
-                            onRetry={opencodeModelsState.refetch}
-                            onLoadModels={!modelCatalogRequested ? () => setRequestedModelCatalog(modelCatalogTarget) : undefined}
-                            canLoadModels={deferredDirectoryExists === true}
-                        />
-                    ) : null}
-                </>
-            ) : (
-                agent === 'cursor' ? (
-                    <>
-                        <section aria-label={t('newSession.model')} className="flex min-w-0 flex-col gap-2 p-2 sm:flex-row sm:items-center sm:gap-3 sm:p-3">
-                            <ChoiceLabel kind="model" />
-                            <div className="min-w-0 flex-1 space-y-1.5">
-                                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 sm:gap-3">
-                                    <QuickPickChips
-                                        options={hardcodedCursorOptions}
-                                        activeValue={cursorSpeedOptions?.standard ?? CURSOR_GROK_XHIGH_WIRE}
-                                        isDisabled={isFormDisabled || !machineId}
-                                        onToggle={(value) => {
-                                            setModel(cursorServiceTier === 'fast' ? `${value}-fast` : value)
-                                            setCursorSelectedBase(value === CURSOR_COMPOSER_STANDARD_WIRE ? 'composer-2.5' : 'grok-4.7')
-                                        }}
-                                    />
-                                    {showAllCursorModels ? null : (
-                                        <OtherModelsButton
-                                            isDisabled={isFormDisabled || !machineId}
-                                            onClick={() => {
-                                                setShowAllCursorModels(true)
-                                                setRequestedModelCatalog(modelCatalogTarget)
-                                            }}
-                                        />
-                                    )}
-                                </div>
-                                {cursorModelsState.error ? (
-                                    <button type="button" onClick={cursorModelsState.refetch} className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)]">
-                                        {t('newSession.opencodeModel.retry')}
-                                    </button>
-                                ) : null}
-                            </div>
-                        </section>
-                        {showAllCursorModels ? (
-                            <>
-                                <ModelSelector
-                                    agent={agent}
-                                    model={cursorPicker.mode === 'dual' ? cursorBaseSelectValue : model}
-                                    options={[
-                                        ...cursorPicker.modelOptions.map((option) => option.value === 'auto'
-                                            ? { ...option, label: cursorDefaultModelName ?? t('newSession.model.default') } : option),
-                                        { value: 'default[]', label: 'Auto' }
-                                    ]}
-                                    isDisabled={cursorModelPickersDisabled}
-                                    isLoading={false}
-                                    error={cursorModelsState.error
-                                        ? `${t('newSession.model.loadFailed')}: ${cursorModelsState.error}`
-                                        : null}
-                                    onModelChange={(value) => {
-                                        if (cursorPicker.mode === 'dual') {
-                                            handleCursorBaseChange(value)
-                                            return
-                                        }
-                                        setModel(value)
-                                        setCursorSelectedBase(
-                                            value === 'auto' || value === 'default[]' ? value : resolveCursorBaseFromWire(value, cursorPicker.catalog)
-                                        )
-                                    }}
-                                >
-                                    {!modelCatalogRequested ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => setRequestedModelCatalog(modelCatalogTarget)}
-                                            disabled={isFormDisabled || !machineId}
-                                            className="self-start rounded border border-[var(--app-divider)] px-2 py-1 text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
-                                        >
-                                            {t('newSession.model.loadOptions')}
-                                        </button>
-                                    ) : null}
-                                    {cursorModelsUnavailable ? (
-                                        <div className="text-xs text-[var(--app-hint)]">
-                                            {t('newSession.model.cursorUnavailable')}
-                                        </div>
-                                    ) : null}
-                                </ModelSelector>
-                                {showCursorVariantPicker ? (
-                                    <ModelSelector
-                                        agent={agent}
-                                        model={cursorEffortSelectValue}
-                                        label={t('misc.variant')}
-                                        options={cursorVariantSelectOptions}
-                                        isDisabled={cursorModelPickersDisabled}
-                                        isLoading={cursorModelsState.isLoading}
-                                        onModelChange={handleCursorEffortChange}
-                                    />
-                                ) : null}
-                            </>
-                        ) : null}
-                    </>
-                ) :                 agent === 'codex' ? (
-                    <>
-                        <ModelBadges
-                            options={[...CODEX_HARDCODED_OPTIONS]}
-                            activeValue={CODEX_HARDCODED_OPTIONS.some((option) => option.value === model) ? model : CODEX_DEFAULT_MODEL_ID}
-                            isDisabled={isFormDisabled || Boolean(codexModelsState.error)}
-                            onToggle={(value) => setModel(value)}
-                            footer={showAllModels ? null : (
-                                <OtherModelsButton
-                                    isDisabled={isFormDisabled || !machineId}
-                                    onClick={() => setShowAllModels(true)}
-                                />
-                            )}
-                        />
-                        {showAllModels ? (
-                            <ModelSelector
-                                agent={agent}
-                                model={model}
-                                options={codexModelOptions}
-                                isDisabled={isFormDisabled || Boolean(codexModelsState.error)}
-                                isLoading={codexModelsState.isLoading}
-                                error={codexModelsState.error
-                                    ? `${t('newSession.model.loadFailed')}: ${codexModelsState.error}`
-                                    : null}
-                                onModelChange={setModel}
-                            />
-                        ) : null}
-                    </>
-                ) : agent === 'claude' && claudeGlmBranded ? (
-                    <ModelBadges
-                        options={[
-                            { value: 'auto', label: CLAUDE_GLM_HARDCODED_LABEL },
-                            { value: CLAUDE_GLM_MODEL_ID, label: CLAUDE_GLM_MODEL_LABEL },
-                        ]}
-                        activeValue={model}
-                        isDisabled={isFormDisabled || !machineId}
-                        onToggle={setModel}
-                    />
-                ) : agent === 'minimax' ? (
-                    <ModelBadges
-                        options={[{ value: 'auto', label: MINIMAX_HARDCODED_LABEL }]}
-                        activeValue="auto"
-                        isDisabled={isFormDisabled || !machineId}
-                        onToggle={() => {}}
-                    />
-                ) : (
-                    <ModelSelector
-                        agent={agent}
-                        model={model}
-                        options={namedLaunchModelOptions}
-                        isDisabled={
-                            isFormDisabled
-                            || (agent === 'grok' && Boolean(grokModelsState.error))
-                            || (agent === 'copilot' && Boolean(copilotModelsState.error))
-                            || (agent === 'kimi' && Boolean(kimiModelsState.error))
-                            || (agent === 'pi' && Boolean(piModelsState.error))
-                        }
-                        isLoading={(agent === 'grok' && grokModelsState.isLoading)
-                            || (agent === 'copilot' && copilotModelsState.isLoading)
-                            || (agent === 'kimi' && kimiModelsState.isLoading)
-                            || (agent === 'pi' && piModelsState.isLoading)}
-                        error={agent === 'grok' && grokModelsState.error
-                                ? `${t('newSession.model.loadFailed')}: ${grokModelsState.error}`
-                                : agent === 'copilot' && copilotModelsState.error
-                                    ? `${t('newSession.model.loadFailed')}: ${copilotModelsState.error}`
-                                    : agent === 'kimi' && kimiModelsState.error
-                                        ? `${t('newSession.model.loadFailed')}: ${kimiModelsState.error}`
-                                        : agent === 'pi' && piModelsState.error
-                                            ? `${t('newSession.model.loadFailed')}: ${piModelsState.error}`
-                                    : null}
-                        onModelChange={setModel}
-                    />
-                )
-            )}
+            <ModelChoices
+                options={visibleModelChoices}
+                singleRow={effectiveFilter === 'all'}
+                isLoading={effectiveFilter === 'all' && popular.isLoading}
+                agent={agent}
+                model={displayedModel}
+                isDisabled={isFormDisabled || !machineId || agentAvailability.isLoading || Boolean(agentAvailability.error) || (effectiveFilter === 'all' && popular.isLoading)}
+                onSelect={choice => {
+                    if (choice.agent === agent) applyModelChoice(choice)
+                    else {
+                        pendingModelChoice.current = choice
+                        handleAgentChange(choice.agent)
+                    }
+                }}
+            />
+            {!quickModels[agent] && agent !== 'dsh' ? <ModelSelector
+                agent={agent} model={model} options={namedLaunchModelOptions}
+                isDisabled={isFormDisabled || Boolean(agent === 'grok' ? grokModelsState.error
+                    : agent === 'copilot' ? copilotModelsState.error
+                    : agent === 'kimi' ? kimiModelsState.error
+                    : agent === 'pi' ? piModelsState.error : null)}
+                isLoading={(agent === 'grok' && grokModelsState.isLoading)
+                    || (agent === 'copilot' && copilotModelsState.isLoading)
+                    || (agent === 'kimi' && kimiModelsState.isLoading)
+                    || (agent === 'pi' && piModelsState.isLoading)}
+                error={agent === 'grok' ? grokModelsState.error
+                    : agent === 'copilot' ? copilotModelsState.error
+                    : agent === 'kimi' ? kimiModelsState.error
+                    : agent === 'pi' ? piModelsState.error : null}
+                onModelChange={setModel}
+            /> : null}
+            {agent === 'codex' && codexModelsState.error ? <p role="alert" className="px-3 py-2 text-sm text-red-600">{t('newSession.model.loadFailed')}: {codexModelsState.error}</p> : null}
             {showPiLaunchConfig && !(agent === 'claude' && claudeGlmBranded) ? (
                 <EffortField
                     agent={agent}
@@ -2520,7 +2142,6 @@ export function NewSession(props: {
                 onChange={setCopilotAgentMode}
             />
 
-            {cursorVariantMissing ? <p role="alert" className="px-3 py-2 text-sm text-red-600">{t('newSession.model.selectVariant')}</p> : null}
             {(error ?? spawnError) ? (
                 <div className="px-3 py-2 text-sm text-red-600">
                     {error ?? spawnError}
