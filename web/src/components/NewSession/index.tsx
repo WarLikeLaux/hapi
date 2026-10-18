@@ -112,6 +112,7 @@ export type SessionEditorState = {
 
 export function NewSession(props: {
     onAddChat?: (state: SessionEditorState) => void
+    onStartChat?: (state: SessionEditorState) => void
     initialDraft?: NewSessionFormDraft
     editor?: {
         initialDraft?: NewSessionFormDraft
@@ -146,6 +147,7 @@ export function NewSession(props: {
         : null
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
+    const [initialPrompt, setInitialPrompt] = useState(editorDraft?.initialPrompt ?? '')
     const [groupName, setGroupName] = useState(editorDraft?.groupCreation?.name ?? '')
     const createGroup = !props.editor && !props.groupId && Boolean(groupName.trim())
     const groupRequestRef = useRef<{ name: string; requestId: string } | null>(editorDraft?.groupCreation ?? null)
@@ -309,6 +311,7 @@ export function NewSession(props: {
         }
         restoredFromBrowseRef.current = true
         preserveRestoredDraftRef.current = true
+        setInitialPrompt(draft.initialPrompt ?? '')
         setAgent(draft.agent)
         setAgentFilter(draft.agentFilter ?? 'all')
         setModel(draft.model)
@@ -1538,6 +1541,7 @@ export function NewSession(props: {
         }
         saveNewSessionFormDraft({
             agentFilter,
+            initialPrompt,
             groupId: props.groupId,
             groupCreation: createGroup ? {
                 name: groupName.trim(),
@@ -1566,6 +1570,7 @@ export function NewSession(props: {
     }, [
         props.onChooseFolder,
         agentFilter,
+        initialPrompt,
         props.groupId,
         createGroup,
         groupName,
@@ -1699,6 +1704,11 @@ export function NewSession(props: {
 
     async function handleCreate() {
         if (!machineId || !trimmedDirectory || createInFlightRef.current) return
+
+        if (props.onStartChat && initialPrompt.trim() && !continueFrom && !selectedCodexImportSession && !selectedPiImportSession) {
+            props.onStartChat(buildCompositionState())
+            return
+        }
 
         createInFlightRef.current = true
         setIsCreating(true)
@@ -1948,13 +1958,13 @@ export function NewSession(props: {
                 modelReasoningEffort: input.modelReasoningEffort ?? defaultCodexEffort ?? codexModel?.defaultReasoningEffort,
                 effort: input.effort, fast: input.serviceTier === 'fast',
             }),
-            draft: { agent, model: agent === 'agy' ? (agySelectedModel ?? 'auto') : agent === 'opencode' ? (opencodeSelectedModel ?? 'auto') : model,
+            draft: { initialPrompt, agent, model: agent === 'agy' ? (agySelectedModel ?? 'auto') : agent === 'opencode' ? (opencodeSelectedModel ?? 'auto') : model,
                 cursorSelectedBase, machineId, effort, modelReasoningEffort, serviceTier, collaborationMode, copilotAgentMode,
                 yoloMode, nativePermissionMode, grokPermissionMode, sessionType, worktreeName, agentFilter }
         }
     }
 
-    function handleAddChat() {
+    function buildCompositionState() {
         const state = buildEditorState()
         state.draft.groupId = props.groupId ?? createdGroup?.id
         if (!state.draft.groupId && createGroup) {
@@ -1962,7 +1972,11 @@ export function NewSession(props: {
             if (groupRequestRef.current?.name !== name) groupRequestRef.current = { name, requestId: crypto.randomUUID() }
             state.draft.groupCreation = groupRequestRef.current
         }
-        props.onAddChat?.(state)
+        return state
+    }
+
+    function handleAddChat() {
+        props.onAddChat?.(buildCompositionState())
     }
 
     const editorStateJson = props.editor ? JSON.stringify(buildEditorState()) : null
@@ -2142,6 +2156,14 @@ export function NewSession(props: {
                 onChange={setCopilotAgentMode}
             />
 
+            {props.onStartChat && !props.editor && !continueFrom && !selectedCodexImportSession && !selectedPiImportSession ? <div className="px-3 py-3">
+                <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]">
+                    <span>{t('newSession.initialPrompt')}</span>
+                    <textarea className="min-h-24 w-full resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm font-normal text-[var(--app-fg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50"
+                        rows={3} maxLength={100000} value={initialPrompt} disabled={isFormDisabled}
+                        placeholder={t('batch.promptPlaceholder')} onChange={event => setInitialPrompt(event.target.value)} />
+                </label>
+            </div> : null}
             {(error ?? spawnError) ? (
                 <div className="px-3 py-2 text-sm text-red-600">
                     {error ?? spawnError}

@@ -16,6 +16,7 @@ const DRAFT_STORAGE_KEY = 'hapi:new-session-form-draft'
 
 export type NewSessionFormDraft = {
     agentFilter?: AgentType | 'all'
+    initialPrompt?: string
     groupId?: string
     groupCreation?: { name: string; requestId: string }
     agent: AgentType
@@ -61,6 +62,7 @@ export function loadNewSessionFormDraft(): NewSessionFormDraft | null {
             : 'claude'
         const agentPreserved = restoredAgent === parsed.agent
         return {
+            initialPrompt: typeof parsed.initialPrompt === 'string' ? parsed.initialPrompt : undefined,
             groupId: typeof parsed.groupId === 'string' ? parsed.groupId : undefined,
             groupCreation: typeof parsed.groupCreation?.name === 'string' && typeof parsed.groupCreation?.requestId === 'string'
                 ? parsed.groupCreation : undefined,

@@ -1,4 +1,7 @@
 export default {
+  'newSession.initialPrompt': 'Initial prompt (optional)',
+  'batch.showCustomPrompt': 'Show custom prompt',
+  'batch.showSharedPrompt': 'Shared prompt',
   'newSession.speed': 'Speed',
   'newSession.moreRecentPaths': 'More recent paths',
   'batch.removeTitle': 'Remove this chat?',

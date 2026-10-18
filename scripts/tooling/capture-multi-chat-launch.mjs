@@ -5,9 +5,17 @@ import { expect } from '@playwright/test'
 import { captureHapiUi } from './hapi-ui.mjs'
 
 const origin = process.env.HAPI_PREVIEW_ORIGIN ?? 'http://127.0.0.1:5174'
-const commonPrompt = 'Найди причину медленного запуска сессий. Предложи исправление и проверь его целевыми тестами.'
-const ownPrompt = 'Проверь только обработку ошибок запуска. Опиши риски повторного создания чатов.'
+const commonTask = 'Найди причину медленного запуска сессий. Предложи исправление и проверь его целевыми тестами.'
+const ownTask = 'Проверь только обработку ошибок запуска. Опиши риски повторного создания чатов.'
 const captures = [
+    { name: 'single-prompt-failure', width: 390, height: 1000, mode: 'single-prompt-result', dark: true },
+    { name: 'single-prompt-wide', width: 1440, height: 1100, mode: 'single-prompt', dark: true },
+    { name: 'single-prompt-mobile', width: 390, height: 1000, mode: 'single-prompt', dark: true },
+    { name: 'long-prompts-wide', width: 1440, height: 1100, mode: 'overview', dark: true, longPrompts: true },
+    { name: 'long-prompts-mobile', width: 390, height: 900, mode: 'overview', dark: true, longPrompts: true },
+    { name: 'expanded-prompt-wide', width: 1440, height: 1100, mode: 'expanded', dark: true, longPrompts: true },
+    { name: 'expanded-prompt-mobile', width: 390, height: 900, mode: 'expanded', dark: true, longPrompts: true },
+    { name: 'long-prompts-results', width: 390, height: 1200, mode: 'results', longPrompts: true },
     { name: 'phone-360', width: 360, height: 800, mode: 'single', dark: true },
     { name: 'desktop', width: 1440, height: 1000, mode: 'single', dark: true },
     { name: 'recent-overflow', width: 360, height: 800, mode: 'recent', dark: true },
@@ -29,11 +37,13 @@ const captures = [
     { name: 'mobile-results', width: 390, height: 1200, mode: 'results' },
 ]
 for (const shot of captures.filter(shot => !process.argv[2] || shot.name === process.argv[2])) {
+    const commonPrompt = shot.longPrompts ? `${commonTask}\n\nСохрани текущие настройки и проверь независимый запуск всех агентов.\n`.repeat(35) : commonTask
+    const ownPrompt = shot.longPrompts ? `${ownTask}\n\nПроверь известный отказ, потерянный ответ и безопасный повтор. Не создавай повторных чатов.\n`.repeat(25) + 'https://example.test/trace/' + 'unbroken-token-'.repeat(100) : ownTask
     const requests = []
     console.log(JSON.stringify(await captureHapiUi({
         url: `${origin}/sessions/new?directory=${encodeURIComponent('/home/shandori/code/hapi')}`,
-        out: `/tmp/hapi-balanced-label-${shot.name}.png`, width: shot.width, height: shot.height,
-        expect: shot.mode === 'recent' ? '[role="dialog"][aria-label="More recent paths"]' : shot.mode === 'remove' ? '[role="dialog"]' : shot.mode === 'menu' ? '[role="menu"]' : shot.mode === 'other' ? 'article:nth-of-type(2) button:has-text("Another project")' : ['single', 'single-group', 'single-group-draft', 'return'].includes(shot.mode) ? 'button:has-text("Add another chat")' : shot.mode === 'settings' ? 'section[aria-label="Shared settings"] input[maxlength="120"]' : shot.mode === 'own' ? 'article:nth-of-type(2) input[type="text"]'
+        out: `/tmp/hapi-single-prompt-${shot.name}.png`, width: shot.width, height: shot.height,
+        expect: shot.mode === 'single-prompt-result' ? 'text=Did not start' : shot.mode === 'expanded' ? 'article:nth-of-type(2) [role="region"]' : shot.mode === 'recent' ? '[role="dialog"][aria-label="More recent paths"]' : shot.mode === 'remove' ? '[role="dialog"]' : shot.mode === 'menu' ? '[role="menu"]' : shot.mode === 'other' ? 'article:nth-of-type(2) button:has-text("Another project")' : ['single', 'single-prompt', 'single-group', 'single-group-draft', 'return'].includes(shot.mode) ? 'button:has-text("Add another chat")' : shot.mode === 'settings' ? 'section[aria-label="Shared settings"] input[maxlength="120"]' : shot.mode === 'own' ? 'article:nth-of-type(2) input[type="text"]'
             : shot.mode === 'results' ? 'text=Launch outcome unknown' : 'button:has-text("Launch 3 chats")',
         prepare: async page => {
             await page.addInitScript(dark => {
@@ -73,7 +83,7 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
                     expect(spacing.gap).toEqual(Array(2).fill(shot.width >= 640 ? '12px' : selector.includes('Model') ? '4px' : '8px'))
                 }
             }
-            if (['single', 'single-group', 'single-group-draft', 'recent'].includes(shot.mode)) {
+            if (['single', 'single-prompt', 'single-prompt-result', 'single-group', 'single-group-draft', 'recent'].includes(shot.mode)) {
                 await verifySpacing(page, ['fieldset[aria-label="Agent"]', 'section[aria-label="Model"]', 'section[aria-label="Speed"]'])
                 const recent = page.getByRole('group', { name: 'Recent paths:', exact: true })
                 if (shot.name === 'phone-360') {
@@ -144,6 +154,30 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
                         await expect(page.getByRole('button', { name: 'Add another chat', exact: true })).toBeEnabled()
                     }
                 }
+                if (shot.mode.startsWith('single-prompt')) {
+                    const prompt = page.getByRole('textbox', { name: 'Initial prompt (optional)', exact: true })
+                    await prompt.fill(commonTask)
+                    await page.getByRole('button', { name: 'Browse', exact: true }).click()
+                    await expect(page).not.toHaveURL(/sessions\/new/)
+                    await page.goto(`${origin}/sessions/new?directory=${encodeURIComponent('/home/shandori/code/hapi')}`)
+                    await page.addStyleTag({ content: '.tsqd-open-btn-container { display: none !important; }' })
+                    await expect(prompt).toHaveValue(commonTask)
+                    await page.getByRole('button', { name: 'Create', exact: true }).scrollIntoViewIfNeeded()
+                    if (shot.mode === 'single-prompt-result') {
+                        await page.locator('input[type="radio"][value="claude"]').check()
+                        await page.getByRole('textbox', { name: 'Group name', exact: true }).fill('Проверка запуска')
+                        await page.getByRole('button', { name: 'Create', exact: true }).click()
+                        const retry = page.getByRole('button', { name: 'Retry this chat', exact: true })
+                        await expect(retry).toBeEnabled()
+                        expect(requests).toHaveLength(1)
+                        expect(requests[0]).toMatchObject({ initialPrompt: commonTask, groupId: 'preview-comparison', agent: 'claude' })
+                        await retry.click()
+                        await expect(retry).toBeEnabled()
+                        expect(requests).toHaveLength(2)
+                        expect(requests[1]).toMatchObject({ ...requests[0], requestId: expect.any(String) })
+                        expect(requests[1].requestId).not.toBe(requests[0].requestId)
+                    }
+                }
                 return
             }
             const originalDirectory = await page.getByRole('textbox', { name: 'Directory', exact: true }).boundingBox()
@@ -181,14 +215,14 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
             await second.locator('input[type="radio"][value="claude"]').check()
             await expect(second.getByRole('checkbox', { name: 'Use own prompt' })).toHaveCount(0)
             await second.getByRole('textbox', { name: 'Prompt for this chat (optional)', exact: true }).fill(ownPrompt)
-            await second.locator('button[aria-expanded]').click()
+            await second.locator('button[aria-controls^="editor-"]').click()
             await second.getByRole('button', { name: 'Another project', exact: true }).click()
-            await expect(second.locator('button[aria-expanded]')).toHaveAttribute('aria-expanded', 'true')
+            await expect(second.locator('button[aria-controls^="editor-"]')).toHaveAttribute('aria-expanded', 'true')
             await second.locator('input[type="text"]').fill('/home/shandori/code/desk')
             await second.locator('input[type="text"]').blur()
             await second.getByRole('button', { name: 'Use shared project', exact: true }).click()
             await expect(second.getByRole('textbox', { name: 'Another project', exact: true })).toHaveCount(0)
-            await expect(second.locator('button[aria-expanded]')).toContainText('/home/shandori/code/hapi')
+            await expect(second.getByText('/home/shandori/code/hapi', { exact: true })).toBeVisible()
             await second.getByRole('button', { name: 'Another project', exact: true }).click()
             await second.locator('input[type="text"]').fill('/home/shandori/code/desk')
             await second.locator('input[type="text"]').blur()
@@ -196,22 +230,43 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
             const third = page.getByRole('article').nth(2)
             await third.locator('input[type="radio"][value="agy"]').check()
             await expect(page.getByRole('button', { name: 'Launch 3 chats', exact: true })).toBeEnabled()
-            await third.locator('button[aria-expanded]').click()
-            if (shot.width < 640) {
+            await third.locator('button[aria-controls^="editor-"]').click()
+            {
                 for (const card of await page.getByRole('article').all()) {
                     const duplicate = card.getByRole('button', { name: /^Duplicate/ })
-                    await expect(duplicate.locator('span')).toBeHidden()
-                    const summary = await card.locator('button[aria-expanded]').boundingBox()
+                    if (shot.width < 640) await expect(duplicate.locator('span')).toBeHidden()
+                    const summary = await card.locator('button[aria-controls^="editor-"]').boundingBox()
                     const action = await duplicate.boundingBox()
-                    expect(Math.abs(summary.y - action.y)).toBeLessThanOrEqual(1)
-                    expect(action.width).toBeGreaterThanOrEqual(40)
+                    if (shot.width < 640) expect(Math.abs(summary.y - action.y)).toBeLessThanOrEqual(1)
+                    else expect(Math.abs(summary.y + summary.height / 2 - action.y - action.height / 2)).toBeLessThanOrEqual(1)
+                    expect(action.width).toBeGreaterThanOrEqual(36)
                 }
+            }
+            for (const shared of [page.getByRole('article').first(), third]) {
+                const trigger = shared.getByRole('button', { name: 'Shared prompt', exact: true })
+                await expect(trigger).toBeVisible()
+                await expect(shared.locator('p').filter({ hasText: commonTask })).toHaveCount(0)
+                await trigger.click()
+                expect(await shared.getByRole('region', { name: 'Shared prompt', exact: true }).textContent()).toBe(commonPrompt)
+                await trigger.click()
+            }
+            const custom = second.getByRole('button', { name: 'Show custom prompt', exact: true })
+            await expect(custom).toBeVisible()
+            await expect(second.locator('p').filter({ hasText: ownTask })).toHaveCount(0)
+            await custom.click()
+            const preview = second.getByRole('region', { name: 'Show custom prompt', exact: true })
+            expect(await preview.textContent()).toBe(ownPrompt)
+            expect((await preview.boundingBox()).height).toBeLessThanOrEqual(192)
+            await expect(second.locator('p').filter({ hasText: commonTask })).toHaveCount(0)
+            if (shot.mode !== 'expanded') {
+                await custom.click()
+                await expect(preview).toHaveCount(0)
             }
             if (shot.mode === 'remove') {
                 await second.getByRole('button', { name: 'Remove chat 2', exact: true }).click()
                 await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
                 await expect(page.getByRole('article')).toHaveCount(3)
-                await expect(second.locator('p').filter({ hasText: ownPrompt })).toBeVisible()
+                await expect(second.getByRole('button', { name: 'Show custom prompt', exact: true })).toBeVisible()
                 await second.getByRole('button', { name: 'Remove chat 2', exact: true }).click()
                 return
             }
@@ -235,7 +290,7 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
             if (shot.mode === 'settings') {
                 await page.getByRole('button', { name: /^Place chats/ }).scrollIntoViewIfNeeded()
             } else if (shot.mode === 'own' || shot.mode === 'other') {
-                await second.locator('button[aria-expanded]').click()
+                await second.locator('button[aria-controls^="editor-"]').click()
                 if (shot.mode === 'other') {
                     await second.getByRole('button', { name: 'Use shared project', exact: true }).click()
                     await expect(second.getByRole('textbox', { name: 'Another project', exact: true })).toHaveCount(0)
@@ -246,9 +301,11 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
                     else await expect(second.getByText(label, { exact: true })).toBeHidden()
                 }
                 await second.getByRole('textbox', { name: 'Prompt for this chat (optional)' }).evaluate(element => element.scrollIntoView({ block: 'center' }))
+            } else if (shot.mode === 'expanded') {
+                await preview.evaluate(element => element.scrollIntoView({ block: 'center' }))
             } else if (shot.mode === 'overview') {
                 await expect(page.getByText('Exact initial prompt', { exact: true })).toHaveCount(0)
-                await expect(second.locator('p').filter({ hasText: ownPrompt })).toBeVisible()
+                await expect(second.getByRole('button', { name: 'Show custom prompt', exact: true })).toBeVisible()
                 await page.getByRole('button', { name: 'Launch 3 chats', exact: true }).evaluate(element => {
                     for (let container = element.parentElement; container; container = container.parentElement) {
                         if (container.scrollHeight > container.clientHeight && /auto|scroll/.test(getComputedStyle(container).overflowY)) {
@@ -257,7 +314,7 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
                         }
                     }
                 })
-                await expect(third.locator('p').filter({ hasText: commonPrompt })).toBeInViewport({ ratio: 1 })
+                await expect(third.getByRole('button', { name: 'Shared prompt', exact: true })).toBeInViewport({ ratio: 1 })
             } else {
                 await page.getByRole('button', { name: 'Launch 3 chats', exact: true }).click()
                 await expect(page.getByText('1 of 3 chats started')).toBeVisible()
