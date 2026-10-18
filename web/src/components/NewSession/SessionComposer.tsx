@@ -13,7 +13,7 @@ import { resolveDefaultMachineDirectory } from './defaults'
 import { savePreferredLaunchSettings } from './preferences'
 import { usesSharedPermissionModeState } from '@/lib/codexFamilyPermissionAgents'
 import { useTranslation } from '@/lib/use-translation'
-import type { NewSessionFormDraft } from './newSessionFormDraft'
+import { clearNewSessionFormDraft, type NewSessionFormDraft } from './newSessionFormDraft'
 
 type Props = ComponentProps<typeof NewSession>
 type Card = {
@@ -36,7 +36,7 @@ type Composition = {
     cards: Card[]
     browseTarget?: string
 }
-const control = 'min-h-10 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50'
+const control = 'min-h-10 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm font-normal text-[var(--app-fg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50'
 const action = 'min-h-10 rounded-md px-3 py-2 text-sm hover:bg-[var(--app-secondary-bg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50'
 function newCard(): Card { return { id: crypto.randomUUID(), ownPrompt: false, prompt: '' } }
 
@@ -58,6 +58,14 @@ function loadComposition(groupId?: string): Composition | null {
 
 export function SessionComposer(props: Props) {
     const [importPi, setImportPi] = useState(false)
+    const [singleSeed, setSingleSeed] = useState<{
+        draft?: NewSessionFormDraft; directory: string; groupId?: string; groupName?: string
+    } | null>(null)
+    function clearBatch() {
+        try { sessionStorage.removeItem(`hapi:session-composition:${props.groupId ?? 'standalone'}`) } catch { /* Optional draft. */ }
+        clearNewSessionFormDraft()
+        setBatchSeed(null)
+    }
     const [batchSeed, setBatchSeed] = useState(() => loadComposition(props.groupId))
     function addAnotherChat(state: SessionEditorState) {
         const composition: Composition = {
@@ -73,11 +81,21 @@ export function SessionComposer(props: Props) {
     // Ordinary creation and continuation keep their existing form and launch flow.
     return props.continueFromSession ? <NewSession {...props} />
         : importPi ? <NewSession {...props} initialAgent="pi" onCancel={() => { setBatchSeed(loadComposition(props.groupId) ?? batchSeed); setImportPi(false) }} />
-        : batchSeed ? <BatchComposer {...props} seed={batchSeed} onImportPi={() => setImportPi(true)} />
-        : <NewSession {...props} onAddChat={addAnotherChat} />
+        : batchSeed ? <BatchComposer {...props} seed={batchSeed} onImportPi={() => setImportPi(true)}
+            onCancel={() => { clearBatch(); props.onCancel() }}
+            onSingleChat={seed => { clearBatch(); setSingleSeed(seed) }} />
+        : <NewSession {...props} {...(singleSeed ? {
+            initialDraft: singleSeed.draft, initialDirectory: singleSeed.directory,
+            groupId: singleSeed.groupId, groupName: singleSeed.groupName,
+            initialMachineId: singleSeed.draft?.machineId ?? props.initialMachineId,
+        } : {})} onAddChat={addAnotherChat} />
 }
 
-function BatchComposer(props: Props & { seed: Composition; onImportPi: () => void }) {
+function BatchComposer(props: Props & {
+    seed: Composition
+    onImportPi: () => void
+    onSingleChat: (seed: { draft?: NewSessionFormDraft; directory: string; groupId?: string; groupName?: string }) => void
+}) {
     const { t } = useTranslation()
     const client = useQueryClient()
     const groups = useSessionGroups(props.api)
@@ -139,9 +157,11 @@ function BatchComposer(props: Props & { seed: Composition; onImportPi: () => voi
         setComposition(snapshot)
         props.onChooseFolder?.({ machineId: composition.machineId, directory })
     }
-    function directoryPicker(value: string, change: (value: string) => void, target: string) {
+    function directoryPicker(value: string, change: (value: string) => void, target: string, onUseCommon?: () => void) {
         return <ProjectDirectory api={props.api} machine={props.machines.find(m => m.id === composition.machineId)}
             sessions={sessions} value={value} disabled={disabled} compact={target !== 'common'} onChange={change}
+            label={target !== 'common' ? t('batch.otherProject') : undefined}
+            labelAction={onUseCommon ? <button type="button" className="min-h-8 text-xs underline underline-offset-4 disabled:opacity-50" disabled={disabled} onClick={onUseCommon}>{t('batch.useCommonProject')}</button> : undefined}
             onBrowse={props.onChooseFolder ? () => persistForBrowse(target, value) : undefined} />
     }
     async function launch(card: Card, retry: boolean) {
@@ -234,6 +254,19 @@ function BatchComposer(props: Props & { seed: Composition; onImportPi: () => voi
         props.onSuccess(id, true)
     }
     return <div ref={rootRef} className="mx-auto w-full max-w-4xl space-y-5 p-3 sm:p-5">
+        {!started ? <button type="button" className={`${action} -ml-3 inline-flex items-center gap-1.5 text-[var(--app-hint)]`} disabled={disabled} onClick={() => {
+            const first = composition.cards[0]
+            const draft = prepared[first.id]?.draft ?? first.draft
+            // Leaving batch mode is explicit. Keep the first chat's settings and placement.
+            singleCompleted.current = true
+            props.onSingleChat({
+                draft: draft ? { ...draft, groupId: undefined, groupCreation: composition.placement === 'new'
+                    ? { name: composition.groupName, requestId: composition.groupRequestId } : undefined } : undefined,
+                directory: first.directory ?? composition.directory,
+                groupId: ['none', 'new'].includes(composition.placement) ? undefined : composition.placement,
+                groupName: groups.groups.find(group => group.id === composition.placement)?.name,
+            })
+        }}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 19-7-7 7-7M5 12h14" /></svg>{t('batch.singleChat')}</button> : null}
         <details open={!started}>
             <summary className={started ? `${action} cursor-pointer text-[var(--app-hint)]` : 'hidden'}>{t('batch.launchSettings')}</summary>
         <section className="space-y-3" aria-label={t('batch.sharedSettings')}>
@@ -244,7 +277,7 @@ function BatchComposer(props: Props & { seed: Composition; onImportPi: () => voi
                     setComposition(c => ({ ...c, machineId, directory: resolveDefaultMachineDirectory(machine, getRecentProjectPaths(sessions, machineId)) }))
                 }} /> : null}
             <div className="-mx-3">{directoryPicker(composition.directory, directory => { setComposition(c => ({ ...c, directory })); setMissingDirectories([]) }, 'common')}</div>
-            <label className="block space-y-1.5 text-sm">
+            <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]">
                 <span className="font-medium">{t('batch.placement')}</span>
                 <select className={control} value={composition.placement} disabled={disabled || groups.query.isPending || groups.query.isError}
                     onChange={e => setComposition(c => ({ ...c, placement: e.target.value }))}>
@@ -254,10 +287,10 @@ function BatchComposer(props: Props & { seed: Composition; onImportPi: () => voi
             </label>
             {groupMissing ? <p role="alert" className="text-sm text-red-600">{t('groups.loadError')}</p> : null}
             {groups.query.isError ? <p role="alert" className="text-sm text-red-600">{t('groups.loadError')} <button className="underline" onClick={() => void groups.query.refetch()}>{t('button.retry')}</button></p> : null}
-            {composition.placement === 'new' ? <label className="block space-y-1.5 text-sm"><span>{t('groups.name')}</span>
+            {composition.placement === 'new' ? <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]"><span>{t('groups.name')}</span>
                 <input className={control} value={composition.groupName} maxLength={120} disabled={disabled}
                     onChange={e => setComposition(c => ({ ...c, groupName: e.target.value, groupRequestId: crypto.randomUUID() }))} /></label> : null}
-            <label className="block space-y-1.5 text-sm">
+            <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]">
                 <span className="font-medium">{t('batch.commonPrompt')}</span>
                 <textarea className={`${control} min-h-24 resize-y`} rows={3} maxLength={100000} value={composition.prompt} disabled={disabled}
                     placeholder={t('batch.promptPlaceholder')} onChange={e => setComposition(c => ({ ...c, prompt: e.target.value }))} />
@@ -294,13 +327,7 @@ function BatchComposer(props: Props & { seed: Composition; onImportPi: () => voi
                             </button> : null}
                         </div> : null}
                     </div>
-                    <div className="px-3 pb-3">
-                        <p className="text-xs font-medium text-[var(--app-hint)]">{card.ownPrompt && card.prompt.trim() ? t('batch.ownPrompt') : t('batch.usesCommon')}</p>
-                        <details className="mt-1 text-sm">
-                            <summary className="cursor-pointer text-xs text-[var(--app-hint)]">{t('batch.exactPrompt')}</summary>
-                            <p className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{prompt.trim() ? prompt : t('batch.emptyPrompt')}</p>
-                        </details>
-                    </div>
+                    {prompt.trim() && (!isExpanded || started) ? <p className="max-h-48 overflow-auto whitespace-pre-wrap break-words px-3 pb-3 text-sm">{prompt}</p> : null}
                     <div id={`editor-${card.id}`} hidden={!isExpanded || started}>
                         <div className="border-t border-[var(--app-divider)]">
                             <Editor {...props} id={card.id} groupId={undefined} initialMachineId={composition.machineId}
@@ -309,16 +336,14 @@ function BatchComposer(props: Props & { seed: Composition; onImportPi: () => voi
                         </div>
                         {agent === 'pi' && composition.cards.length === 1 ? <button className={`${action} m-3 border border-[var(--app-border)]`} disabled={disabled} onClick={props.onImportPi}>{t('piImport.inline.choose')}</button> : null}
                         <div className="space-y-3 border-t border-[var(--app-divider)] p-3">
-                            <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" className="accent-[var(--app-link)]" checked={card.ownPrompt} disabled={disabled}
+                            <div className="space-y-1.5"><label className="flex min-h-8 items-center gap-2 text-sm"><input type="checkbox" className="accent-[var(--app-link)]" checked={card.ownPrompt} disabled={disabled}
                                 onChange={e => updateCard(card.id, { ownPrompt: e.target.checked })} />{t('batch.useOwn')}</label>
-                            {card.ownPrompt ? <label className="block space-y-1.5 text-sm"><span>{t('batch.replaces')}</span>
+                            {card.ownPrompt ? <div className="space-y-1.5">
                                 <textarea className={`${control} min-h-24 resize-y`} rows={3} maxLength={100000} aria-label={t('batch.ownPrompt')}
-                                    value={card.prompt} disabled={disabled} onChange={e => updateCard(card.id, { prompt: e.target.value })} /><span className="block text-xs text-[var(--app-hint)]">{t('batch.emptyOwnHint')}</span></label> : null}
+                                    value={card.prompt} disabled={disabled} placeholder={t('batch.replaces')} onChange={e => updateCard(card.id, { prompt: e.target.value })} /><p className="text-xs text-[var(--app-hint)]">{t('batch.emptyOwnHint')}</p></div> : null}</div>
                             {card.directory === undefined ? <button className={`${action} -ml-3 underline underline-offset-4`} disabled={disabled}
                                 onClick={() => updateCard(card.id, { directory: composition.directory })}>{t('batch.otherProject')}</button>
-                                : <div><div className="flex items-center justify-between gap-2 text-sm"><span>{t('batch.otherProject')}</span>
-                                    <button className={`${action} underline`} disabled={disabled} onClick={() => updateCard(card.id, { directory: undefined })}>{t('batch.useCommonProject')}</button></div>
-                                    <div className="-mx-3">{directoryPicker(card.directory, directory => updateCard(card.id, { directory }), card.id)}</div></div>}
+                                : <div className="-mx-3">{directoryPicker(card.directory, directory => updateCard(card.id, { directory }), card.id, () => updateCard(card.id, { directory: undefined }))}</div>}
                         </div>
                     </div>
                     {card.result ? <div className="space-y-2 border-t border-[var(--app-divider)] p-3 text-sm" role="status">
@@ -345,7 +370,7 @@ function BatchComposer(props: Props & { seed: Composition; onImportPi: () => voi
                 setExpanded('')
             }}>{t('batch.prepareMore')}</button><p className="text-sm">{t('batch.results', { success: successCount, total: composition.cards.length })}</p>
                 {failureCount ? <button className={`${action} border border-[var(--app-border)]`} disabled={Object.values(busy).some(Boolean)} onClick={() => void Promise.allSettled(composition.cards.filter(card => card.result?.state === 'failed').map(card => launch(card, true)))}>{t('batch.retryFailed', { count: failureCount })}</button> : null}</>
-                : <><button className={action} disabled={preparing} onClick={props.onCancel}>{t('button.cancel')}</button>
+                : <><button className={action} disabled={preparing} onClick={() => { singleCompleted.current = true; props.onCancel() }}>{t('button.cancel')}</button>
                     <button className={`${action} bg-[var(--app-button)] font-medium text-[var(--app-button-text)] hover:opacity-90`} disabled={!canStart || groups.query.isPending || groups.query.isError}
                         onClick={() => void start()}>{preparing ? t('batch.launching') : composition.cards.length === 1 ? t('batch.launchOne') : t('batch.launchCount', { count: composition.cards.length })}</button></>}
         </div>

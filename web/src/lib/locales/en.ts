@@ -1,4 +1,5 @@
 export default {
+  'batch.singleChat': 'Single chat',
   'batch.addAnother': 'Add another chat',
   'batch.launchSaveFailed': 'Could not save the launch request in this tab. Free browser storage and try again. No chats were launched by this action.',
   'batch.draftSaveFailed': 'Could not save the form before browsing. Enter a directory here to keep your chat settings.',

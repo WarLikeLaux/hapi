@@ -10,6 +10,8 @@ const ownPrompt = 'Проверь только обработку ошибок �
 const captures = [
     { name: 'default-wide', width: 1440, height: 1000, mode: 'single' },
     { name: 'default-mobile', width: 390, height: 844, mode: 'single' },
+    { name: 'group-mobile', width: 390, height: 1000, mode: 'single-group' },
+    { name: 'return-mobile', width: 390, height: 844, mode: 'return' },
     { name: 'wide', width: 1440, height: 1440, mode: 'overview' },
     { name: 'mobile-settings', width: 390, height: 1000, mode: 'settings' },
     { name: 'mobile', width: 390, height: 844, mode: 'overview' },
@@ -21,8 +23,8 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
     const requests = []
     console.log(JSON.stringify(await captureHapiUi({
         url: `${origin}/sessions/new?directory=${encodeURIComponent('/home/shandori/code/hapi')}`,
-        out: `/tmp/hapi-multi-chat-${shot.name}.png`, width: shot.width, height: shot.height,
-        expect: shot.mode === 'single' ? 'button:has-text("Add another chat")' : shot.mode === 'settings' ? 'select:has(option[value="new"])' : shot.mode === 'own' ? 'article:nth-of-type(2) input[type="text"]'
+        out: `/tmp/hapi-create-fix-${shot.name}.png`, width: shot.width, height: shot.height,
+        expect: ['single', 'single-group', 'return'].includes(shot.mode) ? 'button:has-text("Add another chat")' : shot.mode === 'settings' ? 'button:has-text("Single chat")' : shot.mode === 'own' ? 'article:nth-of-type(2) input[type="text"]'
             : shot.mode === 'results' ? 'text=Launch outcome unknown' : 'button:has-text("Launch 3 chats")',
         prepare: async page => {
             await page.addInitScript(() => {
@@ -47,12 +49,29 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
             await page.addStyleTag({ content: '.tsqd-open-btn-container { display: none !important; }' })
             await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeEnabled()
             await page.locator('input[type="radio"][value="codex"]').check()
-            if (shot.mode === 'single') {
+            if (shot.mode === 'single' || shot.mode === 'single-group') {
                 await expect(page.getByRole('article')).toHaveCount(0)
                 await expect(page.getByRole('textbox', { name: 'Shared initial prompt (optional)' })).toHaveCount(0)
+                if (shot.mode === 'single-group') {
+                    await page.getByRole('checkbox', { name: 'Create a group with this chat' }).check()
+                    await page.getByRole('textbox', { name: 'Group name', exact: true }).fill('Параллельный разбор')
+                }
                 return
             }
             await page.getByRole('button', { name: 'Add another chat', exact: true }).click()
+            if (shot.mode === 'return') {
+                await page.getByRole('button', { name: 'Single chat', exact: true }).click()
+                await expect(page.getByRole('article')).toHaveCount(0)
+                await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeEnabled()
+                await page.getByRole('button', { name: 'Add another chat', exact: true }).click()
+                await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+                await expect(page).not.toHaveURL(/sessions\/new/)
+                await page.goto(`${origin}/sessions/new?directory=${encodeURIComponent('/home/shandori/code/hapi')}`)
+                await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeEnabled()
+                await expect(page.getByRole('article')).toHaveCount(0)
+                await page.addStyleTag({ content: '.tsqd-open-btn-container { display: none !important; }' })
+                return
+            }
             await page.getByRole('button', { name: 'Remove chat 2', exact: true }).click()
             await page.getByRole('textbox', { name: 'Shared initial prompt (optional)' }).fill(commonPrompt)
             await page.getByRole('combobox', { name: 'Place chats' }).selectOption('new')
@@ -71,14 +90,13 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
             await expect(page.getByRole('button', { name: 'Launch 3 chats', exact: true })).toBeEnabled()
             await third.locator('button[aria-expanded]').click()
             if (shot.mode === 'settings') {
-                await page.locator('section[aria-label="Shared settings"]').scrollIntoViewIfNeeded()
+                await page.getByRole('button', { name: 'Single chat', exact: true }).scrollIntoViewIfNeeded()
             } else if (shot.mode === 'own') {
                 await second.locator('button[aria-expanded]').click()
                 await second.getByRole('checkbox', { name: 'Use own prompt' }).evaluate(element => element.scrollIntoView({ block: 'center' }))
             } else if (shot.mode === 'overview') {
-                if (shot.width > 1000) {
-                    for (const details of await page.locator('article details').all()) await details.locator('summary').click()
-                }
+                await expect(page.getByText('Exact initial prompt', { exact: true })).toHaveCount(0)
+                await expect(second.locator('p').filter({ hasText: ownPrompt })).toBeVisible()
             } else {
                 await page.getByRole('button', { name: 'Launch 3 chats', exact: true }).click()
                 await expect(page.getByText('1 of 3 chats started')).toBeVisible()

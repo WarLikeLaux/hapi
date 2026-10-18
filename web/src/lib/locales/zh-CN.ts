@@ -1,4 +1,5 @@
 export default {
+  'batch.singleChat': '单个聊天',
   'batch.addAnother': '再添加一个聊天',
   'batch.launchSaveFailed': '无法在此标签页保存启动请求。请释放浏览器存储后重试。此次操作未启动任何聊天。',
   'batch.draftSaveFailed': '无法在浏览目录前保存表单。请在此输入目录，以保留聊天设置。',
