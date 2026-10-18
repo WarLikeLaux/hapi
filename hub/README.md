@@ -144,6 +144,7 @@ for request/response shapes and error semantics, and `src/web/routes/` for all e
 - `PATCH /api/machines/:id` - Set/clear the machine display name.
 - `GET /api/machines/:id/agent-availability` - List installed/configured Agents.
 - `POST /api/machines/:id/spawn` - Spawn new session on machine.
+- `POST /api/machines/:id/launch` - Launch with a durable request receipt and optional initial prompt queued before runner dispatch. Repeating the request checks its result without another spawn.
 - `POST /api/machines/:id/list-directory` - Browse runner-scoped directories.
 - `POST /api/machines/:id/paths/exists` - Check if path exists.
 - `POST /api/machines/:id/restart-runner` - Request runner restart (requires an available restart path).

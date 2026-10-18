@@ -54,6 +54,8 @@ import {
     shouldRestoreNewSessionFormDraft
 } from './newSessionFormDraft'
 import { isOpencodeReasoningEffortValid, MODEL_OPTIONS } from './types'
+import type { NewSessionFormDraft } from './newSessionFormDraft'
+import type { LaunchSessionRequest } from '@hapi/protocol'
 import type { AgentType, LaunchEffort, CodexReasoningEffort, NewSessionServiceTier, SessionType } from './types'
 import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
@@ -186,7 +188,20 @@ function OtherModelsButton(props: {
 
 
 
+export type SessionEditorState = {
+    input: Omit<LaunchSessionRequest, 'requestId' | 'initialPrompt'>
+    draft: NewSessionFormDraft
+    canCreate: boolean
+    modelLabel: string
+}
+
 export function NewSession(props: {
+    onAddChat?: (state: SessionEditorState) => void
+    editor?: {
+        initialDraft?: NewSessionFormDraft
+        disabled: boolean
+        onChange: (state: SessionEditorState) => void
+    }
     groupId?: string
     groupName?: string
     initialAgent?: AgentType
@@ -194,7 +209,7 @@ export function NewSession(props: {
     api: ApiClient
     machines: Machine[]
     isLoading?: boolean
-    onSuccess: (sessionId: string) => void
+    onSuccess: (sessionId: string, alreadyPlaced?: boolean) => void
     onCancel: () => void
     onChooseFolder?: (args: { machineId: string | null; directory: string }) => void
     initialDirectory?: string
@@ -208,6 +223,7 @@ export function NewSession(props: {
     const { sessions, refetch: refetchSessions } = useSessions(props.api)
     const { getLastUsedMachineId, setLastUsedMachineId } = useLastUsedMachine()
 
+    const editorDraft = props.editor?.initialDraft
     const continueFrom = props.continueFromSession
     const continueAgent = isKnownFlavor(continueFrom?.metadata?.flavor)
         ? continueFrom.metadata.flavor
@@ -221,7 +237,7 @@ export function NewSession(props: {
 
     const [suppressSuggestions, setSuppressSuggestions] = useState(false)
     const [isDirectoryFocused, setIsDirectoryFocused] = useState(false)
-    const [agent, setAgent] = useState<AgentType>(() => continueAgent ?? props.initialAgent ?? loadPreferredAgent())
+    const [agent, setAgent] = useState<AgentType>(() => editorDraft?.agent ?? continueAgent ?? props.initialAgent ?? loadPreferredAgent())
     // Snapshot taken once at mount, before any savePreferredAgent() call this
     // component makes can overwrite the stored agent. savePreferredAgent()
     // runs on every agent change (below), so reading loadPreferredAgent()
@@ -230,29 +246,29 @@ export function NewSession(props: {
     const [legacyYoloAgent] = useState(
         () => (loadPreferredYoloMode() ? loadPreferredAgent() : null)
     )
-    const [model, setModel] = useState(() => continueFrom?.model ?? 'auto')
-    const [cursorSelectedBase, setCursorSelectedBase] = useState('auto')
+    const [model, setModel] = useState(() => editorDraft?.model ?? continueFrom?.model ?? 'auto')
+    const [cursorSelectedBase, setCursorSelectedBase] = useState(editorDraft?.cursorSelectedBase ?? 'auto')
     const pendingCursorBaseRef = useRef<string | null>(null)
-    const [effort, setEffort] = useState<LaunchEffort>(() => continueFrom?.effort ?? 'auto')
-    const [modelReasoningEffort, setModelReasoningEffort] = useState<CodexReasoningEffort>(() => continueFrom?.modelReasoningEffort ?? 'default')
-    const [opencodeSelectedModel, setOpencodeSelectedModel] = useState<string | null | undefined>(null)
-    const [requestedModelCatalog, setRequestedModelCatalog] = useState<string | null>(null)
+    const [effort, setEffort] = useState<LaunchEffort>(() => editorDraft?.effort ?? continueFrom?.effort ?? 'auto')
+    const [modelReasoningEffort, setModelReasoningEffort] = useState<CodexReasoningEffort>(() => editorDraft?.modelReasoningEffort ?? continueFrom?.modelReasoningEffort ?? 'default')
+    const [opencodeSelectedModel, setOpencodeSelectedModel] = useState<string | null | undefined>(editorDraft?.agent === 'opencode' && editorDraft.model !== 'auto' ? editorDraft.model : null)
+    const [requestedModelCatalog, setRequestedModelCatalog] = useState<string | null>(() => editorDraft?.modelCatalogRequested ? JSON.stringify([agent, machineId, agent === 'opencode' ? directory.trim() : null]) : null)
     const modelCatalogTarget = JSON.stringify([agent, machineId, agent === 'opencode' ? directory.trim() : null])
     const modelCatalogRequested = requestedModelCatalog === modelCatalogTarget
-    const [serviceTier, setServiceTier] = useState<NewSessionServiceTier>(() => continueFrom?.serviceTier === 'fast' ? 'fast' : 'standard')
+    const [serviceTier, setServiceTier] = useState<NewSessionServiceTier>(() => (editorDraft?.serviceTier ?? continueFrom?.serviceTier) === 'fast' ? 'fast' : 'standard')
     // Fork: the collaboration-mode selector is dormant; a hidden field must
     // not carry a non-default mode into the spawn, so it stays at 'default'.
     const [collaborationMode, setCollaborationMode] = useState<CodexCollaborationMode>('default')
-    const [copilotAgentMode, setCopilotAgentMode] = useState<CopilotAgentMode>(() => continueFrom?.copilotAgentMode ?? 'interactive')
-    const [yoloMode, setYoloMode] = useState(loadPreferredYoloMode)
+    const [copilotAgentMode, setCopilotAgentMode] = useState<CopilotAgentMode>(() => editorDraft?.copilotAgentMode ?? continueFrom?.copilotAgentMode ?? 'interactive')
+    const [yoloMode, setYoloMode] = useState(() => editorDraft?.yoloMode ?? loadPreferredYoloMode())
     // Fork: when the hub brands claude as GLM (z.ai), the flavor has no
     // meaningful effort control and the no-pick model is GLM 5.3 Flash.
     const claudeGlmBranded = useClaudeGlmBranding()
     // Fork: YOLO is the launch default for every flavor — native-select
     // flavors start at their own YOLO-equivalent mode (claude/grok map to
     // bypassPermissions, codex family to yolo).
-    const [nativePermissionMode, setNativePermissionMode] = useState<PermissionMode>(() => continueFrom?.permissionMode ?? continueFrom?.metadata?.preferredPermissionMode ?? resolveHapiYoloPermissionMode(continueAgent ?? props.initialAgent ?? loadPreferredAgent()) ?? 'default')
-    const [grokPermissionMode, setGrokPermissionMode] = useState<GrokPermissionMode>('bypassPermissions')
+    const [nativePermissionMode, setNativePermissionMode] = useState<PermissionMode>(() => editorDraft?.nativePermissionMode ?? continueFrom?.permissionMode ?? continueFrom?.metadata?.preferredPermissionMode ?? resolveHapiYoloPermissionMode(continueAgent ?? props.initialAgent ?? loadPreferredAgent()) ?? 'default')
+    const [grokPermissionMode, setGrokPermissionMode] = useState<GrokPermissionMode>(editorDraft?.grokPermissionMode ?? 'bypassPermissions')
     const [sessionType, setSessionType] = useState<SessionType>('simple')
     const [worktreeName, setWorktreeName] = useState('')
     const [directoryCreationConfirmed, setDirectoryCreationConfirmed] = useState(false)
@@ -283,7 +299,8 @@ export function NewSession(props: {
     const [isDuplicateMergeConfirmOpen, setIsDuplicateMergeConfirmOpen] = useState(false)
     const [isMergingDuplicateSessions, setIsMergingDuplicateSessions] = useState(false)
     const isFormDisabled = Boolean(
-        isCreating
+        props.editor?.disabled
+        || isCreating
         || isPending
         || props.isLoading
         || isImportingCodexSession
@@ -292,7 +309,7 @@ export function NewSession(props: {
         || isBulkImportingPiSessions
     )
     const worktreeInputRef = useRef<HTMLInputElement>(null)
-    const preserveRestoredDraftRef = useRef(Boolean(continueFrom))
+    const preserveRestoredDraftRef = useRef(Boolean(continueFrom || props.editor?.initialDraft))
 
     useEffect(() => {
         if (sessionType === 'worktree') {
@@ -351,7 +368,7 @@ export function NewSession(props: {
         if (restoredFromBrowseRef.current) {
             return
         }
-        if (continueFrom) {
+        if (continueFrom || props.editor) {
             return
         }
         if (!shouldRestoreNewSessionFormDraft({
@@ -464,7 +481,7 @@ export function NewSession(props: {
         machineId,
         enabled: agent === 'codex' && Boolean(machineId)
     })
-    const [agySelectedModel, setAgySelectedModel] = useState<string | null>(null)
+    const [agySelectedModel, setAgySelectedModel] = useState<string | null>(editorDraft?.agent === 'agy' && editorDraft.model !== 'auto' ? editorDraft.model : null)
     // Whether the AGY model on screen is one the user picked here, as opposed to
     // one restored from a draft or a saved preference. A restored model that the
     // machine does not advertise is dropped (it may never have been runnable on
@@ -547,9 +564,9 @@ export function NewSession(props: {
     // Fork hardcoded models: these flavors always run one model, so the form
     // pins it instead of offering the catalog dropdown. Literals only.
     // The Other badge opens the full catalog selector as an escape hatch.
-    const [showAllModels, setShowAllModels] = useState(false)
+    const [showAllModels, setShowAllModels] = useState(props.editor?.initialDraft?.showAllModels ?? false)
     useEffect(() => {
-        setShowAllModels(false)
+        if (!preserveRestoredDraftRef.current) setShowAllModels(false)
     }, [agent, machineId])
     useEffect(() => {
         if (agent !== 'codex' || showAllModels) {
@@ -604,9 +621,9 @@ export function NewSession(props: {
         []
     )
     // Escape hatch behind the hardcoded badges: reveals the full catalog picker.
-    const [showAllCursorModels, setShowAllCursorModels] = useState(false)
+    const [showAllCursorModels, setShowAllCursorModels] = useState(editorDraft?.showAllCursorModels ?? false)
     useEffect(() => {
-        setShowAllCursorModels(false)
+        if (!preserveRestoredDraftRef.current) setShowAllCursorModels(false)
     }, [agent, machineId])
     useEffect(() => {
         // Idempotent and coercive in badges mode: anything outside the
@@ -1808,6 +1825,51 @@ export function NewSession(props: {
         }
     }, [suggestions, selectedIndex, moveUp, moveDown, clearSuggestions, handleSuggestionSelect])
 
+    function buildLaunchInput(): SessionEditorState['input'] {
+        const resolvedModel = agent === 'opencode'
+            ? (opencodeSelectedModel ?? OPENCODE_HARDCODED_MODEL_ID)
+            : agent === 'agy'
+                ? (agySelectedModel ?? undefined)
+                : agent === 'cursor'
+                    ? (model === 'auto' || !model ? undefined : model)
+                    : (model !== 'auto' ? model : undefined)
+        // GLM has no effort levels: a branded claude never passes one,
+        // even if a remembered value was restored before the flag arrived.
+        const resolvedEffort = ((agent === 'claude' && !claudeGlmBranded) || agent === 'grok' || agent === 'pi') && effort !== 'auto'
+            ? effort
+            : undefined
+        const resolvedModelReasoningEffort = agent === 'opencode'
+            ? resolvedModel === OPENCODE_HARDCODED_MODEL_ID ? 'high' : 'max'
+            : agent === 'codex' && modelReasoningEffort !== 'default'
+                ? modelReasoningEffort
+                : undefined
+        const resolvedServiceTier = agent === 'codex' && showCodexFastMode
+            ? serviceTier
+            : undefined
+        const resolvedCollaborationMode = agent === 'codex' && collaborationMode !== 'default'
+            ? collaborationMode
+            : undefined
+
+        return {
+            directory: trimmedDirectory,
+            agent,
+            model: resolvedModel,
+            effort: resolvedEffort,
+            modelReasoningEffort: resolvedModelReasoningEffort,
+            yolo: agent === 'dsh' || usesNativeSelect ? undefined : yoloMode,
+            permissionMode: agent === 'grok'
+                ? grokPermissionMode
+                : usesSharedPermissionMode
+                    ? nativePermissionMode
+                    : undefined,
+            sessionType,
+            worktreeName: sessionType === 'worktree' ? (worktreeName.trim() || undefined) : undefined,
+            serviceTier: resolvedServiceTier,
+            collaborationMode: resolvedCollaborationMode,
+            copilotAgentMode: agent === 'copilot' ? copilotAgentMode : undefined,
+        }
+    }
+
     async function handleCreate() {
         if (!machineId || !trimmedDirectory || createInFlightRef.current) return
 
@@ -1839,36 +1901,13 @@ export function NewSession(props: {
                 return
             }
 
-            if (
-                agent === 'cursor'
-                && cursorPicker.mode === 'dual'
-                && cursorBaseSelectValue !== 'auto'
-                && cursorBaseSelectValue !== 'default[]'
-                && cursorVariantOptions.length > 1
-                && !cursorVariantOptions.some((option) => option.value === model)
-            ) {
+            if (cursorVariantMissing) {
                 haptic.notification('error')
                 setError(t('newSession.model.selectVariant'))
                 return
             }
 
-            const resolvedModel = agent === 'opencode'
-                ? (opencodeSelectedModel ?? OPENCODE_HARDCODED_MODEL_ID)
-                : agent === 'agy'
-                    ? (agySelectedModel ?? undefined)
-                    : agent === 'cursor'
-                        ? (model === 'auto' || !model ? undefined : model)
-                        : (model !== 'auto' ? model : undefined)
-            // GLM has no effort levels: a branded claude never passes one,
-            // even if a remembered value was restored before the flag arrived.
-            const resolvedEffort = ((agent === 'claude' && !claudeGlmBranded) || agent === 'grok' || agent === 'pi') && effort !== 'auto'
-                ? effort
-                : undefined
-            const resolvedModelReasoningEffort = agent === 'opencode'
-                ? resolvedModel === OPENCODE_HARDCODED_MODEL_ID ? 'high' : 'max'
-                : agent === 'codex' && modelReasoningEffort !== 'default'
-                    ? modelReasoningEffort
-                    : undefined
+            const { model: resolvedModel, modelReasoningEffort: resolvedModelReasoningEffort, serviceTier: resolvedServiceTier, collaborationMode: resolvedCollaborationMode } = buildLaunchInput()
             const preferredLaunchSettings = {
                 model: agent === 'agy'
                     ? (agySelectedModel ?? 'auto')
@@ -1880,12 +1919,6 @@ export function NewSession(props: {
                 modelReasoningEffort,
                 ...(usesSharedPermissionMode ? { permissionMode: nativePermissionMode } : {})
             }
-            const resolvedServiceTier = agent === 'codex' && showCodexFastMode
-                ? serviceTier
-                : undefined
-            const resolvedCollaborationMode = agent === 'codex' && collaborationMode !== 'default'
-                ? collaborationMode
-                : undefined
 
             let targetGroupId = props.groupId
             if (!targetGroupId && createGroup) {
@@ -1971,26 +2004,7 @@ export function NewSession(props: {
                 return
             }
 
-            const result = await spawnSession({
-                groupId: targetGroupId,
-                machineId,
-                directory: trimmedDirectory,
-                agent,
-                model: resolvedModel,
-                effort: resolvedEffort,
-                modelReasoningEffort: resolvedModelReasoningEffort,
-                yolo: agent === 'dsh' || usesNativeSelect ? undefined : yoloMode,
-                permissionMode: agent === 'grok'
-                    ? grokPermissionMode
-                    : usesSharedPermissionMode
-                        ? nativePermissionMode
-                        : undefined,
-                sessionType,
-                worktreeName: sessionType === 'worktree' ? (worktreeName.trim() || undefined) : undefined,
-                serviceTier: resolvedServiceTier,
-                collaborationMode: resolvedCollaborationMode,
-                copilotAgentMode: agent === 'copilot' ? copilotAgentMode : undefined,
-            })
+            const result = await spawnSession({ ...buildLaunchInput(), machineId, groupId: targetGroupId })
 
 
             if (result.type === 'success') {
@@ -2077,6 +2091,12 @@ export function NewSession(props: {
     const fastModeSelectionPending = agent === 'codex'
         && serviceTier === 'fast'
         && codexModelsState.isLoading
+    const cursorVariantMissing = agent === 'cursor'
+        && cursorPicker.mode === 'dual'
+        && cursorBaseSelectValue !== 'auto'
+        && cursorBaseSelectValue !== 'default[]'
+        && cursorVariantOptions.length > 1
+        && !cursorVariantOptions.some((option) => option.value === model)
     const canCreate = Boolean(
         machineId
         && trimmedDirectory
@@ -2088,8 +2108,41 @@ export function NewSession(props: {
         && selectedAgentAvailable
         && !isLaunchPreferenceValidationPending
         && !fastModeSelectionPending
+        && !cursorVariantMissing
         && (!createGroup || (groupName.trim().length > 0 && groupName.trim().length <= 120))
     )
+
+    function buildEditorState(): SessionEditorState {
+        return {
+            input: buildLaunchInput(), canCreate,
+            modelLabel: (agent === 'claude' && claudeGlmBranded ? (model === 'auto' ? CLAUDE_GLM_HARDCODED_LABEL : CLAUDE_GLM_MODEL_LABEL) : undefined)
+                ?? (agent === 'agy' ? agySelectedModel === AGY_HIGH_MODEL_ID ? AGY_HIGH_MODEL_LABEL : !agySelectedModel ? AGY_HARDCODED_LABEL : undefined : undefined)
+                ?? (agent === 'opencode' ? OPENCODE_HARDCODED_OPTIONS.find(option => option.value === (opencodeSelectedModel ?? 'auto'))?.label : undefined)
+                ?? (agent === 'minimax' && model === 'auto' ? MINIMAX_HARDCODED_LABEL : undefined)
+                ?? namedLaunchModelOptions.find(option => option.value === (buildLaunchInput().model ?? 'auto'))?.label
+                ?? buildLaunchInput().model ?? nativeDefaultModelName ?? t('newSession.model.default'),
+            draft: { agent, model: agent === 'agy' ? (agySelectedModel ?? 'auto') : agent === 'opencode' ? (opencodeSelectedModel ?? 'auto') : model,
+                cursorSelectedBase, machineId, effort, modelReasoningEffort, serviceTier, collaborationMode, copilotAgentMode,
+                yoloMode, nativePermissionMode, grokPermissionMode, sessionType, worktreeName, showAllModels, showAllCursorModels, modelCatalogRequested }
+        }
+    }
+
+    function handleAddChat() {
+        const state = buildEditorState()
+        state.draft.groupId = props.groupId ?? createdGroup?.id
+        if (!state.draft.groupId && createGroup) {
+            const name = groupName.trim()
+            if (groupRequestRef.current?.name !== name) groupRequestRef.current = { name, requestId: crypto.randomUUID() }
+            state.draft.groupCreation = groupRequestRef.current
+        }
+        props.onAddChat?.(state)
+    }
+
+    const editorStateJson = props.editor ? JSON.stringify(buildEditorState()) : null
+    const editorOnChange = props.editor?.onChange
+    useEffect(() => {
+        if (editorStateJson) editorOnChange?.(JSON.parse(editorStateJson) as SessionEditorState)
+    }, [editorStateJson, editorOnChange])
 
     return (
         <div className="flex flex-col divide-y divide-[var(--app-divider)] [&>div]:pr-[10px] lg:[&>div]:pr-3">
@@ -2098,7 +2151,7 @@ export function NewSession(props: {
                     {t('newSession.continue.description', { title: getSessionTitle(continueFrom) })}
                 </div>
             ) : null}
-            <div className="px-3 py-3 text-sm">
+            {!props.editor ? <div className="px-3 py-3 text-sm">
                 {props.groupId || createdGroup ? <p className="text-[var(--app-hint)]">{t('groups.newChatIn', { name: props.groupName ?? createdGroup?.name ?? '' })}</p> : <>
                     <label className="flex cursor-pointer items-center gap-2">
                         <input type="checkbox" checked={createGroup} disabled={isFormDisabled} onChange={event => setCreateGroup(event.target.checked)} className="h-4 w-4 accent-[var(--app-link)]" />
@@ -2112,10 +2165,10 @@ export function NewSession(props: {
                     </div> : null}
                 </>}
                 {props.groupDefaultsUnavailable || (props.initialAgent && !agentAvailability.isLoading && !agentAvailability.error && !availableAgents.includes(props.initialAgent)) ? <p role="status" className="mt-2 text-xs text-[var(--app-hint)]">{t('groups.defaultsUnavailable')}</p> : null}
-            </div>
+            </div> : null}
             {/* Fork: a single-machine setup needs no picker; it would only be
                 one more thing to scroll past on the phone. */}
-            {props.machines.length > 1 ? (
+            {!props.editor && props.machines.length > 1 ? (
                 <MachineSelector
                     machines={props.machines}
                     machineId={machineId}
@@ -2129,7 +2182,7 @@ export function NewSession(props: {
                     Runner last spawn error: {runnerSpawnError}
                 </div>
             ) : null}
-            <DirectorySection
+            {!props.editor ? <DirectorySection
                 directory={directory}
                 suggestions={suggestions}
                 selectedIndex={selectedIndex}
@@ -2145,7 +2198,9 @@ export function NewSession(props: {
                 onSuggestionSelect={handleSuggestionSelect}
                 onPathClick={handlePathClick}
                 onChooseFolder={props.onChooseFolder ? handleChooseFolderClick : undefined}
-            />
+            /> : null}
+            {props.editor && directoryStatusMessage ? <p role="status" className="px-3 py-2 text-xs text-[var(--app-hint)]">{directoryStatusMessage}</p> : null}
+            {props.editor && props.initialAgent && !agentAvailability.isLoading && !agentAvailability.error && !availableAgents.includes(props.initialAgent) ? <p role="status" className="px-3 py-2 text-xs text-[var(--app-hint)]">{t('groups.defaultsUnavailable')}</p> : null}
             {/* Fork: worktree launches are never used here, so the type
                 selector is not rendered — sessions always launch in place
                 (`sessionType` stays 'simple'; the draft restore clamps it). */}
@@ -2177,7 +2232,7 @@ export function NewSession(props: {
             ) : null}
             {/* Fork: codex history import is never used here, so its entry
                 point is not rendered; the plumbing stays dormant. */}
-            {agent === 'pi' ? (
+            {!props.editor && agent === 'pi' ? (
                 <PiImportActions
                     selectedSession={selectedPiImportSession}
                     isLoading={isLoadingPiImportSessions}
@@ -2460,20 +2515,22 @@ export function NewSession(props: {
                 onChange={setCopilotAgentMode}
             />
 
+            {cursorVariantMissing ? <p role="alert" className="px-3 py-2 text-sm text-red-600">{t('newSession.model.selectVariant')}</p> : null}
             {(error ?? spawnError) ? (
                 <div className="px-3 py-2 text-sm text-red-600">
                     {error ?? spawnError}
                 </div>
             ) : null}
 
-            <ActionButtons
+            {!props.editor ? <ActionButtons
                 isPending={isCreating || isPending || isImportingCodexSession || isImportingPiSession}
                 canCreate={canCreate}
                 isDisabled={isFormDisabled}
                 createLabel={createLabel}
                 onCancel={props.onCancel}
                 onCreate={handleCreate}
-            />
+                onAddChat={props.onAddChat && !selectedCodexImportSession && !selectedPiImportSession ? handleAddChat : undefined}
+            /> : null}
             <CodexSessionSyncDialog
                 isOpen={isCodexImportDialogOpen}
                 onClose={() => setIsCodexImportDialogOpen(false)}

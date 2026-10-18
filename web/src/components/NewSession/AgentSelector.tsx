@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { getFlavorLabel } from '@hapi/protocol'
 import type { AgentType } from './types'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
@@ -10,6 +11,7 @@ export function AgentSelector(props: {
     onAgentChange: (value: AgentType) => void
 }) {
     const { t } = useTranslation()
+    const radioName = useId()
 
     return (
         <div className="flex flex-col gap-1.5 px-3 py-3">
@@ -24,7 +26,7 @@ export function AgentSelector(props: {
                     >
                         <input
                             type="radio"
-                            name="agent"
+                            name={radioName}
                             value={agentType}
                             checked={props.agent === agentType}
                             onChange={() => props.onAgentChange(agentType)}

@@ -25,7 +25,7 @@ import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
 import { QuotaLimitsModal } from '@/components/QuotaLimitsModal'
 import { SessionList } from '@/components/SessionList'
-import { NewSession } from '@/components/NewSession'
+import { SessionComposer as NewSession } from '@/components/NewSession/SessionComposer'
 import { WorkspaceBrowser } from '@/components/WorkspaceBrowser'
 import { LoadingState } from '@/components/LoadingState'
 import { useAppContext } from '@/lib/app-context'
@@ -982,8 +982,8 @@ function NewSessionPage() {
         })
     }, [continueFromSessionId, navigate, shareTransferId])
 
-    const handleSuccess = useCallback(async (sessionId: string) => {
-        if (groupId && api) {
+    const handleSuccess = useCallback(async (sessionId: string, alreadyPlaced?: boolean) => {
+        if (groupId && api && !alreadyPlaced) {
             try {
                 await api.addGroupChat(groupId, sessionId)
                 void queryClient.invalidateQueries({ queryKey: ['session-groups'] })

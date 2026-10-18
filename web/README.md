@@ -112,6 +112,12 @@ Modular session creation:
 - Agent type selector
 - Model selector
 - Per-agent permission, effort, and collaboration controls when supported
+- The default Create Session form keeps ordinary single-chat creation. **Add another chat** switches to multiple chats and preserves the selected agent, model, settings, project, and group choice.
+- Multiple independent chats in one launch, with add, duplicate, and remove actions
+- Optional shared initial prompt and per-chat prompts that replace it. An empty per-chat prompt falls back to the shared one. Empty prompts create ordinary chats.
+- Shared project with per-chat directory overrides, plus no group, an existing group, or a new named group
+- Per-chat launch results. Retry confirmed failures individually or together. Check uncertain launches using their original request IDs without creating duplicates or sending prompts again.
+- Draft settings and launch results survive a page reload within the browser tab
 
 ### First-User-Experience (FUE)
 

@@ -1,4 +1,4 @@
-import type { SessionGroup, UpdateSessionGroup } from '@hapi/protocol'
+import type { SessionGroup, UpdateSessionGroup, LaunchSessionRequest, LaunchSessionResult } from '@hapi/protocol'
 import type {
     AttachmentMetadata,
     AuthResponse,
@@ -1278,6 +1278,12 @@ export class ApiClient {
                 body: JSON.stringify({ paths })
             }
         )
+    }
+
+    async launchSession(machineId: string, input: LaunchSessionRequest): Promise<LaunchSessionResult> {
+        return this.request(`/api/machines/${encodeURIComponent(machineId)}/launch`, {
+            method: 'POST', body: JSON.stringify(input),
+        })
     }
 
     async spawnSession(

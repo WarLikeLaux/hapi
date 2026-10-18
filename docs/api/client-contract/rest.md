@@ -168,7 +168,7 @@ The configuration routes in the table above respond `{ok: true}`; apply-failures
 
 ### Machines & spawning
 
-Source: `hub/src/web/routes/machines.ts`; schemas `SpawnSessionRequestSchema`, `MachineListDirectoryRequestSchema`, `MachinePathsExistsRequestSchema`, `RenameMachineRequestSchema` (`shared/src/apiTypes.ts`), `MachineSchema` (`shared/src/schemas.ts`).
+Source: `hub/src/web/routes/machines.ts`; schemas `SpawnSessionRequestSchema`, `LaunchSessionRequestSchema`, `MachineListDirectoryRequestSchema`, `MachinePathsExistsRequestSchema`, `RenameMachineRequestSchema` (`shared/src/apiTypes.ts`), `MachineSchema` (`shared/src/schemas.ts`).
 
 | Method & path | Request | Response |
 |---|---|---|
@@ -176,9 +176,16 @@ Source: `hub/src/web/routes/machines.ts`; schemas `SpawnSessionRequestSchema`, `
 | `PATCH /api/machines/:id` | `{displayName}` (trimmed; ≤ 64 chars; empty clears back to hostname) | `{ok: true}` |
 | `GET /api/machines/:id/agent-availability` | — | `{agents: {agent, available, reason?: 'not_found'\|'invalid_configuration'}[]}`; 409 `runner_upgrade_required` on old runners |
 | `POST /api/machines/:id/spawn` | `{directory, agent?, model?, effort?, modelReasoningEffort?, yolo?, permissionMode?, sessionType?: 'simple'\|'worktree', worktreeName?, serviceTier?, collaborationMode?, copilotAgentMode?, startingMode?: 'remote'\|'pty'}` | `{type: 'success', sessionId}` \| `{type: 'error', message, code?, agent?}` (agy accepts only `remote`) |
+| `POST /api/machines/:id/launch` | Spawn fields plus `requestId: UUID`, `initialPrompt?: string` (≤ 100,000 characters), `groupId?` | `{state: 'succeeded'\|'failed'\|'indeterminate', sessionId?, message?}` |
 | `POST /api/machines/:id/list-directory` | `{path, includeHidden?}` | `{success, entries?: (DirectoryEntry & {isGitRepo?})[], error?}` |
 | `POST /api/machines/:id/paths/exists` | `{paths: string[]}` (≤ 1000) | `{exists: Record<string, boolean>, outsideWorkspaceRoots?: string[]}` |
 | `POST /api/machines/:id/restart-runner` | `{}` | `{message}`; errors carry `code: 'machine_not_found' \| 'machine_offline'` |
+
+`launch` stores a durable receipt scoped to the caller's namespace. The hub binds the group and queues a nonblank initial prompt before dispatching the runner. Independent requests can run concurrently. A blank prompt creates an ordinary chat with no initial message.
+
+Repeat the same request ID and settings to check a launch after a lost response. An overlapping request waits for the original operation. A completed request returns its saved result. Reusing the ID with different settings returns HTTP 409. Receipts survive hub restarts and session deletion. Checking a receipt never starts another agent or enqueues another prompt.
+
+`failed` means the runner confirmed that no child started, so an explicit retry can use a new request ID. `indeterminate` means a child may exist. Keep the original ID and check again. When a late CLI adopts the reserved session, the next check resolves to `succeeded`. An interrupted operation that cannot be confirmed stays `indeterminate` and is never automatically replayed. HTTP or network errors without a result must also be treated as unknown outcomes.
 
 Note the spawn response is discriminated on `type`, not HTTP status — a failed
 spawn is still HTTP 200. Stable spawn failure codes are

@@ -15,6 +15,9 @@ import { LEGACY_YOLO_BRIDGE_AGENTS } from '@/lib/codexFamilyPermissionAgents'
 const DRAFT_STORAGE_KEY = 'hapi:new-session-form-draft'
 
 export type NewSessionFormDraft = {
+    showAllModels?: boolean
+    showAllCursorModels?: boolean
+    modelCatalogRequested?: boolean
     groupId?: string
     groupCreation?: { name: string; requestId: string }
     agent: AgentType
