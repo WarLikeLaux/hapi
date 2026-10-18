@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useState } from 'react'
 import type { SessionGroup } from '@hapi/protocol'
@@ -66,5 +66,61 @@ describe('group tab attention', () => {
         expect(within(worker()).getByLabelText(label)).toBeVisible()
         fireEvent.click(worker())
         expect(within(worker()).getByLabelText(label)).toBeVisible()
+    })
+})
+
+describe('group chat switcher', () => {
+    afterEach(() => vi.restoreAllMocks())
+
+    it('opens the desktop menu at the current chat and selects with keyboard navigation', async () => {
+        render(<Workspace sessions={chats(true)} />)
+        const trigger = screen.getByRole('button', { name: 'Switch chat' })
+        fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+        const menu = await screen.findByRole('menu', { name: 'Switch chat' })
+        const [first, second] = within(menu).getAllByRole('menuitemradio')
+        expect(first).toHaveAttribute('aria-checked', 'true')
+        expect(second).toHaveAttribute('aria-checked', 'false')
+        expect(first).toHaveFocus()
+
+        fireEvent.keyDown(first, { key: 'ArrowDown' })
+        expect(second).toHaveFocus()
+        // Moving around the menu must not change the workspace tab yet.
+        expect(screen.getByRole('tab', { name: /^first/ })).toHaveAttribute('aria-selected', 'true')
+        fireEvent.keyDown(second, { key: 'Home' })
+        expect(first).toHaveFocus()
+        fireEvent.keyDown(first, { key: 'End' })
+        expect(second).toHaveFocus()
+        fireEvent.click(second)
+
+        expect(screen.queryByRole('menu')).toBeNull()
+        expect(worker()).toHaveAttribute('aria-selected', 'true')
+        await waitFor(() => expect(trigger).toHaveFocus())
+        fireEvent.click(trigger)
+        expect(await screen.findByRole('menuitemradio', { checked: true })).toHaveTextContent('worker')
+        expect(screen.getByRole('menuitemradio', { checked: true })).toHaveFocus()
+    })
+
+    it('dismisses the desktop menu with Escape and restores trigger focus without changing chat', async () => {
+        render(<Workspace sessions={chats(false)} />)
+        const trigger = screen.getByRole('button', { name: 'Switch chat' })
+        fireEvent.click(trigger)
+        fireEvent.keyDown(await screen.findByRole('menuitemradio', { checked: true }), { key: 'Escape' })
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+        await waitFor(() => expect(trigger).toHaveFocus())
+        expect(screen.getByRole('tab', { name: /^first/ })).toHaveAttribute('aria-selected', 'true')
+    })
+
+    it.each(['narrow', 'touch'])('retains native selection on a %s device', device => {
+        const originalMatchMedia = window.matchMedia.bind(window)
+        vi.spyOn(window, 'matchMedia').mockImplementation(query => ({
+            ...originalMatchMedia(query),
+            matches: device === 'narrow' ? query.includes('max-width') : query === '(pointer: coarse)',
+        }))
+        render(<Workspace sessions={chats(false)} />)
+        const select = screen.getByRole('combobox', { name: 'Switch chat' })
+        expect(screen.queryByRole('button', { name: 'Switch chat' })).toBeNull()
+        fireEvent.change(select, { target: { value: 'worker' } })
+        expect(worker()).toHaveAttribute('aria-selected', 'true')
+        expect(screen.queryByRole('menu')).toBeNull()
     })
 })
