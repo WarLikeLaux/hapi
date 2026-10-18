@@ -1,3 +1,5 @@
+import { useSessionContextHubSync } from '@/hooks/useSessionContextHubSync'
+import { useSessionContextFilter } from '@/hooks/useSessionContextFilter'
 import { useSessionGroups } from '@/hooks/queries/useSessionGroups'
 import { SessionGroupWorkspace } from '@/components/SessionGroups'
 import { CREATABLE_AGENT_FLAVORS, type SessionGroup, type UpdateSessionGroup } from '@hapi/protocol'
@@ -175,6 +177,8 @@ function SessionsPage() {
     const [initializedHub, setInitializedHub] = useState<string | null>(null)
     const [limitsOpen, setLimitsOpen] = useState(false)
     const groupState = useSessionGroups(api)
+    const groupContextSync = useSessionContextHubSync()
+    const groupContexts = useSessionContextFilter(groupContextSync)
     const groupRoute = matchRoute({ to: '/sessions/groups/$groupId', fuzzy: true })
     const sessionSearch = useSearch({ strict: false })
     const creationGroupId = pathname === '/sessions/new' ? sessionSearch.groupId : undefined
@@ -328,7 +332,8 @@ function SessionsPage() {
             />
 
             <div className={`${isSessionsIndex ? 'hidden split:flex' : 'flex'} min-w-0 flex-1 flex-col bg-[var(--app-bg)]`}>
-                {selectedGroup ? <SessionGroupWorkspace key={selectedGroup.id} group={selectedGroup} groups={groupState.groups} sessions={sessions} selectedSessionId={selectedSessionId}
+                {selectedGroup ? <SessionGroupWorkspace api={api} titleSuggestionAvailable={titleSuggestionAvailable}
+                    contextOptions={groupContexts.contextOptions} onSetContext={groupContexts.setSessionContextOverride} key={selectedGroup.id} group={selectedGroup} groups={groupState.groups} sessions={sessions} selectedSessionId={selectedSessionId}
                     onSelect={id => navigate(getSessionListSelectionNavigation(id))} onBack={() => navigate({ to: '/sessions' })}
                     onNew={() => navigate({ to: '/sessions/new', search: { groupId: selectedGroup.id } })}
                     onUpdate={updateGroup} pending={groupState.mutation.isPending} error={groupState.mutation.error?.message} /> : null}

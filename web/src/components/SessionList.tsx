@@ -1,3 +1,4 @@
+import { SessionItemActions } from '@/components/SessionItemActions'
 import { SESSION_LIST_ITEM_CLASS } from '@/components/SessionRowLayout'
 import type { SessionGroup as ChatGroup } from '@hapi/protocol'
 import { SessionGroupRows } from '@/components/SessionGroups'
@@ -13,13 +14,8 @@ import {
     sortSessionsBySearchRelevance,
 } from '@/lib/sessionListSearch'
 import type { SessionSearchScoreIndex } from '@/lib/sessionListSearch'
-import { useLongPress } from '@/hooks/useLongPress'
-import { getPlatform, usePlatform } from '@/hooks/usePlatform'
+import { getPlatform } from '@/hooks/usePlatform'
 import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe'
-import { useSessionActions } from '@/hooks/mutations/useSessionActions'
-import { SessionActionMenu } from '@/components/SessionActionMenu'
-import { SessionExportDialog } from '@/components/SessionExportDialog'
-import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { CopyIcon, CheckIcon, MarkAllReadIcon } from '@/components/icons'
 import { useNavigate, useParams } from '@tanstack/react-router'
@@ -73,26 +69,19 @@ import {
     getSessionManualUnreadAt,
     getUnreadSessionCount,
     markAllSessionsSeen,
-    markSessionUnread,
     useSessionLastSeenVersion
 } from '@/lib/sessionLastSeen'
 import { useSessionRowTooltipIds } from '@/components/HoverTooltip'
 import { subscribeCodexImportedSessions } from '@/lib/codexImportedSessions'
-import { formatReopenError } from '@/lib/reopenError'
-import { resolveCursorReopenGate } from '@/lib/sessionResume'
 import { getSessionTitle, hasSessionTitleSignal } from '@/lib/sessionTitle'
 import { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
-import { retargetSharePendingTransfer } from '@/lib/sharePendingState'
 import type { Machine } from '@/types/api'
 import { getMachinePlatform, presentMachineHealth } from '@/lib/machineHealth'
 import { MachineFilterBar, MachineFilterMenu } from '@/components/MachineFilterBar'
 import { useSessionListMachineFilter } from '@/hooks/useSessionListMachineFilter'
 import { useTransientScrollbar } from '@/hooks/useTransientScrollbar'
-import { useCursorChatStoreStatus } from '@/hooks/queries/useCursorChatStoreStatus'
 import { SessionRowSummary, type SessionActivityTimeBasis } from '@/components/SessionRowSummary'
 import { Spinner } from '@/components/Spinner'
-import { transferComposerDraftThenNavigate } from '@/lib/composer-draft-transfer'
-import { useToast } from '@/lib/toast-context'
 import { getPathDisplayName, getPathDisplayNames } from '@/utils/path'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
 import { useSessionGitBranch } from '@/hooks/queries/useSessionGitBranch'
@@ -1197,8 +1186,6 @@ function SessionItem(props: {
     currentContext?: SessionContextId
     onSetContext?: (context: SessionContextId | null) => void
 }) {
-    const { t } = useTranslation()
-    const { addToast } = useToast()
     const {
         session: s,
         onSelect,
@@ -1213,106 +1200,12 @@ function SessionItem(props: {
         activityTimeBasis,
         lastSeenVersion
     } = props
-    const { haptic } = usePlatform()
-    const [menuOpen, setMenuOpen] = useState(false)
-    const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
-    const [renameOpen, setRenameOpen] = useState(false)
-    const [exportOpen, setExportOpen] = useState(false)
-    const [archiveOpen, setArchiveOpen] = useState(false)
-    const [parkOpen, setParkOpen] = useState(false)
-    const [restartOpen, setRestartOpen] = useState(false)
-    const [deleteOpen, setDeleteOpen] = useState(false)
-    const {
-        status: cursorChatStoreStatus,
-        isApplicable: cursorChatStoreApplicable,
-        error: cursorChatStoreError,
-        isLoading: cursorChatStoreLoading,
-    } = useCursorChatStoreStatus({
-        api,
-        session: s,
-        enabled: menuOpen
-    })
-    const cursorReopenGate = resolveCursorReopenGate({
-        applicable: cursorChatStoreApplicable,
-        onDisk: cursorChatStoreStatus?.onDisk,
-        error: cursorChatStoreError,
-        isLoading: cursorChatStoreLoading,
-    })
-    const cursorReopenDisabledReason = cursorReopenGate.disabledReason === 'missing'
-        ? t('session.action.reopenCursorMissing')
-        : cursorReopenGate.disabledReason === 'checking'
-            ? t('session.action.reopenCursorChecking')
-            : undefined
-    const cursorReopenUnverifiedHint = cursorReopenGate.probeUnverified
-        ? t('session.action.reopenCursorUnverified')
-            : undefined
     const gitBranchScope = `${s.metadata?.machineId ?? s.id}:${s.metadata?.path ?? s.id}`
     const liveGitBranch = useSessionGitBranch(api, s.id, s.active, inRunningSection, gitBranchScope)
     const gitBranch = inRunningSection
         ? liveGitBranch ?? s.metadata?.worktree?.branch?.trim() ?? undefined
         : undefined
 
-    const { archiveSession, parkSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, deleteSession, setPinMode, isPending } = useSessionActions(
-        api,
-        s.id,
-        s.metadata?.flavor ?? null
-    )
-    const [reopenError, setReopenError] = useState<string | null>(null)
-
-    const handleSetPinMode = async (mode: 'none' | 'project' | 'global') => {
-        try {
-            await setPinMode(mode)
-        } catch (error) {
-            addToast({
-                title: t('session.action.pinFailed'),
-                body: error instanceof Error ? error.message : t('dialog.error.default'),
-                sessionId: s.id,
-                url: `/sessions/${s.id}`
-            })
-        }
-    }
-
-    const followReopenedSession = async (result: Awaited<ReturnType<typeof reopenSession>>) => {
-        // resumeSession may merge the row into a freshly-spawned sessionId.
-        // Follow it so the operator lands on the live session.
-        if (result.sessionId && result.sessionId !== s.id) {
-            retargetSharePendingTransfer(s.id, result.sessionId)
-            await transferComposerDraftThenNavigate(
-                s.id,
-                result.sessionId,
-                () => onSelect(result.sessionId),
-            )
-        }
-    }
-
-    const handleReopen = async () => {
-        setReopenError(null)
-        try {
-            await followReopenedSession(await reopenSession())
-        } catch (error) {
-            setReopenError(formatReopenError(error))
-        }
-    }
-
-    const handleRestart = async () => {
-        await followReopenedSession(await restartSession())
-    }
-
-    const longPressHandlers = useLongPress({
-        onLongPress: (point) => {
-            haptic.impact('medium')
-            setMenuAnchorPoint(point)
-            setMenuOpen(true)
-        },
-        onClick: () => {
-            if (!menuOpen) {
-                onSelect(s.id)
-            }
-        },
-        threshold: 500
-    })
-
-    const sessionName = getSessionTitle(s)
     const attention = useMemo(
         () => classifyVisibleSessionAttention(s, {
             selected,
@@ -1327,11 +1220,12 @@ function SessionItem(props: {
         Boolean(attention),
         hasScheduleTooltip
     )
-    return (
-        <>
+    return <SessionItemActions session={s} api={api} onSelect={onSelect}
+        titleSuggestionAvailable={titleSuggestionAvailable} currentContext={props.currentContext} onSetContext={props.onSetContext}>
+        {handlers => (
             <button
                 type="button"
-                {...longPressHandlers}
+                {...handlers}
                 data-session-scroll-anchor
                 className={`${SESSION_LIST_ITEM_CLASS} ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
                 style={{ WebkitTouchCallout: 'none' }}
@@ -1355,125 +1249,8 @@ function SessionItem(props: {
                     activityTimeBasis={activityTimeBasis}
                 />
             </button>
-
-            <SessionActionMenu
-                isOpen={menuOpen}
-                onClose={() => setMenuOpen(false)}
-                sessionId={s.id}
-                sessionTitle={sessionName}
-                sessionActive={s.active}
-                sessionPinned={Boolean(s.pinned)}
-                sessionGlobalPinned={Boolean(s.globalPinned)}
-                currentContext={props.currentContext}
-                onSetContext={props.onSetContext}
-                onSetPinMode={(mode) => void handleSetPinMode(mode)}
-                onRename={() => setRenameOpen(true)}
-                onExport={() => setExportOpen(true)}
-                onMarkUnread={() => markSessionUnread(s.id, getSessionUnreadActivityAt(s))}
-                onRestart={cursorReopenDisabledReason ? undefined : () => setRestartOpen(true)}
-                onPark={s.active && !cursorReopenDisabledReason ? () => setParkOpen(true) : undefined}
-                onArchive={() => setArchiveOpen(true)}
-                onReopen={cursorReopenDisabledReason ? undefined : handleReopen}
-                reopenDisabledReason={cursorReopenDisabledReason}
-                reopenHint={cursorReopenUnverifiedHint}
-                onDelete={() => setDeleteOpen(true)}
-                anchorPoint={menuAnchorPoint}
-            />
-
-            {reopenError ? (
-                <ConfirmDialog
-                    isOpen={true}
-                    onClose={() => setReopenError(null)}
-                    title={t('dialog.reopen.errorTitle')}
-                    description={reopenError}
-                    confirmLabel={t('dialog.reopen.dismiss')}
-                    confirmingLabel={t('dialog.reopen.dismiss')}
-                    onConfirm={async () => setReopenError(null)}
-                    isPending={false}
-                    centerTitle
-                />
-            ) : null}
-
-            {renameOpen ? (
-                <RenameSessionDialog
-                    isOpen={true}
-                    onClose={() => setRenameOpen(false)}
-                    currentName={sessionName}
-                    onRename={renameSession}
-                    onSuggestTitle={api && titleSuggestionAvailable ? suggestSessionTitle : undefined}
-                    onUpdateSummary={api && titleSuggestionAvailable ? updateSessionSummary : undefined}
-                    isPending={isPending}
-                />
-            ) : null}
-
-            {exportOpen ? (
-                <SessionExportDialog
-                    isOpen={true}
-                    onClose={() => setExportOpen(false)}
-                    sessionId={s.id}
-                    api={api}
-                />
-            ) : null}
-
-            {archiveOpen ? (
-                <ConfirmDialog
-                    isOpen={true}
-                    onClose={() => setArchiveOpen(false)}
-                    title={t('dialog.archive.title')}
-                    description={t('dialog.archive.description', { name: sessionName })}
-                    confirmLabel={t('dialog.archive.confirm')}
-                    confirmingLabel={t('dialog.archive.confirming')}
-                    onConfirm={archiveSession}
-                    isPending={isPending}
-                    destructive
-                    centerTitle
-                />
-            ) : null}
-
-            {parkOpen ? (
-                <ConfirmDialog
-                    isOpen={true}
-                    onClose={() => setParkOpen(false)}
-                    title={t('dialog.park.title')}
-                    description={t('dialog.park.description', { name: sessionName })}
-                    confirmLabel={t('dialog.park.confirm')}
-                    confirmingLabel={t('dialog.park.confirming')}
-                    onConfirm={parkSession}
-                    isPending={isPending}
-                    centerTitle
-                />
-            ) : null}
-
-            {restartOpen ? (
-                <ConfirmDialog
-                    isOpen={true}
-                    onClose={() => setRestartOpen(false)}
-                    title={t('dialog.restart.title')}
-                    description={t('dialog.restart.description', { name: sessionName })}
-                    confirmLabel={t('dialog.restart.confirm')}
-                    confirmingLabel={t('dialog.restart.confirming')}
-                    onConfirm={handleRestart}
-                    isPending={isPending}
-                    centerTitle
-                />
-            ) : null}
-
-            {deleteOpen ? (
-                <ConfirmDialog
-                    isOpen={true}
-                    onClose={() => setDeleteOpen(false)}
-                    title={t('dialog.delete.title')}
-                    description={t('dialog.delete.description', { name: sessionName })}
-                    confirmLabel={t('dialog.delete.confirm')}
-                    confirmingLabel={t('dialog.delete.confirming')}
-                    onConfirm={() => deleteSession(s.active)}
-                    isPending={isPending}
-                    destructive
-                    centerTitle
-                />
-            ) : null}
-        </>
-    )
+        )}
+    </SessionItemActions>
 }
 
 type PullToRefreshState = 'idle' | 'pulling' | 'ready'

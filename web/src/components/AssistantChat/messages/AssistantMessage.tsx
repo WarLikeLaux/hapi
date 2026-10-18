@@ -1,3 +1,4 @@
+import { MessageImageGallery } from '@/components/ImagePreview'
 import { useEffect, useMemo, useState, type PropsWithChildren } from 'react'
 import {
     MessagePrimitive, useAuiState, getExternalStoreMessages,
@@ -220,6 +221,7 @@ export function HappyAssistantMessage() {
     }, [compactParts])
 
     return (
+        <MessageImageGallery>
         <MessagePrimitive.Root
             id={elementId}
             data-hapi-message-role="assistant"
@@ -292,5 +294,6 @@ export function HappyAssistantMessage() {
                 />
             ) : null}
         </MessagePrimitive.Root>
+        </MessageImageGallery>
     )
 }
