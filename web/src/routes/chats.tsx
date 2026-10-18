@@ -1641,7 +1641,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                         <div className={cn(bubbleClassName, 'messenger-bubble-media')}>
                                             {item.forward ? <div className="px-2 pt-1"><ExternalForwardHeader forward={item.forward} /></div> : null}
                                             <div className="flex max-w-full flex-col gap-1.5">
-                                                {attachments.map(({ media, mediaIndex }) => <MediaAttachment key={`${item.id}:${mediaIndex}`} media={media} galleryId={`external-media-${conversationId}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={mediaIndex} onStartVoicePlayback={startVoicePlayback} />)}
+                                                {attachments.map(({ media, mediaIndex }) => <MediaAttachment key={`${item.id}:${mediaIndex}`} media={media} galleryId={`external-media-${conversationId}-${item.id}`} conversationId={conversationId} providerMessageId={item.providerMessageId} mediaIndex={mediaIndex} onStartVoicePlayback={startVoicePlayback} />)}
                                             </div>
                                             <div className="px-2 pb-0.5 pt-1.5">{senderName}{quoteHeader}{caption}</div>
                                         </div>
@@ -1654,7 +1654,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                                                 return <MediaAttachment
                                                     key={`${item.id}:${mediaIndex}`}
                                                     media={media}
-                                                    galleryId={`external-media-${conversationId}`}
+                                                    galleryId={`external-media-${conversationId}-${item.id}`}
                                                     conversationId={conversationId}
                                                     providerMessageId={item.providerMessageId}
                                                     mediaIndex={mediaIndex}
