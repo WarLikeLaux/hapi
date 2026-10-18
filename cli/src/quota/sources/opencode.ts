@@ -1,22 +1,8 @@
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { clampPercent, errorMessage, type CollectorResult } from '../types'
+import { resolveOpencodeQuotaAuth } from './opencodeAuth'
 
 const OPENCODE_MONTHLY_SOURCE = 'opencode:monthly'
 const OPENCODE_USAGE_URL = 'https://opencode.ai/zen/go/v1/usage'
-
-/** OpenCode stores Go credentials in its XDG data directory alongside other providers. */
-function readGoApiKey(env: NodeJS.ProcessEnv): string | null {
-    try {
-        const dataHome = env.XDG_DATA_HOME || join(homedir(), '.local', 'share')
-        const auth = JSON.parse(readFileSync(join(dataHome, 'opencode', 'auth.json'), 'utf8'))
-        const entry = auth?.['opencode-go']
-        return entry?.type === 'api' && typeof entry.key === 'string' ? entry.key.trim() || null : null
-    } catch {
-        return null
-    }
-}
 
 /** The monthly reset marks the usage period boundary, not subscription cancellation. */
 export async function collectOpencodeQuota(
@@ -24,24 +10,33 @@ export async function collectOpencodeQuota(
     env: NodeJS.ProcessEnv = process.env,
     fetchImpl: typeof fetch = fetch
 ): Promise<CollectorResult> {
-    const apiKey = readGoApiKey(env)
-    if (!apiKey) return { kind: 'skipped' }
-
     try {
+        const auth = await resolveOpencodeQuotaAuth(nowSec, env)
+        if (!auth) return { kind: 'skipped' }
+        if (auth.kind === 'unavailable') {
+            return { ...auth, source: OPENCODE_MONTHLY_SOURCE, reason: 'unavailable' }
+        }
         const response = await fetchImpl(OPENCODE_USAGE_URL, {
             headers: {
-                Authorization: `Bearer ${apiKey}`,
+                Authorization: `Bearer ${auth.key}`,
+                ...(auth.kind === 'console' ? { 'x-opencode-org-id': auth.orgId } : {}),
                 Accept: 'application/json',
                 'User-Agent': 'HAPI-quota-reporter/1.0'
             },
             signal: AbortSignal.timeout(20_000)
         })
         if (!response.ok) {
+            // A 401 alone does not establish expiry. Go API keys have no
+            // refresh token; only the service's explicit code warrants asking
+            // the user to create a replacement key (a Console login won't renew it).
+            const failure = auth.kind === 'api' && response.status === 401
+                ? await response.json().catch(() => null) as { error?: { code?: unknown } } | null
+                : null
             return {
                 kind: 'unavailable',
                 source: OPENCODE_MONTHLY_SOURCE,
-                reason: response.status === 401 ? 'auth_expired' : 'unavailable',
-                detail: `HTTP ${response.status}`
+                reason: failure?.error?.code === 'api_key_expired' ? 'auth_expired' : 'unavailable',
+                detail: auth.kind === 'console' && response.status === 401 ? 'Console sign-in required' : `HTTP ${response.status}`
             }
         }
         const payload = await response.json() as {
