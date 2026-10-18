@@ -5,6 +5,7 @@ import type { SpawnResponse } from '@/types/api'
 import { queryKeys } from '@/lib/query-keys'
 
 type SpawnInput = {
+    groupId?: string
     machineId: string
     directory: string
     agent?: AgentFlavor
@@ -47,10 +48,12 @@ export function useSpawnSession(api: ApiClient | null): {
                 input.serviceTier,
                 input.collaborationMode,
                 input.copilotAgentMode,
-                input.startingMode
+                input.startingMode,
+                input.groupId
             )
         },
         onSuccess: () => {
+            void queryClient.invalidateQueries({ queryKey: ['session-groups'] })
             void queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
         },
     })

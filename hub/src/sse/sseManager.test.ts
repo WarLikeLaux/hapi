@@ -373,3 +373,17 @@ describe('SSEManager agy catalog announcements', () => {
         expect(globalBeta).toHaveLength(0)
     })
 })
+
+
+describe('SSEManager group structure announcements', () => {
+    it('reaches open sessions in the same namespace without leaking groups to other users', () => {
+        const manager = new SSEManager(0, new VisibilityTracker())
+        const scoped: SyncEvent[] = []
+        const foreign: SyncEvent[] = []
+        manager.subscribe({ id: 'scoped', namespace: 'alpha', sessionId: 's1', send: event => { scoped.push(event) }, sendHeartbeat: () => {} })
+        manager.subscribe({ id: 'foreign', namespace: 'beta', all: true, send: event => { foreign.push(event) }, sendHeartbeat: () => {} })
+        manager.broadcast({ type: 'groups-updated', namespace: 'alpha' })
+        expect(scoped).toEqual([{ type: 'groups-updated', namespace: 'alpha' }])
+        expect(foreign).toEqual([])
+    })
+})

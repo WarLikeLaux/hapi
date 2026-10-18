@@ -1,3 +1,4 @@
+import { SessionGroupStore, createSessionGroupTables } from './sessionGroupStore'
 import { Database } from 'bun:sqlite'
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -47,8 +48,10 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 38
+const SCHEMA_VERSION: number = 39
 const REQUIRED_TABLES = [
+    'session_groups',
+    'session_group_members',
     'sessions',
     'machines',
     'messages',
@@ -71,6 +74,7 @@ export class Store {
     private readonly _dbPath: string
     private closed: boolean = false
 
+    readonly groups: SessionGroupStore
     readonly sessions: SessionStore
     readonly machines: MachineStore
     readonly messengers: MessengerStore
@@ -126,6 +130,7 @@ export class Store {
             }
         }
 
+        this.groups = new SessionGroupStore(this.db)
         this.sessions = new SessionStore(this.db)
         this.machines = new MachineStore(this.db)
         this.messengers = new MessengerStore(this.db)
@@ -392,6 +397,7 @@ export class Store {
             35: () => this.migrateFromV35ToV36(),
             36: () => this.migrateFromV36ToV37(),
             37: () => this.migrateFromV37ToV38(),
+            38: () => createSessionGroupTables(this.db),
         })
 
         if (currentVersion === 0) {
@@ -438,6 +444,7 @@ export class Store {
     }
 
     private createSchema(): void {
+        createSessionGroupTables(this.db)
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,

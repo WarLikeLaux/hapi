@@ -1,3 +1,7 @@
+import { SESSION_LIST_ITEM_CLASS } from '@/components/SessionRowLayout'
+import type { SessionGroup as ChatGroup } from '@hapi/protocol'
+import { SessionGroupRows } from '@/components/SessionGroups'
+import { presentSessionGroup, type GroupSection } from '@/lib/sessionGroups'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SessionListScrollAnchor } from './SessionListScrollAnchor'
 import type { SessionSummary } from '@/types/api'
@@ -1329,7 +1333,7 @@ function SessionItem(props: {
                 type="button"
                 {...longPressHandlers}
                 data-session-scroll-anchor
-                className={`session-list-item group/session-row flex w-full flex-col gap-1 py-2 pl-0 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] select-none rounded-lg ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
+                className={`${SESSION_LIST_ITEM_CLASS} ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
                 style={{ WebkitTouchCallout: 'none' }}
                 aria-current={selected ? 'page' : undefined}
                 aria-describedby={describedBy}
@@ -1506,6 +1510,12 @@ function PullRefreshIcon(props: { rotation: number }) {
 }
 
 export function SessionList(props: {
+    groupedSessions?: SessionSummary[]
+    sessionGroups?: ChatGroup[]
+    selectedGroupId?: string
+    onSelectGroup?: (group: ChatGroup) => void
+    groupsStatus?: React.ReactNode
+    hasGroupRows?: boolean
     sessions: SessionSummary[]
     onSelect: (sessionId: string) => void
     onNewSession: () => void
@@ -1616,18 +1626,18 @@ export function SessionList(props: {
     // included: "mark all as read" must clear every unread dot on the list,
     // and the button must never disappear while any unread session exists.
     const readableSessions = useMemo(
-        () => props.sessions.filter(session => shouldShowSessionInSidebar(session, selectedSessionId)),
-        [props.sessions, selectedSessionId]
+        () => [...props.sessions.filter(session => shouldShowSessionInSidebar(session, selectedSessionId)), ...(props.groupedSessions ?? [])],
+        [props.sessions, props.groupedSessions, selectedSessionId]
     )
     const hubContextSync = useSessionContextHubSync()
 
     const messageSearchSessionTitles = useMemo(() => {
         const titles = new Map<string, string>()
-        for (const session of props.sessions) {
+        for (const session of [...props.sessions, ...(props.groupedSessions ?? [])]) {
             titles.set(session.id, getSessionTitle(session))
         }
         return titles
-    }, [props.sessions])
+    }, [props.sessions, props.groupedSessions])
 
     const {
         activeContext,
@@ -1900,6 +1910,24 @@ export function SessionList(props: {
             ? rankSessionGroupsBySearchRelevancePreservingForkOrder(grouped, searchScoreIndex)
             : grouped
     }, [allDirectoryGroups, hasTextQuery, pinInProgressSessions, searchScoreIndex])
+    const chatGroupSections = useMemo(() => {
+        const sections: Record<GroupSection, ChatGroup[]> = { active: [], working: [], idle: [], recent: [] }
+        const byId = new Map((props.groupedSessions ?? []).map(session => [session.id, session]))
+        const presented = (props.sessionGroups ?? []).map(group => ({ group, state: presentSessionGroup(group, byId, getSessionLastSeenAt, getSessionManualUnreadAt) }))
+            .sort((a, b) => b.state.activityAt - a.state.activityAt)
+        for (const { group, state } of presented) {
+            if (normalizedQuery && !group.name.toLocaleLowerCase().includes(normalizedQuery)
+                && !state.chats.some(session => sessionMatchesQuery(session, normalizedQuery, resolveMachineLabel(session.metadata?.machineId ?? null)))) continue
+            if (timeRange && !state.chats.some(session => sessionMatchesTimeRange(session, timeRange))) continue
+            if (activeMachineFilter !== null && !state.chats.some(session => session.metadata?.machineId === activeMachineFilter)) continue
+            if (activeContext !== 'all' && !state.chats.some(session => resolveSessionContext(session, contextOptions) === activeContext)) continue
+            sections[state.section].push(group)
+        }
+        return sections
+    }, [props.sessionGroups, props.groupedSessions, lastSeenVersion, normalizedQuery, timeRange?.start, timeRange?.end, activeMachineFilter, activeContext, contextOptions, machineLabelsById])
+    const renderChatGroups = (chatGroups: ChatGroup[]) => <SessionGroupRows groups={chatGroups} sessions={props.groupedSessions ?? []}
+        selectedGroupId={props.selectedGroupId} search="" onOpen={group => props.onSelectGroup?.(group)} />
+
     const [collapseOverrides, setCollapseOverrides] = useState<Map<string, boolean>>(
         () => new Map()
     )
@@ -2012,6 +2040,7 @@ export function SessionList(props: {
         collapsible = true,
         statusColorClass = 'bg-[var(--app-badge-success-text)]',
         mergedRows = null,
+        chatGroups = [],
     }: {
         sectionKey: string
         titleKey: string
@@ -2022,12 +2051,13 @@ export function SessionList(props: {
         collapsible?: boolean
         statusColorClass?: string
         mergedRows?: SidebarChatRow[] | null
+        chatGroups?: ChatGroup[]
     }) => {
-        if (sessions.length === 0 && !(mergedRows ?? []).some((row) => row.kind === 'chat')) {
+        if (sessions.length === 0 && chatGroups.length === 0 && !(mergedRows ?? []).some((row) => row.kind === 'chat')) {
             return null
         }
         return (
-            <div key={sectionKey}>
+            <section key={sectionKey} aria-label={t(titleKey)}>
                 <div
                     className={cn(
                         'group/running flex min-w-0 w-full select-none items-center gap-2 rounded-lg py-1.5 pl-2 pr-2 transition-colors',
@@ -2057,12 +2087,13 @@ export function SessionList(props: {
                         {t(titleKey)}
                     </span>
                     <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
-                        ({sessions.length})
+                        ({sessions.length + chatGroups.length})
                     </span>
                 </div>
                 <div className="collapsible-panel" data-open={(!collapsible || !collapsed || isFiltering) || undefined}>
                     <div className="collapsible-inner">
                     <div className="flex flex-col gap-0.5 ml-2 py-1">
+                        {renderChatGroups(chatGroups)}
                         {mergedRows
                             ? mergedRows.map((row) => row.kind === 'session'
                                 ? renderSessionRow(row.session, row.key, activityTimeBasis)
@@ -2071,14 +2102,14 @@ export function SessionList(props: {
                     </div>
                     </div>
                 </div>
-            </div>
+            </section>
         )
     }
 
     const renderRecentSessions = () => {
         // Search/date/unread results already render in their project groups.
         // Keep this shortcut out of filtered views to avoid duplicate results.
-        if (recentSessions.length === 0 || isFiltering) return null
+        if ((recentSessions.length === 0 && (pinInProgressSessions ? chatGroupSections.recent.length : 0) === 0) || isFiltering) return null
         const visibleRecentSessions = recentSessions.slice(0, recentVisibleCount)
         const hiddenCount = recentSessions.length - visibleRecentSessions.length
         const expandCount = Math.min(RECENT_SESSION_BATCH_SIZE, hiddenCount)
@@ -2111,13 +2142,14 @@ export function SessionList(props: {
                         {t('sessions.recentSection')}
                     </span>
                     <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
-                        ({recentSessions.length})
+                        ({recentSessions.length + (pinInProgressSessions ? chatGroupSections.recent.length : 0)})
                     </span>
                 </div>
                 <div className="collapsible-panel" data-open={!recentSectionCollapsed || undefined}>
                     <div className="collapsible-inner">
                     {!recentSectionCollapsed ? (
                         <div className="flex flex-col gap-0.5 ml-2 py-1">
+                            {pinInProgressSessions ? renderChatGroups(chatGroupSections.recent) : null}
                             {visibleRecentSessions.map((session) => (
                                 <SessionItem
                                     key={session.id}
@@ -2351,7 +2383,7 @@ export function SessionList(props: {
     // The search control unmounts when the list empties; reset the expansion so
     // it cannot suppress header actions (or re-expand on its own when sessions
     // return) while no search control is rendered.
-    const showSearch = props.sessions.length > 0
+    const showSearch = props.sessions.length > 0 || Boolean(props.hasGroupRows) || (props.groupedSessions?.length ?? 0) > 0
     useEffect(() => {
         if (!showSearch) setSearchExpanded(false)
     }, [showSearch])
@@ -2571,7 +2603,9 @@ export function SessionList(props: {
             ) : null}
             <div ref={scrollContainerRef} className="app-scroll-y session-list-scrollbar-left scrollbar-auto-hide min-h-0 flex-1">
             <SessionListScrollAnchor sessions={props.sessions} className="mx-auto flex w-full max-w-content flex-col gap-1 pl-1.5 pr-2 pb-2">
-                {props.sessions.length === 0 && !props.isLoading ? (
+                {props.groupsStatus}
+                {!pinInProgressSessions || isFiltering ? renderChatGroups(Object.values(chatGroupSections).flat()) : null}
+                {props.sessions.length === 0 && !props.isLoading && !props.hasGroupRows ? (
                     <SessionsEmptyState
                         onNewSession={props.onNewSession}
                         onBrowse={props.onBrowse}
@@ -2689,30 +2723,20 @@ export function SessionList(props: {
                 ) : null}
 
                 {showSessionSections ? renderSessionSection({
-                    sectionKey: 'working-section',
-                    titleKey: 'sessions.runningSection',
-                    collapsed: false,
-                    sessions: workingSessions,
-                    activityTimeBasis: 'user',
-                    collapsible: false,
+                    sectionKey: 'working-section', titleKey: 'sessions.runningSection', collapsed: false,
+                    sessions: workingSessions, activityTimeBasis: 'user', collapsible: false,
+                    chatGroups: pinInProgressSessions && !isFiltering ? chatGroupSections.working : [],
                 }) : null}
                 {showSessionSections ? renderSessionSection({
-                    sectionKey: 'active-section',
-                    titleKey: 'sessions.activeSection',
-                    collapsed: false,
-                    sessions: activeSessions,
-                    activityTimeBasis: 'agent',
-                    collapsible: false,
-                    mergedRows: activeRows,
+                    sectionKey: 'active-section', titleKey: 'sessions.activeSection', collapsed: false,
+                    sessions: activeSessions, activityTimeBasis: 'agent', collapsible: false, mergedRows: activeRows,
+                    chatGroups: pinInProgressSessions && !isFiltering ? chatGroupSections.active : [],
                 }) : null}
                 {showSessionSections ? renderSessionSection({
-                    sectionKey: 'idle-section',
-                    titleKey: 'session.item.idle',
-                    collapsed: false,
-                    sessions: idleSessions,
-                    activityTimeBasis: 'agent',
-                    collapsible: false,
+                    sectionKey: 'idle-section', titleKey: 'session.item.idle', collapsed: false,
+                    sessions: idleSessions, activityTimeBasis: 'agent', collapsible: false,
                     statusColorClass: 'bg-[var(--app-hint)]',
+                    chatGroups: pinInProgressSessions && !isFiltering ? chatGroupSections.idle : [],
                 }) : null}
                 {showSessionSections ? renderRecentSessions() : null}
                 {showSessionSections ? groups.map(renderDirectoryGroup) : null}

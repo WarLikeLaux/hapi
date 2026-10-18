@@ -50,10 +50,11 @@ function renderWithProviders(children: ReactNode) {
     )
 }
 
-function renderSessionList(sessions: SessionSummary[]) {
+function renderSessionList(sessions: SessionSummary[], groupedSessions?: SessionSummary[]) {
     return renderWithProviders(
         <SessionList
             sessions={sessions}
+            groupedSessions={groupedSessions}
             selectedSessionId={null}
             onSelect={vi.fn()}
             onNewSession={vi.fn()}
@@ -123,6 +124,15 @@ describe('SessionList mark all as read', () => {
             read: 3000
         })
         expect(screen.queryByRole('dialog')).toBeNull()
+    })
+
+    it('includes chats represented by group rows in an explicitly confirmed mark-all action', async () => {
+        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ grouped: 1000 }))
+        renderSessionList([], [makeSession({ id: 'grouped', active: true, lastAgentMessageAt: 2000, updatedAt: 2000, metadata: { path: '/work', name: 'Grouped history', lifecycleState: 'running' } })])
+        fireEvent.click(screen.getByRole('button', { name: 'Mark all as read (1)' }))
+        expect(JSON.parse(localStorage.getItem('hapi.sessionLastSeen.v1')!).grouped).toBe(1000)
+        fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+        await waitFor(() => expect(JSON.parse(localStorage.getItem('hapi.sessionLastSeen.v1')!).grouped).toBe(2000))
     })
 
     it('stays hidden while only working sessions are unread', () => {

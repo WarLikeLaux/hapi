@@ -53,6 +53,11 @@ describe('agent launch over HTTP MCP', () => {
                 return reply({ token: 'test-jwt' })
             }
             if (req.headers.authorization !== 'Bearer test-jwt') return reply({ error: 'unauthorized' }, 401)
+            const group = { id: 'group-hapi', name: 'HAPI', version: 2, updatedAt: 100, members: [{ sessionId: 'caller', pinned: true }, { sessionId: 'spawned', pinned: false }] }
+            if (path === '/api/groups') return reply({ groups: [group] })
+            if (path === '/api/sessions/caller/group') return reply({ group })
+            if (path === '/api/groups/group-hapi') return reply({ group, sessions })
+            if (path === '/api/groups/foreign') return reply({ error: 'Group not found' }, 404)
             if (path === '/api/machines') return reply({ machines: [machine] })
             if (path === '/api/sessions') return reply({ sessions })
             if (path === '/api/sessions/caller') return reply({ session: sessions[0] })
@@ -115,6 +120,22 @@ describe('agent launch over HTTP MCP', () => {
         expect(JSON.parse(result.content[0]!.text!)).toEqual({ sessionId: 'spawned', url: '/sessions/spawned', messageDelivered: true })
         expect(spawnBodies).toEqual([{ directory: '/code/project', agent: 'codex', permissionMode: 'yolo', yolo: true, startingMode: 'remote', sessionType: 'simple' }])
         expect(messageBodies).toEqual([{ text: task.message, localId: 'launch:caller:task-1' }])
+    })
+
+    it('reads the caller group with ordered independent chats and launches explicitly in it', async () => {
+        const client = await connect()
+        const result = await client.callTool({ name: 'get_group', arguments: {} }) as ToolReply
+        expect(result.isError).toBe(false)
+        const info = JSON.parse(result.content[0]!.text!)
+        expect(info.group).toMatchObject({ id: 'group-hapi', name: 'HAPI', members: [{ sessionId: 'caller', pinned: true }, { sessionId: 'spawned', pinned: false }] })
+        expect(info.sessions.map((s: { id: string }) => s.id)).toEqual(['caller', 'spawned'])
+        expect(info.contextTool).toBe('inspect_peer')
+        const listed = await client.callTool({ name: 'list_groups', arguments: {} }) as ToolReply
+        expect(JSON.parse(listed.content[0]!.text!).groups[0].id).toBe('group-hapi')
+        expect((await client.callTool({ name: 'launch_agent', arguments: { ...task, groupId: info.group.id } })).isError).toBe(false)
+        expect(spawnBodies[0]?.groupId).toBe('group-hapi')
+        expect((await client.callTool({ name: 'launch_agent', arguments: { ...task, requestId: 'foreign', groupId: 'foreign' } })).isError).toBe(true)
+        expect(spawnBodies).toHaveLength(1)
     })
 
     it('coalesces concurrent launches across MCP clients and returns the receipt on retry', async () => {

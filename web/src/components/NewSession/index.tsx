@@ -185,6 +185,7 @@ function OtherModelsButton(props: {
 
 
 export function NewSession(props: {
+    groupId?: string
     api: ApiClient
     machines: Machine[]
     isLoading?: boolean
@@ -1927,6 +1928,7 @@ export function NewSession(props: {
             }
 
             const result = await spawnSession({
+                groupId: props.groupId,
                 machineId,
                 directory: trimmedDirectory,
                 agent,

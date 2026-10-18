@@ -313,7 +313,7 @@ export class SSEManager {
             return connection.all || connection.sessionId === event.sessionId
         }
 
-        if (event.type === 'connection-changed') {
+        if (event.type === 'connection-changed' || event.type === 'groups-updated') {
             return true
         }
 

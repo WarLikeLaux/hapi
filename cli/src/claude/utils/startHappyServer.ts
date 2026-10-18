@@ -1,3 +1,4 @@
+import { groupInfoSchema, GROUP_INFO_DESCRIPTION, GROUP_LIST_DESCRIPTION, readGroup, listGroups } from '@/modules/pingPeer/groupTools';
 /**
  * HAPI MCP server
  * Provides HAPI CLI specific tools including chat session title management
@@ -475,6 +476,19 @@ function createHapiMcpServer(
     });
 
 
+    for (const tool of [
+        { name: 'get_group', description: GROUP_INFO_DESCRIPTION, schema: groupInfoSchema, run: (args: z.infer<typeof groupInfoSchema>) => readGroup(client.sessionId, args) },
+        { name: 'list_groups', description: GROUP_LIST_DESCRIPTION, schema: z.object({}), run: () => listGroups() },
+    ]) {
+        mcp.registerTool<any, any>(tool.name, { description: tool.description, inputSchema: tool.schema }, async (args: z.infer<typeof groupInfoSchema>) => {
+            try {
+                return { content: [{ type: 'text' as const, text: JSON.stringify(await tool.run(args), null, 2) }], isError: false };
+            } catch (error) {
+                return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }], isError: true };
+            }
+        });
+    }
+
     mcp.registerTool<any, any>('list_launch_options', {
         description: LAUNCH_OPTIONS_DESCRIPTION,
         title: 'List Agent Launch Options',
@@ -625,7 +639,7 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
     if (options.skillLookup) {
         toolNames.push('skill_lookup');
     }
-    toolNames.push('list_launch_options', 'launch_agent');
+    toolNames.push('list_groups', 'get_group', 'list_launch_options', 'launch_agent');
     toolNames.push('close_session');
 
     return {

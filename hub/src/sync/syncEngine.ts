@@ -245,6 +245,9 @@ export class SyncEngine {
         this.eventPublisher = new EventPublisher(sseManager, (event) => this.resolveNamespace(event))
         this.sessionCache = new SessionCache(store, this.eventPublisher)
         this.eventPublisher.subscribe((event) => {
+            if (event.type === 'session-updated' && this.getSession(event.sessionId)?.metadata?.lifecycleState === 'archived') {
+                if (event.namespace) this.publishGroupsChanged(event.namespace)
+            }
             if (event.type === 'message-received') {
                 if (hasConversationMessageContent(event.message.content)) {
                     this.sessionCache.recordConversationMessage(
@@ -367,6 +370,12 @@ export class SyncEngine {
                 code: 'probe_failed'
             }
         }
+    }
+
+    get groups() { return this.store.groups }
+
+    publishGroupsChanged(namespace: string): void {
+        this.eventPublisher.emit({ type: 'groups-updated', namespace })
     }
 
     getSessionsByNamespace(namespace: string): Session[] {
@@ -2418,7 +2427,10 @@ export class SyncEngine {
     }
 
     async deleteSession(sessionId: string): Promise<void> {
+        const session = this.getSession(sessionId)
+        const group = session ? this.groups.forSession(session.namespace, sessionId) : null
         await this.sessionCache.deleteSession(sessionId)
+        if (group && session) this.publishGroupsChanged(session.namespace)
     }
 
     async applySessionConfig(
@@ -2495,8 +2507,12 @@ export class SyncEngine {
         startingMode?: 'remote' | 'pty',
         // Required for fresh machine spawns so the runner stamps the HAPI id on
         // argv before the first webhook (#1911 Major: unreapable window).
-        namespace?: string
+        namespace?: string,
+        groupId?: string
     ): ReturnType<RpcGateway['spawnSession']> {
+        if (groupId && (!namespace || !this.groups.get(namespace, groupId))) {
+            return { type: 'error', message: 'Group not found', childStarted: false }
+        }
         // Fresh machine spawns historically omitted existingSessionId, so
         // buildCliArgs could not stamp --hapi-session-id / --existing-session-id.
         // A runner restart before the first webhook then left no persisted PID
@@ -2526,6 +2542,11 @@ export class SyncEngine {
                 allocatedSessionId
             )
             preallocated = true
+            // Bind before dispatch so the new agent's first MCP call sees its group.
+            if (groupId) {
+                this.groups.add(namespace, groupId, allocatedSessionId)
+                this.publishGroupsChanged(namespace)
+            }
         }
 
         let result: Awaited<ReturnType<RpcGateway['spawnSession']>>

@@ -689,6 +689,11 @@ export function useSSE(options: {
         const handleSyncEvent = (event: SyncEvent) => {
             lastActivityAtRef.current = Date.now()
 
+            if (event.type === 'groups-updated') {
+                void queryClient.invalidateQueries({ queryKey: ['session-groups'] })
+                return
+            }
+
             if (event.type === 'heartbeat') {
                 return
             }
@@ -707,6 +712,7 @@ export function useSSE(options: {
                 // the field, which safely reads as a full resync.
                 const resumed = data && typeof data === 'object'
                     && (data as { resume?: unknown }).resume === 'ok'
+                if (!resumed) void queryClient.invalidateQueries({ queryKey: ['session-groups'] })
                 onConnectRef.current?.({ resumed: Boolean(resumed) })
             }
 
