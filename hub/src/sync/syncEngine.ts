@@ -7,7 +7,7 @@
  * - No E2E encryption; data is stored as JSON in SQLite
  */
 
-import { isKnownFlavor, isLiveLifecycleState, isSteeringSupportedForSession, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
+import { MACHINE_CAPABILITIES, isKnownFlavor, isLiveLifecycleState, isSteeringSupportedForSession, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
 import {
     cliBinaryUpdatedOnDisk,
     isMachineCapabilitySkewed,
@@ -16,6 +16,7 @@ import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpReq
 import type { InterruptQueuedMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { ImplementCodexPlanResult } from '@hapi/protocol/apiTypes'
 import type { AnswerCodexAsyncQuestionRequest } from '@hapi/protocol'
+import type { LaunchSessionRequest, LaunchSessionResult } from '@hapi/protocol'
 import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import type { MachineQuotaSnapshot, QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
 import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
@@ -218,6 +219,8 @@ export class SyncEngine {
     private readonly opencodeClearTails = new Map<string, Promise<ClearOpencodeSessionResult>>()
     /** Serialize fork/rewind per session so concurrent native rollbacks cannot stack. */
     private readonly historyActionsInFlight = new Set<string>()
+    /** Coalesce concurrent requests while the durable receipt prevents replay after restart. */
+    private readonly sessionLaunches = new Map<string, Promise<LaunchSessionResult>>()
     /** Runner generations already considered for cold session restoration. */
     private readonly autoRestoreGenerationByMachineId = new Map<string, string>()
     /** Machines whose one cold-start restore pass has already begun for this Hub process. */
@@ -2488,6 +2491,72 @@ export class SyncEngine {
         this.sessionCache.applySessionConfig(sessionId, applied)
     }
 
+    async launchSession(machineId: string, namespace: string, input: LaunchSessionRequest): Promise<LaunchSessionResult> {
+        const key = JSON.stringify([namespace, input.requestId])
+        const serialized = JSON.stringify({ machineId, ...input })
+        const receipt = this.store.launches.get(namespace, input.requestId)
+        if (receipt) {
+            if (receipt.input !== serialized) throw new Error('Launch request ID already used with different settings')
+            const pending = this.sessionLaunches.get(key)
+            if (pending) return pending
+            // A late CLI handshake can resolve an ambiguous runner response. The prompt
+            // was already persisted before dispatch; checking never sends it again.
+            if (receipt.result.state === 'indeterminate' && receipt.result.sessionId) {
+                const session = this.store.sessions.getSessionByNamespace(receipt.result.sessionId, namespace)
+                if (session && !isMachineSpawnPreallocatedStub(session)) {
+                    const resolved: LaunchSessionResult = { state: 'succeeded', sessionId: session.id }
+                    this.store.launches.save(namespace, input.requestId, resolved)
+                    return resolved
+                }
+            }
+            return receipt.result
+        }
+        if (!this.store.launches.reserve(namespace, input.requestId, serialized)) {
+            return this.store.launches.get(namespace, input.requestId)!.result
+        }
+        const task = (async (): Promise<LaunchSessionResult> => {
+            let sessionId: string | undefined
+            try {
+                const machine = this.getMachineByNamespace(machineId, namespace)
+                const preflightError = !machine?.metadata?.capabilities?.includes(MACHINE_CAPABILITIES.AgentAvailability)
+                    ? 'This runner must be upgraded before creating sessions'
+                    : (input.agent === 'agy' || input.agent === 'dsh') && input.startingMode === 'pty'
+                        ? 'This agent only supports remote mode' : null
+                if (preflightError) {
+                    const outcome: LaunchSessionResult = { state: 'failed', message: preflightError }
+                    this.store.launches.save(namespace, input.requestId, outcome)
+                    return outcome
+                }
+                const result = await this.spawnSession(
+                    machineId, input.directory, input.agent, input.model, input.modelReasoningEffort,
+                    input.yolo, input.sessionType, input.worktreeName, undefined, input.effort,
+                    input.permissionMode, input.serviceTier, undefined, input.collaborationMode,
+                    input.copilotAgentMode, input.startingMode, namespace, input.groupId,
+                    async (id) => {
+                        sessionId = id
+                        this.store.launches.save(namespace, input.requestId, { state: 'indeterminate', sessionId: id })
+                        if (input.initialPrompt?.trim()) {
+                            await this.sendMessage(id, { text: input.initialPrompt, localId: `launch:${input.requestId}` })
+                        }
+                    }
+                )
+                const outcome: LaunchSessionResult = result.type === 'success'
+                    ? { state: 'succeeded', sessionId: result.sessionId }
+                    : { state: result.childStarted === false ? 'failed' : 'indeterminate',
+                        sessionId: result.childStarted === false ? undefined : sessionId, message: result.message }
+                this.store.launches.save(namespace, input.requestId, outcome)
+                return outcome
+            } catch (error) {
+                const outcome: LaunchSessionResult = { state: 'indeterminate', sessionId,
+                    message: error instanceof Error ? error.message : String(error) }
+                this.store.launches.save(namespace, input.requestId, outcome)
+                return outcome
+            }
+        })()
+        this.sessionLaunches.set(key, task)
+        try { return await task } finally { this.sessionLaunches.delete(key) }
+    }
+
     async spawnSession(
         machineId: string,
         directory: string,
@@ -2508,7 +2577,8 @@ export class SyncEngine {
         // Required for fresh machine spawns so the runner stamps the HAPI id on
         // argv before the first webhook (#1911 Major: unreapable window).
         namespace?: string,
-        groupId?: string
+        groupId?: string,
+        beforeDispatch?: (sessionId: string) => Promise<void>
     ): ReturnType<RpcGateway['spawnSession']> {
         if (groupId && (!namespace || !this.groups.get(namespace, groupId))) {
             return { type: 'error', message: 'Group not found', childStarted: false }
@@ -2551,6 +2621,7 @@ export class SyncEngine {
 
         let result: Awaited<ReturnType<RpcGateway['spawnSession']>>
         try {
+            if (allocatedSessionId && beforeDispatch) await beforeDispatch(allocatedSessionId)
             result = await this.rpcGateway.spawnSession(
                 machineId,
                 directory,

@@ -4,7 +4,8 @@ import {
     MachineListDirectoryRequestSchema,
     MachinePathsExistsRequestSchema,
     RenameMachineRequestSchema,
-    SpawnSessionRequestSchema
+    SpawnSessionRequestSchema,
+    LaunchSessionRequestSchema
 } from '@hapi/protocol'
 import { Hono } from 'hono'
 import { RPC_TARGET_MISSING_ERROR_CODE } from '@hapi/protocol/rpcMethods'
@@ -15,6 +16,21 @@ import { requireMachine } from './guards'
 
 export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
+
+    app.post('/machines/:id/launch', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) return c.json({ error: 'Not connected' }, 503)
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) return machine
+        const parsed = LaunchSessionRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid body' }, 400)
+        try {
+            return c.json(await engine.launchSession(machineId, c.get('namespace'), parsed.data))
+        } catch (error) {
+            return c.json({ error: error instanceof Error ? error.message : 'Launch failed' }, 409)
+        }
+    })
 
     app.get('/machines', (c) => {
         const engine = getSyncEngine()

@@ -767,6 +767,17 @@ export const SpawnSessionRequestSchema = z.object({
 
 export type SpawnSessionRequest = z.infer<typeof SpawnSessionRequestSchema>
 
+export const LaunchSessionRequestSchema = SpawnSessionRequestSchema.extend({
+    requestId: z.string().uuid(),
+    initialPrompt: z.string().max(100_000).optional(),
+})
+export type LaunchSessionRequest = z.infer<typeof LaunchSessionRequestSchema>
+export type LaunchSessionResult = {
+    state: 'succeeded' | 'failed' | 'indeterminate'
+    sessionId?: string
+    message?: string
+}
+
 export const MachineListDirectoryRequestSchema = z.object({
     path: z.string().min(1),
     includeHidden: z.boolean().optional()
