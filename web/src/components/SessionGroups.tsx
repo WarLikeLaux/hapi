@@ -12,7 +12,7 @@ import * as Popover from '@radix-ui/react-popover'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { presentSessionGroup } from '@/lib/sessionGroups'
 import { getSessionGroupMembers } from '@/lib/sessionGroupMembers'
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionGroup, UpdateSessionGroup } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
 import { getSessionTitle } from '@/lib/sessionTitle'
@@ -233,7 +233,7 @@ export function SessionGroupWorkspace(props: {
         ref={props.selectedSessionId === member.sessionId ? selectedTab : undefined}
         title={`${getSessionTitle(member.session)} · ${member.session.metadata?.flavor ?? ''}`}
         className={cn('flex min-h-11 min-w-0 w-full shrink-0 items-center gap-1.5 border-b-2 px-2 text-sm sm:w-auto sm:max-w-56 sm:gap-2 sm:px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-link)]', props.selectedSessionId === member.sessionId ? 'border-[var(--app-link)] bg-[var(--app-secondary-bg)] text-[var(--app-fg)]' : 'border-transparent text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]')}>
-        {member.pinned ? <GroupIcon pin /> : null}<span className="min-w-0 truncate">{getSessionTitle(member.session)}</span><ChatStatus session={member.session} selected={props.selectedSessionId === member.sessionId} />
+        {member.pinned ? <GroupIcon pin /> : null}<span className="min-w-0 flex-1 truncate text-left sm:flex-initial">{getSessionTitle(member.session)}</span><ChatStatus session={member.session} selected={props.selectedSessionId === member.sessionId} />
     </button>}
     </SessionItemActions>
     const candidates = props.sessions.filter(s => s.metadata?.lifecycleState !== 'archived' && !members.some(m => m.sessionId === s.id) && getSessionTitle(s).toLocaleLowerCase().includes(search.toLocaleLowerCase()))
@@ -243,23 +243,18 @@ export function SessionGroupWorkspace(props: {
             <GroupIcon /><h2 className="min-w-0 flex-1 truncate text-sm font-semibold" title={props.group.name}>{props.group.name}</h2>
             <button type="button" onClick={props.onNew} className={control}>{t('groups.newChat')}</button>
             <button type="button" onClick={() => setManage(!manage)} aria-expanded={manage} className={cn(control, manage && 'bg-[var(--app-secondary-bg)]')}>{t('groups.manage')}</button>
+            {members.length ? <div className="relative flex h-9 w-9 shrink-0 items-center justify-center">
+                <GroupChatSwitcher members={tabMembers} selectedSessionId={props.selectedSessionId} onSelect={props.onSelect} />
+            </div> : null}
         </div>
-        {members.length ? <div ref={tabList} className="flex min-w-0" role="tablist" aria-label={t('groups.tabs')} onKeyDown={event => {
+        {members.length ? <div ref={tabList} className="grid w-full grid-cols-3 sm:flex sm:min-w-0" role="tablist" aria-label={t('groups.tabs')} onKeyDown={event => {
             if (!(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'tab') return
             const current = tabMembers.findIndex(m => m.sessionId === props.selectedSessionId)
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabMembers.length - 1 : event.key === 'ArrowRight' ? (current + 1) % tabMembers.length : event.key === 'ArrowLeft' ? (current < 0 ? tabMembers.length - 1 : (current + tabMembers.length - 1) % tabMembers.length) : -1
             if (next >= 0) { event.preventDefault(); props.onSelect(tabMembers[next].sessionId); requestAnimationFrame(() => selectedTab.current?.focus()) }
         }}>
-            <div className="min-w-0 flex-1 overflow-x-auto sm:flex sm:overflow-visible">
-                <div className="grid grid-rows-2 grid-cols-[repeat(var(--group-tab-columns),minmax(8rem,10rem))] sm:flex sm:min-w-0 sm:flex-1"
-                    style={{ '--group-tab-columns': Math.ceil(tabMembers.length / 2) } as CSSProperties}>
-                    {tabMembers.some(m => m.pinned) ? <div className="contents sm:flex sm:max-w-[48%] sm:shrink-0 sm:overflow-x-auto sm:border-r sm:border-[var(--app-border)]" aria-label={t('groups.pinned')}>{tabMembers.filter(m => m.pinned).map(tab)}</div> : null}
-                    <div className="contents sm:flex sm:min-w-0 sm:flex-1 sm:overflow-x-auto">{tabMembers.filter(m => !m.pinned).map(tab)}</div>
-                </div>
-            </div>
-            <div className="relative flex w-11 shrink-0 items-center justify-center sm:w-10">
-                <GroupChatSwitcher members={tabMembers} selectedSessionId={props.selectedSessionId} onSelect={props.onSelect} />
-            </div>
+            {tabMembers.some(m => m.pinned) ? <div className="contents sm:flex sm:max-w-[48%] sm:shrink-0 sm:overflow-x-auto sm:border-r sm:border-[var(--app-border)]" aria-label={t('groups.pinned')}>{tabMembers.filter(m => m.pinned).map(tab)}</div> : null}
+            <div className="contents sm:flex sm:min-w-0 sm:flex-1 sm:overflow-x-auto">{tabMembers.filter(m => !m.pinned).map(tab)}</div>
         </div> : <p className="px-4 pb-3 text-sm text-[var(--app-hint)]">{t('groups.empty')} <button type="button" onClick={() => setManage(true)} className="text-[var(--app-link)] underline">{t('groups.addChats')}</button></p>}
         {manage ? <div className="max-h-[50dvh] overflow-y-auto border-t border-[var(--app-border)] px-3 py-3" data-testid="group-manager">
             <form className="mb-3 flex items-end gap-2" onSubmit={e => { e.preventDefault(); void props.onUpdate(props.group, { ...props.group, name: name.trim() }) }}>
