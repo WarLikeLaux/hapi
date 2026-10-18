@@ -5,7 +5,7 @@ import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { presentSessionGroup } from '@/lib/sessionGroups'
 import { getSessionGroupMembers } from '@/lib/sessionGroupMembers'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionGroup, UpdateSessionGroup } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
 import { getSessionTitle } from '@/lib/sessionTitle'
@@ -108,7 +108,7 @@ export function SessionGroupWorkspace(props: {
     const [jumpPointerFocus, setJumpPointerFocus] = useState(false)
     const selectedTab = useRef<HTMLButtonElement | null>(null)
     useEffect(() => { setName(props.group.name) }, [props.group.id, props.group.name])
-    useEffect(() => { selectedTab.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [props.selectedSessionId, props.group.id])
+    useEffect(() => { selectedTab.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [props.selectedSessionId, props.group.id, props.group.members])
     const members = props.group.members.flatMap(member => {
         const session = props.sessions.find(s => s.id === member.sessionId)
         return session ? [{ ...member, session }] : []
@@ -125,8 +125,8 @@ export function SessionGroupWorkspace(props: {
     const tab = (member: typeof members[number]) => <button key={member.sessionId} type="button" role="tab" aria-selected={props.selectedSessionId === member.sessionId}
         ref={props.selectedSessionId === member.sessionId ? selectedTab : undefined}
         onClick={() => props.onSelect(member.sessionId)} title={`${getSessionTitle(member.session)} · ${member.session.metadata?.flavor ?? ''}`}
-        className={cn('flex min-h-11 max-w-56 shrink-0 items-center gap-2 border-b-2 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-link)]', props.selectedSessionId === member.sessionId ? 'border-[var(--app-link)] bg-[var(--app-secondary-bg)] text-[var(--app-fg)]' : 'border-transparent text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]')}>
-        {member.pinned ? <GroupIcon pin /> : null}<span className="truncate">{getSessionTitle(member.session)}</span><ChatStatus session={member.session} selected={props.selectedSessionId === member.sessionId} />
+        className={cn('flex min-h-11 min-w-0 w-full shrink-0 items-center gap-1.5 border-b-2 px-2 text-sm sm:w-auto sm:max-w-56 sm:gap-2 sm:px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-link)]', props.selectedSessionId === member.sessionId ? 'border-[var(--app-link)] bg-[var(--app-secondary-bg)] text-[var(--app-fg)]' : 'border-transparent text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]')}>
+        {member.pinned ? <GroupIcon pin /> : null}<span className="min-w-0 truncate">{getSessionTitle(member.session)}</span><ChatStatus session={member.session} selected={props.selectedSessionId === member.sessionId} />
     </button>
     const candidates = props.sessions.filter(s => s.metadata?.lifecycleState !== 'archived' && !members.some(m => m.sessionId === s.id) && getSessionTitle(s).toLocaleLowerCase().includes(search.toLocaleLowerCase()))
     return <section aria-label={t('groups.workspace')} className="shrink-0 border-b border-[var(--app-border)] bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
@@ -136,23 +136,27 @@ export function SessionGroupWorkspace(props: {
             <button type="button" onClick={props.onNew} className={control}>{t('groups.newChat')}</button>
             <button type="button" onClick={() => setManage(!manage)} aria-expanded={manage} className={cn(control, manage && 'bg-[var(--app-secondary-bg)]')}>{t('groups.manage')}</button>
         </div>
-        {members.length ? <div className="flex min-w-0 flex-col sm:flex-row" role="tablist" aria-label={t('groups.tabs')} onKeyDown={event => {
+        {members.length ? <div className="flex min-w-0" role="tablist" aria-label={t('groups.tabs')} onKeyDown={event => {
             if (event.target instanceof HTMLSelectElement) return
             const current = tabMembers.findIndex(m => m.sessionId === props.selectedSessionId)
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabMembers.length - 1 : event.key === 'ArrowRight' ? (current + 1) % tabMembers.length : event.key === 'ArrowLeft' ? (current < 0 ? tabMembers.length - 1 : (current + tabMembers.length - 1) % tabMembers.length) : -1
             if (next >= 0) { event.preventDefault(); props.onSelect(tabMembers[next].sessionId); requestAnimationFrame(() => selectedTab.current?.focus()) }
         }}>
-            {tabMembers.some(m => m.pinned) ? <div className="flex max-w-full shrink-0 overflow-x-auto border-b border-[var(--app-border)] sm:max-w-[48%] sm:border-b-0 sm:border-r" aria-label={t('groups.pinned')}>{tabMembers.filter(m => m.pinned).map(tab)}</div> : null}
-            <div className="flex min-w-0 flex-1">
-            <div className="flex min-w-0 flex-1 overflow-x-auto">{tabMembers.filter(m => !m.pinned).map(tab)}</div>
-            <div className="relative flex w-10 shrink-0 items-center justify-center">
+            <div className="min-w-0 flex-1 overflow-x-auto sm:flex sm:overflow-visible">
+                <div className="grid grid-rows-2 grid-cols-[repeat(var(--group-tab-columns),minmax(8rem,10rem))] sm:flex sm:min-w-0 sm:flex-1"
+                    style={{ '--group-tab-columns': Math.ceil(tabMembers.length / 2) } as CSSProperties}>
+                    {tabMembers.some(m => m.pinned) ? <div className="contents sm:flex sm:max-w-[48%] sm:shrink-0 sm:overflow-x-auto sm:border-r sm:border-[var(--app-border)]" aria-label={t('groups.pinned')}>{tabMembers.filter(m => m.pinned).map(tab)}</div> : null}
+                    <div className="contents sm:flex sm:min-w-0 sm:flex-1 sm:overflow-x-auto">{tabMembers.filter(m => !m.pinned).map(tab)}</div>
+                </div>
+            </div>
+            <div className="relative flex w-11 shrink-0 items-center justify-center sm:w-10">
             <svg className="pointer-events-none absolute h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
             <select aria-label={t('groups.jump')} title={t('groups.jump')}
                 className={cn('absolute inset-0 w-full cursor-pointer appearance-none bg-transparent text-transparent focus:outline-none [&>option]:text-[var(--app-fg)] [&>option]:bg-[var(--app-bg)]', !jumpPointerFocus && 'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-link)]')}
                 onPointerDown={() => setJumpPointerFocus(true)} onKeyDown={() => setJumpPointerFocus(false)} onBlur={() => setJumpPointerFocus(false)}
                 value={props.selectedSessionId ?? ''} onChange={e => props.onSelect(e.target.value)}>
                 <option value="" disabled>{t('groups.jump')}</option>{tabMembers.map(m => <option key={m.sessionId} value={m.sessionId}>{m.pinned ? `${t('groups.pinned')}: ` : ''}{getSessionTitle(m.session)}</option>)}
-            </select></div></div>
+            </select></div>
         </div> : <p className="px-4 pb-3 text-sm text-[var(--app-hint)]">{t('groups.empty')} <button type="button" onClick={() => setManage(true)} className="text-[var(--app-link)] underline">{t('groups.addChats')}</button></p>}
         {manage ? <div className="max-h-[50dvh] overflow-y-auto border-t border-[var(--app-border)] px-3 py-3" data-testid="group-manager">
             <form className="mb-3 flex items-end gap-2" onSubmit={e => { e.preventDefault(); void props.onUpdate(props.group, { ...props.group, name: name.trim() }) }}>
