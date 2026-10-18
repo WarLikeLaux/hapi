@@ -32,6 +32,7 @@ describe('modelChipText', () => {
         { name: 'GPT-6.1-Sol', wireId: 'gpt-6.1-sol', flavor: 'codex', fast: true, modelReasoningEffort: 'high', expected: 'GPT-6.1 Sol Fast (High)' },
         { name: 'Composer 2.5 Fast', wireId: 'composer-2.5-fast', flavor: 'cursor', expected: 'Composer 2.5 Fast' },
         { name: 'composer-2.5[fast=false]', flavor: 'cursor', expected: 'Composer 2.5' },
+        { name: 'OpenCode Go/Gemini 4 Argon Contributor', wireId: 'opencode-go/gemini-4-argon-contributor', flavor: 'opencode', modelReasoningEffort: 'high', expected: 'Gemini 4 Argon (High)' },
     ])('formats $expected without extra Fast or empty parentheses', ({ expected, ...args }) => {
         expect(modelChipText(args)).toBe(expected)
     })
@@ -40,6 +41,6 @@ describe('modelChipText', () => {
         expect(modelChipText({
             name: 'Muse Spark 1.3 Contributor',
             flavor: 'opencode',
-        })).toBe('Muse Spark 1.3 Contributor (Max)')
+        })).toBe('Muse Spark 1.3 (Max)')
     })
 })

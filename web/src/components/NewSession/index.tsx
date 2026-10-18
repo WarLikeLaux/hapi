@@ -91,6 +91,8 @@ import {
     CODEX_DEFAULT_MODEL_ID,
     CODEX_HARDCODED_OPTIONS,
     MINIMAX_HARDCODED_LABEL,
+    OPENCODE_HARDCODED_LABEL,
+    OPENCODE_HARDCODED_MODEL_ID,
     OPENCODE_HARDCODED_OPTIONS,
 } from './hardcodedModels'
 import { orderCreateSessionAgents, resolveDefaultMachineDirectory } from './defaults'
@@ -824,7 +826,7 @@ export function NewSession(props: {
             return undefined
         }
         const effectiveModelId = !opencodeSelectedModel || opencodeSelectedModel === 'auto'
-            ? opencodeModelsState.currentModelId
+            ? OPENCODE_HARDCODED_MODEL_ID
             : opencodeSelectedModel
         if (!effectiveModelId) {
             return null
@@ -1851,7 +1853,7 @@ export function NewSession(props: {
             }
 
             const resolvedModel = agent === 'opencode'
-                ? (opencodeSelectedModel ?? undefined)
+                ? (opencodeSelectedModel ?? OPENCODE_HARDCODED_MODEL_ID)
                 : agent === 'agy'
                     ? (agySelectedModel ?? undefined)
                     : agent === 'cursor'
@@ -1863,7 +1865,7 @@ export function NewSession(props: {
                 ? effort
                 : undefined
             const resolvedModelReasoningEffort = agent === 'opencode'
-                ? 'max'
+                ? resolvedModel === OPENCODE_HARDCODED_MODEL_ID ? 'high' : 'max'
                 : agent === 'codex' && modelReasoningEffort !== 'default'
                     ? modelReasoningEffort
                     : undefined
@@ -2250,8 +2252,8 @@ export function NewSession(props: {
                             isLoading={opencodeModelsState.isLoading}
                             error={opencodeModelsState.error}
                             availableModels={opencodeModelsState.availableModels}
-                            currentModelId={opencodeModelsState.currentModelId}
-                            defaultModelName={configuredDefaultModelName}
+                            currentModelId={OPENCODE_HARDCODED_MODEL_ID}
+                            defaultModelName={OPENCODE_HARDCODED_LABEL}
                             selectedModel={opencodeSelectedModel}
                             onModelChange={setOpencodeSelectedModel}
                             onRetry={opencodeModelsState.refetch}

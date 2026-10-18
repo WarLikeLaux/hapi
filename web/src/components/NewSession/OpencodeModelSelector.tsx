@@ -20,7 +20,7 @@ export type OpencodeModelSelectorProps = {
 export function OpencodeModelSelector(props: OpencodeModelSelectorProps) {
     const { t } = useTranslation()
     const defaultModel = props.availableModels.find((model) => model.modelId === props.currentModelId)
-    const defaultModelName = defaultModel?.name ?? props.currentModelId ?? props.defaultModelName
+    const defaultModelName = props.defaultModelName ?? defaultModel?.name ?? props.currentModelId
 
     if (!props.cwd || !props.machineId) {
         return null
