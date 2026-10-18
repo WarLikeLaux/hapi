@@ -150,14 +150,32 @@ export function QuotaRow(props: { quotaWindow: QuotaWindow }) {
 
 export function UnavailableRow(props: { unavailable: QuotaUnavailable }) {
     const { t } = useTranslation()
+    const isOpencode = quotaSourceParts(props.unavailable.source).provider === 'opencode'
+    const goKeyExpired = isOpencode && props.unavailable.reason === 'auth_expired'
+    const goConsoleSignIn = isOpencode && props.unavailable.detail === 'Console sign-in required'
     const reasonKey = `settings.limits.unavailable.${props.unavailable.reason}`
-    const reason = props.unavailable.reason === 'auth_expired' || props.unavailable.reason === 'unavailable'
+    let reason = props.unavailable.reason === 'auth_expired' || props.unavailable.reason === 'unavailable'
         ? t(reasonKey)
         : props.unavailable.reason
+    if (goKeyExpired) reason = t('settings.limits.opencode.keyExpired')
+    if (goConsoleSignIn) reason = t('settings.limits.opencode.reconnectConsole')
     return (
-        <div className="flex items-center justify-between gap-3 px-3 py-3 text-sm">
-            <span className="min-w-0 truncate text-[var(--app-fg)]">⚠️ {sourceLabel(props.unavailable.source, t)}</span>
-            <span className="shrink-0 text-xs text-[var(--app-hint)]">{reason}</span>
+        <div className="px-3 py-3 text-sm">
+            <div className={`flex items-center justify-between gap-3 ${goKeyExpired || goConsoleSignIn ? 'flex-wrap' : ''}`}>
+                <span className="min-w-0 truncate text-[var(--app-fg)]">⚠️ {sourceLabel(props.unavailable.source, t)}</span>
+                <span className="shrink-0 text-xs text-[var(--app-hint)]">{reason}</span>
+            </div>
+            {goKeyExpired ? (
+                <div className="mt-2 space-y-1 text-xs leading-relaxed text-[var(--app-hint)]">
+                    <a href="https://opencode.ai/console" target="_blank" rel="noopener noreferrer" className="text-[var(--app-link)] underline underline-offset-2">
+                        {t('settings.limits.opencode.createKey')}
+                    </a>
+                    <p>{t('settings.limits.opencode.replaceKey')}</p>
+                </div>
+            ) : null}
+            {goConsoleSignIn ? (
+                <p className="mt-2 text-xs leading-relaxed text-[var(--app-hint)]">{t('settings.limits.opencode.consoleSignIn')}</p>
+            ) : null}
         </div>
     )
 }
