@@ -30,9 +30,9 @@ export const CLAUDE_GLM_MODEL_LABEL = 'GLM 5.3'
 export const OPENCODE_HARDCODED_MODEL_ID = 'opencode-go/gemini-4-argon-contributor'
 export const OPENCODE_HARDCODED_LABEL = 'Gemini 4 Argon'
 export const OPENCODE_HARDCODED_OPTIONS = [
-    { value: 'auto', label: OPENCODE_HARDCODED_LABEL },
-    { value: 'opencode-go/muse-spark-1.3-contributor', label: 'Muse Spark 1.3' },
-    { value: 'opencode-go/deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash' },
+    { value: 'auto', label: `${OPENCODE_HARDCODED_LABEL} (High)` },
+    { value: 'opencode-go/muse-spark-1.3-contributor', label: 'Muse Spark 1.3 (Max)' },
+    { value: 'opencode-go/deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash (Max)' },
 ]
 
 /** MiniMax runs its native default; the raw catalog name keeps dashes and a Preview suffix. */

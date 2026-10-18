@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse } from 'jsonc-parser';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const constructorCalls: Array<{ command: string; args?: string[]; env?: Record<string, string> }> = [];
 
@@ -37,8 +38,32 @@ describe('allocateFreePort', () => {
 });
 
 describe('createOpencodeBackend', () => {
+    afterEach(() => vi.unstubAllEnvs());
     beforeEach(() => {
         constructorCalls.length = 0;
+    });
+
+    it('adds the server-supported Muse max variant without losing existing JSONC configuration', () => {
+        const config = `{
+            // Preserve a caller's provider URL and other model variants.
+            "provider": {"opencode-go": {
+                "options": {"baseURL": "http://127.0.0.1:1234"},
+                "models": {"muse-spark-1.3-contributor": {"variants": {"high": {"reasoningEffort": "high"}}}}
+            }},
+            "instructions": ["/tmp/custom-instructions.md"],
+        }`;
+        vi.stubEnv('OPENCODE_CONFIG_CONTENT', config);
+        createOpencodeBackend({ cwd: '/tmp/x' });
+        expect(parse(constructorCalls[0]!.env!.OPENCODE_CONFIG_CONTENT)).toEqual({
+            provider: { 'opencode-go': {
+                options: { baseURL: 'http://127.0.0.1:1234' },
+                models: { 'muse-spark-1.3-contributor': { variants: {
+                    high: { reasoningEffort: 'high' }, max: { reasoningEffort: 'max' }
+                } } }
+            } },
+            instructions: ['/tmp/custom-instructions.md']
+        });
+        expect(process.env.OPENCODE_CONFIG_CONTENT).toBe(config);
     });
 
     it('passes --port and --hostname args when provided', () => {

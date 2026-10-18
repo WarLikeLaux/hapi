@@ -10,6 +10,7 @@ const EFFORT_SUFFIXES = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'm
 
 const KNOWN_MODEL_NAMES: Record<string, string> = {
     [OPENCODE_HARDCODED_MODEL_ID]: OPENCODE_HARDCODED_LABEL,
+    'opencode-go/deepseek-v4.1-flash': 'DeepSeek V4.1 Flash',
 }
 for (const option of CODEX_HARDCODED_OPTIONS) {
     KNOWN_MODEL_NAMES[option.value] = option.label
@@ -84,8 +85,7 @@ function effortWord(
     const reasoning = modelReasoningEffort?.trim() ?? ''
     const level = effort?.trim() ?? ''
     let raw = ''
-    if (flavor === 'opencode') raw = reasoning && reasoning.toLowerCase() !== 'default' ? reasoning : 'max'
-    else if (flavor === 'codex') raw = reasoning.toLowerCase() === 'default' ? '' : reasoning
+    if (flavor === 'opencode' || flavor === 'codex') raw = reasoning.toLowerCase() === 'default' ? '' : reasoning
     else if (flavor === 'pi' || flavor === 'grok' || flavor === 'claude') raw = level.toLowerCase() === 'default' ? '' : level
     else raw = parsedEffort ?? ''
     if (!raw || raw.toLowerCase() === 'default') return null

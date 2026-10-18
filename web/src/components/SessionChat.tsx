@@ -62,7 +62,7 @@ import {
     type ComposerSendIntent,
 } from '@/lib/messageDelivery'
 import type { MessageDeliveryMode } from '@hapi/protocol'
-import { isSteeringSupportedForSession } from '@hapi/protocol'
+import { getPinnedOpencodeReasoningEffort, isSteeringSupportedForSession } from '@hapi/protocol'
 import { createAttachmentAdapter } from '@/lib/attachmentAdapter'
 import { rewindMessageWindow, type OlderLoadOutcome } from '@/lib/message-window-store'
 import { ShareSeedConsumer } from '@/components/ShareSeedConsumer'
@@ -1052,7 +1052,7 @@ function SessionChatInner(props: SessionChatProps) {
     const opencodeReasoningEffortState = useOpencodeReasoningEffortOptions({
         api: props.api,
         sessionId: props.session.id,
-        // Effort is pinned to max and the picker is hidden.
+        // Quick-pick models have fixed efforts; there is no effort picker.
         enabled: false,
         sessionModel: props.session.model
     })
@@ -1311,26 +1311,30 @@ function SessionChatInner(props: SessionChatProps) {
         codexCollaborationModeSupported
     )
 
-    const opencodeMaxPinnedSessionId = useRef<string | null>(null)
+    const opencodePinnedEffortTarget = useRef<string | null>(null)
     useEffect(() => {
         if (agentFlavor !== 'opencode' || !props.session.active || controlledByUser) return
-        if (props.session.modelReasoningEffort === 'max') {
-            opencodeMaxPinnedSessionId.current = props.session.id
+        const effort = getPinnedOpencodeReasoningEffort(props.session.model)
+        if (!effort) return
+        const target = JSON.stringify([props.session.id, props.session.model, effort])
+        if (props.session.modelReasoningEffort === effort) {
+            opencodePinnedEffortTarget.current = target
             return
         }
-        if (opencodeMaxPinnedSessionId.current === props.session.id) return
-        opencodeMaxPinnedSessionId.current = props.session.id
-        void setModelReasoningEffort('max')
+        if (opencodePinnedEffortTarget.current === target) return
+        opencodePinnedEffortTarget.current = target
+        void setModelReasoningEffort(effort)
             .then(() => props.onRefresh())
             .catch((error) => {
-                opencodeMaxPinnedSessionId.current = null
-                console.error('Failed to set OpenCode effort to max:', error)
+                opencodePinnedEffortTarget.current = null
+                console.error('Failed to set fixed OpenCode effort:', error)
             })
     }, [
         agentFlavor,
         controlledByUser,
         props.session.active,
         props.session.id,
+        props.session.model,
         props.session.modelReasoningEffort,
         props.onRefresh,
         setModelReasoningEffort

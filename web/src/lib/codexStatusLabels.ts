@@ -14,17 +14,14 @@ export function formatReasoningLabel(effort?: string | null, showLabel = true): 
 /**
  * Status metadata comes from different session fields by agent protocol:
  * Codex publishes model reasoning effort, while Pi publishes effort.
- * OpenCode effort is fixed to max: an empty value still reads as max.
+ * OpenCode also publishes model reasoning effort; an empty value is unknown.
  */
 export function getReasoningEffortForFlavor(
     agentFlavor: string | null | undefined,
     modelReasoningEffort?: string | null,
     effort?: string | null
 ): string | null {
-    if (agentFlavor === 'opencode') {
-        return modelReasoningEffort?.trim() || 'max'
-    }
-    if (agentFlavor === 'codex') {
+    if (agentFlavor === 'codex' || agentFlavor === 'opencode') {
         return modelReasoningEffort?.trim() || null
     }
     if (agentFlavor === 'pi') {
@@ -37,7 +34,7 @@ export function shouldShowReasoningStatusLabel(
     agentFlavor: string | null | undefined,
     reasoningEffort?: string | null
 ): boolean {
-    // Codex and OpenCode keep a reasoning label. OpenCode's empty value is max.
+    // Codex and OpenCode keep a reasoning label, including an unset default.
     if (agentFlavor === 'codex' || agentFlavor === 'opencode') return true
     // Pi has no meaningful default for non-reasoning models; only show a real level.
     return agentFlavor === 'pi' && Boolean(reasoningEffort?.trim())

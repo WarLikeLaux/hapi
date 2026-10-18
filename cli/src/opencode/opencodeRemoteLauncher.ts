@@ -1,4 +1,5 @@
 import { seedOpencodeModelsCache } from '@/modules/common/opencodeModels';
+import { getPinnedOpencodeReasoningEffort } from '@hapi/protocol';
 import React from 'react';
 import { randomUUID } from 'node:crypto';
 import { registerAcpSessionTitleSync } from '@/agent/acpSessionTitle';
@@ -594,7 +595,8 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                 }
             }
 
-            const requestedEffort = batch.mode.modelReasoningEffort ?? this.defaultBackendEffort;
+            const pinnedEffort = getPinnedOpencodeReasoningEffort(this.currentBackendModel);
+            const requestedEffort = pinnedEffort ?? batch.mode.modelReasoningEffort ?? this.defaultBackendEffort;
             if (requestedEffort && requestedEffort !== this.currentBackendEffort) {
                 const thoughtLevelOption = backend.getThoughtLevelConfigOption?.(acpSessionId);
                 if (!backend.setConfigOption || !thoughtLevelOption || this.setEffortSupported === false) {
@@ -642,6 +644,11 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                         }
                     }
                 }
+            }
+
+            // Persist the applied policy for reopened sessions and subsequent queued turns.
+            if (pinnedEffort && this.currentBackendEffort === pinnedEffort && batch.mode.modelReasoningEffort !== pinnedEffort) {
+                this.rollbackReasoningEffort(batch, pinnedEffort);
             }
 
             this.applyDisplayMode(batch.mode.permissionMode);

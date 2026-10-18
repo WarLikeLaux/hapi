@@ -32,11 +32,11 @@ export type EffortFieldProps = {
  * - Pi: model-dependent thinking levels (filtered by the selected model's
  *   thinkingLevelMap; hidden when the model cannot reason).
  * Codex and OpenCode have no picker: Codex uses its configured effort and
- * OpenCode always launches at max.
+ * OpenCode uses a fixed effort for each quick-pick model.
  */
 export function EffortField(props: EffortFieldProps) {
     const { t } = useTranslation()
-    // Codex uses its configured effort; OpenCode always launches at max.
+    // Codex uses its configured effort; OpenCode quick picks use fixed levels.
     if (props.agent === 'codex' || props.agent === 'opencode') {
         return null
     }

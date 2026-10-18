@@ -1863,6 +1863,29 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         expect(harness.promptCount).toBe(2);
     });
 
+    it.each([
+        { model: 'opencode-go/gemini-4-argon-contributor', effort: 'high', variants: ['low', 'medium', 'high'] },
+        { model: 'opencode-go/muse-spark-1.3-contributor', effort: 'max', variants: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
+        { model: 'opencode-go/deepseek-v4.1-flash', effort: 'max', variants: ['low', 'high', 'max'] },
+    ])('uses the fixed $effort for $model on every prompt despite stale effort', async ({ model, effort, variants }) => {
+        harness.sessionModelsMetadata = { currentModelId: model, availableModels: [] };
+        harness.thoughtLevelOption = {
+            id: 'effort', currentValue: 'low', options: variants.map(value => ({ value }))
+        };
+        const seen: Array<string | undefined> = [];
+        harness.promptImpl = async () => { seen.push(harness.thoughtLevelOption?.currentValue); };
+        const { session, setModelReasoningEffort } = createSessionStub([
+            { message: 'first', mode: createModeWithEffort(model, 'low') },
+            { message: 'second', mode: createModeWithEffort(model, null) },
+        ]);
+        await opencodeRemoteLauncher(session as never);
+        expect(seen).toEqual([effort, effort]);
+        expect(harness.setConfigOptionArgs).toEqual([
+            { sessionId: 'acp-session-1', configId: 'effort', value: effort }
+        ]);
+        expect(setModelReasoningEffort).toHaveBeenCalledWith(effort);
+    });
+
     it('rejects unsupported reasoning effort values before calling setConfigOption', async () => {
         harness.thoughtLevelOption = {
             id: 'effort',
