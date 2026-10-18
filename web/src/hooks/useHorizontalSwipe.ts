@@ -27,7 +27,7 @@ const DEFAULT_OPTIONS = { minDistance: 64, maxDuration: 600, dominance: 2 }
  */
 function startsInExcludedArea(target: EventTarget | null, ignoreSelector: string | undefined): boolean {
     if (!(target instanceof Element)) return true
-    if (target.closest('input, textarea, select, [contenteditable="true"]')) return true
+    if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return true
     if (ignoreSelector && target.closest(ignoreSelector)) return true
     let el: HTMLElement | null = target instanceof HTMLElement ? target : target.parentElement
     while (el && el !== document.body) {

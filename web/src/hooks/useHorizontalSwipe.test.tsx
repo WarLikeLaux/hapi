@@ -83,6 +83,15 @@ describe('useHorizontalSwipe', () => {
         expect(onSwipeLeft).not.toHaveBeenCalled()
     })
 
+    it.each(['true', 'plaintext-only'] as const)('leaves contenteditable="%s" gestures to the editor', (contentEditable) => {
+        const onSwipeLeft = vi.fn()
+        render(<SwipeProbe onSwipeLeft={onSwipeLeft}>
+            <div data-testid="editor" contentEditable={contentEditable} />
+        </SwipeProbe>)
+        swipe(screen.getByTestId('editor'), 300, 200)
+        expect(onSwipeLeft).not.toHaveBeenCalled()
+    })
+
     it('ignores touches that start inside a natively horizontal scroller', () => {
         const onSwipeLeft = vi.fn()
         const { container } = render(

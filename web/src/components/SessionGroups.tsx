@@ -4,6 +4,7 @@ import { formatRelativeTime } from '@/lib/relativeTime'
 import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { presentSessionGroup } from '@/lib/sessionGroups'
+import { getSessionGroupMembers } from '@/lib/sessionGroupMembers'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionGroup, UpdateSessionGroup } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
@@ -103,6 +104,8 @@ export function SessionGroupWorkspace(props: {
     const [manage, setManage] = useState(false)
     const [search, setSearch] = useState('')
     const [name, setName] = useState(props.group.name)
+    // Native selects can match :focus-visible even after pointer interaction.
+    const [jumpPointerFocus, setJumpPointerFocus] = useState(false)
     const selectedTab = useRef<HTMLButtonElement | null>(null)
     useEffect(() => { setName(props.group.name) }, [props.group.id, props.group.name])
     useEffect(() => { selectedTab.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [props.selectedSessionId, props.group.id])
@@ -110,6 +113,7 @@ export function SessionGroupWorkspace(props: {
         const session = props.sessions.find(s => s.id === member.sessionId)
         return session ? [{ ...member, session }] : []
     })
+    const tabMembers = getSessionGroupMembers(props.group, props.sessions)
     const update = (members: SessionGroup['members']) => props.onUpdate(props.group, { ...props.group, members })
     const move = (index: number, offset: number) => {
         const next = [...props.group.members]
@@ -134,17 +138,20 @@ export function SessionGroupWorkspace(props: {
         </div>
         {members.length ? <div className="flex min-w-0 flex-col sm:flex-row" role="tablist" aria-label={t('groups.tabs')} onKeyDown={event => {
             if (event.target instanceof HTMLSelectElement) return
-            const current = members.findIndex(m => m.sessionId === props.selectedSessionId)
-            const next = event.key === 'Home' ? 0 : event.key === 'End' ? members.length - 1 : event.key === 'ArrowRight' ? (current + 1) % members.length : event.key === 'ArrowLeft' ? (current < 0 ? members.length - 1 : (current + members.length - 1) % members.length) : -1
-            if (next >= 0) { event.preventDefault(); props.onSelect(members[next].sessionId); requestAnimationFrame(() => selectedTab.current?.focus()) }
+            const current = tabMembers.findIndex(m => m.sessionId === props.selectedSessionId)
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabMembers.length - 1 : event.key === 'ArrowRight' ? (current + 1) % tabMembers.length : event.key === 'ArrowLeft' ? (current < 0 ? tabMembers.length - 1 : (current + tabMembers.length - 1) % tabMembers.length) : -1
+            if (next >= 0) { event.preventDefault(); props.onSelect(tabMembers[next].sessionId); requestAnimationFrame(() => selectedTab.current?.focus()) }
         }}>
-            {members.some(m => m.pinned) ? <div className="flex max-w-full shrink-0 overflow-x-auto border-b border-[var(--app-border)] sm:max-w-[48%] sm:border-b-0 sm:border-r" aria-label={t('groups.pinned')}>{members.filter(m => m.pinned).map(tab)}</div> : null}
+            {tabMembers.some(m => m.pinned) ? <div className="flex max-w-full shrink-0 overflow-x-auto border-b border-[var(--app-border)] sm:max-w-[48%] sm:border-b-0 sm:border-r" aria-label={t('groups.pinned')}>{tabMembers.filter(m => m.pinned).map(tab)}</div> : null}
             <div className="flex min-w-0 flex-1">
-            <div className="flex min-w-0 flex-1 overflow-x-auto">{members.filter(m => !m.pinned).map(tab)}</div>
+            <div className="flex min-w-0 flex-1 overflow-x-auto">{tabMembers.filter(m => !m.pinned).map(tab)}</div>
             <div className="relative flex w-10 shrink-0 items-center justify-center">
             <svg className="pointer-events-none absolute h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-            <select aria-label={t('groups.jump')} title={t('groups.jump')} className="absolute inset-0 w-full cursor-pointer appearance-none bg-transparent text-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-link)] [&>option]:text-[var(--app-fg)] [&>option]:bg-[var(--app-bg)]" value={props.selectedSessionId ?? ''} onChange={e => props.onSelect(e.target.value)}>
-                <option value="" disabled>{t('groups.jump')}</option>{members.map(m => <option key={m.sessionId} value={m.sessionId}>{m.pinned ? `${t('groups.pinned')}: ` : ''}{getSessionTitle(m.session)}</option>)}
+            <select aria-label={t('groups.jump')} title={t('groups.jump')}
+                className={cn('absolute inset-0 w-full cursor-pointer appearance-none bg-transparent text-transparent focus:outline-none [&>option]:text-[var(--app-fg)] [&>option]:bg-[var(--app-bg)]', !jumpPointerFocus && 'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-link)]')}
+                onPointerDown={() => setJumpPointerFocus(true)} onKeyDown={() => setJumpPointerFocus(false)} onBlur={() => setJumpPointerFocus(false)}
+                value={props.selectedSessionId ?? ''} onChange={e => props.onSelect(e.target.value)}>
+                <option value="" disabled>{t('groups.jump')}</option>{tabMembers.map(m => <option key={m.sessionId} value={m.sessionId}>{m.pinned ? `${t('groups.pinned')}: ` : ''}{getSessionTitle(m.session)}</option>)}
             </select></div></div>
         </div> : <p className="px-4 pb-3 text-sm text-[var(--app-hint)]">{t('groups.empty')} <button type="button" onClick={() => setManage(true)} className="text-[var(--app-link)] underline">{t('groups.addChats')}</button></p>}
         {manage ? <div className="max-h-[50dvh] overflow-y-auto border-t border-[var(--app-border)] px-3 py-3" data-testid="group-manager">
