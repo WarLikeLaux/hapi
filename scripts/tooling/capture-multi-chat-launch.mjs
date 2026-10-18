@@ -8,16 +8,19 @@ const origin = process.env.HAPI_PREVIEW_ORIGIN ?? 'http://127.0.0.1:5174'
 const commonPrompt = 'Найди причину медленного запуска сессий. Предложи исправление и проверь его целевыми тестами.'
 const ownPrompt = 'Проверь только обработку ошибок запуска. Опиши риски повторного создания чатов.'
 const captures = [
+    { name: 'menu-wide-dark', width: 1440, height: 1000, mode: 'menu', dark: true },
+    { name: 'menu-mobile-dark', width: 390, height: 844, mode: 'menu', dark: true },
+    { name: 'mobile-project-action', width: 390, height: 1000, mode: 'other', dark: true },
     { name: 'default-wide', width: 1440, height: 1000, mode: 'single' },
     { name: 'default-mobile', width: 390, height: 844, mode: 'single' },
     { name: 'group-mobile', width: 390, height: 1000, mode: 'single-group' },
     { name: 'group-draft-mobile', width: 390, height: 1000, mode: 'single-group-draft' },
     { name: 'wide-own-project', width: 1440, height: 1100, mode: 'own' },
     { name: 'return-mobile', width: 390, height: 844, mode: 'return' },
-    { name: 'wide', width: 1440, height: 1440, mode: 'overview' },
+    { name: 'wide', width: 1440, height: 1200, mode: 'overview', dark: true },
     { name: 'mobile-settings', width: 390, height: 1000, mode: 'settings' },
     { name: 'mobile', width: 390, height: 844, mode: 'overview' },
-    { name: 'mobile-own-project', width: 390, height: 1000, mode: 'own' },
+    { name: 'mobile-own-project', width: 390, height: 1000, mode: 'own', dark: true },
     { name: 'wide-results', width: 1440, height: 1100, mode: 'results' },
     { name: 'mobile-results', width: 390, height: 1200, mode: 'results' },
 ]
@@ -25,14 +28,16 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
     const requests = []
     console.log(JSON.stringify(await captureHapiUi({
         url: `${origin}/sessions/new?directory=${encodeURIComponent('/home/shandori/code/hapi')}`,
-        out: `/tmp/hapi-aligned-create-${shot.name}.png`, width: shot.width, height: shot.height,
-        expect: ['single', 'single-group', 'single-group-draft', 'return'].includes(shot.mode) ? 'button:has-text("Add another chat")' : shot.mode === 'settings' ? 'button:has-text("Single chat")' : shot.mode === 'own' ? 'article:nth-of-type(2) input[type="text"]'
+        out: `/tmp/hapi-polished-create-${shot.name}.png`, width: shot.width, height: shot.height,
+        expect: shot.mode === 'menu' ? '[role="menu"]' : shot.mode === 'other' ? 'article:nth-of-type(2) button:has-text("Another project")' : ['single', 'single-group', 'single-group-draft', 'return'].includes(shot.mode) ? 'button:has-text("Add another chat")' : shot.mode === 'settings' ? 'button:has-text("Single chat")' : shot.mode === 'own' ? 'article:nth-of-type(2) input[type="text"]'
             : shot.mode === 'results' ? 'text=Launch outcome unknown' : 'button:has-text("Launch 3 chats")',
         prepare: async page => {
-            await page.addInitScript(() => {
+            await page.addInitScript(dark => {
                 sessionStorage.removeItem('hapi:session-composition:standalone')
                 localStorage.setItem('hapi-lang', 'en')
-            })
+                localStorage.setItem('hapi-appearance', dark ? 'dark' : 'light')
+                localStorage.setItem('hapi-color-theme', dark ? 'telegram' : 'default')
+            }, Boolean(shot.dark))
             await page.route('**/api/groups', async route => {
                 if (route.request().method() !== 'POST') return route.continue()
                 await route.fulfill({ json: { group: { id: 'preview-comparison', name: 'Параллельный разбор', members: [], version: 1, updatedAt: Date.now() } } })
@@ -72,7 +77,7 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
             const sharedDirectory = await page.getByRole('textbox', { name: 'Directory', exact: true }).boundingBox()
             expect(Math.abs(sharedDirectory.x - originalDirectory.x)).toBeLessThanOrEqual(1)
             expect(Math.abs(sharedDirectory.width - originalDirectory.width)).toBeLessThanOrEqual(1)
-            await expect(page.getByRole('combobox', { name: 'Place chats' })).toHaveValue('new')
+            await expect(page.getByRole('button', { name: /^Place chats/ })).toContainText('Create a new group')
             await expect(page.getByRole('textbox', { name: 'Group name', exact: true })).toHaveValue('')
             await expect(page.getByRole('article').first().getByText(/^GPT-6\.1 Sol Fast(?: \(.+\))?$/)).toBeVisible()
             if (shot.mode === 'return') {
@@ -90,7 +95,8 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
             }
             await page.getByRole('button', { name: 'Remove chat 2', exact: true }).click()
             await page.getByRole('textbox', { name: 'Shared initial prompt (optional)' }).fill(commonPrompt)
-            await page.getByRole('combobox', { name: 'Place chats' }).selectOption('new')
+            await page.getByRole('button', { name: /^Place chats/ }).click()
+            await page.getByRole('menuitemradio', { name: 'Create a new group…', exact: true }).click()
             await page.getByRole('textbox', { name: 'Group name', exact: true }).fill('Параллельный разбор')
             await expect(page.getByRole('button', { name: 'Launch chat', exact: true })).toBeEnabled()
             await page.getByRole('button', { name: 'Duplicate 1', exact: true }).click()
@@ -106,10 +112,31 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
             await third.locator('input[type="radio"][value="agy"]').check()
             await expect(page.getByRole('button', { name: 'Launch 3 chats', exact: true })).toBeEnabled()
             await third.locator('button[aria-expanded]').click()
+            // Pointer, arrow-key and Escape navigation use the actual styled menu.
+            if (shot.mode === 'menu') {
+                const trigger = page.getByRole('button', { name: /^Place chats/ })
+                await trigger.focus()
+                await page.keyboard.press('ArrowDown')
+                await expect(page.getByRole('menuitemradio', { name: 'Create a new group…', exact: true })).toBeFocused()
+                await page.keyboard.press('Home')
+                await page.keyboard.press('Enter')
+                await expect(trigger).toContainText('No group')
+                await expect(trigger).toBeFocused()
+                await page.keyboard.press('ArrowDown')
+                await page.keyboard.press('Escape')
+                await expect(page.getByRole('menu')).toHaveCount(0)
+                await expect(trigger).toBeFocused()
+                await trigger.click()
+                return
+            }
             if (shot.mode === 'settings') {
                 await page.getByRole('button', { name: 'Single chat', exact: true }).scrollIntoViewIfNeeded()
-            } else if (shot.mode === 'own') {
+            } else if (shot.mode === 'own' || shot.mode === 'other') {
                 await second.locator('button[aria-expanded]').click()
+                if (shot.mode === 'other') {
+                    await second.getByRole('button', { name: 'Use shared project', exact: true }).click()
+                    await expect(second.getByRole('textbox', { name: 'Another project', exact: true })).toHaveCount(0)
+                }
                 await second.getByRole('checkbox', { name: 'Use own prompt' }).evaluate(element => element.scrollIntoView({ block: 'center' }))
             } else if (shot.mode === 'overview') {
                 await expect(page.getByText('Exact initial prompt', { exact: true })).toHaveCount(0)
