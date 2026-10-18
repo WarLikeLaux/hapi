@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary, Session } from '@/types/api'
-import { isKnownFlavor, isRemovedAgyModel, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
+import { getPinnedOpencodeReasoningEffort, isKnownFlavor, isRemovedAgyModel, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
 import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
@@ -253,7 +253,10 @@ export function NewSession(props: {
     const pendingCursorBaseRef = useRef<string | null>(null)
     const [effort, setEffort] = useState<LaunchEffort>(() => editorDraft?.effort ?? continueFrom?.effort ?? 'auto')
     const [modelReasoningEffort, setModelReasoningEffort] = useState<CodexReasoningEffort>(() => editorDraft?.modelReasoningEffort ?? continueFrom?.modelReasoningEffort ?? 'default')
-    const [opencodeSelectedModel, setOpencodeSelectedModel] = useState<string | null | undefined>(editorDraft?.agent === 'opencode' && editorDraft.model !== 'auto' ? editorDraft.model : null)
+    const [opencodeSelectedModel, setOpencodeSelectedModel] = useState<string | null | undefined>(() => {
+        const selected = editorDraft?.agent === 'opencode' ? editorDraft.model : continueAgent === 'opencode' ? continueFrom?.model : null
+        return selected && selected !== 'auto' ? selected : null
+    })
     const [requestedModelCatalog, setRequestedModelCatalog] = useState<string | null>(() => editorDraft?.modelCatalogRequested ? JSON.stringify([agent, machineId, agent === 'opencode' ? directory.trim() : null]) : null)
     const modelCatalogTarget = JSON.stringify([agent, machineId, agent === 'opencode' ? directory.trim() : null])
     const modelCatalogRequested = requestedModelCatalog === modelCatalogTarget
@@ -1829,7 +1832,7 @@ export function NewSession(props: {
 
     function buildLaunchInput(): SessionEditorState['input'] {
         const resolvedModel = agent === 'opencode'
-            ? (opencodeSelectedModel ?? OPENCODE_HARDCODED_MODEL_ID)
+            ? (!opencodeSelectedModel || opencodeSelectedModel === 'auto' ? OPENCODE_HARDCODED_MODEL_ID : opencodeSelectedModel)
             : agent === 'agy'
                 ? (agySelectedModel ?? undefined)
                 : agent === 'cursor'
@@ -1841,7 +1844,7 @@ export function NewSession(props: {
             ? effort
             : undefined
         const resolvedModelReasoningEffort = agent === 'opencode'
-            ? resolvedModel === OPENCODE_HARDCODED_MODEL_ID ? 'high' : 'max'
+            ? getPinnedOpencodeReasoningEffort(resolvedModel) ?? (modelReasoningEffort !== 'default' ? modelReasoningEffort : undefined)
             : agent === 'codex' && modelReasoningEffort !== 'default'
                 ? modelReasoningEffort
                 : undefined
