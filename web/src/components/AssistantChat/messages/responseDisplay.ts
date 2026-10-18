@@ -1,4 +1,7 @@
 import type { ThreadAssistantMessagePart } from '@assistant-ui/react'
+import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion'
+import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInput'
+import type { ToolCallBlock } from '@/chat/types'
 
 export type ResponsePartPartition = {
     visibleIndices: number[]
@@ -41,36 +44,37 @@ function isResultArtifact(part: ThreadAssistantMessagePart): boolean {
         || (part.type === 'data' && part.name === 'recap')
 }
 
+function isUserFacingPart(part: ThreadAssistantMessagePart): boolean {
+    // Public prose has no reliable "waiting for reply" marker. Keep it all,
+    // including requests without a question mark; never infer pending state.
+    if (part.type === 'text' || isResultArtifact(part)) return true
+    if (part.type !== 'tool-call') return false
+    const block = part.artifact as ToolCallBlock | undefined
+    return isAskUserQuestionToolName(part.toolName)
+        || isRequestUserInputToolName(part.toolName)
+        || part.toolName === 'ExitPlanMode'
+        || part.toolName === 'exit_plan_mode'
+        || (block?.kind === 'tool-call' && block.tool.permission?.status === 'pending')
+}
+
 /**
- * Keep the final prose answer (plus user-facing generated media) in the chat.
- * Reasoning, tool activity, and any superseded intermediate prose move into
- * the per-response details dialog once the response is complete.
+ * Public messages and decision cards stay in the transcript, including their
+ * answered history. Only internal work goes into the per-response dialog.
  */
 export function partitionCompletedResponseParts(
     parts: readonly ThreadAssistantMessagePart[],
 ): ResponsePartPartition | null {
-    const finalTextIndex = parts.findLastIndex((part) => (
-        part.type === 'text' && part.text.trim().length > 0
-    ))
-    if (finalTextIndex < 0) return null
-
-    const hasWorkDetails = parts.some((part) => (
-        part.type === 'reasoning'
-        || (part.type === 'tool-call' && !isResultArtifact(part))
-    ))
-    if (!hasWorkDetails) return null
-
     const visibleIndices: number[] = []
     const detailIndices: number[] = []
     parts.forEach((part, index) => {
-        if (index === finalTextIndex || isResultArtifact(part)) {
+        if (isUserFacingPart(part)) {
             visibleIndices.push(index)
         } else {
             detailIndices.push(index)
         }
     })
 
-    return detailIndices.length > 0
+    return visibleIndices.length > 0 && detailIndices.length > 0
         ? { visibleIndices, detailIndices }
         : null
 }
