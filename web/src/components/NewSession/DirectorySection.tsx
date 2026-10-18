@@ -1,4 +1,4 @@
-import { useId, type CSSProperties, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useId, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import { FloatingOverlay } from '@/components/ChatInput/FloatingOverlay'
@@ -90,7 +90,6 @@ function PathRow(props: {
 
 export function DirectorySection(props: {
     label?: string
-    labelAction?: ReactNode
     directory: string
     suggestions: readonly Suggestion[]
     selectedIndex: number
@@ -118,7 +117,6 @@ export function DirectorySection(props: {
                 <label htmlFor={inputId} className="text-xs font-medium text-[var(--app-hint)]">
                     {props.label ?? t('newSession.directory')}
                 </label>
-                {props.labelAction}
             </div>
             <div className="flex items-start gap-2">
                 <div className="relative flex-1 min-w-0">

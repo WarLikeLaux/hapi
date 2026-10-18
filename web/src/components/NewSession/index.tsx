@@ -139,7 +139,6 @@ function QuickPickChips(props: {
 }
 // Quick model choices shown before the optional full catalog dropdown.
 function ModelBadges(props: {
-    label?: string
     options: Array<{ value: string; label: string }>
     activeValue: string | null
     isDisabled: boolean
@@ -148,11 +147,8 @@ function ModelBadges(props: {
 }) {
     const { t } = useTranslation()
     return (
-        <div className="flex flex-col gap-1.5 px-3 py-3">
-            <span className="text-xs font-medium text-[var(--app-hint)]">
-                {props.label ?? t('newSession.model')}
-            </span>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-3">
+        <section aria-label={t('newSession.model')} className="flex flex-col gap-2 p-2 sm:gap-3 sm:p-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <QuickPickChips
                     options={props.options}
                     activeValue={props.activeValue}
@@ -161,7 +157,7 @@ function ModelBadges(props: {
                 />
                 {props.footer}
             </div>
-        </div>
+        </section>
     )
 }
 
@@ -232,8 +228,8 @@ export function NewSession(props: {
         : null
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
-    const [createGroup, setCreateGroup] = useState(Boolean(!props.editor && editorDraft?.groupCreation))
     const [groupName, setGroupName] = useState(editorDraft?.groupCreation?.name ?? '')
+    const createGroup = !props.editor && !props.groupId && Boolean(groupName.trim())
     const groupRequestRef = useRef<{ name: string; requestId: string } | null>(editorDraft?.groupCreation ?? null)
     const [createdGroup, setCreatedGroup] = useState<{ id: string; name: string } | null>(null)
 
@@ -389,7 +385,6 @@ export function NewSession(props: {
             return
         }
         if (!props.groupId && draft.groupCreation) {
-            setCreateGroup(true)
             setGroupName(draft.groupCreation.name)
             groupRequestRef.current = draft.groupCreation
         }
@@ -2162,16 +2157,12 @@ export function NewSession(props: {
             ) : null}
             {!props.editor ? <div className="px-3 py-3 text-sm">
                 {props.groupId || createdGroup ? <p className="text-[var(--app-hint)]">{t('groups.newChatIn', { name: props.groupName ?? createdGroup?.name ?? '' })}</p> : <>
-                    <label className="flex min-h-8 cursor-pointer items-center gap-2 text-xs font-medium">
-                        <input type="checkbox" checked={createGroup} disabled={isFormDisabled} onChange={event => setCreateGroup(event.target.checked)} className="h-4 w-4 accent-[var(--app-link)]" />
-                        {t('groups.createWithChat')}
-                    </label>
-                    {createGroup ? <div className="mt-2 flex flex-col gap-1.5 text-xs text-[var(--app-hint)]">
+                    <div className="flex flex-col gap-1.5 text-xs text-[var(--app-hint)]">
                         <label htmlFor="new-group-name">{t('groups.name')}</label>
                         <input id="new-group-name" aria-describedby="new-group-description" value={groupName} maxLength={120} disabled={isFormDisabled} onChange={event => setGroupName(event.target.value)} placeholder={t('groups.namePlaceholder')}
                             className="min-h-10 rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 text-sm text-[var(--app-fg)]" />
-                        <p id="new-group-description">{t('groups.firstChatHint')}</p>
-                    </div> : null}
+                        <p id="new-group-description">{t('batch.groupHint')}</p>
+                    </div>
                 </>}
                 {props.groupDefaultsUnavailable || (props.initialAgent && !agentAvailability.isLoading && !agentAvailability.error && !availableAgents.includes(props.initialAgent)) ? <p role="status" className="mt-2 text-xs text-[var(--app-hint)]">{t('groups.defaultsUnavailable')}</p> : null}
             </div> : null}
@@ -2329,11 +2320,8 @@ export function NewSession(props: {
             ) : (
                 agent === 'cursor' ? (
                     <>
-                        <div className="flex flex-col gap-1.5 px-3 py-3">
-                            <span className="text-xs font-medium text-[var(--app-hint)]">
-                                {t('newSession.model')}
-                            </span>
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-3">
+                        <section aria-label={t('newSession.model')} className="flex flex-col gap-2 p-2 sm:gap-3 sm:p-3">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                                 <QuickPickChips
                                     options={hardcodedCursorOptions}
                                     activeValue={cursorSpeedOptions?.standard ?? CURSOR_GROK_XHIGH_WIRE}
@@ -2358,7 +2346,7 @@ export function NewSession(props: {
                                     {t('newSession.opencodeModel.retry')}
                                 </button>
                             ) : null}
-                        </div>
+                        </section>
                         {showAllCursorModels ? (
                             <>
                                 <ModelSelector

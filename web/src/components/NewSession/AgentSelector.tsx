@@ -14,11 +14,8 @@ export function AgentSelector(props: {
     const radioName = useId()
 
     return (
-        <div className="flex flex-col gap-1.5 px-3 py-3">
-            <label className="text-xs font-medium text-[var(--app-hint)]">
-                {t('newSession.agent')}
-            </label>
-            <div className="flex flex-wrap gap-3">
+        <fieldset aria-label={t('newSession.agent')} className="min-w-0 p-2 sm:p-3">
+            <div className="flex flex-wrap gap-2 sm:gap-3">
                 {props.agents.map((agentType) => (
                     <label
                         key={agentType}
@@ -38,6 +35,6 @@ export function AgentSelector(props: {
                     </label>
                 ))}
             </div>
-        </div>
+        </fieldset>
     )
 }
