@@ -31,6 +31,7 @@ import { useSessionContextHubSync } from '@/hooks/useSessionContextHubSync'
 import { useTranslation } from '@/lib/use-translation'
 import { getClaudeGlmBranded, useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
 import { getCodexModelReasoningEfforts, resolveCodexModel } from '@/lib/codexModelCapabilities'
+import { modelChipText } from '@/lib/modelChipLabel'
 import {
     buildNewSessionCursorModelCatalog,
     buildNewSessionCursorPickerState,
@@ -231,7 +232,7 @@ export function NewSession(props: {
         : null
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
-    const [createGroup, setCreateGroup] = useState(Boolean(editorDraft?.groupCreation))
+    const [createGroup, setCreateGroup] = useState(Boolean(!props.editor && editorDraft?.groupCreation))
     const [groupName, setGroupName] = useState(editorDraft?.groupCreation?.name ?? '')
     const groupRequestRef = useRef<{ name: string; requestId: string } | null>(editorDraft?.groupCreation ?? null)
     const [createdGroup, setCreatedGroup] = useState<{ id: string; name: string } | null>(null)
@@ -2114,14 +2115,21 @@ export function NewSession(props: {
     )
 
     function buildEditorState(): SessionEditorState {
+        const input = buildLaunchInput()
+        const codexModel = agent === 'codex' ? resolveCodexModel(codexModelsState.models, input.model) : null
+        const modelName = (agent === 'claude' && claudeGlmBranded ? (model === 'auto' ? CLAUDE_GLM_HARDCODED_LABEL : CLAUDE_GLM_MODEL_LABEL) : undefined)
+            ?? (agent === 'agy' ? agySelectedModel === AGY_HIGH_MODEL_ID ? AGY_HIGH_MODEL_LABEL : !agySelectedModel ? AGY_HARDCODED_LABEL : undefined : undefined)
+            ?? (agent === 'opencode' ? OPENCODE_HARDCODED_OPTIONS.find(option => option.value === (opencodeSelectedModel ?? 'auto'))?.label : undefined)
+            ?? (agent === 'minimax' && model === 'auto' ? MINIMAX_HARDCODED_LABEL : undefined)
+            ?? namedLaunchModelOptions.find(option => option.value === (input.model ?? 'auto'))?.label
+            ?? input.model ?? nativeDefaultModelName ?? t('newSession.model.default')
         return {
-            input: buildLaunchInput(), canCreate,
-            modelLabel: (agent === 'claude' && claudeGlmBranded ? (model === 'auto' ? CLAUDE_GLM_HARDCODED_LABEL : CLAUDE_GLM_MODEL_LABEL) : undefined)
-                ?? (agent === 'agy' ? agySelectedModel === AGY_HIGH_MODEL_ID ? AGY_HIGH_MODEL_LABEL : !agySelectedModel ? AGY_HARDCODED_LABEL : undefined : undefined)
-                ?? (agent === 'opencode' ? OPENCODE_HARDCODED_OPTIONS.find(option => option.value === (opencodeSelectedModel ?? 'auto'))?.label : undefined)
-                ?? (agent === 'minimax' && model === 'auto' ? MINIMAX_HARDCODED_LABEL : undefined)
-                ?? namedLaunchModelOptions.find(option => option.value === (buildLaunchInput().model ?? 'auto'))?.label
-                ?? buildLaunchInput().model ?? nativeDefaultModelName ?? t('newSession.model.default'),
+            input, canCreate,
+            modelLabel: modelChipText({
+                name: modelName, wireId: input.model ?? codexModel?.id, flavor: agent,
+                modelReasoningEffort: input.modelReasoningEffort ?? codexModel?.defaultReasoningEffort,
+                effort: input.effort, fast: input.serviceTier === 'fast',
+            }),
             draft: { agent, model: agent === 'agy' ? (agySelectedModel ?? 'auto') : agent === 'opencode' ? (opencodeSelectedModel ?? 'auto') : model,
                 cursorSelectedBase, machineId, effort, modelReasoningEffort, serviceTier, collaborationMode, copilotAgentMode,
                 yoloMode, nativePermissionMode, grokPermissionMode, sessionType, worktreeName, showAllModels, showAllCursorModels, modelCatalogRequested }

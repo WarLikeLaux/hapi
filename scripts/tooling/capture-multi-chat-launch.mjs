@@ -11,6 +11,8 @@ const captures = [
     { name: 'default-wide', width: 1440, height: 1000, mode: 'single' },
     { name: 'default-mobile', width: 390, height: 844, mode: 'single' },
     { name: 'group-mobile', width: 390, height: 1000, mode: 'single-group' },
+    { name: 'group-draft-mobile', width: 390, height: 1000, mode: 'single-group-draft' },
+    { name: 'wide-own-project', width: 1440, height: 1100, mode: 'own' },
     { name: 'return-mobile', width: 390, height: 844, mode: 'return' },
     { name: 'wide', width: 1440, height: 1440, mode: 'overview' },
     { name: 'mobile-settings', width: 390, height: 1000, mode: 'settings' },
@@ -23,8 +25,8 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
     const requests = []
     console.log(JSON.stringify(await captureHapiUi({
         url: `${origin}/sessions/new?directory=${encodeURIComponent('/home/shandori/code/hapi')}`,
-        out: `/tmp/hapi-create-fix-${shot.name}.png`, width: shot.width, height: shot.height,
-        expect: ['single', 'single-group', 'return'].includes(shot.mode) ? 'button:has-text("Add another chat")' : shot.mode === 'settings' ? 'button:has-text("Single chat")' : shot.mode === 'own' ? 'article:nth-of-type(2) input[type="text"]'
+        out: `/tmp/hapi-aligned-create-${shot.name}.png`, width: shot.width, height: shot.height,
+        expect: ['single', 'single-group', 'single-group-draft', 'return'].includes(shot.mode) ? 'button:has-text("Add another chat")' : shot.mode === 'settings' ? 'button:has-text("Single chat")' : shot.mode === 'own' ? 'article:nth-of-type(2) input[type="text"]'
             : shot.mode === 'results' ? 'text=Launch outcome unknown' : 'button:has-text("Launch 3 chats")',
         prepare: async page => {
             await page.addInitScript(() => {
@@ -49,16 +51,30 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
             await page.addStyleTag({ content: '.tsqd-open-btn-container { display: none !important; }' })
             await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeEnabled()
             await page.locator('input[type="radio"][value="codex"]').check()
-            if (shot.mode === 'single' || shot.mode === 'single-group') {
+            if (['single', 'single-group', 'single-group-draft'].includes(shot.mode)) {
                 await expect(page.getByRole('article')).toHaveCount(0)
                 await expect(page.getByRole('textbox', { name: 'Shared initial prompt (optional)' })).toHaveCount(0)
-                if (shot.mode === 'single-group') {
+                if (shot.mode === 'single-group' || shot.mode === 'single-group-draft') {
                     await page.getByRole('checkbox', { name: 'Create a group with this chat' }).check()
-                    await page.getByRole('textbox', { name: 'Group name', exact: true }).fill('Параллельный разбор')
+                    if (shot.mode === 'single-group') await page.getByRole('textbox', { name: 'Group name', exact: true }).fill('Параллельный разбор')
+                    else {
+                        await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
+                        await expect(page.getByRole('button', { name: 'Add another chat', exact: true })).toBeEnabled()
+                    }
                 }
                 return
             }
+            const originalDirectory = await page.getByRole('textbox', { name: 'Directory', exact: true }).boundingBox()
+            await page.getByRole('checkbox', { name: 'Create a group with this chat' }).check()
+            await expect(page.getByRole('button', { name: 'Add another chat', exact: true })).toBeEnabled()
+            await page.getByRole('button', { name: 'Fast', exact: true }).click()
             await page.getByRole('button', { name: 'Add another chat', exact: true }).click()
+            const sharedDirectory = await page.getByRole('textbox', { name: 'Directory', exact: true }).boundingBox()
+            expect(Math.abs(sharedDirectory.x - originalDirectory.x)).toBeLessThanOrEqual(1)
+            expect(Math.abs(sharedDirectory.width - originalDirectory.width)).toBeLessThanOrEqual(1)
+            await expect(page.getByRole('combobox', { name: 'Place chats' })).toHaveValue('new')
+            await expect(page.getByRole('textbox', { name: 'Group name', exact: true })).toHaveValue('')
+            await expect(page.getByRole('article').first().getByText(/^GPT-6\.1 Sol Fast(?: \(.+\))?$/)).toBeVisible()
             if (shot.mode === 'return') {
                 await page.getByRole('button', { name: 'Single chat', exact: true }).click()
                 await expect(page.getByRole('article')).toHaveCount(0)
@@ -76,6 +92,7 @@ for (const shot of captures.filter(shot => !process.argv[2] || shot.name === pro
             await page.getByRole('textbox', { name: 'Shared initial prompt (optional)' }).fill(commonPrompt)
             await page.getByRole('combobox', { name: 'Place chats' }).selectOption('new')
             await page.getByRole('textbox', { name: 'Group name', exact: true }).fill('Параллельный разбор')
+            await expect(page.getByRole('button', { name: 'Launch chat', exact: true })).toBeEnabled()
             await page.getByRole('button', { name: 'Duplicate 1', exact: true }).click()
             const second = page.getByRole('article').nth(1)
             await second.locator('input[type="radio"][value="claude"]').check()
