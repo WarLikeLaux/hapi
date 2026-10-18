@@ -4,7 +4,7 @@ import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import { FloatingOverlay } from '@/components/ChatInput/FloatingOverlay'
 import { getProjectLabelHue } from '@/components/SessionRowSummary'
 import { useTranslation } from '@/lib/use-translation'
-import { getPathDisplayName } from '@/utils/path'
+import { basename } from '@/utils/path'
 
 
 function CodexImportIcon(props: { className?: string }) {
@@ -59,7 +59,7 @@ function PathChip(props: {
             title={props.path}
             aria-label={props.path}
         >
-            {getPathDisplayName(props.path)}
+            {basename(props.path)}
         </button>
     )
 }

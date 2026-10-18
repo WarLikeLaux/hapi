@@ -396,10 +396,17 @@ describe('NewSession launch preferences', () => {
         return { ...view, createGroup }
     }
 
+    async function selectPlacement(value: string) {
+        const trigger = screen.getByRole('button', { name: /^batch.placement/ })
+        await waitFor(() => expect(trigger).toBeEnabled())
+        fireEvent.click(trigger)
+        fireEvent.click(await screen.findByRole('menuitemradio', { name: value === 'new' ? 'batch.newGroup' : value === 'none' ? 'batch.noGroup' : 'Existing' }))
+    }
+
     function enterBatchWithOneChat() {
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         fireEvent.click(screen.getByRole('button', { name: 'batch.remove 2' }))
-        fireEvent.click(screen.getByRole('button', { expanded: false }))
+        fireEvent.click(within(screen.getByRole('article')).getByRole('button', { expanded: false }))
     }
 
     it('keeps ordinary creation on the original form until another chat is requested', async () => {
@@ -408,7 +415,7 @@ describe('NewSession launch preferences', () => {
         renderComposer(launch)
         expect(screen.queryByRole('article')).toBeNull()
         expect(screen.queryByRole('textbox', { name: 'batch.commonPrompt' })).toBeNull()
-        expect(screen.queryByRole('combobox', { name: 'batch.placement' })).toBeNull()
+        expect(screen.queryByRole('button', { name: /^batch.placement/ })).toBeNull()
         expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked()
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
@@ -422,7 +429,7 @@ describe('NewSession launch preferences', () => {
         const view = renderComposer(launch)
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
-        fireEvent.change(screen.getByRole('combobox', { name: 'batch.placement' }), { target: { value: 'new' } })
+        await selectPlacement('new')
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Review' } })
         fireEvent.click(screen.getByRole('button', { name: 'batch.singleChat' }))
         expect(screen.queryByRole('article')).toBeNull()
@@ -443,8 +450,7 @@ describe('NewSession launch preferences', () => {
     it.each(['none', 'existing-group'])('keeps placement %s when returning to one chat from an open group', async placement => {
         renderComposer(vi.fn(), { groupId: 'existing-group' })
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
-        await waitFor(() => expect(screen.getByRole('combobox', { name: 'batch.placement' })).toBeEnabled())
-        fireEvent.change(screen.getByRole('combobox', { name: 'batch.placement' }), { target: { value: placement } })
+        await selectPlacement(placement)
         fireEvent.click(screen.getByRole('button', { name: 'batch.singleChat' }))
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'placed-chat' })
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
@@ -488,6 +494,9 @@ describe('NewSession launch preferences', () => {
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Compare' } })
         const first = screen.getAllByRole('article')[0]
         expect(within(first).getByText('GPT-6.1 Sol Fast (High)')).toBeVisible()
+        const summary = within(first).getByRole('button', { expanded: false })
+        expect(within(summary).getByText('Codex', { exact: true })).toBeVisible()
+        expect(within(summary).getByText('C:\\repo', { exact: true })).toBeVisible()
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchCount' })).toBeEnabled())
         expect(createGroup).not.toHaveBeenCalled()
         fireEvent.click(screen.getByRole('button', { name: 'batch.launchCount' }))
@@ -509,7 +518,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByRole('checkbox', { name: 'groups.createWithChat' }))
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Comparison' } })
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
-        expect(screen.getByRole('combobox', { name: 'batch.placement' })).toHaveValue('new')
+        expect(screen.getByRole('button', { name: /^batch.placement/ })).toHaveTextContent('batch.newGroup')
         expect(screen.getByRole('textbox', { name: 'groups.name' })).toHaveValue('Comparison')
         expect(createGroup).not.toHaveBeenCalled()
         fireEvent.change(screen.getByRole('textbox', { name: 'batch.commonPrompt' }), { target: { value: 'Compare the approaches.' } })

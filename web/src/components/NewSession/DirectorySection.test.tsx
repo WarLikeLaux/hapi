@@ -30,9 +30,11 @@ describe('DirectorySection', () => {
         expect(screen.getByRole('button', { name: 'newSession.browse' })).toHaveClass('self-stretch')
     })
 
-    it('shows the last two path segments while preserving the full path on click', () => {
+    it.each([
+        { path: 'C:\\Users\\Ananovo\\Downloads\\Agent\\Hapi', label: 'Hapi' },
+        { path: '/home/shandori/code/hapi', label: 'hapi' },
+    ])('shows only $label while preserving $path on click', ({ path, label }) => {
         const onPathClick = vi.fn()
-        const path = 'C:\\Users\\Ananovo\\Downloads\\Agent\\Hapi'
 
         render(
             <DirectorySection
@@ -52,7 +54,7 @@ describe('DirectorySection', () => {
         )
 
         const recentPath = screen.getByRole('button', { name: path })
-        expect(recentPath).toHaveTextContent('Agent/Hapi')
+        expect(recentPath.textContent).toBe(label)
         expect(recentPath).toHaveAttribute('title', path)
 
         fireEvent.click(recentPath)
