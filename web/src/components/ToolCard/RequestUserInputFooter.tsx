@@ -20,6 +20,7 @@ import {
 import { cn } from '@/lib/utils'
 import { usePlatform } from '@/hooks/usePlatform'
 import { Spinner } from '@/components/Spinner'
+import { submitQuestionAnswerOnEnter } from './questionAnswerKeyboard'
 import { useTranslation } from '@/lib/use-translation'
 
 function SelectionMark(props: { checked: boolean }) {
@@ -86,6 +87,7 @@ export function RequestUserInputFooter(props: {
     const [step, setStep] = useState(0)
     const [stateByQuestion, setStateByQuestion] = useState<Record<string, QuestionState>>({})
 
+    const submittingRef = useRef(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [submitted, setSubmitted] = useState(false)
@@ -128,7 +130,7 @@ export function RequestUserInputFooter(props: {
     }
 
     const submit = async () => {
-        if (loading) return
+        if (props.disabled || submittingRef.current) return
 
         // Validate all questions
         for (let i = 0; i < questions.length; i += 1) {
@@ -155,6 +157,7 @@ export function RequestUserInputFooter(props: {
             }
         }
 
+        submittingRef.current = true
         setLoading(true)
         await run(async () => {
             if (isAsync) {
@@ -162,6 +165,7 @@ export function RequestUserInputFooter(props: {
                 setSubmitted(true)
             } else if (permission) await props.api.approvePermission(props.sessionId, permission.id, formattedAnswers)
         }, 'success')
+        submittingRef.current = false
         setLoading(false)
     }
 
@@ -240,6 +244,7 @@ export function RequestUserInputFooter(props: {
                         <textarea
                             value={currentState?.userNote ?? ''}
                             onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
+                            onKeyDown={(event) => submitQuestionAnswerOnEnter(event, submit)}
                             disabled={props.disabled || loading}
                             placeholder={currentQuestion.placeholder ?? t('tool.requestUserInput.textPlaceholder')}
                             className="mt-3 w-full min-h-[88px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
@@ -276,6 +281,7 @@ export function RequestUserInputFooter(props: {
                                         aria-label={t(currentQuestion.otherRequiresText ? 'tool.otherDescription' : 'tool.requestUserInput.noteLabel')}
                                         value={currentState?.userNote ?? ''}
                                         onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
+                                        onKeyDown={(event) => submitQuestionAnswerOnEnter(event, submit)}
                                         disabled={props.disabled || loading}
                                         placeholder={t(currentQuestion.otherRequiresText ? 'tool.requestUserInput.textPlaceholder' : 'tool.requestUserInput.notePlaceholder')}
                                         className="w-full min-h-[60px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
