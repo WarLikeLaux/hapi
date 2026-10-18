@@ -85,17 +85,18 @@ describe('alive incremental events', () => {
         const now = Date.now()
         cache.handleSessionAlive({ sid: session.id, time: now, thinking: true })
         events.length = 0
-        cache.handleSessionIdle(session.id, now + 1)
+        cache.handleSessionIdle(session.id, now)
 
         expect(cache.getSession(session.id)).toMatchObject({
             active: true,
             thinking: false,
+            lastReadyAt: now,
             activeTurnStartedAt: null
         })
         expect(events).toContainEqual(expect.objectContaining({
             type: 'session-updated',
             sessionId: session.id,
-            data: { thinking: false, activeTurnStartedAt: null }
+            data: { thinking: false, activeTurnStartedAt: null, lastReadyAt: now }
         }))
 
         events.length = 0
@@ -186,7 +187,7 @@ describe('alive incremental events', () => {
             now
         )
         store.sessions.recordSessionUserActivity(session.id, now, session.namespace)
-        store.messages.addMessage(
+        const ready = store.messages.addMessage(
             session.id,
             { role: 'agent', content: { type: 'event', data: { type: 'ready' } } },
             'restart-ready',
@@ -208,6 +209,7 @@ describe('alive incremental events', () => {
         restartedCache.handleSessionAlive({ sid: session.id, time: now + 100, thinking: true })
 
         expect(restartedCache.getSession(session.id)?.thinking).toBe(false)
+        expect(restartedCache.getSession(session.id)?.lastReadyAt).toBe(ready.createdAt)
         store.close()
     })
 

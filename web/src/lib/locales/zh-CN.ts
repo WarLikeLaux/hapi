@@ -1468,7 +1468,7 @@ export default {
   'groups.empty': '分组中还没有聊天。',
   'groups.addChats': '添加已有聊天',
   'groups.saveName': '重命名',
-  'groups.orderHint': '固定常用聊天，用箭头调整标签顺序。',
+  'groups.orderHint': '箭头设置手动顺序。固定聊天始终在前；等待回复的聊天和已完成的轮次会暂时排到前面。',
   'groups.unpin': '取消固定标签',
   'groups.pin': '固定标签',
   'groups.moveLeft': '标签左移',

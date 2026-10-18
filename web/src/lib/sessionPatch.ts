@@ -81,6 +81,9 @@ export function applySessionDetailPatch(session: Session, patch: SessionPatch): 
     if (patch.lastAgentMessageAt !== undefined) {
         assign('lastAgentMessageAt', Math.max(nextSession.lastAgentMessageAt ?? 0, patch.lastAgentMessageAt))
     }
+    if (patch.lastReadyAt !== undefined) {
+        assign('lastReadyAt', Math.max(nextSession.lastReadyAt ?? 0, patch.lastReadyAt))
+    }
     if (patch.model !== undefined) assign('model', patch.model)
     if (patch.modelReasoningEffort !== undefined) assign('modelReasoningEffort', patch.modelReasoningEffort)
     if (patch.effort !== undefined) assign('effort', patch.effort)

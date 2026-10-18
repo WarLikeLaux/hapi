@@ -30,13 +30,7 @@ export function SessionAttentionIndicator(props: {
     const isQuestion = props.attention.kind === 'input' || props.attention.kind === 'async-input'
     const count = props.attention.kind === 'async-input' ? props.summary.pendingAsyncQuestionsCount ?? 0 : 0
     const label = isQuestion && count > 1 ? t('session.question.count', { count }) : props.label
-    const dot = isQuestion ? (
-        <SessionQuestionIcon label={label} />
-    ) : (
-        <span
-            className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS[props.attention.kind]}`}
-        />
-    )
+    const dot = <SessionAttentionGlyph attention={props.attention} label={label} />
 
     return (
         <HoverTooltip
@@ -55,6 +49,13 @@ export function SessionAttentionIndicator(props: {
             />
         </HoverTooltip>
     )
+}
+
+export function SessionAttentionGlyph(props: { attention: SessionAttention; label: string; title?: string }) {
+    return props.attention.kind === 'input' || props.attention.kind === 'async-input'
+        ? <SessionQuestionIcon label={props.label} title={props.title} />
+        : <span aria-label={props.label} title={props.title}
+            className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS[props.attention.kind]}`} />
 }
 
 export function SessionQuestionIcon(props: { label: string; title?: string }) {

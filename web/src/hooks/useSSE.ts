@@ -171,6 +171,7 @@ export function isRenderIrrelevantPatch(current: SessionSummary, next: SessionSu
         && current.lastUserMessageAt === next.lastUserMessageAt
         && current.lastMessageAt === next.lastMessageAt
         && current.lastAgentMessageAt === next.lastAgentMessageAt
+        && current.lastReadyAt === next.lastReadyAt
         && current.backgroundTaskCount === next.backgroundTaskCount
         && current.model === next.model
         && current.modelReasoningEffort === next.modelReasoningEffort
@@ -552,6 +553,9 @@ export function useSSE(options: {
                     lastAgentMessageAt: patch.lastAgentMessageAt !== undefined
                         ? Math.max(current.lastAgentMessageAt ?? 0, patch.lastAgentMessageAt)
                         : current.lastAgentMessageAt,
+                    lastReadyAt: patch.lastReadyAt !== undefined
+                        ? Math.max(current.lastReadyAt ?? 0, patch.lastReadyAt)
+                        : current.lastReadyAt,
                     backgroundTaskCount: Object.prototype.hasOwnProperty.call(patch, 'backgroundTaskCount')
                         ? patch.backgroundTaskCount ?? 0
                         : current.backgroundTaskCount,
@@ -622,7 +626,7 @@ export function useSSE(options: {
                 detail?.session
                 && readyAt >= (detail.session.lastUserMessageAt ?? detail.session.createdAt)
             ) {
-                patchSessionDetail(sessionId, { thinking: false, activeTurnStartedAt: null })
+                patchSessionDetail(sessionId, { thinking: false, activeTurnStartedAt: null, lastReadyAt: readyAt })
             }
 
             const sessions = queryClient.getQueryData<SessionsResponse>(queryKeys.sessions)
@@ -631,7 +635,7 @@ export function useSSE(options: {
                 summary
                 && readyAt >= (summary.lastUserMessageAt ?? summary.createdAt ?? 0)
             ) {
-                patchSessionSummary(sessionId, { thinking: false, activeTurnStartedAt: null })
+                patchSessionSummary(sessionId, { thinking: false, activeTurnStartedAt: null, lastReadyAt: readyAt })
             }
         }
 

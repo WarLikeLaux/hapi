@@ -1471,7 +1471,7 @@ export default {
   'groups.empty': 'No chats in this group yet.',
   'groups.addChats': 'Add existing chats',
   'groups.saveName': 'Rename',
-  'groups.orderHint': 'Pin chats to keep them at hand. Use the arrows to arrange tabs.',
+  'groups.orderHint': 'Arrows set the manual order. Pinned chats stay first; chats needing your reply and completed turns temporarily move ahead.',
   'groups.unpin': 'Unpin tab',
   'groups.pin': 'Pin tab',
   'groups.moveLeft': 'Move tab left',

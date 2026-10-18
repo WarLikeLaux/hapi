@@ -355,6 +355,8 @@ export const SessionSchema = z.object({
     lastMessageAt: z.number().optional(),
     /** Latest chat-visible agent message; used as the unread watermark. */
     lastAgentMessageAt: z.number().optional(),
+    /** Latest reliable CLI ready boundary, distinct from an idle heartbeat. */
+    lastReadyAt: z.number().optional(),
     pinned: z.boolean().optional(),
     globalPinned: z.boolean().optional(),
     active: z.boolean(),
@@ -425,6 +427,7 @@ export const SessionPatchSchema = z.object({
     lastUserMessageAt: z.number().optional(),
     lastMessageAt: z.number().optional(),
     lastAgentMessageAt: z.number().optional(),
+    lastReadyAt: z.number().optional(),
     // Structured-patch fields for the second half of #884. Letting the four
     // hub-side emit-sites in cli/sessionHandlers.ts (todos, teamState,
     // metadata, agentState writes) carry their delta means the web client's

@@ -240,6 +240,7 @@ export class SessionCache {
             lastUserMessageAt: stored.lastUserMessageAt ?? stored.createdAt,
             lastMessageAt: conversationActivity.lastMessageAt ?? 0,
             lastAgentMessageAt: conversationActivity.lastAgentMessageAt ?? 0,
+            lastReadyAt: existing?.lastReadyAt ?? this.idleBoundaryAtBySessionId.get(sessionId) ?? 0,
             pinned: stored.pinned,
             globalPinned: stored.globalPinned,
             active: existing?.active ?? stored.active,
@@ -874,15 +875,17 @@ export class SessionCache {
 
         this.pendingThinkingUntilBySessionId.delete(session.id)
         this.idleBoundaryAtBySessionId.set(session.id, t)
-        if (!session.thinking && session.activeTurnStartedAt === null) return
+        const lastReadyAt = Math.max(session.lastReadyAt ?? 0, t)
+        if (!session.thinking && session.activeTurnStartedAt === null && session.lastReadyAt === lastReadyAt) return
 
+        session.lastReadyAt = lastReadyAt
         session.thinking = false
         session.thinkingAt = t
         session.activeTurnStartedAt = null
         this.publisher.emit({
             type: 'session-updated',
             sessionId: session.id,
-            data: { thinking: false, activeTurnStartedAt: null } satisfies SessionPatch
+            data: { thinking: false, activeTurnStartedAt: null, lastReadyAt } satisfies SessionPatch
         })
     }
 
