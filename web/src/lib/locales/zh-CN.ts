@@ -1,4 +1,7 @@
 export default {
+  'newSession.initialPrompt': '初始提示词（可选）',
+  'batch.showCustomPrompt': '查看单独的提示词',
+  'batch.showSharedPrompt': '共享提示词',
   'newSession.speed': '速度',
   'newSession.moreRecentPaths': '更多最近路径',
   'batch.removeTitle': '移除此聊天？',
