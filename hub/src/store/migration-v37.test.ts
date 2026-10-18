@@ -27,7 +27,7 @@ describe('schema migration v36 to v37', () => {
             const version = internalDb.prepare('PRAGMA user_version').get() as { user_version: number }
             const messages = internalDb.prepare('PRAGMA table_info(external_messages)').all() as Array<{ name: string }>
 
-            expect(version.user_version).toBe(39)
+            expect(version.user_version).toBe(40)
             expect(messages.some((column) => column.name === 'reply_to_provider_message_id')).toBe(true)
             expect(messages.some((column) => column.name === 'reply_to_sender_name')).toBe(true)
             expect(messages.some((column) => column.name === 'reply_to_text')).toBe(true)

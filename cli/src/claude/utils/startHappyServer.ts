@@ -1,4 +1,4 @@
-import { groupInfoSchema, GROUP_INFO_DESCRIPTION, GROUP_LIST_DESCRIPTION, readGroup, listGroups } from '@/modules/pingPeer/groupTools';
+import { groupInfoSchema, GROUP_INFO_DESCRIPTION, GROUP_LIST_DESCRIPTION, readGroup, listGroups, createGroupSchema, GROUP_CREATE_DESCRIPTION, createGroup } from '@/modules/pingPeer/groupTools';
 /**
  * HAPI MCP server
  * Provides HAPI CLI specific tools including chat session title management
@@ -54,7 +54,8 @@ const CLAUDE_MANUAL_APPROVAL_HAPI_TOOLS = new Set([
     'display_video',
     'ping_peer',
     'inspect_peer',
-    'launch_agent'
+    'launch_agent',
+    'create_group'
 ]);
 
 /**
@@ -476,6 +477,16 @@ function createHapiMcpServer(
     });
 
 
+    mcp.registerTool<any, any>('create_group', {
+        title: 'Create Chat Group', description: GROUP_CREATE_DESCRIPTION, inputSchema: createGroupSchema,
+    }, async (args: z.infer<typeof createGroupSchema>) => {
+        try {
+            return { content: [{ type: 'text' as const, text: JSON.stringify(await createGroup(client.sessionId, args), null, 2) }], isError: false };
+        } catch (error) {
+            return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }], isError: true };
+        }
+    });
+
     for (const tool of [
         { name: 'get_group', description: GROUP_INFO_DESCRIPTION, schema: groupInfoSchema, run: (args: z.infer<typeof groupInfoSchema>) => readGroup(client.sessionId, args) },
         { name: 'list_groups', description: GROUP_LIST_DESCRIPTION, schema: z.object({}), run: () => listGroups() },
@@ -639,7 +650,7 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
     if (options.skillLookup) {
         toolNames.push('skill_lookup');
     }
-    toolNames.push('list_groups', 'get_group', 'list_launch_options', 'launch_agent');
+    toolNames.push('create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent');
     toolNames.push('close_session');
 
     return {

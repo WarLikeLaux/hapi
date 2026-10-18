@@ -59,6 +59,48 @@ describe('user-owned groups through hub API', () => {
         } finally { f.close(); rmSync(dir, { recursive: true, force: true }) }
     })
 
+    it('replays durable group creation across retries and restart, scoped by namespace', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-group-create-'))
+        const path = join(dir, 'hub.db')
+        let f = fixture(path)
+        const existing = await f.create('Existing group')
+        f.store.groups.add('team', existing.id, f.b.id)
+        f.close()
+        const previousDb = new Database(path)
+        previousDb.exec('DROP TABLE session_group_creation_requests; PRAGMA user_version = 39')
+        previousDb.close()
+        f = fixture(path)
+        const input = { name: '  MCP workspace  ', requestId: 'create-1' }
+        const create = async (namespace = 'team', body = input) => {
+            const response = await f.send('/groups', 'POST', body, namespace)
+            expect(response.status).toBe(201)
+            return (await response.json() as { group: SessionGroup }).group
+        }
+        try {
+            const [group, concurrent] = await Promise.all([create(), create()])
+            expect(concurrent.id).toBe(group.id)
+            expect(group.name).toBe('MCP workspace')
+            expect(group.members).toEqual([])
+            expect(f.events.at(-1)).toEqual({ type: 'groups-updated', namespace: 'team' })
+            expect(f.store.groups.forSession('team', f.a.id)).toBeNull()
+            // A later user rename is retained; retries compare the original creation input.
+            f.store.groups.update('team', group.id, { ...group, name: 'Renamed', members: [{ sessionId: f.a.id, pinned: true }] })
+            f.close()
+            f = fixture(path)
+            const retried = await create()
+            expect(retried).toMatchObject({ id: group.id, name: 'Renamed', members: [{ sessionId: f.a.id, pinned: true }] })
+            expect((await f.send('/groups', 'POST', { ...input, name: 'Another' })).status).toBe(409)
+            expect(f.store.groups.list('team')).toHaveLength(2)
+            expect(f.store.groups.get('team', existing.id)?.members).toEqual([{ sessionId: f.b.id, pinned: false }])
+            expect((await create('other')).id).not.toBe(group.id)
+            expect((await create('team', { ...input, requestId: 'create-2' })).id).not.toBe(group.id)
+            for (const name of ['', '   ', 'x'.repeat(121)]) {
+                expect((await f.send('/groups', 'POST', { name, requestId: 'invalid' })).status).toBe(400)
+            }
+            expect((await f.send('/groups', 'POST', { name: 'Valid', requestId: ' ' })).status).toBe(400)
+        } finally { f.close(); rmSync(dir, { recursive: true, force: true }) }
+    })
+
     it('moves a chat atomically, rejects stale device edits and detaches without changing the chat', async () => {
         const f = fixture()
         try {

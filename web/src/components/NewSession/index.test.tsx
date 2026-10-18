@@ -374,6 +374,50 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('codex')
     })
 
+    it('creates an optional named group and reuses its request after a failed launch', async () => {
+        const createGroup = vi.fn(async () => ({ group: { id: 'created-group', name: 'HAPI' } }))
+        mocks.spawnSession.mockRejectedValueOnce(new Error('Runner unavailable')).mockResolvedValueOnce({ type: 'success', sessionId: 'new-chat' })
+        render(<NewSession api={{ ...api, createGroup } as unknown as ApiClient} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.queryByRole('textbox', { name: 'groups.name' })).toBeNull()
+        fireEvent.click(screen.getByRole('checkbox', { name: 'groups.createWithChat' }))
+        expect(screen.getByTestId('create')).toBeDisabled()
+        fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: '  HAPI  ' } })
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledTimes(1))
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('new-chat'))
+        expect(createGroup).toHaveBeenCalledTimes(2)
+        expect(createGroup.mock.calls[0]).toEqual(['HAPI', expect.any(String)])
+        expect(createGroup.mock.calls[1]).toEqual(createGroup.mock.calls[0])
+        expect(mocks.spawnSession).toHaveBeenLastCalledWith(expect.objectContaining({ groupId: 'created-group' }))
+    })
+
+    it('uses the group agent instead of global preferences, allows changing it and retains group membership', async () => {
+        savePreferredAgent('claude')
+        saveNewSessionFormDraft({
+            agent: 'cursor', model: 'auto', cursorSelectedBase: 'auto', machineId: 'machine-1',
+            effort: 'auto', modelReasoningEffort: 'default', serviceTier: 'standard', collaborationMode: 'default',
+            copilotAgentMode: 'interactive', yoloMode: false, nativePermissionMode: 'default',
+            grokPermissionMode: 'default', sessionType: 'simple', worktreeName: '',
+        })
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'group-chat' })
+        render(<NewSession api={api} machines={[machine]} groupId="group" groupName="HAPI" initialAgent="codex" initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked()
+        expect(screen.queryByRole('checkbox', { name: 'groups.createWithChat' })).toBeNull()
+        fireEvent.click(screen.getByRole('radio', { name: 'Claude' }))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ groupId: 'group', agent: 'claude', directory: 'C:\\repo' })))
+    })
+
+    it('falls back to an available group agent with an explanation', async () => {
+        mocks.availableAgents = mocks.availableAgents.filter(entry => entry.agent !== 'claude')
+        render(<NewSession api={api} machines={[machine]} groupId="group" initialAgent="claude" initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked())
+        expect(screen.getByRole('status')).toHaveTextContent('groups.defaultsUnavailable')
+        expect(screen.getByTestId('create')).toBeEnabled()
+    })
+
     it('hides unavailable Agents and falls back to the first available Agent', async () => {
         savePreferredAgent('claude')
         mocks.availableAgents.splice(

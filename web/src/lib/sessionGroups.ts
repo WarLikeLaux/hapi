@@ -1,7 +1,7 @@
 import type { SessionGroup } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
 import { isWorkingSession } from './navigationBadges'
-import { getSessionUnreadActivityAt, sessionIsUnread } from './sessionAttention'
+import { classifySessionAttention } from './sessionAttention'
 
 export type GroupSection = 'active' | 'working' | 'idle' | 'recent'
 
@@ -16,8 +16,9 @@ export function presentSessionGroup(
         return chat && chat.metadata?.lifecycleState !== 'archived' ? [chat] : []
     })
     const questions = chats.filter(chat => (chat.pendingRequestsCount ?? 0) > 0 || (chat.pendingAsyncQuestionsCount ?? 0) > 0).length
-    const unread = chats.filter(chat => sessionIsUnread(chat, { lastSeenAt: lastSeenAt(chat.id) })
-        || manualUnreadAt(chat.id) === getSessionUnreadActivityAt(chat)).length
+    const unread = chats.filter(chat => classifySessionAttention(chat, {
+        selected: false, lastSeenAt: lastSeenAt(chat.id), manualUnreadAt: manualUnreadAt(chat.id),
+    })?.kind === 'unread').length
     const working = chats.filter(isWorkingSession).length
     const live = chats.filter(chat => chat.active)
     const flavors = [...new Set(live.flatMap(chat => chat.metadata?.flavor ? [chat.metadata.flavor] : []))].sort()

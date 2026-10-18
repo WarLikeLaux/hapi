@@ -289,8 +289,8 @@ export class ApiClient {
         return await this.request('/api/groups')
     }
 
-    async createGroup(name: string): Promise<{ group: SessionGroup }> {
-        return await this.request('/api/groups', { method: 'POST', body: JSON.stringify({ name }) })
+    async createGroup(name: string, requestId?: string): Promise<{ group: SessionGroup }> {
+        return await this.request('/api/groups', { method: 'POST', body: JSON.stringify({ name, requestId }) })
     }
 
     async updateGroup(id: string, input: UpdateSessionGroup): Promise<{ group: SessionGroup }> {

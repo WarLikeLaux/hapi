@@ -320,6 +320,7 @@ describe('toClaudeAllowedHapiMcpTools', () => {
             'inspect_peer',
             'list_launch_options',
             'launch_agent',
+            'create_group',
             'skill_lookup'
         ])).toEqual([
             'mcp__hapi__change_title',

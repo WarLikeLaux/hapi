@@ -9,9 +9,8 @@ import type { SessionGroup, UpdateSessionGroup } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { getSessionLastSeenAt, getSessionManualUnreadAt, useSessionLastSeenVersion } from '@/lib/sessionLastSeen'
-import { classifySessionAttention, getSessionAttentionLabelKey, sessionIsUnread, getSessionUnreadActivityAt } from '@/lib/sessionAttention'
+import { classifySessionAttention, getSessionAttentionLabelKey } from '@/lib/sessionAttention'
 import { useTranslation } from '@/lib/use-translation'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 
 const control = 'min-h-9 rounded-md px-2 text-sm hover:bg-[var(--app-subtle-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] disabled:opacity-40'
@@ -27,16 +26,18 @@ function useChatStatus(session: SessionSummary, selected = false) {
     useSessionLastSeenVersion()
     const { t } = useTranslation()
     const attention = classifySessionAttention(session, { selected, lastSeenAt: getSessionLastSeenAt(session.id), manualUnreadAt: getSessionManualUnreadAt(session.id) })
-    const question = attention && ['input', 'async-input', 'permission'].includes(attention.kind)
-    const label = attention ? t(getSessionAttentionLabelKey(attention)) : session.thinking ? t('groups.working') : session.active ? t('groups.idle') : t('groups.archived')
-    return { label, question, unread: (!selected && sessionIsUnread(session, { lastSeenAt: getSessionLastSeenAt(session.id) })) || getSessionManualUnreadAt(session.id) === getSessionUnreadActivityAt(session), working: session.thinking }
+    const permission = session.pendingRequestKinds?.includes('permission')
+    const question = permission || (attention && ['input', 'async-input', 'permission'].includes(attention.kind))
+    const label = permission && (!attention || attention.kind === 'unread') ? t('session.item.permission') : attention ? t(getSessionAttentionLabelKey(attention)) : session.thinking ? t('groups.working') : session.active ? t('groups.idle') : t('groups.archived')
+    return { label, question, unread: attention?.kind === 'unread', working: session.thinking }
 }
 
 function ChatStatus({ session, selected = false }: { session: SessionSummary; selected?: boolean }) {
     const status = useChatStatus(session, selected)
+    const { t } = useTranslation()
     return <span title={status.label} aria-label={status.label} className={cn('flex shrink-0 items-center gap-1 text-xs', status.question ? 'text-[var(--app-badge-warning-text)]' : 'text-[var(--app-hint)]')}>
         {status.question ? <span className="font-semibold">?</span> : status.working ? <svg className="h-3 w-3 motion-safe:animate-spin" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="2" strokeDasharray="23 9" /></svg> : null}
-        {status.unread ? <span className="h-2 w-2 rounded-full bg-[var(--app-link)]" /> : null}
+        {status.unread ? <span aria-label={t('session.item.newActivity')} className="h-2 w-2 rounded-full bg-[var(--app-link)]" /> : null}
     </span>
 }
 
@@ -79,19 +80,6 @@ export function SessionGroupRows(props: {
             </SessionRowLayout>
         </button>
     })}</>
-}
-
-export function CreateGroupDialog(props: { open: boolean; onClose: () => void; onCreate: (name: string) => Promise<void>; pending: boolean; error?: string }) {
-    const { t } = useTranslation()
-    const [name, setName] = useState('')
-    return <Dialog open={props.open} onOpenChange={open => { if (!open) props.onClose() }}><DialogContent>
-        <DialogTitle className="mb-4 pr-8 text-lg font-semibold">{t('groups.create')}</DialogTitle>
-        <form onSubmit={event => { event.preventDefault(); if (name.trim()) void props.onCreate(name.trim()) }} className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 text-sm">{t('groups.name')}<input autoFocus value={name} onChange={e => setName(e.target.value)} maxLength={120} className={field} placeholder={t('groups.namePlaceholder')} /></label>
-            {props.error ? <p role="alert" className="text-sm text-red-600">{props.error}</p> : null}
-            <button disabled={props.pending || !name.trim()} className={cn(control, 'self-end bg-[var(--app-button)] px-4 text-[var(--app-button-text)]')}>{t('groups.create')}</button>
-        </form>
-    </DialogContent></Dialog>
 }
 
 export function SessionGroupWorkspace(props: {

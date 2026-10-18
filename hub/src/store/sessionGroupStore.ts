@@ -14,6 +14,11 @@ export function createSessionGroupTables(db: Database): void {
             position INTEGER NOT NULL, pinned INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_session_group_members_group ON session_group_members(group_id, position);
+        CREATE TABLE IF NOT EXISTS session_group_creation_requests (
+            namespace TEXT NOT NULL, request_id TEXT NOT NULL, name TEXT NOT NULL,
+            group_id TEXT NOT NULL REFERENCES session_groups(id) ON DELETE CASCADE,
+            PRIMARY KEY (namespace, request_id)
+        );
     `)
 }
 
@@ -61,10 +66,23 @@ export class SessionGroupStore {
         return row ? this.get(namespace, row.id) : null
     }
 
-    create(namespace: string, name: string): SessionGroup {
-        const id = crypto.randomUUID()
-        this.db.query('INSERT INTO session_groups (id, namespace, name, updated_at) VALUES (?, ?, ?, ?)').run(id, namespace, name, Date.now())
-        return this.get(namespace, id)!
+    /** A durable receipt makes a retry safe even after the response or hub process is lost. */
+    create(namespace: string, name: string, requestId?: string): SessionGroup {
+        return this.db.transaction(() => {
+            if (requestId) {
+                const receipt = this.db.query(`SELECT name, group_id AS groupId FROM session_group_creation_requests
+                    WHERE namespace = ? AND request_id = ?`).get(namespace, requestId) as { name: string; groupId: string } | null
+                if (receipt) {
+                    if (receipt.name !== name) throw new SessionGroupError('Request ID already used with another group name. Reuse the original name or choose a new request ID.', 409)
+                    return this.get(namespace, receipt.groupId)!
+                }
+            }
+            const id = crypto.randomUUID()
+            this.db.query('INSERT INTO session_groups (id, namespace, name, updated_at) VALUES (?, ?, ?, ?)').run(id, namespace, name, Date.now())
+            if (requestId) this.db.query(`INSERT INTO session_group_creation_requests (namespace, request_id, name, group_id)
+                VALUES (?, ?, ?, ?)`).run(namespace, requestId, name, id)
+            return this.get(namespace, id)!
+        })()
     }
 
     update(namespace: string, id: string, input: UpdateSessionGroup): SessionGroup {

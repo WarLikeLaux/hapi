@@ -65,10 +65,11 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
         expect(description).toContain('cannot be used to read, inspect, or analyze image contents')
     })
 
-    it.each(['change_title', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent', 'close_session'])('forwards %s arguments through the stdio bridge', async (name) => {
+    it.each(['change_title', 'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent', 'close_session'])('forwards %s arguments through the stdio bridge', async (name) => {
         await runHappyMcpStdioBridge(['--url', 'http://127.0.0.1:43006', '--tools', name])
         const args = name === 'launch_agent'
             ? { project: '/code/project', message: 'Implement task', requestId: 'task-1' }
+            : name === 'create_group' ? { name: 'HAPI', requestId: 'group-1' }
             : name === 'change_title' ? { title: 'Координатор', pin: true }
                 : name === 'get_group' ? { groupId: 'group-hapi' } : name === 'close_session' || name === 'list_groups' ? {} : { machineId: 'runner-one' }
         const schema = harness.configs.get(name)?.inputSchema as { parse(value: unknown): Record<string, unknown> }

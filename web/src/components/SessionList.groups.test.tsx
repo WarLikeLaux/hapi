@@ -42,16 +42,19 @@ describe('group placement and agent icons', () => {
             .toEqual(['Working sessions', 'Active sessions'])
     })
 
-    it('keeps working and unread signals together, then moves only after every unread chat is read', () => {
-        mount([chat('one'), chat('two', { metadata: { path: '/work', flavor: 'opencode' } }), chat('three')])
-        expect(groupIn('Active sessions')).toHaveTextContent('3 working')
-        expect(within(groupIn('Active sessions')).getByLabelText('Agent working')).toBeVisible()
-        expect(within(groupIn('Active sessions')).getByRole('img', { name: 'codex, opencode' })).toBeVisible()
+    it('defers unread work until completion without advancing read history', () => {
+        const sessions = [chat('one'), chat('two', { metadata: { path: '/work', flavor: 'opencode' } }), chat('three')]
+        const update = mount(sessions)
+        expect(groupIn('Working sessions')).toHaveTextContent('3 working')
+        expect(within(groupIn('Working sessions')).queryByLabelText(/unread/)).toBeNull()
+        expect(within(groupIn('Working sessions')).getByRole('img', { name: 'codex, opencode' })).toBeVisible()
+        expect(localStorage.getItem('hapi.sessionLastSeen.v1')).toBeNull()
+        update(sessions.map(s => s.id === 'one' ? { ...s, thinking: false } : s))
+        expect(within(groupIn('Active sessions')).getByLabelText('1 unread chats')).toBeVisible()
         act(() => markSessionSeen('one', 2000))
-        expect(groupIn('Active sessions')).toBeVisible()
-        act(() => { markSessionSeen('two', 2000); markSessionSeen('three', 2000) })
         expect(groupIn('Working sessions')).toBeVisible()
-        expect(screen.queryByRole('region', { name: 'Active sessions' })).toBeNull()
+        update(sessions.map(s => ({ ...s, thinking: false })))
+        expect(within(groupIn('Active sessions')).getByLabelText('2 unread chats')).toBeVisible()
     })
 
     it('keeps a read unanswered question in Active even while other agents work', () => {
