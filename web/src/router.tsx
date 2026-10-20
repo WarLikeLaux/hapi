@@ -296,7 +296,7 @@ function SessionsPage() {
                         sessionGroups={groupState.groups}
                         selectedGroupId={selectedGroup?.id}
                         onSelectGroup={openGroup}
-                        groupsStatus={groupState.query.isError ? <button type="button" className="p-3 text-sm text-red-600" onClick={() => void groupState.query.refetch()}>{t('groups.loadError')}</button> : groupState.query.isPending ? <p className="p-3 text-sm text-[var(--app-hint)]">{t('groups.loadPending')}</p> : null}
+                        groupsStatus={groupState.query.isError ? <button type="button" className="p-3 text-sm text-red-600" onClick={() => void groupState.query.refetch()}>{t('groups.loadError')}</button> : null}
                         selectedSessionId={selectedSessionId}
                         onSelect={(sessionId) => navigate(getSessionListSelectionNavigation(sessionId))}
                         onNewSession={() => navigate({
