@@ -159,7 +159,7 @@ export function SessionGroupRows(props: {
         {handlers => <button {...handlers} type="button" data-testid="session-group-row" aria-haspopup="menu"
             aria-current={props.selectedGroupId === group.id ? 'page' : undefined}
             className={cn(SESSION_LIST_ITEM_CLASS, props.selectedGroupId === group.id && 'bg-[var(--app-secondary-bg)]')}>
-            <SessionRowLayout title={group.name} active={section !== 'recent' && section !== 'parked'}
+            <SessionRowLayout title={group.name} active={section !== 'recent' && !group.parked}
                 avatar={<span className="relative flex h-full w-full items-center justify-center" role="img" aria-label={flavors.length ? flavors.join(', ') : t('groups.workspace')} title={flavors.join(', ')}>
                     {flavors.length === 0 ? <GroupIcon className="h-full w-full" /> : flavors.length === 1 ? <AgentFlavorIcon flavor={flavors[0]} className="h-full w-full" avatar /> : <>
                         <span className="absolute left-0 top-0 h-6 w-6 rounded-full bg-[var(--app-bg)] p-0.5"><AgentFlavorIcon flavor={flavors[0]} className="h-full w-full" avatar /></span>

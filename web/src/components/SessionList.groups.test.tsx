@@ -36,21 +36,30 @@ function groupIn(section: string) {
 }
 
 describe('group placement and agent icons', () => {
-    it.each([true, false])('keeps parked groups out of current work with section pinning %s', pinInProgress => {
+    it.each([true, false])('keeps parked groups visible alongside idle chats with section pinning %s', pinInProgress => {
         localStorage.setItem('hapi-pin-in-progress-sessions', String(pinInProgress))
-        mount([chat('worker'), chat('question', { thinking: false, pendingRequestKinds: ['input'] })], [], true)
+        const idle = chat('standalone-idle', { thinking: false,
+            metadata: { path: '/work', name: 'Idle chat', lifecycleState: 'idle' } })
+        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ 'standalone-idle': 2000 }))
+        mount([chat('worker'), chat('question', { thinking: false, pendingRequestKinds: ['input'] })], [idle], true)
         expect(screen.queryByRole('region', { name: 'Working sessions' })).toBeNull()
         expect(screen.queryByRole('region', { name: 'Active sessions' })).toBeNull()
-        const parked = screen.getByRole('region', { name: 'Parked groups' })
-        fireEvent.click(within(parked).getByRole('button', { name: /Parked groups/ }))
-        expect(within(parked).getByTestId('session-group-row')).toBeVisible()
-        expect(within(parked).getByText('2 chats')).toBeVisible()
-        expect(within(parked).getByText('1 working')).toBeVisible()
+        expect(screen.queryByRole('region', { name: 'Parked groups' })).toBeNull()
+        const row = screen.getByTestId('session-group-row')
+        expect(row).toBeVisible()
+        expect(within(row).getByText('2 chats')).toBeVisible()
+        expect(within(row).getByText('1 working')).toBeVisible()
+        expect(within(row).getByText('Parked')).toBeVisible()
+        if (pinInProgress) {
+            const idleSection = screen.getByRole('region', { name: 'Idle (keepalive only)' })
+            expect(within(idleSection).getByTestId('session-group-row')).toBeVisible()
+            expect(within(idleSection).getByRole('button', { name: /Idle chat/ })).toBeVisible()
+        }
         fireEvent.click(screen.getByRole('button', { name: /^Search sessions/ }))
         fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'worker' } })
         expect(screen.getByRole('tab', { name: 'Chats (1)' })).toHaveAttribute('aria-selected', 'true')
         expect(screen.getAllByTestId('session-group-row')).toHaveLength(1)
-        expect(within(parked).getByTestId('session-group-row')).toBeVisible()
+        expect(screen.getByTestId('session-group-row')).toBeVisible()
         fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'no match' } })
         expect(screen.queryByTestId('session-group-row')).toBeNull()
     })

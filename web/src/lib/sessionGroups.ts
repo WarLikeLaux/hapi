@@ -3,7 +3,7 @@ import type { SessionSummary } from '@/types/api'
 import { isWorkingSession } from './navigationBadges'
 import { classifySessionAttention } from './sessionAttention'
 
-export type GroupSection = 'active' | 'working' | 'idle' | 'recent' | 'parked'
+export type GroupSection = 'active' | 'working' | 'idle' | 'recent'
 
 export function presentSessionGroup(
     group: SessionGroup,
@@ -24,9 +24,9 @@ export function presentSessionGroup(
     const live = chats.filter(chat => chat.active)
     const flavors = [...new Set(live.flatMap(chat => chat.metadata?.flavor ? [chat.metadata.flavor] : []))].sort()
     // Quiet, reachable chats remain ready in Active, just like standalone chats.
-    // Idle is a lifecycle state, not the absence of foreground work.
+    // Idle contains idle chats and explicitly parked groups, even when their agents keep working.
     const partiallyClosed = group.closed && chats.some(chat => chat.active || chat.metadata?.lifecycleState !== 'archived')
-    const section: GroupSection = group.closed && !partiallyClosed ? 'recent' : group.parked ? 'parked' : questions || permissions || unread ? 'active' : working ? 'working'
+    const section: GroupSection = group.closed && !partiallyClosed ? 'recent' : group.parked ? 'idle' : questions || permissions || unread ? 'active' : working ? 'working'
         : live.some(chat => chat.metadata?.lifecycleState !== 'idle') ? 'active'
         : live.length || chats.some(chat => chat.metadata?.lifecycleState === 'parked') ? 'idle' : 'recent'
     return { chats, partiallyClosed, questions, permissions, unread, working, flavors, section,
