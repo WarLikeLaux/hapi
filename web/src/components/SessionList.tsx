@@ -1291,6 +1291,8 @@ export function SessionList(props: {
     sessionGroups?: ChatGroup[]
     selectedGroupId?: string
     onSelectGroup?: (group: ChatGroup) => void
+    onNewGroupChat?: (group: ChatGroup) => void
+    onGroupHidden?: (group: ChatGroup) => void
     groupsStatus?: React.ReactNode
     hasGroupRows?: boolean
     sessions: SessionSummary[]
@@ -1508,12 +1510,6 @@ export function SessionList(props: {
             : null,
         [hasTextQuery, projectTimeScopedSessions, normalizedQuery, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
     )
-    const chatsHaveNoMatches = normalizedQuery.length >= 2 && searchScoreIndex?.matchedIds.size === 0
-    const searchResultTabOrder: ('chats' | 'messages')[] = chatsHaveNoMatches
-        ? ['messages', 'chats']
-        : ['chats', 'messages']
-    const searchResultTab = searchResultSelection ?? (chatsHaveNoMatches ? 'messages' : 'chats')
-    const showSessionSections = !hasTextQuery || searchResultTab === 'chats'
     const visibleSessions = useMemo(
         () => {
             if (!isFiltering) return allSessions
@@ -1688,7 +1684,7 @@ export function SessionList(props: {
             : grouped
     }, [allDirectoryGroups, hasTextQuery, pinInProgressSessions, searchScoreIndex])
     const chatGroupSections = useMemo(() => {
-        const sections: Record<GroupSection, ChatGroup[]> = { active: [], working: [], idle: [], recent: [] }
+        const sections: Record<GroupSection, ChatGroup[]> = { active: [], working: [], idle: [], recent: [], parked: [] }
         const byId = new Map((props.groupedSessions ?? []).map(session => [session.id, session]))
         const presented = (props.sessionGroups ?? []).map(group => ({ group, state: presentSessionGroup(group, byId, getSessionLastSeenAt, getSessionManualUnreadAt) }))
             .sort((a, b) => b.state.activityAt - a.state.activityAt)
@@ -1702,14 +1698,25 @@ export function SessionList(props: {
         }
         return sections
     }, [props.sessionGroups, props.groupedSessions, lastSeenVersion, normalizedQuery, timeRange?.start, timeRange?.end, activeMachineFilter, activeContext, contextOptions, machineLabelsById])
+    const matchingChatGroupCount = Object.values(chatGroupSections).reduce((count, groups) => count + groups.length, 0)
+    const chatsHaveNoMatches = normalizedQuery.length >= 2 && searchScoreIndex?.matchedIds.size === 0 && matchingChatGroupCount === 0
+    const searchResultTabOrder: ('chats' | 'messages')[] = chatsHaveNoMatches
+        ? ['messages', 'chats']
+        : ['chats', 'messages']
+    const searchResultTab = searchResultSelection ?? (chatsHaveNoMatches ? 'messages' : 'chats')
+    const showSessionSections = !hasTextQuery || searchResultTab === 'chats'
     const renderChatGroups = (chatGroups: ChatGroup[]) => <SessionGroupRows groups={chatGroups} sessions={props.groupedSessions ?? []}
-        selectedGroupId={props.selectedGroupId} search="" onOpen={group => props.onSelectGroup?.(group)} />
+        selectedGroupId={props.selectedGroupId} search="" onOpen={group => props.onSelectGroup?.(group)}
+        api={props.api} onNew={props.onNewGroupChat} onHidden={props.onGroupHidden}
+        onActionError={(group, message) => setGroupActionError(`${group.name}\n${message}`)} />
 
     const [collapseOverrides, setCollapseOverrides] = useState<Map<string, boolean>>(
         () => new Map()
     )
     const [pinnedSectionCollapsed, setPinnedSectionCollapsed] = useState(false)
     const [recentSectionCollapsed, setRecentSectionCollapsed] = useState(true)
+    const [groupActionError, setGroupActionError] = useState<string | null>(null)
+    const [parkedSectionCollapsed, setParkedSectionCollapsed] = useState(true)
     const [recentVisibleCount, setRecentVisibleCount] = useState(RECENT_SESSION_BATCH_SIZE)
     const autoExpandedSelectedSessionKeyRef = useRef<string | null>(null)
     const isGroupCollapsed = (group: SessionGroup): boolean => {
@@ -2381,7 +2388,7 @@ export function SessionList(props: {
             <div ref={scrollContainerRef} className="app-scroll-y session-list-scrollbar-left scrollbar-auto-hide min-h-0 flex-1">
             <SessionListScrollAnchor sessions={props.sessions} className="mx-auto flex w-full max-w-content flex-col gap-1 pl-1.5 pr-2 pb-2">
                 {props.groupsStatus}
-                {!pinInProgressSessions || isFiltering ? renderChatGroups(Object.values(chatGroupSections).flat()) : null}
+                {!pinInProgressSessions || isFiltering ? renderChatGroups(Object.entries(chatGroupSections).filter(([key]) => key !== 'parked').flatMap(([, groups]) => groups)) : null}
                 {props.sessions.length === 0 && !props.isLoading && !props.hasGroupRows ? (
                     <SessionsEmptyState
                         onNewSession={props.onNewSession}
@@ -2415,7 +2422,7 @@ export function SessionList(props: {
                                 </span>
                                 {tab === 'chats' && searchScoreIndex ? (
                                     <span className="shrink-0 text-[11px] tabular-nums opacity-70">
-                                        ({searchScoreIndex.matchedIds.size})
+                                        ({searchScoreIndex.matchedIds.size + matchingChatGroupCount})
                                     </span>
                                 ) : tab === 'messages' && messageSearchState.response ? (
                                     <span className="shrink-0 text-[11px] tabular-nums opacity-70">
@@ -2517,9 +2524,18 @@ export function SessionList(props: {
                 }) : null}
                 {showSessionSections ? renderRecentSessions() : null}
                 {showSessionSections ? groups.map(renderDirectoryGroup) : null}
+                {showSessionSections ? renderSessionSection({
+                    sectionKey: 'parked-groups', titleKey: 'groups.parkedSection',
+                    collapsed: parkedSectionCollapsed, onToggle: () => setParkedSectionCollapsed(value => !value),
+                    sessions: [], activityTimeBasis: 'agent', statusColorClass: 'bg-[var(--app-hint)]',
+                    chatGroups: chatGroupSections.parked,
+                }) : null}
             </SessionListScrollAnchor>
             </div>
             </div>
+            {groupActionError ? <ConfirmDialog isOpen onClose={() => setGroupActionError(null)} title={t('groups.actionError')}
+                description={groupActionError} confirmLabel={t('dialog.reopen.dismiss')} confirmingLabel={t('dialog.reopen.dismiss')}
+                onConfirm={async () => setGroupActionError(null)} isPending={false} centerTitle /> : null}
             <ProjectActionMenu
                 state={projectMenu}
                 onClose={() => setProjectMenu(null)}

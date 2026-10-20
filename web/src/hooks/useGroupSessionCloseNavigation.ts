@@ -19,6 +19,10 @@ export function useGroupSessionCloseNavigation(options: {
         }
         if (!sessionId || !session) return
         const group = groups.find(g => g.members.some(member => member.sessionId === sessionId))
+        if (group?.closed) {
+            observed.current.groupId = null
+            return
+        }
         if (session.metadata?.lifecycleState !== 'archived') {
             if (group) observed.current.groupId = group.id
             return

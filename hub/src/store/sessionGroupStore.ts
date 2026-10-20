@@ -5,7 +5,8 @@ export function createSessionGroupTables(db: Database): void {
     db.exec(`
         CREATE TABLE IF NOT EXISTS session_groups (
             id TEXT PRIMARY KEY, namespace TEXT NOT NULL, name TEXT NOT NULL,
-            version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL
+            version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL,
+            parked INTEGER NOT NULL DEFAULT 0, closed INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_session_groups_namespace ON session_groups(namespace);
         CREATE TABLE IF NOT EXISTS session_group_members (
@@ -20,14 +21,21 @@ export function createSessionGroupTables(db: Database): void {
             PRIMARY KEY (namespace, request_id)
         );
     `)
+    const columns = db.query('PRAGMA table_info(session_groups)').all() as { name: string }[]
+    if (!columns.some(column => column.name === 'closed')) {
+        db.exec('ALTER TABLE session_groups ADD COLUMN closed INTEGER NOT NULL DEFAULT 0')
+    }
+    if (!columns.some(column => column.name === 'parked')) {
+        db.exec('ALTER TABLE session_groups ADD COLUMN parked INTEGER NOT NULL DEFAULT 0')
+    }
 }
 
 /** Runs inside the caller's metadata transaction so archive and detachment commit together. */
 export function detachSessionFromGroup(db: Database, sessionId: string, namespace: string): void {
     db.query(`UPDATE session_groups SET version = version + 1, updated_at = ?
-        WHERE namespace = ? AND id IN (SELECT group_id FROM session_group_members WHERE session_id = ?)`).run(Date.now(), namespace, sessionId)
+        WHERE namespace = ? AND closed = 0 AND id IN (SELECT group_id FROM session_group_members WHERE session_id = ?)`).run(Date.now(), namespace, sessionId)
     db.query(`DELETE FROM session_group_members WHERE session_id = ?
-        AND group_id IN (SELECT id FROM session_groups WHERE namespace = ?)`).run(sessionId, namespace)
+        AND group_id IN (SELECT id FROM session_groups WHERE namespace = ? AND closed = 0)`).run(sessionId, namespace)
 }
 
 export class SessionGroupError extends Error {
@@ -36,12 +44,14 @@ export class SessionGroupError extends Error {
 
 /** Membership is separate from session metadata and never changes history or lifecycle. */
 export class SessionGroupStore {
+    private readonly lifecycleOperations = new Set<string>()
     constructor(private readonly db: Database) {
         // Reconcile persisted membership from earlier previews or an offline archive.
         this.db.transaction(() => {
             const archived = this.db.query(`SELECT s.id, s.namespace FROM sessions s
                 JOIN session_group_members m ON m.session_id = s.id
-                WHERE json_extract(s.metadata, '$.lifecycleState') = 'archived'`).all() as { id: string; namespace: string }[]
+                JOIN session_groups g ON g.id = m.group_id
+                WHERE g.closed = 0 AND json_extract(s.metadata, '$.lifecycleState') = 'archived'`).all() as { id: string; namespace: string }[]
             for (const session of archived) detachSessionFromGroup(this.db, session.id, session.namespace)
         })()
     }
@@ -52,12 +62,12 @@ export class SessionGroupStore {
     }
 
     get(namespace: string, id: string): SessionGroup | null {
-        const row = this.db.query('SELECT id, name, version, updated_at AS updatedAt FROM session_groups WHERE id = ? AND namespace = ?').get(id, namespace) as Omit<SessionGroup, 'members'> | null
+        const row = this.db.query('SELECT id, name, version, updated_at AS updatedAt, parked, closed FROM session_groups WHERE id = ? AND namespace = ?').get(id, namespace) as (Omit<SessionGroup, 'members' | 'parked' | 'closed'> & { parked: number; closed: number }) | null
         if (!row) return null
         const members = this.db.query(`SELECT m.session_id AS sessionId, m.pinned FROM session_group_members m
             JOIN sessions s ON s.id = m.session_id WHERE m.group_id = ? AND s.namespace = ?
             ORDER BY m.pinned DESC, m.position, m.session_id`).all(id, namespace) as { sessionId: string; pinned: number }[]
-        return { ...row, members: members.map(member => ({ ...member, pinned: Boolean(member.pinned) })) }
+        return { ...row, parked: Boolean(row.parked), closed: Boolean(row.closed), members: members.map(member => ({ ...member, pinned: Boolean(member.pinned) })) }
     }
 
     forSession(namespace: string, sessionId: string): SessionGroup | null {
@@ -89,16 +99,20 @@ export class SessionGroupStore {
         return this.db.transaction(() => {
             const group = this.get(namespace, id)
             if (!group) throw new SessionGroupError('Group not found', 404)
+            if (this.lifecycleOperations.has(id)) throw new SessionGroupError('Group is opening or closing. Wait and retry.', 409)
+            if (group.closed && input.parked) throw new SessionGroupError('Open this group before parking it.', 400)
             if (group.version !== input.version) throw new SessionGroupError('Group changed on another device. Reload and try again.', 409)
             const touched = new Set<string>([id])
             for (const member of input.members) {
                 if (!this.db.query('SELECT 1 FROM sessions WHERE id = ? AND namespace = ?').get(member.sessionId, namespace)) {
                     throw new SessionGroupError('Chat not found', 404)
                 }
-                if (this.db.query("SELECT 1 FROM sessions WHERE id = ? AND json_extract(metadata, '$.lifecycleState') = 'archived'").get(member.sessionId)) {
+                if (!(group.closed && group.members.some(existing => existing.sessionId === member.sessionId))
+                    && this.db.query("SELECT 1 FROM sessions WHERE id = ? AND json_extract(metadata, '$.lifecycleState') = 'archived'").get(member.sessionId)) {
                     throw new SessionGroupError('Closed chats cannot be added to a group. Reopen the chat first.', 400)
                 }
                 const previous = this.db.query('SELECT group_id AS id FROM session_group_members WHERE session_id = ?').get(member.sessionId) as { id: string } | null
+                if (previous && this.lifecycleOperations.has(previous.id)) throw new SessionGroupError('Group is opening or closing. Wait and retry.', 409)
                 if (previous) touched.add(previous.id)
             }
             this.db.query('DELETE FROM session_group_members WHERE group_id = ?').run(id)
@@ -108,8 +122,41 @@ export class SessionGroupStore {
             for (const groupId of touched) {
                 this.db.query('UPDATE session_groups SET version = version + 1, updated_at = ? WHERE id = ? AND namespace = ?').run(Date.now(), groupId, namespace)
             }
-            this.db.query('UPDATE session_groups SET name = ? WHERE id = ? AND namespace = ?').run(input.name, id, namespace)
+            this.db.query('UPDATE session_groups SET name = ?, parked = ? WHERE id = ? AND namespace = ?').run(input.name, Number(input.parked ?? group.parked), id, namespace)
             return this.get(namespace, id)!
+        })()
+    }
+
+    beginLifecycle(namespace: string, id: string, version: number): SessionGroup {
+        const group = this.get(namespace, id)
+        if (!group) throw new SessionGroupError('Group not found', 404)
+        if (this.lifecycleOperations.has(id) || group.version !== version) {
+            throw new SessionGroupError('Group changed or is busy. Reload and try again.', 409)
+        }
+        // Persist the group before stopping its chats: archive callbacks must retain its tabs.
+        this.db.query('UPDATE session_groups SET closed = 1, parked = 0, version = version + 1, updated_at = ? WHERE id = ? AND namespace = ?').run(Date.now(), id, namespace)
+        this.lifecycleOperations.add(id)
+        return this.get(namespace, id)!
+    }
+
+    finishLifecycle(namespace: string, id: string, closed: boolean): SessionGroup {
+        try {
+            this.db.query('UPDATE session_groups SET closed = ?, version = version + 1, updated_at = ? WHERE id = ? AND namespace = ?').run(Number(closed), Date.now(), id, namespace)
+            return this.get(namespace, id)!
+        } finally { this.lifecycleOperations.delete(id) }
+    }
+
+    /** Keep the original tab position and pin when resume rotates a session ID. */
+    transferSession(namespace: string, oldId: string, newId: string): boolean {
+        return this.db.transaction(() => {
+            const source = this.forSession(namespace, oldId)
+            if (!source) return false
+            const target = this.forSession(namespace, newId)
+            if (target && target.id !== source.id) throw new SessionGroupError('Resumed chat already belongs to another group', 409)
+            if (target) this.db.query('DELETE FROM session_group_members WHERE session_id = ?').run(newId)
+            this.db.query('UPDATE session_group_members SET session_id = ? WHERE session_id = ?').run(newId, oldId)
+            this.db.query('UPDATE session_groups SET version = version + 1, updated_at = ? WHERE id = ?').run(Date.now(), source.id)
+            return true
         })()
     }
 

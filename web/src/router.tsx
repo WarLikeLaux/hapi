@@ -189,7 +189,10 @@ function SessionsPage() {
     const groupedSessions = useMemo(() => sessions.filter(s => groupedIds.has(s.id)), [sessions, groupedIds])
     const standaloneSessions = useMemo(() => sessions.filter(s => !groupedIds.has(s.id)), [sessions, groupedIds])
     const updateGroup = async (group: SessionGroup, patch: UpdateSessionGroup) => {
-        try { await groupState.mutation.mutateAsync({ id: group.id, patch }) } catch { /* rendered in workspace */ }
+        try {
+            await groupState.mutation.mutateAsync({ id: group.id, patch })
+            return true
+        } catch { return false /* rendered in workspace */ }
     }
     const openGroup = (group: SessionGroup) => {
         navigate({ to: '/sessions/groups/$groupId', params: { groupId: group.id }, ...PRESERVE_SESSION_SIDEBAR_SCROLL })
@@ -296,6 +299,8 @@ function SessionsPage() {
                         sessionGroups={groupState.groups}
                         selectedGroupId={selectedGroup?.id}
                         onSelectGroup={openGroup}
+                        onNewGroupChat={group => navigate({ to: '/sessions/new', search: { groupId: group.id } })}
+                        onGroupHidden={group => { if (selectedGroup?.id === group.id) void navigate({ to: '/sessions' }) }}
                         groupsStatus={groupState.query.isError ? <button type="button" className="p-3 text-sm text-red-600" onClick={() => void groupState.query.refetch()}>{t('groups.loadError')}</button> : null}
                         selectedSessionId={selectedSessionId}
                         onSelect={(sessionId) => navigate(getSessionListSelectionNavigation(sessionId))}
@@ -356,7 +361,7 @@ function SessionsPage() {
             />
 
             <div className={`${isSessionsIndex ? 'hidden split:flex' : 'flex'} min-w-0 flex-1 flex-col bg-[var(--app-bg)]`}>
-                {selectedGroup ? <SessionGroupWorkspace api={api} titleSuggestionAvailable={titleSuggestionAvailable}
+                {selectedGroup ? <SessionGroupWorkspace onOpenGroup={openGroup} api={api} titleSuggestionAvailable={titleSuggestionAvailable}
                     contextOptions={groupContexts.contextOptions} onSetContext={groupContexts.setSessionContextOverride} key={selectedGroup.id} group={selectedGroup} groups={groupState.groups} sessions={sessions} selectedSessionId={selectedSessionId}
                     onSelect={id => navigate(getSessionListSelectionNavigation(id))} onBack={() => navigate({ to: '/sessions' })}
                     onNew={() => navigate({ to: '/sessions/new', search: { groupId: selectedGroup.id } })}

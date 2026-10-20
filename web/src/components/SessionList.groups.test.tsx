@@ -1,6 +1,7 @@
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ApiClient } from '@/api/client'
 import type { SessionGroup } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
@@ -18,8 +19,8 @@ function chat(id: string, overrides: Partial<SessionSummary> = {}): SessionSumma
         backgroundTaskCount: 0, futureScheduledMessageCount: 0, nextScheduledAt: null, model: null, effort: null, ...overrides }
 }
 
-function mount(chats: SessionSummary[], standalone: SessionSummary[] = []) {
-    const group: SessionGroup = { id: 'hapi', name: 'HAPI', version: 1, updatedAt: 1000,
+function mount(chats: SessionSummary[], standalone: SessionSummary[] = [], parked = false) {
+    const group: SessionGroup = { id: 'hapi', name: 'HAPI', closed: false, parked, version: 1, updatedAt: 1000,
         members: chats.map(session => ({ sessionId: session.id, pinned: false })) }
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const tree = (sessions: SessionSummary[], standaloneSessions = standalone) => <QueryClientProvider client={client}><ToastProvider><I18nProvider><AppContextTestProvider>
@@ -35,6 +36,25 @@ function groupIn(section: string) {
 }
 
 describe('group placement and agent icons', () => {
+    it.each([true, false])('keeps parked groups out of current work with section pinning %s', pinInProgress => {
+        localStorage.setItem('hapi-pin-in-progress-sessions', String(pinInProgress))
+        mount([chat('worker'), chat('question', { thinking: false, pendingRequestKinds: ['input'] })], [], true)
+        expect(screen.queryByRole('region', { name: 'Working sessions' })).toBeNull()
+        expect(screen.queryByRole('region', { name: 'Active sessions' })).toBeNull()
+        const parked = screen.getByRole('region', { name: 'Parked groups' })
+        fireEvent.click(within(parked).getByRole('button', { name: /Parked groups/ }))
+        expect(within(parked).getByTestId('session-group-row')).toBeVisible()
+        expect(within(parked).getByText('2 chats')).toBeVisible()
+        expect(within(parked).getByText('1 working')).toBeVisible()
+        fireEvent.click(screen.getByRole('button', { name: /^Search sessions/ }))
+        fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'worker' } })
+        expect(screen.getByRole('tab', { name: 'Chats (1)' })).toHaveAttribute('aria-selected', 'true')
+        expect(screen.getAllByTestId('session-group-row')).toHaveLength(1)
+        expect(within(parked).getByTestId('session-group-row')).toBeVisible()
+        fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'no match' } })
+        expect(screen.queryByTestId('session-group-row')).toBeNull()
+    })
+
     it('keeps Working before Active for groups and standalone sessions', () => {
         localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ worker: 2000 }))
         mount([chat('worker')], [chat('needs-reading', { thinking: false })])
@@ -115,4 +135,31 @@ describe('group placement and agent icons', () => {
         expect(within(groupIn('Active sessions')).getByRole('img', { name: 'codex' })).toBeVisible()
         expect(screen.queryByText('+1')).toBeNull()
     })
+})
+
+
+it('keeps a bulk-action failure visible when session updates move the row into another section', async () => {
+    localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ working: 2000, quiet: 2000 }))
+    const working = chat('working')
+    const quiet = chat('quiet', { thinking: false })
+    const group: SessionGroup = { id: 'hapi', name: 'HAPI', parked: false, closed: false, version: 1, updatedAt: 1000,
+        members: [{ sessionId: working.id, pinned: true }, { sessionId: quiet.id, pinned: false }] }
+    let finish!: (value: unknown) => void
+    const changeGroupLifecycle = vi.fn(() => new Promise(resolve => { finish = resolve }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const ui = (current: SessionGroup, sessions: SessionSummary[]) => <QueryClientProvider client={client}><ToastProvider><I18nProvider><AppContextTestProvider>
+        <SessionList sessions={[]} groupedSessions={sessions} sessionGroups={[current]} hasGroupRows onSelect={vi.fn()}
+            onSelectGroup={vi.fn()} onNewSession={vi.fn()} onRefresh={vi.fn()} isLoading={false}
+            api={{ changeGroupLifecycle } as unknown as ApiClient} renderHeader={false} />
+    </AppContextTestProvider></I18nProvider></ToastProvider></QueryClientProvider>
+    const view = render(ui(group, [working, quiet]))
+    fireEvent.contextMenu(groupIn('Working sessions'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Close group' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close group' }))
+    await waitFor(() => expect(changeGroupLifecycle).toHaveBeenCalled())
+    const partiallyClosed = { ...group, closed: true, version: 2 }
+    view.rerender(ui(partiallyClosed, [{ ...working, active: false, metadata: { ...working.metadata!, lifecycleState: 'archived' } }, quiet]))
+    expect(groupIn('Active sessions')).toHaveTextContent('Close incomplete')
+    await act(async () => finish({ group: partiallyClosed, failures: [{ sessionId: quiet.id, message: 'Runner offline' }] }))
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveTextContent('quiet: Runner offline'))
 })

@@ -17,7 +17,7 @@ export function getSessionGroupMembers(group: SessionGroup, sessions: readonly S
     const byId = new Map(sessions.map(session => [session.id, session]))
     return group.members.flatMap(member => {
         const session = byId.get(member.sessionId)
-        return session && session.metadata?.lifecycleState !== 'archived' ? [{ ...member, session }] : []
+        return session && (group.closed || session.metadata?.lifecycleState !== 'archived') ? [{ ...member, session }] : []
     }).sort((a, b) => Number(b.pinned) - Number(a.pinned)
         || (a.pinned ? 0 : priority(a.session) - priority(b.session)))
 }

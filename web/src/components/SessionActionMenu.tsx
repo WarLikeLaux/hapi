@@ -1,3 +1,4 @@
+import { ACTION_MENU_CLASS, ACTION_MENU_HEADING_CLASS, ACTION_MENU_ITEM_CLASS, EditIcon, StopIcon, ReopenIcon } from '@/components/ActionMenuPrimitives'
 import { isLiveLifecycleState, isParkedLifecycleState } from '@hapi/protocol'
 import {
     useEffect,
@@ -51,26 +52,6 @@ type SessionActionMenuProps = {
     menuId?: string
 }
 
-function EditIcon(props: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={props.className}
-        >
-            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-            <path d="m15 5 4 4" />
-        </svg>
-    )
-}
-
 function UnreadIcon(props: { className?: string }) {
     return (
         <svg
@@ -94,25 +75,6 @@ function PinIcon(props: { className?: string; filled?: boolean }) {
             <path d="M12 17v5" />
             <path d="M5 17h14" />
             <path d="M7 4V2h10v2l-2 5v4l2 2H7l2-2V9Z" />
-        </svg>
-    )
-}
-
-function StopIcon(props: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={props.className}
-        >
-            <rect width="14" height="14" x="5" y="5" rx="2" />
         </svg>
     )
 }
@@ -145,26 +107,6 @@ function DownloadIcon(props: { className?: string }) {
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" x2="12" y1="15" y2="3" />
-        </svg>
-    )
-}
-
-function ReopenIcon(props: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={props.className}
-        >
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-            <path d="M3 3v5h5" />
         </svg>
     )
 }
@@ -461,8 +403,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
 
     // The left text inset includes the icon and gap; mirror it on the right so
     // the text-to-border distance is symmetric without counting the icon twice.
-    const baseItemClassName =
-        'flex w-full items-center gap-3 rounded-md py-2 pl-3 pr-[42px] text-left text-base transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
+    const baseItemClassName = ACTION_MENU_ITEM_CLASS
 
     // Submenu options keep the same left inset but a normal right inset; the
     // check mark sits at the trailing edge via ml-auto.
@@ -477,7 +418,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     return (
         <div
             ref={menuRef}
-            className="fixed z-50 box-border w-max max-w-[calc(100vw-16px)] rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-1 shadow-lg animate-menu-pop"
+            className={ACTION_MENU_CLASS}
             style={menuStyle}
             onKeyDown={event => {
                 if ((event.target as HTMLElement).getAttribute('role') === 'menuitemradio') return
@@ -497,7 +438,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         >
             <div
                 id={headingId}
-                className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-hint)]"
+                className={ACTION_MENU_HEADING_CLASS}
             >
                 {t('session.more')}
             </div>

@@ -14,7 +14,7 @@ vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigate }))
 const api = new ApiClient('test-token')
 const sessions = ['first', 'second', 'third'].map(id => ({ id }) as SessionSummary)
 const group: SessionGroup = {
-    id: 'group', name: 'Group', version: 1, updatedAt: 1,
+    id: 'group', name: 'Group', closed: false, parked: false, version: 1, updatedAt: 1,
     // Deliberately interleaved: pinned chats appear before ordinary tabs.
     members: [
         { sessionId: 'second', pinned: false },

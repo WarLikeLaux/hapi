@@ -62,6 +62,47 @@ export function createGroupsRoutes(getSyncEngine: () => SyncEngine | null): Hono
             throw error
         }
     })
+    app.post('/groups/:id/:action', async c => {
+        const action = c.req.param('action')
+        if (action !== 'close' && action !== 'reopen') return c.json({ error: 'Unknown group action' }, 404)
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const input = z.object({ version: z.number().int().positive() }).safeParse(await c.req.json().catch(() => null))
+        if (!input.success) return c.json({ error: 'Group version is required' }, 400)
+        const namespace = c.get('namespace')
+        let group
+        try { group = engine.groups.beginLifecycle(namespace, c.req.param('id'), input.data.version) }
+        catch (error) {
+            if (error instanceof SessionGroupError) return c.json({ error: error.message }, error.status)
+            throw error
+        }
+        engine.publishGroupsChanged(namespace)
+        const failures: { sessionId: string; message: string }[] = []
+        try {
+            // Each stop/resume uses the same process-safety checks as an individual chat.
+            // Continue past failures, retaining failed tabs so the user can retry.
+            for (const member of group.members) {
+                try {
+                    const access = engine.resolveSessionAccess(member.sessionId, namespace)
+                    if (!access.ok) throw new Error('Chat is unavailable')
+                    if (action === 'close') {
+                        if (!access.session.active && access.session.metadata?.lifecycleState === 'archived') {
+                            engine.markSessionExplicitlyStopped(member.sessionId)
+                        } else await engine.archiveSession(member.sessionId)
+                    } else {
+                        const result = await engine.reopenSession(member.sessionId, namespace)
+                        if (result.type !== 'success') throw new Error(result.message)
+                    }
+                } catch (error) {
+                    failures.push({ sessionId: member.sessionId, message: error instanceof Error ? error.message : String(error) })
+                }
+            }
+        } finally {
+            group = engine.groups.finishLifecycle(namespace, group.id, action === 'close' || failures.length > 0)
+            engine.publishGroupsChanged(namespace)
+        }
+        return c.json({ group, failures })
+    })
     app.put('/groups/:id', async c => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) return engine

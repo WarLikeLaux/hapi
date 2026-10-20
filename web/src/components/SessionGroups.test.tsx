@@ -17,7 +17,7 @@ function render(ui: ReactElement) {
     return renderComponent(ui, { wrapper: ({ children }) => <QueryClientProvider client={client}><ToastProvider>{children}</ToastProvider></QueryClientProvider> })
 }
 
-const group: SessionGroup = { id: 'group', name: 'HAPI', version: 1, updatedAt: 1,
+const group: SessionGroup = { id: 'group', name: 'HAPI', closed: false, parked: false, version: 1, updatedAt: 1,
     members: [{ sessionId: 'first', pinned: true }, { sessionId: 'worker', pinned: false }] }
 const chats = (thinking: boolean, extra: Partial<SessionSummary> = {}): SessionSummary[] => ['first', 'worker'].map(id => ({
     id, active: true, thinking: id === 'worker' && thinking, lastAgentMessageAt: 2000, updatedAt: 2000,
@@ -208,5 +208,20 @@ describe('group tab session actions', () => {
         await waitFor(() => expect(screen.getByRole('tooltip')).toHaveTextContent('Cursor chat data is no longer available on the recorded machine.'))
         expect(screen.getByRole('menuitem', { name: 'Reopen' })).toHaveAttribute('aria-disabled', 'true')
         expect(screen.queryByRole('menuitem', { name: 'Restart session' })).toBeNull()
+    })
+})
+
+describe('parked group workspace', () => {
+    it('restores the entire group while retaining its tabs and pin, and disables restore while saving', async () => {
+        const onUpdate = vi.fn(async () => true)
+        const ui = (pending: boolean) => <I18nProvider><SessionGroupWorkspace group={{ ...group, parked: true }} groups={[group]}
+            sessions={chats(true)} selectedSessionId="first" onSelect={vi.fn()} onNew={vi.fn()} onBack={vi.fn()} onUpdate={onUpdate} pending={pending} /></I18nProvider>
+        const view = render(ui(false))
+        expect(screen.getByText('This group is parked. Chats stay open and agents keep running.')).toBeVisible()
+        expect(screen.getAllByRole('tab').map(tab => tab.title)).toEqual(['first · codex', 'worker · codex'])
+        fireEvent.click(screen.getByRole('button', { name: 'Restore group' }))
+        await waitFor(() => expect(onUpdate).toHaveBeenCalledWith({ ...group, parked: true }, { ...group, parked: false }))
+        view.rerender(ui(true))
+        expect(screen.getByRole('button', { name: 'Restore group' })).toBeDisabled()
     })
 })

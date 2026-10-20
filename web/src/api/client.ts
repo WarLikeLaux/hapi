@@ -1,4 +1,4 @@
-import type { SessionGroup, UpdateSessionGroup, LaunchSessionRequest, LaunchSessionResult } from '@hapi/protocol'
+import type { SessionGroupLifecycleResult, SessionGroup, UpdateSessionGroup, LaunchSessionRequest, LaunchSessionResult } from '@hapi/protocol'
 import type {
     AttachmentMetadata,
     AuthResponse,
@@ -296,6 +296,10 @@ export class ApiClient {
 
     async updateGroup(id: string, input: UpdateSessionGroup): Promise<{ group: SessionGroup }> {
         return await this.request(`/api/groups/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) })
+    }
+
+    async changeGroupLifecycle(id: string, version: number, action: 'close' | 'reopen'): Promise<SessionGroupLifecycleResult> {
+        return await this.request(`/api/groups/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: JSON.stringify({ version }) })
     }
 
     async addGroupChat(groupId: string, sessionId: string): Promise<void> {

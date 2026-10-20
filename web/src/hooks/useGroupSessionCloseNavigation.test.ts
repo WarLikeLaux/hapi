@@ -8,7 +8,7 @@ const chat = (id = 'current', state = 'running', active = true) => ({
     id, active, metadata: { lifecycleState: state },
 }) as SessionSummary
 const group = (id = 'origin', members = ['current']): SessionGroup => ({
-    id, name: id, members: members.map(sessionId => ({ sessionId, pinned: false })), version: 1, updatedAt: 0,
+    id, name: id, members: members.map(sessionId => ({ sessionId, pinned: false })), closed: false, parked: false, version: 1, updatedAt: 0,
 })
 const initial = () => ({ scope: 'hub', sessionId: 'current' as string | null,
     session: chat() as SessionSummary | null, groups: [group()] })
@@ -78,4 +78,12 @@ describe('return from a closed group chat', () => {
         standalone.rerender({ ...initial(), session: chat('current', 'archived', false), groups: [group('origin', [])] })
         expect(standalone.onReturnToGroup).not.toHaveBeenCalled()
     })
+})
+
+
+it('keeps the history tab open when its entire group is closed', () => {
+    const onReturnToGroup = vi.fn()
+    const view = renderHook((options) => useGroupSessionCloseNavigation(options), { initialProps: { ...initial(), onReturnToGroup } })
+    view.rerender({ ...initial(), session: chat('current', 'archived', false), groups: [{ ...group(), closed: true }], onReturnToGroup })
+    expect(onReturnToGroup).not.toHaveBeenCalled()
 })
