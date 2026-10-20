@@ -920,12 +920,12 @@ describe('NewSession launch preferences', () => {
         setClaudeGlmBranded(false)
     })
 
-    it('shows the minimax native default as a badge without pinning it at launch', async () => {
+    it.each(['Native model', 'MiniMax M3.1-Flash-Preview'])('shows the minimax native default %s without hiding its release status or pinning it at launch', async defaultModelName => {
         savePreferredAgent('minimax')
-        mocks.availableAgents.push({ agent: 'minimax', available: true, defaultModelName: 'Native model' })
+        mocks.availableAgents.push({ agent: 'minimax', available: true, defaultModelName })
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'native-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        expect(screen.getByRole('button', { name: 'Native model' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: defaultModelName })).toBeInTheDocument()
         expect(screen.queryByTestId('model')).toBeNull()
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'minimax', model: undefined })))
@@ -2405,17 +2405,26 @@ describe('NewSession fork launch defaults', () => {
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model: undefined, serviceTier: undefined })))
     })
 
-    it('ranks weekly popular pairs, retains the selected default and keeps other choices under their agent', async () => {
+    it.each([true, false])('ranks weekly pairs then adds only the first badge for unrepresented available agents (MiniMax available: %s)', async minimaxAvailable => {
+        setClaudeGlmBranded(true)
+        mocks.availableAgents.push({ agent: 'minimax', available: minimaxAvailable, defaultModelName: 'MiniMax M3.1-Flash-Preview' })
         mocks.popularModels = [
             { agent: 'cursor', model: 'composer-2.5', sessionCount: 20, lastUsedAt: 200 },
             { agent: 'opencode', model: 'opencode-go/muse-spark-1.3-contributor', sessionCount: 10, lastUsedAt: 300 },
         ]
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         const choices = screen.getByRole('region', { name: 'newSession.model' })
-        expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Composer 2.5', 'Muse Spark 1.3 (Max)', 'GPT-6.1 Sol'])
+        expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Composer 2.5', 'Muse Spark 1.3 (Max)', 'GPT-6.1 Sol', 'GLM 5.3 Flash', 'Gemini 3.8 Flash (High)', ...(minimaxAvailable ? ['MiniMax M3.1-Flash-Preview'] : [])])
         expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' }).querySelector('svg')).not.toBeNull()
         expect(screen.queryByRole('button', { name: 'GPT-6 Luna' })).toBeNull()
+        if (minimaxAvailable) {
+            fireEvent.click(screen.getByRole('button', { name: 'MiniMax M3.1-Flash-Preview' }))
+            expect(screen.getByRole('button', { name: 'MiniMax M3.1-Flash-Preview' })).toHaveAttribute('aria-pressed', 'true')
+            expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual([
+                'Composer 2.5', 'Muse Spark 1.3 (Max)', 'GPT-6.1 Sol', 'GLM 5.3 Flash', 'Gemini 3.8 Flash (High)', 'MiniMax M3.1-Flash-Preview'
+            ])
+        }
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
         expect(screen.getByRole('button', { name: 'GPT-6 Luna' }).querySelector('svg')).toBeNull()
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))

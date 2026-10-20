@@ -1505,8 +1505,8 @@ export function NewSession(props: {
             const defaultName = agentAvailability.agents.find(entry => entry.agent === flavor)?.defaultModelName
             const options = (quickModels[flavor] ?? []).map(option => {
                 if (option.value !== 'auto' || flavor === 'opencode' || !defaultName) return option
-                // Keep the readable badge for matching native names, including
-                // MiniMax's dashed Preview suffix; changed defaults use their real name.
+                // Hide the promotion suffix while preserving the actual release status.
+                if (flavor === 'minimax') return { ...option, label: defaultName.replace(/\s+\(Free\)$/i, '') }
                 const normalize = (name: string) => name.toLowerCase().replace(/[^a-z0-9.]/g, '')
                 return { ...option, label: normalize(defaultName).startsWith(normalize(option.label)) ? option.label : defaultName }
             })
@@ -2093,7 +2093,7 @@ export function NewSession(props: {
             ) : null}
             <ModelChoices
                 options={visibleModelChoices}
-                singleRow={effectiveFilter === 'all'}
+                showAgent={effectiveFilter === 'all'}
                 isLoading={effectiveFilter === 'all' && popular.isLoading}
                 agent={agent}
                 model={displayedModel}
