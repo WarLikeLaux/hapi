@@ -34,5 +34,5 @@ export const OPENCODE_HARDCODED_OPTIONS = [
     { value: 'opencode-go/deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash (Max)' },
 ]
 
-/** MiniMax runs its native default; the raw catalog name keeps dashes and a Preview suffix. */
+/** MiniMax runs its native default; use its discovered name when available. */
 export const MINIMAX_HARDCODED_LABEL = 'MiniMax M3.1 Flash'
