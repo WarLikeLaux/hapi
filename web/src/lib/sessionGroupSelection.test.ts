@@ -8,7 +8,7 @@ const chat = (id: string, extra: Partial<SessionSummary> = {}) => ({
     metadata: { path: '/work', lifecycleState: 'running' }, ...extra,
 }) as SessionSummary
 const group: SessionGroup = {
-    id: 'group', name: 'Group', version: 1, updatedAt: 0,
+    id: 'group', name: 'Group', closed: false, parked: false, version: 1, updatedAt: 0,
     members: ['quiet', 'unread', 'permission', 'question', 'pinned-question'].map(sessionId => ({
         sessionId, pinned: ['quiet', 'unread', 'pinned-question'].includes(sessionId),
     })),

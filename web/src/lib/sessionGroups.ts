@@ -3,7 +3,7 @@ import type { SessionSummary } from '@/types/api'
 import { isWorkingSession } from './navigationBadges'
 import { classifySessionAttention } from './sessionAttention'
 
-export type GroupSection = 'active' | 'working' | 'idle' | 'recent'
+export type GroupSection = 'active' | 'working' | 'idle' | 'recent' | 'parked'
 
 export function presentSessionGroup(
     group: SessionGroup,
@@ -13,7 +13,7 @@ export function presentSessionGroup(
 ) {
     const chats = group.members.flatMap(member => {
         const chat = sessions.get(member.sessionId)
-        return chat && chat.metadata?.lifecycleState !== 'archived' ? [chat] : []
+        return chat && (group.closed || chat.metadata?.lifecycleState !== 'archived') ? [chat] : []
     })
     const questions = chats.filter(chat => chat.pendingRequestKinds?.includes('input') || (chat.pendingAsyncQuestionsCount ?? 0) > 0).length
     const permissions = chats.filter(chat => chat.pendingRequestKinds?.includes('permission')).length
@@ -25,9 +25,10 @@ export function presentSessionGroup(
     const flavors = [...new Set(live.flatMap(chat => chat.metadata?.flavor ? [chat.metadata.flavor] : []))].sort()
     // Quiet, reachable chats remain ready in Active, just like standalone chats.
     // Idle is a lifecycle state, not the absence of foreground work.
-    const section: GroupSection = questions || permissions || unread ? 'active' : working ? 'working'
+    const partiallyClosed = group.closed && chats.some(chat => chat.active || chat.metadata?.lifecycleState !== 'archived')
+    const section: GroupSection = group.closed && !partiallyClosed ? 'recent' : group.parked ? 'parked' : questions || permissions || unread ? 'active' : working ? 'working'
         : live.some(chat => chat.metadata?.lifecycleState !== 'idle') ? 'active'
         : live.length || chats.some(chat => chat.metadata?.lifecycleState === 'parked') ? 'idle' : 'recent'
-    return { chats, questions, permissions, unread, working, flavors, section,
+    return { chats, partiallyClosed, questions, permissions, unread, working, flavors, section,
         activityAt: Math.max(group.updatedAt, ...chats.map(chat => chat.lastAgentMessageAt ?? chat.updatedAt)) }
 }

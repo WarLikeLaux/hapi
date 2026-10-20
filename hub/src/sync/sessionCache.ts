@@ -1506,6 +1506,13 @@ export class SessionCache {
             throw new Error('Session not found for merge')
         }
 
+        if (options.deleteOldSession) {
+            const sourceGroup = this.store.groups.forSession(namespace, oldSessionId)
+            const targetGroup = this.store.groups.forSession(namespace, newSessionId)
+            if (sourceGroup && targetGroup && sourceGroup.id !== targetGroup.id) {
+                throw new Error('Resumed chat already belongs to another group')
+            }
+        }
         const movedMessages = this.store.messages.mergeSessionMessages(oldSessionId, newSessionId)
         // mergeSessions deletes the source. mergeSessionHistory keeps it alive
         // with the original socket, so its notify chain must stay on that id.
@@ -1706,6 +1713,9 @@ export class SessionCache {
         }
 
         if (options.deleteOldSession) {
+            if (this.store.groups.transferSession(namespace, oldSessionId, newSessionId)) {
+                this.publisher.emit({ type: 'groups-updated', namespace })
+            }
             const deleted = this.store.sessions.deleteSession(oldSessionId, namespace)
             if (!deleted) {
                 throw new Error('Failed to delete old session during merge')

@@ -1,3 +1,4 @@
+import { SessionGroupActions } from '@/components/SessionGroupActions'
 import { SessionItemActions } from '@/components/SessionItemActions'
 import type { ApiClient } from '@/api/client'
 import type { SessionContextId, SessionContextOptions } from '@/lib/sessionContexts'
@@ -139,6 +140,8 @@ function GroupChatSwitcher({ members, selectedSessionId, onSelect }: {
 export function SessionGroupRows(props: {
     groups: SessionGroup[]; sessions: SessionSummary[]; selectedGroupId?: string
     search: string; onOpen: (group: SessionGroup) => void
+    api?: ApiClient | null; onNew?: (group: SessionGroup) => void; onHidden?: (group: SessionGroup) => void
+    onActionError?: (group: SessionGroup, message: string) => void
 }) {
     const { t } = useTranslation()
     useSessionLastSeenVersion()
@@ -146,14 +149,17 @@ export function SessionGroupRows(props: {
     const query = props.search.trim().toLocaleLowerCase()
     const sessionsById = useMemo(() => new Map(props.sessions.map(session => [session.id, session])), [props.sessions])
     return <>{props.groups.map(group => {
-        const { chats, questions, permissions, unread, working, flavors, section, activityAt } = presentSessionGroup(group, sessionsById, getSessionLastSeenAt, getSessionManualUnreadAt)
+        const { chats, partiallyClosed, questions, permissions, unread, working, flavors, section, activityAt } = presentSessionGroup(group, sessionsById, getSessionLastSeenAt, getSessionManualUnreadAt)
         if (query && ![group.name, ...chats.map(getSessionTitle)].some(name => name.toLocaleLowerCase().includes(query))) return null
         const questionLabel = t('groups.questions', { count: questions })
         const unreadLabel = t('groups.unreadCount', { count: unread })
-        return <button key={group.id} type="button" onClick={() => props.onOpen(group)} data-testid="session-group-row"
+        return <SessionGroupActions key={group.id} group={group} sessions={props.sessions} api={props.api ?? null}
+            onOpen={props.onOpen} onNew={props.onNew ? () => props.onNew?.(group) : undefined} onHidden={() => props.onHidden?.(group)}
+            onActionError={props.onActionError ? message => props.onActionError?.(group, message) : undefined}>
+        {handlers => <button {...handlers} type="button" data-testid="session-group-row" aria-haspopup="menu"
             aria-current={props.selectedGroupId === group.id ? 'page' : undefined}
             className={cn(SESSION_LIST_ITEM_CLASS, props.selectedGroupId === group.id && 'bg-[var(--app-secondary-bg)]')}>
-            <SessionRowLayout title={group.name} active={section !== 'recent'}
+            <SessionRowLayout title={group.name} active={section !== 'recent' && section !== 'parked'}
                 avatar={<span className="relative flex h-full w-full items-center justify-center" role="img" aria-label={flavors.length ? flavors.join(', ') : t('groups.workspace')} title={flavors.join(', ')}>
                     {flavors.length === 0 ? <GroupIcon className="h-full w-full" /> : flavors.length === 1 ? <AgentFlavorIcon flavor={flavors[0]} className="h-full w-full" avatar /> : <>
                         <span className="absolute left-0 top-0 h-6 w-6 rounded-full bg-[var(--app-bg)] p-0.5"><AgentFlavorIcon flavor={flavors[0]} className="h-full w-full" avatar /></span>
@@ -171,19 +177,22 @@ export function SessionGroupRows(props: {
             >
                 <div className="flex min-w-0 items-center gap-2 text-xs text-[var(--app-hint)]">
                     <span className="min-w-0 truncate rounded-[5px] border border-[var(--app-border)] bg-[var(--app-secondary-bg)] px-1.5 py-px font-medium leading-tight">{t('groups.chatCount', { count: chats.length })}</span>
+                    {group.closed ? <span>{t(partiallyClosed ? 'groups.closeIncomplete' : 'groups.closed')}</span> : group.parked ? <span>{t('groups.parked')}</span> : null}
                     {working ? <span className="truncate">{t('groups.workingCount', { count: working })}</span> : null}
                 </div>
             </SessionRowLayout>
-        </button>
+        </button>}
+        </SessionGroupActions>
     })}</>
 }
 
 export function SessionGroupWorkspace(props: {
     api?: ApiClient | null; titleSuggestionAvailable?: boolean
+    onOpenGroup?: (group: SessionGroup) => void
     contextOptions?: SessionContextOptions; onSetContext?: (id: string, context: SessionContextId | null) => void
     group: SessionGroup; groups: SessionGroup[]; sessions: SessionSummary[]; selectedSessionId: string | null
     onSelect: (id: string) => void; onBack: () => void; onNew: () => void
-    onUpdate: (group: SessionGroup, patch: UpdateSessionGroup) => Promise<void>; pending: boolean; error?: string
+    onUpdate: (group: SessionGroup, patch: UpdateSessionGroup) => Promise<boolean>; pending: boolean; error?: string
 }) {
     const { t } = useTranslation()
     const [manage, setManage] = useState(false)
@@ -194,7 +203,7 @@ export function SessionGroupWorkspace(props: {
     useEffect(() => { setName(props.group.name) }, [props.group.id, props.group.name])
     const members = props.group.members.flatMap(member => {
         const session = props.sessions.find(s => s.id === member.sessionId)
-        return session && session.metadata?.lifecycleState !== 'archived' ? [{ ...member, session }] : []
+        return session && (props.group.closed || session.metadata?.lifecycleState !== 'archived') ? [{ ...member, session }] : []
     })
     const tabMembers = getSessionGroupMembers(props.group, props.sessions)
     const tabOrder = tabMembers.map(member => member.sessionId).join('\0')
@@ -212,8 +221,12 @@ export function SessionGroupWorkspace(props: {
         return () => resize.disconnect()
     }, [props.selectedSessionId, props.group.id, tabOrder])
     const update = (members: SessionGroup['members']) => props.onUpdate(props.group, { ...props.group,
-        members: members.filter(member => !props.sessions.some(session => session.id === member.sessionId && session.metadata?.lifecycleState === 'archived')),
+        members: members.filter(member => props.group.closed || !props.sessions.some(session => session.id === member.sessionId && session.metadata?.lifecycleState === 'archived')),
     })
+    const togglePark = async () => {
+        const saved = await props.onUpdate(props.group, { ...props.group, parked: !props.group.parked })
+        if (saved && !props.group.parked) props.onBack()
+    }
     const move = (index: number, offset: number) => {
         const member = members[index]
         const neighbor = members[index + offset]
@@ -241,12 +254,32 @@ export function SessionGroupWorkspace(props: {
         <div className="flex min-h-11 items-center gap-2 px-2">
             <button type="button" onClick={props.onBack} className={cn(control, 'split:hidden')} aria-label={t('groups.back')}><svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6" /></svg></button>
             <GroupIcon /><h2 className="min-w-0 flex-1 truncate text-sm font-semibold" title={props.group.name}>{props.group.name}</h2>
-            <button type="button" onClick={props.onNew} className={control}>{t('groups.newChat')}</button>
+            <SessionGroupActions group={props.group} sessions={props.sessions} api={props.api ?? null}
+                onOpen={props.onOpenGroup ?? (group => { if (group.members[0]) props.onSelect(group.members[0].sessionId) })}
+                onNew={props.onNew} onManage={() => setManage(true)} onHidden={props.onBack}>
+                {(handlers, openMenu) => <button {...handlers} type="button" onClick={openMenu} aria-label={t('groups.actions')}
+                    title={t('groups.actions')} aria-haspopup="menu" className={cn(control, 'flex h-9 w-9 shrink-0 items-center justify-center px-0')}>
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
+                </button>}
+            </SessionGroupActions>
+            {!props.group.closed ? <button type="button" onClick={props.onNew} className={control}>{t('groups.newChat')}</button> : null}
             <button type="button" onClick={() => setManage(!manage)} aria-expanded={manage} className={cn(control, manage && 'bg-[var(--app-secondary-bg)]')}>{t('groups.manage')}</button>
             {members.length ? <div className="relative flex h-9 w-9 shrink-0 items-center justify-center">
                 <GroupChatSwitcher members={tabMembers} selectedSessionId={props.selectedSessionId} onSelect={props.onSelect} />
             </div> : null}
         </div>
+        {props.group.closed ? <div className="flex items-center gap-3 border-t border-[var(--app-border)] px-3 py-2">
+            <p className="min-w-0 flex-1 text-xs text-[var(--app-hint)]">{t(members.some(member => member.session.active || member.session.metadata?.lifecycleState !== 'archived') ? 'groups.closeIncompleteHint' : 'groups.closedHint')}</p>
+            <SessionGroupActions group={props.group} sessions={props.sessions} api={props.api ?? null}
+                onOpen={props.onOpenGroup ?? (group => { if (group.members[0]) props.onSelect(group.members[0].sessionId) })}>
+                {(_handlers, _openMenu, openGroup, pending) => <button type="button" disabled={pending} onClick={openGroup} className={cn(control, 'shrink-0 text-[var(--app-link)]')}>{t('groups.open')}</button>}
+            </SessionGroupActions>
+        </div> : null}
+        {props.group.parked ? <div className="flex items-center gap-3 border-t border-[var(--app-border)] px-3 py-2">
+            <p className="min-w-0 flex-1 text-xs text-[var(--app-hint)]">{t('groups.parkedHint')}</p>
+            <button type="button" disabled={props.pending} onClick={() => void togglePark()}
+                className={cn(control, 'shrink-0 text-[var(--app-link)]')}>{t('groups.restore')}</button>
+        </div> : null}
         {members.length ? <div ref={tabList} className="grid w-full grid-cols-3 sm:flex sm:min-w-0" role="tablist" aria-label={t('groups.tabs')} onKeyDown={event => {
             if (!(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'tab') return
             const current = tabMembers.findIndex(m => m.sessionId === props.selectedSessionId)

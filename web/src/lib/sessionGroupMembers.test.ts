@@ -8,7 +8,7 @@ const chat = (id: string, extra: Partial<SessionSummary> = {}) => ({
     metadata: { path: '/work', lifecycleState: 'running' }, ...extra,
 }) as SessionSummary
 const group = (ids: string[], pinned: string[] = []): SessionGroup => ({
-    id: 'group', name: 'Group', version: 1, updatedAt: 0,
+    id: 'group', name: 'Group', closed: false, parked: false, version: 1, updatedAt: 0,
     members: ids.map(sessionId => ({ sessionId, pinned: pinned.includes(sessionId) })),
 })
 const order = (g: SessionGroup, sessions: SessionSummary[]) => getSessionGroupMembers(g, sessions).map(member => member.sessionId)
