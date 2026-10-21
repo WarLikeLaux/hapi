@@ -367,7 +367,6 @@ function MediaAttachment(props: {
         return (
             <ImagePreview
                 src={fullUrl}
-                fileName={media.fileName ?? label}
                 label={label}
                 galleryId={props.galleryId}
                 buttonClassName={cn(
@@ -440,7 +439,7 @@ function MediaAttachment(props: {
         <>
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-bg)] text-base text-[var(--app-link)]">{mediaIcons[media.kind]}</span>
             <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{loading || autoLoadsOriginal ? 'Loading…' : media.fileName ?? label}</span>
+                <span className="block truncate text-sm font-medium">{loading || autoLoadsOriginal ? 'Loading…' : media.kind === 'image' ? label : media.fileName ?? label}</span>
                 {size || media.mimeType ? <span className="block truncate text-[10px] text-[var(--app-hint)]">{[size, media.mimeType].filter(Boolean).join(' · ')}</span> : null}
                 {error ? <span className="block text-[10px] text-red-600">{error}</span> : null}
             </span>

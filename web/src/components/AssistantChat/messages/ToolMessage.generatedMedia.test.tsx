@@ -75,14 +75,16 @@ describe('GeneratedImageCard video fetch', () => {
     it('labels displayed images in English without implying AI generation', () => {
         renderCard({ mimeType: 'image/png', locale: 'en' })
 
-        expect(screen.getByText('Displayed image: clip.mp4')).toBeInTheDocument()
+        expect(screen.getByText('Displayed image')).toBeInTheDocument()
+        expect(screen.queryByText(/clip.mp4/)).not.toBeInTheDocument()
         expect(screen.queryByText(/Generated image/)).not.toBeInTheDocument()
     })
 
     it('localizes the displayed image label in Chinese', () => {
         renderCard({ mimeType: 'image/png', locale: 'zh-CN' })
 
-        expect(screen.getByText('展示图片：clip.mp4')).toBeInTheDocument()
+        expect(screen.getByText('展示图片')).toBeInTheDocument()
+        expect(screen.queryByText(/clip.mp4/)).not.toBeInTheDocument()
         expect(screen.queryByText(/Generated image/)).not.toBeInTheDocument()
     })
 

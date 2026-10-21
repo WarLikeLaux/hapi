@@ -96,7 +96,7 @@ function DragHandle(props: AttachmentDragHandleProps & { isFile?: boolean }) {
 }
 
 export function AttachmentItem(props: { dragHandleProps?: AttachmentDragHandleProps } = {}) {
-    const { name, status, previewUrl } = useAuiState((s) => s.attachment) as ComposerAttachmentWithPreview
+    const { name, status, previewUrl, contentType } = useAuiState((s) => s.attachment) as ComposerAttachmentWithPreview
     const isParking = useComposerParking()
     const isUploading = status.type === 'running'
     const isError = status.type === 'incomplete'
@@ -106,6 +106,7 @@ export function AttachmentItem(props: { dragHandleProps?: AttachmentDragHandlePr
     if (hasPreview) {
         hadPreviewRef.current = true
     }
+    const imageName = hadPreviewRef.current || previewUrl || contentType?.startsWith('image/') ? 'Image' : name
     const renderImagePreview = hadPreviewRef.current
     const surfacePointerDown = props.dragHandleProps?.onSurfacePointerDown
         ? (event: ReactPointerEvent<HTMLElement>) => {
@@ -126,23 +127,17 @@ export function AttachmentItem(props: { dragHandleProps?: AttachmentDragHandlePr
             >
                 <ImagePreview
                     src={previewUrl ?? ''}
-                    fileName={name}
-                    label={name}
+                    label="Image"
                     galleryId="composer-attachments"
                     buttonClassName={`group h-full w-full cursor-zoom-in overflow-hidden rounded-lg text-left ${props.dragHandleProps ? 'touch-none' : ''} ${hasPreview ? '' : 'hidden'}`}
                     imageClassName="h-full w-full object-cover"
                     onTriggerPointerDown={props.dragHandleProps?.onSurfacePointerDown}
                     onTriggerContextMenu={props.dragHandleProps?.onSurfaceContextMenu}
                     onTriggerClick={props.dragHandleProps?.onSurfaceClick}
-                    caption={(
-                        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 pb-1 pt-3">
-                            <span className="block truncate text-[10px] leading-tight text-white">{name}</span>
-                        </div>
-                    )}
                 />
                 {!hasPreview ? (
                     <div className="flex h-full w-full items-center justify-center rounded-lg bg-[var(--app-subtle-bg)] px-2 text-[10px] text-[var(--app-hint)]" data-testid="attachment-preview-placeholder">
-                        <span className="truncate">{name}</span>
+                        <span className="truncate">Image</span>
                     </div>
                 ) : null}
                 {props.dragHandleProps ? (
@@ -181,7 +176,7 @@ export function AttachmentItem(props: { dragHandleProps?: AttachmentDragHandlePr
                     <ErrorIcon />
                 </span>
             ) : null}
-            <span className={`max-w-[150px] truncate ${isError ? 'text-red-500 line-through' : ''}`}>{name}</span>
+            <span className={`max-w-[150px] truncate ${isError ? 'text-red-500 line-through' : ''}`}>{imageName}</span>
             {isError ? <span className="text-xs text-red-500 whitespace-nowrap">Upload failed</span> : null}
             {!isParking ? (
                 <AttachmentPrimitive.Remove

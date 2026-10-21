@@ -509,7 +509,6 @@ export default function FilePage() {
                         imagePreviewUrl ? (
                             <ImagePreview
                                 src={imagePreviewUrl}
-                                fileName={fileName}
                                 label={t('file.page.imagePreviewAlt', { name: fileName })}
                             />
                         ) : binaryFile ? (

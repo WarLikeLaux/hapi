@@ -5,6 +5,8 @@ import type { AgentState, Metadata, UserMessage } from '@/api/types';
 import type { SessionBootstrapResult } from '@/agent/sessionFactory';
 import { SharedCodexRoot, type RootHost } from './root';
 import { codexPlanProposalId } from './plan';
+import { registerUploadHandlers, cleanupUploadDir } from '@/modules/common/handlers/uploads';
+import type { UploadFileResponse } from '@hapi/protocol';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 
 type NativeTurn = { id: string; status: string; items: unknown[] };
@@ -131,6 +133,26 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; in
         end,
     };
 }
+
+describe('image attachment delivery', () => {
+    it('reads the session upload and supplies image bytes alongside the original text to the native queue', async () => {
+        const f = await fixture();
+        await f.root.activate();
+        registerUploadHandlers({ registerHandler: (name: string, handler: (raw: unknown) => Promise<unknown>) => f.rpc.set(name, handler) } as never);
+        cleanups.push(() => cleanupUploadDir('sid'));
+        const content = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=';
+        const uploaded = await f.rpc.get(RPC_METHODS.UploadFile)!({ sessionId: 'sid', filename: 'clipboard.png', mimeType: 'image/png', content }) as UploadFileResponse;
+        expect(uploaded.success).toBe(true);
+        f.postUser({ role: 'user', content: { type: 'text', text: '  Read this picture.\n', attachments: [
+            { id: 'initial-image', filename: 'clipboard.png', mimeType: 'image/png', size: Buffer.from(content, 'base64').length, path: uploaded.path! },
+        ] } }, 'launch:request');
+        await vi.waitFor(() => expect(f.native.queue).toHaveLength(1));
+        expect(f.native.queue[0]).toMatchObject({ clientUserMessageId: 'launch:request', input: [
+            { type: 'text', text: '  Read this picture.\n' },
+            { type: 'image', url: `data:image/png;base64,${content}` },
+        ] });
+    });
+});
 
 describe('cold resume delivery', () => {
     it('starts fresh input after an interrupted turn without replaying old history', async () => {

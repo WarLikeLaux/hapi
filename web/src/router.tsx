@@ -32,6 +32,7 @@ import { WorkspaceBrowser } from '@/components/WorkspaceBrowser'
 import { LoadingState } from '@/components/LoadingState'
 import { useAppContext } from '@/lib/app-context'
 import { useAppGoBack } from '@/hooks/useAppGoBack'
+import { useNewSessionNavigation } from '@/hooks/useNewSessionNavigation'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
 import { useMessages } from '@/hooks/queries/useMessages'
@@ -972,6 +973,7 @@ function SessionDetailRoute() {
 
 function NewSessionPage() {
     const { api } = useAppContext()
+    const openCreatedSession = useNewSessionNavigation()
     const navigate = useNavigate()
     const goBack = useAppGoBack()
     const queryClient = useQueryClient()
@@ -1029,21 +1031,8 @@ function NewSessionPage() {
             setSharePendingTransfer(shareTransferId, sessionId)
         }
         void queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
-        // Replace current page with /sessions to clear spawn flow from history
-        navigate({
-            to: '/sessions',
-            replace: true,
-            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-        })
-        // Then navigate to new session
-        requestAnimationFrame(() => {
-            navigate({
-                to: '/sessions/$sessionId',
-                params: { sessionId },
-                ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-            })
-        })
-    }, [api, groupId, addToast, t, navigate, queryClient, shareTransferId])
+        openCreatedSession(sessionId)
+    }, [api, groupId, addToast, t, openCreatedSession, queryClient, shareTransferId])
 
     const handleChooseFolder = useCallback((args: { machineId: string | null; directory: string }) => {
         // Forward the currently-selected machine so /browse opens scoped to

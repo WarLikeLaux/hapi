@@ -11,8 +11,8 @@ function render(ui: ReactElement) {
 function renderGallery() {
     render(
         <>
-            <ImagePreview src="/first.png" fileName="first.png" label="First image" galleryId="example-message" />
-            <ImagePreview src="/second.png" fileName="second.png" label="Second image" galleryId="example-message" />
+            <ImagePreview src="/first.png" label="First image" galleryId="example-message" />
+            <ImagePreview src="/second.png" label="Second image" galleryId="example-message" />
         </>
     )
 }
@@ -30,7 +30,7 @@ describe('ImagePreview gallery navigation', () => {
         fireEvent.click(within(dialog).getByRole('button', { name: 'Next image' }))
 
         const nextDialog = screen.getByRole('dialog', { name: 'Second image' })
-        expect(within(nextDialog).getByText('second.png')).toBeInTheDocument()
+        expect(within(nextDialog).queryByText('second.png')).not.toBeInTheDocument()
         expect(within(nextDialog).getByText('2 / 2')).toBeInTheDocument()
         expect(within(nextDialog).getByRole('img', { name: 'Second image' })).toHaveAttribute('src', '/second.png')
         expect(within(nextDialog).getByRole('button', { name: 'Next image' })).toBeDisabled()
@@ -50,9 +50,9 @@ describe('ImagePreview gallery navigation', () => {
     it('keeps named galleries separate from ungrouped previews', () => {
         render(
             <>
-                <ImagePreview src="/sent.png" fileName="sent.png" label="Sent image" />
-                <ImagePreview src="/draft-one.png" fileName="draft-one.png" label="First draft" galleryId="composer-attachments" />
-                <ImagePreview src="/draft-two.png" fileName="draft-two.png" label="Second draft" galleryId="composer-attachments" />
+                <ImagePreview src="/sent.png" label="Sent image" />
+                <ImagePreview src="/draft-one.png" label="First draft" galleryId="composer-attachments" />
+                <ImagePreview src="/draft-two.png" label="Second draft" galleryId="composer-attachments" />
             </>
         )
 
@@ -67,8 +67,8 @@ describe('ImagePreview gallery navigation', () => {
 
     it('keeps standalone previews separate unless a gallery is explicitly supplied', () => {
         render(<>
-            <ImagePreview src="/one.png" fileName="one.png" label="Standalone one" />
-            <ImagePreview src="/two.png" fileName="two.png" label="Standalone two" />
+            <ImagePreview src="/one.png" label="Standalone one" />
+            <ImagePreview src="/two.png" label="Standalone two" />
         </>)
         fireEvent.click(screen.getByRole('button', { name: /standalone two/i }))
         fireEvent.keyDown(window, { key: 'ArrowLeft' })
@@ -85,7 +85,7 @@ describe('ImagePreview gallery navigation', () => {
         const source = <MessageAttachments attachments={attachments(['first', 'second'])} />
         const single = <MessageAttachments attachments={attachments(['single'])} />
         const { rerender } = render(<>{source}{single}</>)
-        fireEvent.click(screen.getByRole('button', { name: /second.png/i }))
+        fireEvent.click(screen.getAllByRole('button', { name: 'Image' })[1])
         expect(within(screen.getByRole('dialog')).getByText('2 / 2')).toBeInTheDocument()
         expect(within(screen.getByRole('dialog')).getByRole('img')).toHaveAttribute('src', '/second.png')
         expect(screen.getByRole('button', { name: 'Next image' })).toBeDisabled()
@@ -106,7 +106,7 @@ describe('ImagePreview gallery navigation', () => {
         expect(within(screen.getByRole('dialog')).getByRole('img')).toHaveAttribute('src', '/second.png')
 
         fireEvent.click(screen.getByTitle('Close'))
-        fireEvent.click(screen.getByRole('button', { name: /single.png/i }))
+        fireEvent.click(screen.getAllByRole('button', { name: 'Image' })[5])
         fireEvent.keyDown(window, { key: 'ArrowLeft' })
         fireEvent.keyDown(window, { key: 'ArrowRight' })
         expect(within(screen.getByRole('dialog')).getByRole('img')).toHaveAttribute('src', '/single.png')
@@ -122,7 +122,6 @@ describe('ImagePreview gallery navigation', () => {
         render(
             <ImagePreview
                 src="/drag.png"
-                fileName="drag.png"
                 label="Drag image"
                 onTriggerPointerDown={onTriggerPointerDown}
                 onTriggerContextMenu={onTriggerContextMenu}
@@ -145,7 +144,7 @@ describe('ImagePreview gallery navigation', () => {
 
 describe('ImagePreview viewer lifetime', () => {
     it('keeps the current image and zoom when its message or attachment is replaced', () => {
-        const source = <ImagePreview src="/first.png" fileName="first.png" label="First image" />
+        const source = <ImagePreview src="/first.png" label="First image" />
         const { rerender } = render(source)
         fireEvent.click(screen.getByTitle('Click to zoom'))
         fireEvent.click(screen.getByTitle('Zoom in'))

@@ -7,7 +7,7 @@
  * - No E2E encryption; data is stored as JSON in SQLite
  */
 
-import { MACHINE_CAPABILITIES, isSessionBusy, toSessionSummary, isKnownFlavor, isLiveLifecycleState, isParkedLifecycleState, isSteeringSupportedForSession, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
+import { initialImageBytes, MACHINE_CAPABILITIES, isSessionBusy, toSessionSummary, isKnownFlavor, isLiveLifecycleState, isParkedLifecycleState, isSteeringSupportedForSession, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
 import {
     cliBinaryUpdatedOnDisk,
     isMachineCapabilitySkewed,
@@ -2545,6 +2545,11 @@ export class SyncEngine {
             if (receipt.result.state === 'indeterminate' && receipt.result.sessionId) {
                 const session = this.store.sessions.getSessionByNamespace(receipt.result.sessionId, namespace)
                 if (session && !isMachineSpawnPreallocatedStub(session)) {
+                    if (input.initialImages?.length) {
+                        const delivery = this.deliverLaunchImages(namespace, input, session.id)
+                        this.sessionLaunches.set(key, delivery)
+                        try { return await delivery } finally { this.sessionLaunches.delete(key) }
+                    }
                     const resolved: LaunchSessionResult = { state: 'succeeded', sessionId: session.id }
                     this.store.launches.save(namespace, input.requestId, resolved)
                     return resolved
@@ -2576,11 +2581,14 @@ export class SyncEngine {
                     async (id) => {
                         sessionId = id
                         this.store.launches.save(namespace, input.requestId, { state: 'indeterminate', sessionId: id })
-                        if (input.initialPrompt?.trim()) {
+                        if (!input.initialImages?.length && input.initialPrompt?.trim()) {
                             await this.sendMessage(id, { text: input.initialPrompt, localId: `launch:${input.requestId}` })
                         }
                     }
                 )
+                if (result.type === 'success' && input.initialImages?.length) {
+                    return await this.deliverLaunchImages(namespace, input, result.sessionId)
+                }
                 const outcome: LaunchSessionResult = result.type === 'success'
                     ? { state: 'succeeded', sessionId: result.sessionId }
                     : { state: result.childStarted === false ? 'failed' : 'indeterminate',
@@ -2596,6 +2604,40 @@ export class SyncEngine {
         })()
         this.sessionLaunches.set(key, task)
         try { return await task } finally { this.sessionLaunches.delete(key) }
+    }
+
+    private async deliverLaunchImages(namespace: string, input: LaunchSessionRequest, sessionId: string): Promise<LaunchSessionResult> {
+        const localId = `launch:${input.requestId}`
+        // The durable message is the delivery receipt if the hub stopped after enqueueing.
+        if (this.store.messages.getLocalMessageStates(sessionId, [localId]).length) {
+            const result: LaunchSessionResult = { state: 'succeeded', sessionId }
+            this.store.launches.save(namespace, input.requestId, result)
+            return result
+        }
+        const attachments = []
+        try {
+            for (const [index, image] of (input.initialImages ?? []).entries()) {
+                const upload = await this.uploadFile(sessionId, image.filename, image.content, image.mimeType)
+                if (!upload.success || !upload.path) throw new Error(`${image.filename}: ${upload.error ?? 'Upload failed'}`)
+                attachments.push({ id: `${input.requestId}:${index}`, filename: image.filename,
+                    mimeType: image.mimeType, size: initialImageBytes(image), path: upload.path,
+                    previewUrl: `data:${image.mimeType};base64,${image.content}` })
+            }
+            // Text and images enter the ordinary chat pipeline together, only after
+            // the new CLI has written and authorized every upload for this session.
+            await this.sendMessage(sessionId, { text: input.initialPrompt ?? '', localId, attachments })
+            const result: LaunchSessionResult = { state: 'succeeded', sessionId }
+            this.store.launches.save(namespace, input.requestId, result)
+            return result
+        } catch (error) {
+            if (!this.store.messages.getLocalMessageStates(sessionId, [localId]).length) {
+                await Promise.allSettled(attachments.map(image => this.deleteUploadFile(sessionId, image.path)))
+            }
+            const result: LaunchSessionResult = { state: 'indeterminate', sessionId,
+                message: `Initial images were not confirmed. Check result to retry in this same session. ${error instanceof Error ? error.message : String(error)}` }
+            this.store.launches.save(namespace, input.requestId, result)
+            return result
+        }
     }
 
     async spawnSession(

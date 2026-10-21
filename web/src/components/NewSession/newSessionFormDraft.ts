@@ -1,3 +1,4 @@
+import { InitialImageDraftSchema, type InitialImageDraft } from './initialImageDrafts'
 import {
     CREATABLE_AGENT_FLAVORS,
     GROK_PERMISSION_MODES,
@@ -17,6 +18,7 @@ const DRAFT_STORAGE_KEY = 'hapi:new-session-form-draft'
 export type NewSessionFormDraft = {
     agentFilter?: AgentType | 'all'
     initialPrompt?: string
+    initialImages?: InitialImageDraft[]
     groupId?: string
     groupCreation?: { name: string; requestId: string }
     agent: AgentType
@@ -62,6 +64,7 @@ export function loadNewSessionFormDraft(): NewSessionFormDraft | null {
             : 'claude'
         const agentPreserved = restoredAgent === parsed.agent
         return {
+            initialImages: InitialImageDraftSchema.array().safeParse(parsed.initialImages).success ? parsed.initialImages : undefined,
             initialPrompt: typeof parsed.initialPrompt === 'string' ? parsed.initialPrompt : undefined,
             groupId: typeof parsed.groupId === 'string' ? parsed.groupId : undefined,
             groupCreation: typeof parsed.groupCreation?.name === 'string' && typeof parsed.groupCreation?.requestId === 'string'

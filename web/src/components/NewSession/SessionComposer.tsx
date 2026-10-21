@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { getFlavorLabel, type LaunchSessionRequest, type LaunchSessionResult } from '@hapi/protocol'
+import { INITIAL_IMAGE_AGENTS, getFlavorLabel, type LaunchSessionRequest, type LaunchSessionResult } from '@hapi/protocol'
 import { NewSession, type SessionEditorState } from './index'
 import { MachineSelector } from './MachineSelector'
 import { ProjectDirectory } from './ProjectDirectory'
 import { PlacementPicker } from './PlacementPicker'
+import { InitialPrompt } from './InitialPrompt'
+import { resolveInitialImages, type InitialImageDraft } from './initialImageDrafts'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
@@ -23,6 +25,7 @@ type Card = {
     id: string
     draft?: NewSessionFormDraft
     prompt: string
+    initialImages?: InitialImageDraft[]
     directory?: string
     launch?: { machineId: string; input: LaunchSessionRequest }
     result?: LaunchSessionResult
@@ -38,6 +41,11 @@ type Composition = {
     cards: Card[]
     browseTarget?: string
 }
+function serializeComposition(composition: Composition): string {
+    return JSON.stringify({ ...composition, cards: composition.cards.map(card => ({ ...card,
+        draft: card.draft ? { ...card.draft, initialImages: undefined } : undefined,
+    })) })
+}
 const control = 'min-h-10 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm font-normal text-[var(--app-fg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50'
 const action = 'min-h-10 rounded-md px-3 py-2 text-sm hover:bg-[var(--app-secondary-bg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50'
 function newCard(): Card { return { id: crypto.randomUUID(), prompt: '' } }
@@ -45,7 +53,7 @@ function newCard(): Card { return { id: crypto.randomUUID(), prompt: '' } }
 function Editor({ onChange, id, initialDraft, ...props }: Props & {
     id: string; initialDraft?: NewSessionFormDraft; onChange: (id: string, state: SessionEditorState) => void
 }) {
-    const [seed] = useState(initialDraft)
+    const [seed] = useState(initialDraft ? { ...initialDraft, initialImages: undefined } : undefined)
     const report = useCallback((state: SessionEditorState) => onChange(id, state), [id, onChange])
     return <NewSession {...props} editor={{ initialDraft: seed, disabled: Boolean(props.isLoading), onChange: report }} />
 }
@@ -76,9 +84,9 @@ export function SessionComposer(props: Props) {
             prompt: state.draft.initialPrompt ?? '', placement: state.draft.groupId ?? (state.draft.groupCreation ? 'new' : 'none'),
             groupName: state.draft.groupCreation?.name ?? '',
             groupRequestId: state.draft.groupCreation?.requestId ?? crypto.randomUUID(),
-            cards: [{ ...newCard(), draft: state.draft }, ...(startSingle ? [] : [newCard()])],
+            cards: [{ ...newCard(), draft: { ...state.draft, initialImages: undefined }, initialImages: state.draft.initialImages }, ...(startSingle ? [] : [newCard()])],
         }
-        try { sessionStorage.setItem(`hapi:session-composition:${props.groupId ?? 'standalone'}`, JSON.stringify(composition)) } catch { /* Launch requires durable request identities later. */ }
+        try { sessionStorage.setItem(`hapi:session-composition:${props.groupId ?? 'standalone'}`, serializeComposition(composition)) } catch { /* Launch requires durable request identities later. */ }
         setLaunchImmediately(startSingle ? state : null)
         setBatchSeed(composition)
     }
@@ -102,6 +110,7 @@ function BatchComposer(props: Props & {
     onSingleChat: (seed: { draft?: NewSessionFormDraft; directory: string; groupId?: string; groupName?: string }) => void
 }) {
     const { t } = useTranslation()
+    const [readingImages, setReadingImages] = useState<string[]>([])
     const client = useQueryClient()
     const groups = useSessionGroups(props.api)
     const { sessions } = useSessions(props.api)
@@ -138,7 +147,7 @@ function BatchComposer(props: Props & {
     const disabled = started || preparing || Boolean(props.isLoading)
     useEffect(() => {
         if (singleCompleted.current) return
-        try { sessionStorage.setItem(storageKey, JSON.stringify(compositionRef.current)) } catch { /* Optional draft persistence. */ }
+        try { sessionStorage.setItem(storageKey, serializeComposition(compositionRef.current)) } catch { /* Optional draft persistence. */ }
     }, [composition, storageKey])
     // Machines can arrive after the form mounts.
     useEffect(() => {
@@ -161,7 +170,7 @@ function BatchComposer(props: Props & {
     function persistForBrowse(target: string, directory: string) {
         const snapshot = { ...composition, browseTarget: target,
             cards: composition.cards.map(card => ({ ...card, draft: prepared[card.id]?.draft ?? card.draft })) }
-        try { sessionStorage.setItem(storageKey, JSON.stringify(snapshot)) } catch { setError(t('batch.draftSaveFailed')); return }
+        try { sessionStorage.setItem(storageKey, serializeComposition(snapshot)) } catch { setError(t('batch.draftSaveFailed')); return }
         setComposition(snapshot)
         props.onChooseFolder?.({ machineId: composition.machineId, directory })
     }
@@ -178,7 +187,7 @@ function BatchComposer(props: Props & {
         if (retry) {
             const snapshot = { ...compositionRef.current, cards: compositionRef.current.cards.map(item => item.id === card.id
                 ? { ...item, launch: { ...request, input }, result: { state: 'indeterminate' as const } } : item) }
-            try { sessionStorage.setItem(storageKey, JSON.stringify(snapshot)) }
+            try { sessionStorage.setItem(storageKey, serializeComposition(snapshot)) }
             catch { setError(t('batch.launchSaveFailed')); return }
             compositionRef.current = snapshot
             setComposition(snapshot)
@@ -187,7 +196,8 @@ function BatchComposer(props: Props & {
         updateCard(card.id, { launch: { ...request, input }, result: { state: 'indeterminate' } })
         setBusy(b => ({ ...b, [card.id]: true }))
         try {
-            const result = await props.api.launchSession(request.machineId, input)
+            const initialImages = await resolveInitialImages(card.initialImages)
+            const result = await props.api.launchSession(request.machineId, { ...input, ...(initialImages ? { initialImages } : {}) })
             updateCard(card.id, { result })
             if (result.state === 'succeeded') {
                 setLastUsedMachineId(request.machineId)
@@ -202,7 +212,11 @@ function BatchComposer(props: Props & {
             }
             if (composition.cards.length === 1 && result.state === 'succeeded' && result.sessionId) {
                 singleCompleted.current = true
-                try { sessionStorage.removeItem(storageKey) } catch { /* Optional draft. */ }
+                // A previous visit can finish after the user has prepared another launch.
+                // Clear only this request's receipt, leaving the newer launch recoverable.
+                if (loadComposition(props.groupId)?.cards.some(item => item.launch?.input.requestId === input.requestId)) {
+                    try { sessionStorage.removeItem(storageKey) } catch { /* Optional draft. */ }
+                }
                 props.onSuccess(result.sessionId, true)
             }
         } catch (e) {
@@ -235,13 +249,14 @@ function BatchComposer(props: Props & {
             const cards = composition.cards.map(card => ({ ...card, draft: (initialState ?? prepared[card.id]).draft,
                 launch: { machineId: composition.machineId, input: { ...(initialState ?? prepared[card.id]).input,
                     directory: (card.directory ?? composition.directory).trim(), groupId,
-                    initialPrompt: card.prompt.trim() ? card.prompt : composition.prompt, requestId: crypto.randomUUID() } },
+                    initialPrompt: card.prompt.trim() ? card.prompt : composition.prompt,
+                    requestId: crypto.randomUUID() } },
                 result: { state: 'indeterminate' as const } }))
             // Save every request identity synchronously before the first network dispatch.
             // A response or page can be lost before React has flushed its persistence effect.
             const snapshot = { ...composition, cards }
-            try { sessionStorage.setItem(storageKey, JSON.stringify(snapshot)) }
-            catch { throw new Error(t('batch.launchSaveFailed')) }
+            try { sessionStorage.setItem(storageKey, serializeComposition(snapshot)) }
+            catch { throw new Error(t(cards.some(card => card.initialImages?.length) ? 'newSession.imagesSaveFailed' : 'batch.launchSaveFailed')) }
             compositionRef.current = snapshot
             setComposition(snapshot)
             setExpanded('')
@@ -253,7 +268,8 @@ function BatchComposer(props: Props & {
     }
     const groupMissing = !['none', 'new'].includes(composition.placement) && !groups.query.isPending
         && !groups.query.isError && !groups.groups.some(group => group.id === composition.placement)
-    const canStart = !groupMissing && composition.cards.every(card => prepared[card.id]?.canCreate)
+    const canStart = !readingImages.length && !groupMissing && composition.cards.every(card => prepared[card.id]?.canCreate
+        && (!card.initialImages?.length || INITIAL_IMAGE_AGENTS.includes(prepared[card.id]?.input.agent ?? 'claude')))
         && Boolean(composition.machineId && composition.directory.trim())
         && (composition.placement !== 'new' || composition.groupName.trim().length <= 120)
         && !disabled
@@ -274,7 +290,7 @@ function BatchComposer(props: Props & {
         // Leaving batch mode is explicit. Keep the first chat's settings and placement.
         singleCompleted.current = true
         props.onSingleChat({
-            draft: draft ? { ...draft, initialPrompt: first.prompt.trim() ? first.prompt : composition.prompt, groupId: undefined, groupCreation: composition.placement === 'new' && composition.groupName.trim()
+            draft: draft ? { ...draft, initialImages: first.initialImages, initialPrompt: first.prompt.trim() ? first.prompt : composition.prompt, groupId: undefined, groupCreation: composition.placement === 'new' && composition.groupName.trim()
                 ? { name: composition.groupName, requestId: composition.groupRequestId } : undefined } : undefined,
             directory: first.directory ?? composition.directory,
             groupId: ['none', 'new'].includes(composition.placement) ? undefined : composition.placement,
@@ -391,12 +407,10 @@ function BatchComposer(props: Props & {
                         </div>
                         {agent === 'pi' && composition.cards.length === 1 ? <button className={`${action} m-3 border border-[var(--app-border)]`} disabled={disabled} onClick={props.onImportPi}>{t('piImport.inline.choose')}</button> : null}
                         <div className="space-y-3 border-t border-[var(--app-divider)] p-3">
-                            <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]">
-                                <span>{t('batch.chatPrompt')}</span>
-                                <textarea className={`${control} min-h-24 resize-y`} rows={3} maxLength={100000}
-                                    value={card.prompt} disabled={disabled} placeholder={t(composition.prompt.trim() ? 'batch.replaces' : 'batch.promptPlaceholder')}
-                                    onChange={e => updateCard(card.id, { prompt: e.target.value })} />
-                            </label>
+                            <InitialPrompt label={t('batch.chatPrompt')} value={card.prompt} onChange={prompt => updateCard(card.id, { prompt })}
+                                images={card.initialImages ?? []} onImagesChange={initialImages => updateCard(card.id, { initialImages })}
+                                onReadingChange={reading => setReadingImages(current => reading ? [...current, card.id] : current.filter(id => id !== card.id))} agent={agent} disabled={disabled}
+                                placeholder={t(composition.prompt.trim() ? 'batch.replaces' : 'batch.promptPlaceholder')} />
                             <p className="text-xs text-[var(--app-hint)]">{t('batch.emptyOwnHint')}</p>
                             {card.directory !== undefined ? <div className="-mx-3">{directoryPicker(card.directory, directory => updateCard(card.id, { directory }), card.id)}</div> : null}
                         </div>
