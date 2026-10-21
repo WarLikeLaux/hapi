@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useMemo } from 'react'
 import type { QuotasResponse } from '@hapi/protocol/quotas'
 import type { ApiClient } from '@/api/client'
 import { queryKeys } from '@/lib/query-keys'
@@ -22,8 +23,18 @@ export function useQuotas(args: { api: ApiClient | null; enabled?: boolean }): {
         retry: false,
     })
 
+    // Presentation only: keep MiniMax collection and the raw query cache intact.
+    const snapshots = useMemo(() => (query.data?.quotas ?? [])
+        .map((snapshot) => ({
+            ...snapshot,
+            quotas: snapshot.quotas.filter((quota) => !quota.source.startsWith('minimax:')),
+            unavailable: snapshot.unavailable.filter((quota) => !quota.source.startsWith('minimax:')),
+        }))
+        .filter((snapshot) => snapshot.quotas.length > 0 || snapshot.unavailable.length > 0),
+    [query.data])
+
     return {
-        snapshots: query.data?.quotas ?? [],
+        snapshots,
         isLoading: enabled && query.isLoading,
         error: query.error instanceof Error ? query.error.message : null,
         refetch: () => {

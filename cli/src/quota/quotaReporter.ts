@@ -14,12 +14,14 @@ type QuotaReport = Omit<MachineQuotaUpdate, 'machineId'>
 /**
  * Periodically collects subscription-quota windows on the runner machine and
  * pushes the normalized snapshot to the hub. Sources without local
- * credentials are silently omitted; tokens never leave the machine.
+ * credentials (or an unavailable Cursor CLI) are silently omitted;
+ * tokens never leave the machine.
  */
 export class QuotaReporter {
     private timer: NodeJS.Timeout | null = null
     private inFlight = false
     private last: QuotaReport | null = null
+    private reportPending = false
 
     constructor(
         private readonly machineId: string,
@@ -28,11 +30,9 @@ export class QuotaReporter {
 
     start(): void {
         this.stopTimer()
-        // A hub restart loses its in-memory snapshots; replaying the cached
-        // report on (re)connect repopulates it without waiting for a cycle.
-        if (this.last) {
-            this.emit({ ...this.last, machineId: this.machineId })
-        }
+        // A hub restart loses its in-memory snapshots. Recollect before
+        // repopulating them: credentials/CLIs may have disappeared offline.
+        this.reportPending = true
         void this.collect()
         this.timer = setInterval(() => {
             void this.collect()
@@ -68,10 +68,11 @@ export class QuotaReporter {
                         : []
                 ))
             }
-            const changed = !this.last || !sameReport(this.last, next)
+            const changed = this.reportPending || !this.last || !sameReport(this.last, next)
             this.last = next
             if (changed) {
                 this.emit({ ...next, machineId: this.machineId })
+                this.reportPending = false
             }
         } catch (error) {
             logger.debug('[QUOTA] collection cycle failed', error instanceof Error ? error.message : String(error))

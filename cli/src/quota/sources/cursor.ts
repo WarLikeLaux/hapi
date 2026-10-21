@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { QuotaWindow } from '@hapi/protocol/quotas'
+import { getAgentAvailability } from '@/agent/agentAvailability'
 import { clampPercent, errorMessage, type CollectorResult } from '../types'
 
 export const CURSOR_MONTHLY_SOURCE = 'cursor:monthly'
@@ -106,6 +107,9 @@ export function parseCursorMonthlyUsage(payload: unknown, nowSec: number): Quota
 }
 
 export async function collectCursorQuota(nowSec: number, env: NodeJS.ProcessEnv = process.env): Promise<CollectorResult> {
+    // Credentials can outlive an uninstall. Use the same live executable
+    // check as runner launches, rather than treating an account as an agent.
+    if (!getAgentAvailability('cursor', env).available) return { kind: 'skipped' }
     const token = await readCursorAccessToken(cursorAuthPaths(env))
     if (!token) return { kind: 'skipped' }
 
@@ -130,6 +134,8 @@ export async function collectCursorQuota(nowSec: number, env: NodeJS.ProcessEnv 
             }
         }
         const payload = await response.json()
+        // The CLI may disappear while the account request is in flight.
+        if (!getAgentAvailability('cursor', env).available) return { kind: 'skipped' }
         const quotaWindow = parseCursorMonthlyUsage(payload, nowSec)
         if (!quotaWindow) {
             return { kind: 'unavailable', source: CURSOR_MONTHLY_SOURCE, reason: 'unavailable', detail: 'planUsage not found in response' }

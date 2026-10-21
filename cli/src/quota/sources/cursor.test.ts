@@ -1,6 +1,14 @@
-import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { parseCursorMonthlyUsage, cursorAuthPaths, CURSOR_MONTHLY_SOURCE } from './cursor'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
+import { collectCursorQuota, parseCursorMonthlyUsage, cursorAuthPaths, CURSOR_MONTHLY_SOURCE } from './cursor'
+
+const state = vi.hoisted(() => ({ home: '' }))
+vi.mock('node:os', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('node:os')>()
+    return { ...actual, homedir: () => state.home || actual.homedir() }
+})
 
 const NOW_SEC = 1_700_000_000
 const CYCLE_END_MS = 1_700_200_000_000
@@ -85,5 +93,55 @@ describe('parseCursorMonthlyUsage', () => {
         expect(parseCursorMonthlyUsage({}, NOW_SEC)).toBeNull()
         expect(parseCursorMonthlyUsage({ planUsage: {} }, NOW_SEC)).toBeNull()
         expect(parseCursorMonthlyUsage({ planUsage: { totalPercentUsed: 150 } }, NOW_SEC)).toBeNull()
+    })
+})
+
+describe('collectCursorQuota', () => {
+    it('follows CLI removal and return without deleting saved credentials or inventing quota', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'hapi-cursor-quota-'))
+        state.home = directory
+        const env = { PATH: directory, APPDATA: directory }
+        const executable = join(directory, process.platform === 'win32' ? 'agent.EXE' : 'agent')
+        const authPath = cursorAuthPaths(env)[0]!
+        const auth = JSON.stringify({ accessToken: 'test-cursor-token' })
+        mkdirSync(dirname(authPath), { recursive: true })
+        writeFileSync(authPath, auth)
+        const install = () => {
+            writeFileSync(executable, '#!/bin/sh\nexit 0\n')
+            chmodSync(executable, 0o755)
+        }
+        const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
+            billingCycleEnd: String(CYCLE_END_MS), planUsage: { autoPercentUsed: 0 }
+        })))
+        vi.stubGlobal('fetch', fetchMock)
+        try {
+            install()
+            expect(await collectCursorQuota(NOW_SEC, env)).toEqual({
+                kind: 'ok', windows: [{ source: CURSOR_MONTHLY_SOURCE, usedPercent: 0,
+                    weightedPercent: 0, resetsAt: CYCLE_END_MS / 1000, measuredAt: NOW_SEC }]
+            })
+            rmSync(executable)
+            fetchMock.mockClear()
+            expect(await collectCursorQuota(NOW_SEC + 300, env)).toEqual({ kind: 'skipped' })
+            expect(fetchMock).not.toHaveBeenCalled()
+            expect(readFileSync(authPath, 'utf8')).toBe(auth)
+
+            install()
+            fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ planUsage: { autoPercentUsed: 27 } })))
+            expect(await collectCursorQuota(NOW_SEC + 600, env)).toEqual({
+                kind: 'ok', windows: [{ source: CURSOR_MONTHLY_SOURCE, usedPercent: 27,
+                    weightedPercent: 27, resetsAt: null, measuredAt: NOW_SEC + 600 }]
+            })
+
+            fetchMock.mockImplementationOnce(async () => {
+                rmSync(executable)
+                return new Response(JSON.stringify({ planUsage: { autoPercentUsed: 0 } }))
+            })
+            expect(await collectCursorQuota(NOW_SEC + 900, env)).toEqual({ kind: 'skipped' })
+        } finally {
+            vi.unstubAllGlobals()
+            state.home = ''
+            rmSync(directory, { recursive: true, force: true })
+        }
     })
 })
