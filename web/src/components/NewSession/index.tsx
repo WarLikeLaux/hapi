@@ -52,7 +52,9 @@ import {
 } from './newSessionFormDraft'
 import { isOpencodeReasoningEffortValid, MODEL_OPTIONS } from './types'
 import type { NewSessionFormDraft } from './newSessionFormDraft'
-import type { LaunchSessionRequest } from '@hapi/protocol'
+import { INITIAL_IMAGE_AGENTS, type LaunchSessionRequest } from '@hapi/protocol'
+import { InitialPrompt } from './InitialPrompt'
+import type { InitialImageDraft } from './initialImageDrafts'
 import type { AgentType, LaunchEffort, CodexReasoningEffort, NewSessionServiceTier, SessionType } from './types'
 import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
@@ -105,7 +107,7 @@ import { getSessionTitle } from '@/lib/sessionTitle'
 import { makeClientSideId } from '@/lib/messages'
 
 export type SessionEditorState = {
-    input: Omit<LaunchSessionRequest, 'requestId' | 'initialPrompt'>
+    input: Omit<LaunchSessionRequest, 'requestId' | 'initialPrompt' | 'initialImages'>
     draft: NewSessionFormDraft
     canCreate: boolean
     modelLabel: string
@@ -149,6 +151,8 @@ export function NewSession(props: {
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
     const [initialPrompt, setInitialPrompt] = useState(editorDraft?.initialPrompt ?? '')
+    const [initialImages, setInitialImages] = useState<InitialImageDraft[]>(editorDraft?.initialImages ?? [])
+    const [readingImages, setReadingImages] = useState(false)
     const [groupName, setGroupName] = useState(editorDraft?.groupCreation?.name ?? '')
     const createGroup = !props.editor && !props.groupId && Boolean(groupName.trim())
     const groupRequestRef = useRef<{ name: string; requestId: string } | null>(editorDraft?.groupCreation ?? null)
@@ -313,6 +317,7 @@ export function NewSession(props: {
         restoredFromBrowseRef.current = true
         preserveRestoredDraftRef.current = true
         setInitialPrompt(draft.initialPrompt ?? '')
+        setInitialImages(draft.initialImages ?? [])
         setAgent(draft.agent)
         setAgentFilter(draft.agentFilter ?? 'all')
         setModel(draft.model)
@@ -1548,6 +1553,7 @@ export function NewSession(props: {
         saveNewSessionFormDraft({
             agentFilter,
             initialPrompt,
+            initialImages,
             groupId: props.groupId,
             groupCreation: createGroup ? {
                 name: groupName.trim(),
@@ -1577,6 +1583,7 @@ export function NewSession(props: {
         props.onChooseFolder,
         agentFilter,
         initialPrompt,
+        initialImages,
         props.groupId,
         createGroup,
         groupName,
@@ -1711,7 +1718,7 @@ export function NewSession(props: {
     async function handleCreate() {
         if (!machineId || !trimmedDirectory || createInFlightRef.current) return
 
-        if (props.onStartChat && initialPrompt.trim() && !continueFrom && !selectedCodexImportSession && !selectedPiImportSession) {
+        if (props.onStartChat && (initialPrompt.trim() || initialImages.length) && !continueFrom && !selectedCodexImportSession && !selectedPiImportSession) {
             props.onStartChat(buildCompositionState())
             return
         }
@@ -1936,6 +1943,8 @@ export function NewSession(props: {
         && selectedAgentAvailable
         && !isLaunchPreferenceValidationPending
         && !fastModeSelectionPending
+        && !readingImages
+        && (!initialImages.length || INITIAL_IMAGE_AGENTS.includes(agent))
         && (!createGroup || (groupName.trim().length > 0 && groupName.trim().length <= 120))
     )
 
@@ -1960,7 +1969,7 @@ export function NewSession(props: {
                 modelReasoningEffort: input.modelReasoningEffort ?? defaultCodexEffort ?? codexModel?.defaultReasoningEffort,
                 effort: input.effort, fast: input.serviceTier === 'fast',
             }),
-            draft: { initialPrompt, agent, model: agent === 'agy' ? (agySelectedModel ?? 'auto') : agent === 'opencode' ? (opencodeSelectedModel ?? 'auto') : model,
+            draft: { initialPrompt, initialImages, agent, model: agent === 'agy' ? (agySelectedModel ?? 'auto') : agent === 'opencode' ? (opencodeSelectedModel ?? 'auto') : model,
                 cursorSelectedBase, machineId, effort, modelReasoningEffort, serviceTier, collaborationMode, copilotAgentMode,
                 yoloMode, nativePermissionMode, grokPermissionMode, sessionType, worktreeName, agentFilter }
         }
@@ -2159,12 +2168,9 @@ export function NewSession(props: {
             />
 
             {props.onStartChat && !props.editor && !continueFrom && !selectedCodexImportSession && !selectedPiImportSession ? <div className="px-3 py-3">
-                <label className="flex flex-col gap-1.5 text-xs font-medium text-[var(--app-hint)]">
-                    <span>{t('newSession.initialPrompt')}</span>
-                    <textarea className="min-h-24 w-full resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm font-normal text-[var(--app-fg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50"
-                        rows={3} maxLength={100000} value={initialPrompt} disabled={isFormDisabled}
-                        placeholder={t('batch.promptPlaceholder')} onChange={event => setInitialPrompt(event.target.value)} />
-                </label>
+                <InitialPrompt label={t('newSession.initialPrompt')} value={initialPrompt} onChange={setInitialPrompt}
+                    images={initialImages} onImagesChange={setInitialImages} onReadingChange={setReadingImages}
+                    agent={agent} disabled={isFormDisabled} placeholder={t('batch.promptPlaceholder')} />
             </div> : null}
             {(error ?? spawnError) ? (
                 <div className="px-3 py-2 text-sm text-red-600">
@@ -2175,7 +2181,7 @@ export function NewSession(props: {
             {!props.editor ? <ActionButtons
                 isPending={isCreating || isPending || isImportingCodexSession || isImportingPiSession}
                 canCreate={canCreate}
-                isDisabled={isFormDisabled}
+                isDisabled={isFormDisabled || readingImages}
                 createLabel={createLabel}
                 onCancel={props.onCancel}
                 onCreate={handleCreate}

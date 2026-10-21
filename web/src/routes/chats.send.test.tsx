@@ -5,6 +5,7 @@ import type { ExternalMessage } from '@hapi/protocol/messengers'
 import { I18nProvider } from '@/lib/i18n-context'
 import { clearDraft } from '@/lib/composer-drafts'
 import { queryKeys } from '@/lib/query-keys'
+import { ImagePreviewProvider } from '@/components/ImagePreview'
 import { ChatConversationPage } from './chats'
 
 const context = vi.hoisted(() => ({ conversationId: '', api: {} as Record<string, unknown> }))
@@ -47,7 +48,7 @@ function renderChat(provider: string, api: Record<string, unknown>) {
     }
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     clients.push(client)
-    const view = render(<QueryClientProvider client={client}><I18nProvider><ChatConversationPage /></I18nProvider></QueryClientProvider>)
+    const view = render(<QueryClientProvider client={client}><I18nProvider><ChatConversationPage /></I18nProvider></QueryClientProvider>, { wrapper: ImagePreviewProvider })
     return { client, ...view }
 }
 
@@ -179,16 +180,22 @@ describe('messenger background sends', () => {
         expect(send.mock.calls[1]).toEqual(send.mock.calls[0])
     })
 
-    it('stages multiple selected and pasted images, removes one, and sends the caption only once', async () => {
+    it.each(['telegram', 'yandex'])('previews unnamed %s images, removes one, and sends the caption and original files once', async (provider) => {
         const sendMedia = vi.fn(async (_id: string, _file: File, _text: string) => {})
-        const { container } = renderChat('telegram', { sendExternalMedia: sendMedia })
+        const { container } = renderChat(provider, { sendExternalMedia: sendMedia })
         const input = await screen.findByRole('textbox')
         fireEvent.change(input, { target: { value: 'caption for these photos' } })
         const files = ['first.png', 'removed.png', 'pasted.png', 'last.png'].map(name => new File(['image'], name, { type: 'image/png' }))
         fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: files.slice(0, 2) } })
         fireEvent.paste(input, { clipboardData: { items: files.slice(2).map(file => ({ kind: 'file', type: file.type, getAsFile: () => file })) } })
         expect(screen.getAllByRole('button', { name: /Remove attachment/ })).toHaveLength(4)
-        fireEvent.click(screen.getByRole('button', { name: 'Remove attachment removed.png' }))
+        expect(screen.queryByText('first.png')).not.toBeInTheDocument()
+        fireEvent.click(screen.getAllByRole('img', { name: 'Image' })[0])
+        const viewer = await screen.findByRole('dialog')
+        expect(viewer).not.toHaveTextContent('first.png')
+        fireEvent.keyDown(window, { key: 'Escape' })
+        expect(screen.queryByRole('dialog')).toBeNull()
+        fireEvent.click(screen.getAllByRole('button', { name: 'Remove attachment' })[1])
         expect(sendMedia).not.toHaveBeenCalled()
         expect(input).toHaveValue('caption for these photos')
         fireEvent.click(screen.getByTitle('Send'))
@@ -219,9 +226,10 @@ describe('messenger background sends', () => {
         expect(drag.defaultPrevented).toBe(true)
         expect(dataTransfer.dropEffect).toBe('copy')
         fireEvent.drop(target, { dataTransfer })
-        for (const name of ['existing.txt', 'dropped.png', 'document.pdf']) {
+        for (const name of ['existing.txt', 'document.pdf']) {
             expect(screen.getByRole('button', { name: `Remove attachment ${name}` })).toBeVisible()
         }
+        expect(screen.getByRole('button', { name: 'Remove attachment' })).toBeVisible()
         expect(editor).toHaveValue('keep my draft')
         expect(editor).toHaveFocus()
         expect(sendMedia).not.toHaveBeenCalled()

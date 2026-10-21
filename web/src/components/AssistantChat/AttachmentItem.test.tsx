@@ -56,7 +56,7 @@ function renderAttachmentWithControls() {
 }
 
 describe('AttachmentItem', () => {
-    it('renders an image preview with its filename and an always-visible remove button', () => {
+    it('renders an image preview without a filename and keeps its remove button', () => {
         mocks.attachment = {
             name: 'photo.png',
             status: { type: 'requires-action', reason: 'composer-send' },
@@ -65,11 +65,11 @@ describe('AttachmentItem', () => {
 
         renderAttachment()
 
-        expect(screen.getByRole('img', { name: 'photo.png' })).toHaveAttribute(
+        expect(screen.getByRole('img', { name: 'Image' })).toHaveAttribute(
             'src',
             'data:image/png;base64,cGhvdG8='
         )
-        expect(screen.getAllByText('photo.png')).toHaveLength(2)
+        expect(screen.queryByText('photo.png')).not.toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Remove attachment' })).not.toHaveClass('opacity-0')
     })
 
@@ -82,7 +82,7 @@ describe('AttachmentItem', () => {
 
         const { container } = renderAttachment()
 
-        expect(screen.getByRole('img', { name: 'uploading.png' })).toBeInTheDocument()
+        expect(screen.getByRole('img', { name: 'Image' })).toBeInTheDocument()
         expect(container.querySelector('[class*="bg-black/40"]')).not.toBeNull()
     })
 
@@ -96,9 +96,9 @@ describe('AttachmentItem', () => {
         renderAttachment()
         fireEvent.click(screen.getByTitle('Click to zoom'))
 
-        const dialog = screen.getByRole('dialog', { name: 'zoom-me.png' })
+        const dialog = screen.getByRole('dialog', { name: 'Image' })
         expect(dialog).toBeInTheDocument()
-        expect(screen.getAllByRole('img', { name: 'zoom-me.png' })).toHaveLength(2)
+        expect(screen.getAllByRole('img', { name: 'Image' })).toHaveLength(2)
     })
 
     it('keeps non-image attachments in the filename chip layout', () => {
@@ -143,7 +143,8 @@ describe('AttachmentItem', () => {
 
         expect(screen.queryByRole('img')).not.toBeInTheDocument()
         expect(screen.getByText('Upload failed')).toBeInTheDocument()
-        expect(screen.getByText('broken.png')).toHaveClass('line-through')
+        expect(screen.queryByText('broken.png')).not.toBeInTheDocument()
+        expect(screen.getByText('Image')).toHaveClass('line-through')
     })
 
     it('keeps an open lightbox when previewUrl briefly flickers to undefined', () => {
@@ -160,7 +161,7 @@ describe('AttachmentItem', () => {
         const { rerender } = renderAttachment()
 
         fireEvent.click(screen.getByTitle('Click to zoom'))
-        expect(screen.getByRole('dialog', { name: 'flicker.png' })).toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: 'Image' })).toBeInTheDocument()
 
         // previewUrl briefly disappears
         mocks.attachment = {
@@ -174,7 +175,7 @@ describe('AttachmentItem', () => {
             </I18nProvider>
         )
         expect(
-            screen.getByRole('dialog', { name: 'flicker.png' }),
+            screen.getByRole('dialog', { name: 'Image' }),
             'lightbox must remain open while previewUrl flickers',
         ).toBeInTheDocument()
 
@@ -189,7 +190,7 @@ describe('AttachmentItem', () => {
                 <AttachmentItem />
             </I18nProvider>
         )
-        expect(screen.getByRole('dialog', { name: 'flicker.png' })).toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: 'Image' })).toBeInTheDocument()
         expect(screen.getByTitle('Click to zoom')).toBeInTheDocument()
     })
 })

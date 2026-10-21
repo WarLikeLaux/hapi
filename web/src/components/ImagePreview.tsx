@@ -15,7 +15,6 @@ type ImagePoint = { x: number; y: number }
 
 type PreviewImage = {
     src: string
-    fileName: string
     label: string
 }
 
@@ -70,7 +69,6 @@ export function MessageImageGallery({ children }: { children: ReactNode }) {
 
 export function ImagePreview(props: {
     src: string
-    fileName: string
     label: string
     buttonClassName?: string
     imageClassName?: string
@@ -100,7 +98,6 @@ export function ImagePreview(props: {
             if (!image) return []
             return [{
                 src: image.getAttribute('src') ?? image.src,
-                fileName: trigger.dataset.imagePreviewFileName ?? image.alt,
                 label: trigger.dataset.imagePreviewLabel ?? image.alt
             }]
         })
@@ -129,7 +126,6 @@ export function ImagePreview(props: {
             onContextMenu={props.onTriggerContextMenu}
             onClick={handleTriggerClick}
             data-image-preview-trigger=""
-            data-image-preview-file-name={props.fileName}
             data-image-preview-label={props.label}
             data-image-preview-gallery={galleryId ?? ''}
             className={props.buttonClassName ?? 'group flex min-h-[18rem] w-full items-center justify-center overflow-auto rounded-md border border-[var(--app-border)] bg-[var(--app-code-bg)] p-3 text-left'}
@@ -143,7 +139,6 @@ export function ImagePreview(props: {
                 draggable={false}
             />
             {props.caption}
-            <span className="sr-only">{props.fileName}</span>
         </button>
     )
 }
@@ -384,7 +379,7 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
             aria-label={activePreview.label}
         >
             <div className="flex items-center gap-2 border-b border-white/10 bg-black/50 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
-                <div className="min-w-0 flex-1 truncate text-sm font-medium">{activePreview.fileName}</div>
+                <div className="min-w-0 flex-1" />
                 {hasMultiplePreviews ? (
                     <>
                         <button

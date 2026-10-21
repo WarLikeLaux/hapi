@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { Machine, PiModelSummary } from '@/types/api'
 import { setClaudeGlmBranded } from '@/lib/claudeGlmBranding'
+import { ImagePreviewProvider } from '@/components/ImagePreview'
 import { saveNewSessionFormDraft } from './newSessionFormDraft'
 import {
     loadPreferredLaunchSettings,
@@ -394,6 +395,8 @@ describe('NewSession launch preferences', () => {
 
     function renderComposer(launchSession: ApiClient['launchSession'], extra: Partial<Parameters<typeof SessionComposer>[0]> = {}) {
         Element.prototype.scrollIntoView = vi.fn()
+        URL.createObjectURL = vi.fn(() => 'blob:initial-image')
+        URL.revokeObjectURL = vi.fn()
         const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
         const createGroup = vi.fn(async () => ({ group: { id: 'new-group', name: 'Comparison' } }))
         const composerApi = { ...api, createGroup,
@@ -405,7 +408,7 @@ describe('NewSession launch preferences', () => {
             getGroups: vi.fn(async () => ({ groups: [{ id: 'existing-group', name: 'Existing', members: [], version: 1, updatedAt: 1 }] })),
             checkMachinePathsExists: vi.fn(async (_id: string, paths: string[]) => ({ exists: Object.fromEntries(paths.map(path => [path, true])) })),
         } as unknown as ApiClient
-        const view = render(<QueryClientProvider client={client}><SessionComposer api={composerApi} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} {...extra} /></QueryClientProvider>)
+        const view = render(<ImagePreviewProvider><QueryClientProvider client={client}><SessionComposer api={composerApi} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} {...extra} /></QueryClientProvider></ImagePreviewProvider>)
         return { ...view, createGroup }
     }
 
@@ -427,6 +430,93 @@ describe('NewSession launch preferences', () => {
         await removeChat(2)
         fireEvent.click(within(screen.getByRole('article')).getByRole('button', { expanded: false }))
     }
+
+    it('pastes, previews and removes images, then launches an image-only prompt with its original bytes', async () => {
+        const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'image-chat' })
+        renderComposer(launch)
+        const prompt = screen.getByRole('textbox', { name: 'newSession.initialPrompt' })
+        const file = new File(['image'], 'clipboard.png', { type: 'image/png' })
+        const paste = () => fireEvent.paste(prompt, { clipboardData: { items: [{ kind: 'file', type: file.type, getAsFile: () => file }] } })
+        paste()
+        expect(await screen.findByRole('img', { name: 'Image' })).toHaveAttribute('src', 'blob:initial-image')
+        fireEvent.click(screen.getByRole('button', { name: 'newSession.removeImage' }))
+        expect(screen.queryByRole('img', { name: 'Image' })).toBeNull()
+        paste()
+        await screen.findByRole('img', { name: 'Image' })
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('image-chat', true))
+        expect(launch).toHaveBeenCalledTimes(1)
+        expect(launch.mock.calls[0][1]).toMatchObject({ initialPrompt: '', initialImages: [
+            { filename: 'clipboard.png', mimeType: 'image/png', content: 'aW1hZ2U=' },
+        ] })
+        expect(mocks.spawnSession).not.toHaveBeenCalled()
+    })
+
+    it('keeps pasted text alongside an image and retains the attachment through adding and returning from another chat', async () => {
+        const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'image-and-text' })
+        renderComposer(launch)
+        const prompt = screen.getByRole('textbox', { name: 'newSession.initialPrompt' }) as HTMLTextAreaElement
+        fireEvent.change(prompt, { target: { value: 'Before after' } })
+        prompt.setSelectionRange(7, 7)
+        const file = new File(['image'], 'clipboard.png', { type: 'image/png' })
+        fireEvent.paste(prompt, { clipboardData: { items: [{ kind: 'file', type: file.type, getAsFile: () => file }], getData: () => 'pasted ' } })
+        await screen.findByRole('img', { name: 'Image' })
+        expect(prompt).toHaveValue('Before pasted after')
+        const textPaste = new Event('paste', { bubbles: true, cancelable: true })
+        Object.defineProperty(textPaste, 'clipboardData', { value: { items: [], getData: () => 'plain text' } })
+        fireEvent(prompt, textPaste)
+        expect(textPaste.defaultPrevented).toBe(false)
+        fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
+        fireEvent.click(screen.getByRole('button', { name: 'batch.singleChat' }))
+        expect(await screen.findByRole('img', { name: 'Image' })).toBeVisible()
+        expect(screen.getByRole('textbox', { name: 'newSession.initialPrompt' })).toHaveValue('Before pasted after')
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(launch).toHaveBeenCalledTimes(1))
+        expect(launch.mock.calls[0][1]).toMatchObject({ initialPrompt: 'Before pasted after', initialImages: [{ content: 'aW1hZ2U=' }] })
+    })
+
+    it('rejects oversized and unsupported clipboard images without clearing the prompt', async () => {
+        renderComposer(vi.fn())
+        const prompt = screen.getByRole('textbox', { name: 'newSession.initialPrompt' })
+        fireEvent.change(prompt, { target: { value: 'Keep my task' } })
+        for (const file of [new File(['svg'], 'drawing.svg', { type: 'image/svg+xml' }), new File([new Uint8Array(50 * 1024 * 1024 + 1)], 'large.png', { type: 'image/png' })]) {
+            fireEvent.paste(prompt, { clipboardData: { items: [{ kind: 'file', type: file.type, getAsFile: () => file }] } })
+            expect(await screen.findByRole('alert')).toHaveTextContent('newSession.imagesInvalid')
+            expect(prompt).toHaveValue('Keep my task')
+            expect(screen.queryByRole('img', { name: 'Image' })).toBeNull()
+        }
+    })
+
+    it('opens the chat image viewer and keeps images above 2 MB outside the form receipt across retry', async () => {
+        const launch = vi.fn().mockResolvedValueOnce({ state: 'indeterminate', message: 'Response lost' })
+            .mockResolvedValueOnce({ state: 'succeeded', sessionId: 'large-image-chat' })
+        const view = renderComposer(launch)
+        const bytes = new Uint8Array(3 * 1024 * 1024).fill(1)
+        const file = new File([bytes], 'large.png', { type: 'image/png' })
+        fireEvent.paste(screen.getByRole('textbox', { name: 'newSession.initialPrompt' }), {
+            clipboardData: { items: [{ kind: 'file', type: file.type, getAsFile: () => file }] },
+        })
+        const preview = await screen.findByRole('img', { name: 'Image' })
+        fireEvent.click(preview.closest('button')!)
+        expect(await screen.findByRole('dialog')).toBeVisible()
+        fireEvent.keyDown(window, { key: 'Escape' })
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await screen.findByText('batch.indeterminate')
+        const receipt = sessionStorage.getItem('hapi:session-composition:standalone')!
+        expect(receipt.length).toBeLessThan(10000)
+        expect(JSON.parse(receipt).cards[0].initialImages[0]).toMatchObject({ filename: 'large.png', size: bytes.length })
+        expect(JSON.parse(receipt).cards[0].initialImages[0].content).toBeUndefined()
+        expect(launch.mock.calls[0][1].initialImages[0].content).toBe(Buffer.from(bytes).toString('base64'))
+        view.unmount()
+        renderComposer(launch)
+        fireEvent.click(screen.getByRole('button', { name: 'batch.checkResult' }))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('large-image-chat', true))
+        expect(launch.mock.calls[1][1]).toEqual(launch.mock.calls[0][1])
+    })
 
     it('keeps ordinary creation on the original form until another chat is requested', async () => {
         const launch = vi.fn()

@@ -36,6 +36,83 @@ function input(overrides: Partial<LaunchSessionRequest> = {}): LaunchSessionRequ
 }
 
 describe('durable session launch', () => {
+    it('uploads initial images to the new session before sending the exact text, and retries upload without respawning', async () => {
+        const { store, engine, gateway, launch } = setup()
+        const request: LaunchSessionRequest = { ...input(), initialImages: [{ filename: 'clipboard.png', mimeType: 'image/png', content: 'aW1hZ2U=' }] }
+        let spawns = 0
+        let uploads = 0
+        gateway.spawnSession = async (...args) => {
+            spawns++
+            const id = args[17] as string
+            expect(store.messages.getAllMessages(id)).toHaveLength(0)
+            engine.adoptPreallocatedSession(id, 'cli-tag', { path: '/project', flavor: 'codex', hostPid: 456 }, null, 'owner')
+            return { type: 'success', sessionId: id }
+        }
+        const uploadGateway = gateway as unknown as { uploadFile: (...args: string[]) => Promise<unknown> }
+        uploadGateway.uploadFile = async (id, filename, content, mimeType) => {
+            uploads++
+            expect([filename, content, mimeType]).toEqual(['clipboard.png', 'aW1hZ2U=', 'image/png'])
+            expect(store.sessions.getSession(id)).not.toBeNull()
+            expect(store.messages.getAllMessages(id)).toHaveLength(0)
+            return uploads === 1 ? { success: false, error: 'Disk full' } : { success: true, path: '/tmp/session-upload/clipboard.png' }
+        }
+        const failed = await (await launch(request)).json() as LaunchSessionResult
+        expect(failed.state).toBe('indeterminate')
+        expect(failed.message).toContain('Disk full')
+        expect(store.messages.getAllMessages(failed.sessionId!)).toHaveLength(0)
+        const result = await (await launch(request)).json() as LaunchSessionResult
+        expect(result).toEqual({ state: 'succeeded', sessionId: failed.sessionId })
+        const messages = store.messages.getAllMessages(result.sessionId!)
+        expect(messages).toHaveLength(1)
+        expect(messages[0].content).toMatchObject({ role: 'user', content: { text: request.initialPrompt,
+            attachments: [{ filename: 'clipboard.png', mimeType: 'image/png', size: 5, path: '/tmp/session-upload/clipboard.png' }] } })
+        expect(await (await launch(request)).json()).toEqual(result)
+        expect(spawns).toBe(1)
+        expect(uploads).toBe(2)
+    })
+
+    it('recovers an image-only launch after hub restart without respawning or duplicating its first message', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-image-launch-'))
+        cleanup.push(() => rmSync(dir, { recursive: true, force: true }))
+        const path = join(dir, 'hub.db')
+        const first = setup(path)
+        const request = input({ initialPrompt: '', initialImages: [{ filename: 'image.png', mimeType: 'image/png', content: 'aW1hZ2U=' }] })
+        first.gateway.spawnSession = async (...args) => {
+            const id = args[17] as string
+            first.engine.adoptPreallocatedSession(id, 'cli-tag', { path: '/project', flavor: 'codex', hostPid: 123 }, null, 'owner')
+            return { type: 'success', sessionId: id }
+        }
+        const upload = first.gateway as unknown as { uploadFile: () => Promise<unknown> }
+        upload.uploadFile = async () => ({ success: false, error: 'Disconnected' })
+        const pending = await (await first.launch(request)).json() as LaunchSessionResult
+        expect(pending.state).toBe('indeterminate')
+        first.engine.stop()
+        const second = setup(path)
+        second.gateway.spawnSession = async () => { throw new Error('Must not spawn another session') }
+        ;(second.gateway as unknown as typeof upload).uploadFile = async () => ({ success: true, path: '/tmp/authorized-image.png' })
+        expect(await (await second.launch(request)).json()).toEqual({ state: 'succeeded', sessionId: pending.sessionId })
+        expect(second.store.messages.getAllMessages(pending.sessionId!)).toHaveLength(1)
+        // Simulate losing the success receipt after the message transaction committed.
+        second.store.launches.save('owner', request.requestId, pending)
+        ;(second.gateway as unknown as typeof upload).uploadFile = async () => { throw new Error('Already delivered') }
+        expect(await (await second.launch(request)).json()).toEqual({ state: 'succeeded', sessionId: pending.sessionId })
+        expect(second.store.messages.getAllMessages(pending.sessionId!)).toHaveLength(1)
+    })
+
+    it.each([
+        { agent: 'minimax' }, { startingMode: 'pty' },
+        { initialImages: [{ filename: 'script.svg', mimeType: 'image/svg+xml', content: 'aW1hZ2U=' }] },
+        { initialImages: [{ filename: 'bad.png', mimeType: 'image/png', content: 'invalid base64' }] },
+        { initialImages: [{ filename: 'large.png', mimeType: 'image/png', content: Buffer.alloc(50 * 1024 * 1024 + 1).toString('base64') }] },
+    ])('rejects unsupported initial image requests before spawning', async override => {
+        const { gateway, launch } = setup()
+        let spawned = false
+        gateway.spawnSession = async () => { spawned = true; return { type: 'error', message: 'Unexpected spawn' } }
+        const request = { ...input(), initialImages: [{ filename: 'image.png', mimeType: 'image/png', content: 'aW1hZ2U=' }], ...override }
+        expect((await launch(request as LaunchSessionRequest)).status).toBe(400)
+        expect(spawned).toBe(false)
+    })
+
     it('queues exact prompt and group membership before dispatch, replays the receipt without another spawn or prompt', async () => {
         const { store, engine, gateway, launch } = setup()
         const group = store.groups.create('owner', 'Compare agents')

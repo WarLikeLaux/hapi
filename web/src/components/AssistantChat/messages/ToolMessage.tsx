@@ -129,7 +129,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     const isHtml = isFile && isHtmlFileName(props.block.fileName)
     const isMarkdown = isFile && isMarkdownFileName(props.block.fileName)
     const mediaLabel = t(inlineMediaLabelKey(props.block.mimeType))
-    const mediaHeader = t('media.displayed.header', { label: mediaLabel, fileName: props.block.fileName })
+    const mediaHeader = isImage ? mediaLabel : t('media.displayed.header', { label: mediaLabel, fileName: props.block.fileName })
     // Markdown is small text and renders inline, so it fetches eagerly; the remaining
     // non-image media can be tens of MB and wait for explicit user intent.
     const shouldFetch = isImage || isHtml || isMarkdown || loadMedia
@@ -299,8 +299,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                     <div className="flex min-h-32 min-w-[12rem] items-center justify-center rounded-xl bg-[var(--app-subtle-bg)]">
                         <ImagePreview
                             src={objectUrl}
-                            fileName={props.block.fileName}
-                            label={props.block.fileName}
+                            label={mediaLabel}
                             buttonClassName="block max-h-[min(28rem,60vh)] max-w-full cursor-zoom-in rounded-xl text-left"
                             imageClassName="max-h-[min(28rem,60vh)] max-w-full rounded-xl object-contain"
                             imageStyle={imageStyle}

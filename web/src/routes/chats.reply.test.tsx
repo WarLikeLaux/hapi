@@ -72,15 +72,16 @@ describe('messenger reply gestures', () => {
                 { ...message, id: 'm2', providerMessageId: 'pm2', text: 'Another message', media: [image('single.png')] },
             ], participants: [] }),
         })
-        fireEvent.click(await screen.findByRole('button', { name: 'Photo two.png' }))
+        fireEvent.click(await screen.findAllByRole('button', { name: 'Photo' }).then(images => images[1]))
         expect(within(screen.getByRole('dialog')).getByText('2 / 2')).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Next image' })).toBeDisabled()
         fireEvent.keyDown(window, { key: 'ArrowLeft' })
-        expect(within(screen.getByRole('dialog')).getByText('one.png')).toBeInTheDocument()
+        expect(within(screen.getByRole('dialog')).queryByText('one.png')).not.toBeInTheDocument()
+        expect(within(screen.getByRole('dialog')).getByText('1 / 2')).toBeInTheDocument()
         fireEvent.click(screen.getByTitle('Close'))
-        fireEvent.click(await screen.findByRole('button', { name: 'Photo single.png' }))
+        fireEvent.click(await screen.findAllByRole('button', { name: 'Photo' }).then(images => images[2]))
         fireEvent.keyDown(window, { key: 'ArrowLeft' })
-        expect(within(screen.getByRole('dialog')).getByText('single.png')).toBeInTheDocument()
+        expect(within(screen.getByRole('dialog')).queryByText('single.png')).not.toBeInTheDocument()
         expect(screen.queryByRole('button', { name: 'Next image' })).not.toBeInTheDocument()
     })
 
@@ -277,8 +278,7 @@ describe('messenger reply gestures', () => {
             getExternalMediaBlob: async () => new Blob(['image'], { type: 'image/png' }),
             sendExternalMessage,
         })
-        fireEvent.click((await screen.findByRole('img', { name: 'Photo' })).closest('button')!)
-        const image = await screen.findByRole('button', { name: /Photo.*photo.png/ })
+        const image = (await screen.findByRole('img', { name: 'Photo' })).closest('button')!
         const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 200 })
         fireEvent(image, event)
         expect(event.defaultPrevented).toBe(true)

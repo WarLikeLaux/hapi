@@ -15,18 +15,10 @@ function ImageAttachment(props: { attachment: AttachmentMetadata; galleryId: str
     return (
         <ImagePreview
             src={attachment.previewUrl ?? ''}
-            fileName={attachment.filename}
-            label={attachment.filename}
+            label="Image"
             galleryId={props.galleryId}
             buttonClassName="relative overflow-hidden rounded-lg text-left cursor-zoom-in"
             imageClassName="max-h-48 max-w-full object-contain"
-            caption={(
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5">
-                    <span className="text-xs text-white/90 line-clamp-1">
-                        {attachment.filename}
-                    </span>
-                </div>
-            )}
         />
     )
 }
@@ -38,7 +30,7 @@ function FileAttachment(props: { attachment: AttachmentMetadata }) {
             <FileIcon fileName={attachment.filename} size={24} />
             <div className="min-w-0 flex-1">
                 <div className="truncate text-base font-medium text-[var(--app-fg)]">
-                    {attachment.filename}
+                    {isImageMimeType(attachment.mimeType) ? 'Image' : attachment.filename}
                 </div>
                 <div className="text-xs text-[var(--app-hint)]">
                     {formatFileSize(attachment.size)}

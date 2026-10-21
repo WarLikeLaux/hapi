@@ -6,6 +6,8 @@ import type { ApiSessionClient } from '@/api/apiSession';
 import { logger } from '@/ui/logger';
 import { listSlashCommands } from '@/modules/common/slashCommands';
 import { normalizeCodexModel } from '@/modules/common/codexModels';
+import { readImageAttachments } from '@/modules/common/attachmentImages';
+import { isAuthorizedUploadFile, isPathWithinUploadDir } from '@/modules/common/handlers/uploads';
 import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import { ImplementCodexPlanRequestSchema, type ImplementCodexPlanResult } from '@hapi/protocol/apiTypes';
@@ -129,14 +131,22 @@ export class SharedCodexRoot {
                 await this.bound;
                 if (this.closed || this.stopping) return;
                 const id = localId ?? randomUUID();
-                const text = formatMessageWithAttachments(message.content.text, message.content.attachments);
+                const preparation = await readImageAttachments(message.content.attachments, {
+                    authorizeImagePath: path => isPathWithinUploadDir(path, this.session.sessionId),
+                    authorizeOpenedImage: (path, identity) => isAuthorizedUploadFile(path, this.session.sessionId, identity),
+                });
+                if (preparation.imageReadErrors.length) throw new Error(preparation.imageReadErrors.join('\n'));
+                const text = formatMessageWithAttachments(message.content.text,
+                    message.content.attachments?.filter(attachment => !attachment.mimeType.toLowerCase().startsWith('image/')));
                 // ApiSession.enqueueUserMessage prepends a hidden HAPI title-check
                 // block to fresh remote prompts; strip it so slash commands like
                 // /compact still match what the user actually typed.
                 const stripped = stripHapiTitleReminder(text);
-                const resolved = stripped.trim().startsWith('/') ? await this.queue.command(id, () => this.command(stripped)) : stripped;
+                const resolved = !preparation.images.length && stripped.trim().startsWith('/') ? await this.queue.command(id, () => this.command(stripped)) : stripped;
                 if (resolved === null) { this.session.emitMessagesConsumed([id], { clearQueuedThinkingGrace: true }); return; }
-                await this.queue.enqueue(id, buildUserInputFromMessage(resolved), this.interrupted);
+                await this.queue.enqueue(id, [...buildUserInputFromMessage(resolved), ...preparation.images.map(({ image }) => ({
+                    type: 'image' as const, url: `data:${image.mimeType};base64,${image.data}`,
+                }))], this.interrupted);
             }).catch(error => this.notice(`Message not confirmed: ${error instanceof Error ? error.message : error}. Inspect the queue before retrying.`));
         });
         this.session.onCancelQueuedMessage(async id => { await this.bound; return this.stopping ? 'indeterminate' : this.queue.cancel(id); });
