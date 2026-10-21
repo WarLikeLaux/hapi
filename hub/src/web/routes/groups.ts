@@ -1,8 +1,8 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { CreateSessionGroupSchema, SessionGroupMemberSchema, UpdateSessionGroupSchema, toSessionSummary } from '@hapi/protocol'
+import { CreateSessionGroupSchema, SessionGroupMemberSchema, UpdateSessionGroupSchema, isSessionBusy, toSessionSummary } from '@hapi/protocol'
 import { SessionGroupError } from '../../store/sessionGroupStore'
-import type { SyncEngine } from '../../sync/syncEngine'
+import { SessionBusyError, type SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
 
@@ -64,12 +64,27 @@ export function createGroupsRoutes(getSyncEngine: () => SyncEngine | null): Hono
     })
     app.post('/groups/:id/:action', async c => {
         const action = c.req.param('action')
-        if (action !== 'close' && action !== 'reopen') return c.json({ error: 'Unknown group action' }, 404)
+        if (action !== 'close' && action !== 'reopen' && action !== 'park') return c.json({ error: 'Unknown group action' }, 404)
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) return engine
         const input = z.object({ version: z.number().int().positive() }).safeParse(await c.req.json().catch(() => null))
         if (!input.success) return c.json({ error: 'Group version is required' }, 400)
         const namespace = c.get('namespace')
+        if (action === 'park') {
+            const current = engine.groups.get(namespace, c.req.param('id'))
+            if (!current) return c.json({ error: 'Group not found' }, 404)
+            if (current.closed) return c.json({ error: 'Open this group before parking it.' }, 409)
+            if (current.version !== input.data.version) return c.json({ error: 'Group changed. Reload and try again.' }, 409)
+            // Check every member before stopping the first one. parkSession also
+            // checks again immediately before signalling each individual chat.
+            for (const member of current.members) {
+                const access = engine.resolveSessionAccess(member.sessionId, namespace)
+                if (!access.ok) return c.json({ error: 'Chat is unavailable', sessionId: member.sessionId }, 409)
+                if (isSessionBusy(toSessionSummary(access.session))) {
+                    return c.json({ error: new SessionBusyError().message, code: 'session_busy', sessionId: member.sessionId }, 409)
+                }
+            }
+        }
         let group
         try { group = engine.groups.beginLifecycle(namespace, c.req.param('id'), input.data.version) }
         catch (error) {
@@ -85,7 +100,9 @@ export function createGroupsRoutes(getSyncEngine: () => SyncEngine | null): Hono
                 try {
                     const access = engine.resolveSessionAccess(member.sessionId, namespace)
                     if (!access.ok) throw new Error('Chat is unavailable')
-                    if (action === 'close') {
+                    if (action === 'park') {
+                        await engine.parkSession(member.sessionId)
+                    } else if (action === 'close') {
                         if (!access.session.active && access.session.metadata?.lifecycleState === 'archived') {
                             engine.markSessionExplicitlyStopped(member.sessionId)
                         } else await engine.archiveSession(member.sessionId)
@@ -98,7 +115,7 @@ export function createGroupsRoutes(getSyncEngine: () => SyncEngine | null): Hono
                 }
             }
         } finally {
-            group = engine.groups.finishLifecycle(namespace, group.id, action === 'close' || failures.length > 0)
+            group = engine.groups.finishLifecycle(namespace, group.id, action === 'close' || (action === 'reopen' && failures.length > 0), action === 'park' && failures.length === 0)
             engine.publishGroupsChanged(namespace)
         }
         return c.json({ group, failures })
@@ -110,6 +127,11 @@ export function createGroupsRoutes(getSyncEngine: () => SyncEngine | null): Hono
         if (!input.success) return c.json({ error: 'Invalid group name or chat order' }, 400)
         const namespace = c.get('namespace')
         try {
+            const current = engine.groups.get(namespace, c.req.param('id'))
+            if (!current) return c.json({ error: 'Group not found' }, 404)
+            if (input.data.parked !== undefined && input.data.parked !== current.parked) {
+                return c.json({ error: 'Use Park group or Restore group to stop or resume its chats.' }, 409)
+            }
             const group = engine.groups.update(namespace, c.req.param('id'), input.data)
             engine.publishGroupsChanged(namespace)
             return c.json({ group })

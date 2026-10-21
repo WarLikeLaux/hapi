@@ -1,3 +1,4 @@
+import { isSessionBusy } from '@hapi/protocol'
 import { useRef, useState, type ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { SessionSummary } from '@/types/api'
@@ -188,6 +189,7 @@ export function SessionItemActions(props: {
             onExport={() => setExportOpen(true)}
             onMarkUnread={() => markSessionUnread(s.id, getSessionUnreadActivityAt(s))}
             onRestart={cursorReopenDisabledReason ? undefined : () => setRestartOpen(true)}
+            parkDisabledReason={isSessionBusy(s) ? t('session.park.busy') : undefined}
             onPark={s.active && !cursorReopenDisabledReason ? () => setParkOpen(true) : undefined}
             onArchive={() => setArchiveOpen(true)}
             onReopen={cursorReopenDisabledReason ? undefined : handleReopen}

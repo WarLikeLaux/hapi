@@ -298,7 +298,7 @@ export class ApiClient {
         return await this.request(`/api/groups/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) })
     }
 
-    async changeGroupLifecycle(id: string, version: number, action: 'close' | 'reopen'): Promise<SessionGroupLifecycleResult> {
+    async changeGroupLifecycle(id: string, version: number, action: 'close' | 'reopen' | 'park'): Promise<SessionGroupLifecycleResult> {
         return await this.request(`/api/groups/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: JSON.stringify({ version }) })
     }
 

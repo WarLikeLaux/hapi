@@ -87,6 +87,15 @@ export type SessionSummary = {
     effort: string | null
 }
 
+/** Parking must not interrupt work or discard an unanswered agent request. */
+export function isSessionBusy(session: Pick<SessionSummary, 'thinking'> & Partial<Pick<SessionSummary,
+    'backgroundTaskCount' | 'pendingRequestsCount' | 'pendingRequestKinds' | 'pendingAsyncQuestionsCount'
+>>): boolean {
+    return session.thinking || (session.backgroundTaskCount ?? 0) > 0
+        || (session.pendingRequestsCount ?? 0) > 0 || (session.pendingRequestKinds?.length ?? 0) > 0
+        || (session.pendingAsyncQuestionsCount ?? 0) > 0
+}
+
 // Re-exported as a standalone derivation so SSE patch handlers can recompute
 // summary fields from a structured `agentState` patch without needing the
 // full Session in hand.

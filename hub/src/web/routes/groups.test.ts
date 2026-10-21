@@ -59,47 +59,49 @@ describe('user-owned groups through hub API', () => {
         } finally { f.close(); rmSync(dir, { recursive: true, force: true }) }
     })
 
-    it('migrates existing groups and parks/restores them durably without changing chats', async () => {
+    it('migrates existing groups and rejects metadata-only parking without touching chats', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'hapi-group-park-'))
         const path = join(dir, 'hub.db')
         let f = fixture(path)
-        const created = await f.create('HAPI')
-        const group = f.store.groups.update('team', created.id, { ...created, members: [
-            { sessionId: f.a.id, pinned: true }, { sessionId: f.b.id, pinned: false },
-        ] })
-        f.store.messages.addMessage(f.a.id, { role: 'user', content: { type: 'text', text: 'Keep this history' } })
-        f.close()
-        const legacy = new Database(path)
-        legacy.exec('ALTER TABLE session_groups DROP COLUMN parked; ALTER TABLE session_groups DROP COLUMN closed; PRAGMA user_version = 41')
-        legacy.close()
-        f = fixture(path)
         try {
-            const before = [f.store.sessions.getSession(f.a.id), f.store.sessions.getSession(f.b.id)]
-            expect(f.store.groups.get('team', group.id)?.parked).toBe(false)
-            expect((await f.send(`/groups/${group.id}`, 'PUT', { ...group, parked: true }, 'other')).status).toBe(404)
-            const response = await f.send(`/groups/${group.id}`, 'PUT', { ...group, parked: true })
-            expect(response.status).toBe(200)
-            const parked = (await response.json() as { group: SessionGroup }).group
-            expect(parked).toMatchObject({ parked: true, members: group.members })
-            expect(parked.version).toBe(group.version + 1)
-            expect(f.events.at(-1)).toEqual({ type: 'groups-updated', namespace: 'team' })
-            expect((await f.send(`/groups/${group.id}`, 'PUT', { ...group, parked: false })).status).toBe(409)
-            expect([f.store.sessions.getSession(f.a.id), f.store.sessions.getSession(f.b.id)]).toEqual(before)
+            const created = await f.create('Workspace')
+            const group = f.store.groups.update('team', created.id, { ...created, members: [{ sessionId: f.a.id, pinned: true }] })
             f.close()
+            const legacy = new Database(path)
+            legacy.exec('ALTER TABLE session_groups DROP COLUMN parked; ALTER TABLE session_groups DROP COLUMN closed; PRAGMA user_version = 41')
+            legacy.close()
             f = fixture(path)
-            expect((await (await f.send('/groups')).json() as { groups: SessionGroup[] }).groups).toContainEqual(parked)
-            // Ordinary group edits cannot accidentally restore it, including clients that omit parked.
-            const { parked: _parked, ...rename } = parked
-            const renamed = (await (await f.send(`/groups/${group.id}`, 'PUT', { ...rename, name: 'Renamed' })).json() as { group: SessionGroup }).group
-            expect(renamed.parked).toBe(true)
-            const restored = (await (await f.send(`/groups/${group.id}`, 'PUT', { ...renamed, parked: false })).json() as { group: SessionGroup }).group
-            expect(restored).toMatchObject({ parked: false, members: group.members })
-            expect(f.store.messages.getMessages(f.a.id)[0].content).toEqual({ role: 'user', content: { type: 'text', text: 'Keep this history' } })
-            expect([f.store.sessions.getSession(f.a.id), f.store.sessions.getSession(f.b.id)]).toEqual(before)
+            const response = await f.send(`/groups/${group.id}`, 'PUT', { ...group, parked: true })
+            expect(response.status).toBe(409)
+            expect(f.store.groups.get('team', group.id)).toEqual(group)
         } finally { f.close(); rmSync(dir, { recursive: true, force: true }) }
     })
 
-    it('closes all chats without losing tabs or history and reopens them after hub restart', async () => {
+    it.each([
+        { thinking: true },
+        { backgroundTaskCount: 1 },
+        { agentState: { requests: { q: { tool: 'AskUserQuestion', arguments: {}, createdAt: 1 } } } },
+        { agentState: { requests: { q: { tool: 'Bash', arguments: {}, createdAt: 1 } } } },
+        { agentState: { codexAsyncQuestions: { q: { tool: 'request_user_input_async', arguments: {}, createdAt: 1 } } } },
+    ])('rejects parking the whole group before stopping any chat when a member is busy: %j', async patch => {
+        const f = fixture()
+        try {
+            const created = await f.create('Workspace')
+            const group = f.store.groups.update('team', created.id, { ...created, members: [
+                { sessionId: f.a.id, pinned: true }, { sessionId: f.b.id, pinned: false },
+            ] })
+            Object.assign(f.engine.getSession(f.b.id)!, patch)
+            let kills = 0
+            ;(f.engine as unknown as { rpcGateway: { killSession: () => Promise<object> } }).rpcGateway.killSession = async () => { kills++; return {} }
+            const response = await f.send(`/groups/${group.id}/park`, 'POST', { version: group.version })
+            expect(response.status).toBe(409)
+            expect(await response.json()).toMatchObject({ code: 'session_busy' })
+            expect(kills).toBe(0)
+            expect(f.store.groups.get('team', group.id)).toEqual(group)
+        } finally { f.close() }
+    })
+
+    it.each(['close', 'park'] as const)('%s stops all chats without losing tabs or history and reopens them after hub restart', async action => {
         const dir = mkdtempSync(join(tmpdir(), 'hapi-group-close-'))
         const path = join(dir, 'hub.db')
         let f = fixture(path)
@@ -114,12 +116,15 @@ describe('user-owned groups through hub API', () => {
         rpc.killSession = async id => { stopped.push(id); return {} }
         rpc.stopRunnerSession = async () => 'stopped'
         try {
-            expect((await f.send(`/groups/${group.id}/close`, 'POST', { version: group.version }, 'other')).status).toBe(404)
-            const result = await (await f.send(`/groups/${group.id}/close`, 'POST', { version: group.version })).json() as SessionGroupLifecycleResult
+            expect((await f.send(`/groups/${group.id}/${action}`, 'POST', { version: group.version }, 'other')).status).toBe(404)
+            const result = await (await f.send(`/groups/${group.id}/${action}`, 'POST', { version: group.version })).json() as SessionGroupLifecycleResult
             expect(result.failures).toEqual([])
             expect(stopped).toEqual(members.map(session => session.id))
-            expect(result.group).toMatchObject({ closed: true, parked: false, members: group.members })
-            for (const session of members) expect(f.engine.getSession(session.id)?.metadata?.lifecycleState).toBe('archived')
+            expect(result.group).toMatchObject({ closed: action === 'close', parked: action === 'park', members: group.members })
+            for (const session of members) {
+                expect(f.engine.getSession(session.id)?.metadata).toMatchObject({ lifecycleState: action === 'park' ? 'parked' : 'archived', restoreOnRestart: false })
+                expect(f.engine.getSession(session.id)?.active).toBe(false)
+            }
             expect((await f.send(`/groups/${group.id}/reopen`, 'POST', { version: group.version })).status).toBe(409)
             f.close()
             f = fixture(path)
@@ -141,8 +146,34 @@ describe('user-owned groups through hub API', () => {
         } finally { f.close(); rmSync(dir, { recursive: true, force: true }) }
     })
 
-    it('reports partial stop failures, blocks concurrent edits and retries only remaining chats', async () => {
+    it('does not stop a chat that becomes busy after the group preflight', async () => {
         const f = fixture()
+        try {
+            f.store.sessions.updateSessionAgentState(f.b.id, null, f.b.agentStateVersion, 'team')
+            f.engine.getSession(f.b.id)!.agentState = null
+            const created = await f.create('Workspace')
+            const group = f.store.groups.update('team', created.id, { ...created, members: [
+                { sessionId: f.a.id, pinned: true }, { sessionId: f.b.id, pinned: false },
+            ] })
+            const killed: string[] = []
+            ;(f.engine as unknown as { rpcGateway: { killSession: (id: string) => Promise<object> } }).rpcGateway.killSession = async id => {
+                killed.push(id)
+                f.engine.getSession(f.b.id)!.thinking = true
+                return {}
+            }
+            const result = await (await f.send(`/groups/${group.id}/park`, 'POST', { version: group.version })).json() as SessionGroupLifecycleResult
+            expect(killed).toEqual([f.a.id])
+            expect(result.failures).toEqual([{ sessionId: f.b.id, message: 'Chat is working or waiting for a reply. Wait for it to finish before parking.' }])
+            expect(result.group).toMatchObject({ parked: false, closed: false, members: group.members })
+            expect(f.engine.getSession(f.a.id)?.metadata?.lifecycleState).toBe('parked')
+            expect(f.engine.getSession(f.b.id)?.metadata?.lifecycleState).not.toBe('parked')
+        } finally { f.close() }
+    })
+
+    it.each(['close', 'park'] as const)('%s reports partial stop failures, blocks concurrent edits and retries only remaining chats', async action => {
+        const f = fixture()
+        f.store.sessions.updateSessionAgentState(f.b.id, null, f.b.agentStateVersion, 'team')
+        f.engine.getSession(f.b.id)!.agentState = null
         const created = await f.create('Workspace')
         const group = f.store.groups.update('team', created.id, { ...created, members: [{ sessionId: f.a.id, pinned: true }, { sessionId: f.b.id, pinned: false }] })
         const rpc = (f.engine as unknown as { rpcGateway: { killSession: (id: string) => Promise<unknown> } }).rpcGateway
@@ -155,7 +186,7 @@ describe('user-owned groups through hub API', () => {
             throw new Error('Runner offline')
         }
         try {
-            const closing = f.send(`/groups/${group.id}/close`, 'POST', { version: group.version })
+            const closing = f.send(`/groups/${group.id}/${action}`, 'POST', { version: group.version })
             await began
             const current = f.store.groups.get('team', group.id)!
             expect((await f.send(`/groups/${group.id}`, 'PUT', { ...current, members: [] })).status).toBe(409)
@@ -163,10 +194,10 @@ describe('user-owned groups through hub API', () => {
             unlock()
             const result = await (await closing).json() as SessionGroupLifecycleResult
             expect(result.failures).toEqual([{ sessionId: f.b.id, message: 'Runner offline' }])
-            expect(result.group).toMatchObject({ closed: true, members: group.members })
+            expect(result.group).toMatchObject({ closed: action === 'close', parked: false, members: group.members })
             const calls: string[] = []
             rpc.killSession = async id => { calls.push(id); return {} }
-            const retry = await (await f.send(`/groups/${group.id}/close`, 'POST', { version: result.group.version })).json() as SessionGroupLifecycleResult
+            const retry = await (await f.send(`/groups/${group.id}/${action}`, 'POST', { version: result.group.version })).json() as SessionGroupLifecycleResult
             expect(retry.failures).toEqual([])
             expect(calls).toEqual([f.b.id])
             const reopen = await (await f.send(`/groups/${group.id}/reopen`, 'POST', { version: retry.group.version })).json() as SessionGroupLifecycleResult

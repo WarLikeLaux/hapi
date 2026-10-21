@@ -7,7 +7,7 @@
  * - No E2E encryption; data is stored as JSON in SQLite
  */
 
-import { MACHINE_CAPABILITIES, isKnownFlavor, isLiveLifecycleState, isParkedLifecycleState, isSteeringSupportedForSession, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
+import { MACHINE_CAPABILITIES, isSessionBusy, toSessionSummary, isKnownFlavor, isLiveLifecycleState, isParkedLifecycleState, isSteeringSupportedForSession, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
 import {
     cliBinaryUpdatedOnDisk,
     isMachineCapabilitySkewed,
@@ -70,6 +70,13 @@ import {
 } from './rpcGateway'
 import { SessionCache } from './sessionCache'
 import { ingestNotifySummaryFromMessage } from './workGraphNotifyIngest'
+
+export class SessionBusyError extends Error {
+    constructor() {
+        super('Chat is working or waiting for a reply. Wait for it to finish before parking.')
+        this.name = 'SessionBusyError'
+    }
+}
 
 export class SessionStopUnconfirmedError extends Error {
     constructor(message: string) {
@@ -2154,6 +2161,9 @@ export class SyncEngine {
      * `restoreOnRestart: false`, so it never auto-respawns on hub restart.
      */
     async parkSession(sessionId: string): Promise<void> {
+        const session = this.sessionCache.getSession(sessionId)
+        if (session && isSessionBusy(toSessionSummary(session))) throw new SessionBusyError()
+        if (session && !session.active && session.metadata?.lifecycleState === 'parked') return
         await this.archiveSession(sessionId)
         this.sessionCache.markSessionParkedFromHub(
             sessionId,

@@ -223,10 +223,6 @@ export function SessionGroupWorkspace(props: {
     const update = (members: SessionGroup['members']) => props.onUpdate(props.group, { ...props.group,
         members: members.filter(member => props.group.closed || !props.sessions.some(session => session.id === member.sessionId && session.metadata?.lifecycleState === 'archived')),
     })
-    const togglePark = async () => {
-        const saved = await props.onUpdate(props.group, { ...props.group, parked: !props.group.parked })
-        if (saved && !props.group.parked) props.onBack()
-    }
     const move = (index: number, offset: number) => {
         const member = members[index]
         const neighbor = members[index + offset]
@@ -277,8 +273,11 @@ export function SessionGroupWorkspace(props: {
         </div> : null}
         {props.group.parked ? <div className="flex items-center gap-3 border-t border-[var(--app-border)] px-3 py-2">
             <p className="min-w-0 flex-1 text-xs text-[var(--app-hint)]">{t('groups.parkedHint')}</p>
-            <button type="button" disabled={props.pending} onClick={() => void togglePark()}
-                className={cn(control, 'shrink-0 text-[var(--app-link)]')}>{t('groups.restore')}</button>
+            <SessionGroupActions group={props.group} sessions={props.sessions} api={props.api ?? null}
+                onOpen={props.onOpenGroup ?? (group => { if (group.members[0]) props.onSelect(group.members[0].sessionId) })}>
+                {(_handlers, _openMenu, restoreGroup, pending) => <button type="button" disabled={props.pending || pending || !props.api} onClick={restoreGroup}
+                    className={cn(control, 'shrink-0 text-[var(--app-link)]')}>{t('groups.restore')}</button>}
+            </SessionGroupActions>
         </div> : null}
         {members.length ? <div ref={tabList} className="grid w-full grid-cols-3 sm:flex sm:min-w-0" role="tablist" aria-label={t('groups.tabs')} onKeyDown={event => {
             if (!(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'tab') return
