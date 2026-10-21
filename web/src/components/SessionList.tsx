@@ -1705,7 +1705,7 @@ export function SessionList(props: {
         : ['chats', 'messages']
     const searchResultTab = searchResultSelection ?? (chatsHaveNoMatches ? 'messages' : 'chats')
     const showSessionSections = !hasTextQuery || searchResultTab === 'chats'
-    const renderChatGroups = (chatGroups: ChatGroup[]) => <SessionGroupRows groups={chatGroups} sessions={props.groupedSessions ?? []}
+    const renderChatGroups = (chatGroups: ChatGroup[]) => <SessionGroupRows key={chatGroups[0]?.id} groups={chatGroups} sessions={props.groupedSessions ?? []}
         selectedGroupId={props.selectedGroupId} search="" onOpen={group => props.onSelectGroup?.(group)}
         api={props.api} onNew={props.onNewGroupChat} onHidden={props.onGroupHidden}
         onActionError={(group, message) => setGroupActionError(`${group.name}\n${message}`)} />
@@ -1813,6 +1813,42 @@ export function SessionList(props: {
         />
     )
 
+    const mergeChatGroupRows = (
+        sessions: SessionSummary[],
+        chatGroups: ChatGroup[],
+        timeBasis: SessionActivityTimeBasis,
+        mergedRows?: SidebarChatRow[] | null,
+        prioritizeEmpty = false,
+    ) => {
+        type Row = SidebarChatRow | { kind: 'group'; key: string; group: ChatGroup; sortAt: number }
+        const rows: Row[] = mergedRows ?? sessions.map(session => ({
+            kind: 'session', key: `session:${session.id}`, session,
+            sortAt: timeBasis === 'user' ? getSessionUserActivityAt(session) : getSessionUnreadActivityAt(session),
+        }))
+        const byId = new Map((props.groupedSessions ?? []).map(session => [session.id, session]))
+        const groupRows = chatGroups.map<Row>(group => ({
+            kind: 'group', key: `group:${group.id}`, group,
+            sortAt: presentSessionGroup(group, byId, getSessionLastSeenAt, getSessionManualUnreadAt).activityAt,
+        })).sort((a, b) => b.sortAt - a.sortAt || a.key.localeCompare(b.key))
+        // Merge rather than re-sort: preserve existing session priorities and
+        // search order, with groups taking their place on the same activity clock.
+        const result: Row[] = []
+        let index = 0
+        for (const row of rows) {
+            const keepFirst = prioritizeEmpty && row.kind === 'session' && isNewEmptySession(row.session)
+            while (!keepFirst && index < groupRows.length && groupRows[index].sortAt > row.sortAt) {
+                result.push(groupRows[index++])
+            }
+            result.push(row)
+        }
+        return [...result, ...groupRows.slice(index)]
+    }
+    const renderMixedRow = (row: ReturnType<typeof mergeChatGroupRows>[number], timeBasis: SessionActivityTimeBasis) => (
+        row.kind === 'group' ? renderChatGroups([row.group])
+            : row.kind === 'session' ? renderSessionRow(row.session, row.key, timeBasis)
+                : <FreshChatItem key={row.key} conversation={row.conversation} />
+    )
+
     const renderSessionSection = ({
         sectionKey,
         titleKey,
@@ -1876,12 +1912,8 @@ export function SessionList(props: {
                 <div className="collapsible-panel" data-open={(!collapsible || !collapsed || isFiltering) || undefined}>
                     <div className="collapsible-inner">
                     <div className="flex flex-col gap-0.5 ml-2 py-1">
-                        {renderChatGroups(chatGroups)}
-                        {mergedRows
-                            ? mergedRows.map((row) => row.kind === 'session'
-                                ? renderSessionRow(row.session, row.key, activityTimeBasis)
-                                : <FreshChatItem key={row.key} conversation={row.conversation} />)
-                            : sessions.map((s) => renderSessionRow(s, undefined, activityTimeBasis))}
+                        {mergeChatGroupRows(sessions, chatGroups, activityTimeBasis, mergedRows, sectionKey === 'active-section')
+                            .map(row => renderMixedRow(row, activityTimeBasis))}
                     </div>
                     </div>
                 </div>
@@ -1893,8 +1925,9 @@ export function SessionList(props: {
         // Search/date/unread results already render in their project groups.
         // Keep this shortcut out of filtered views to avoid duplicate results.
         if ((recentSessions.length === 0 && (pinInProgressSessions ? chatGroupSections.recent.length : 0) === 0) || isFiltering) return null
-        const visibleRecentSessions = recentSessions.slice(0, recentVisibleCount)
-        const hiddenCount = recentSessions.length - visibleRecentSessions.length
+        const recentRows = mergeChatGroupRows(recentSessions, pinInProgressSessions ? chatGroupSections.recent : [], 'agent')
+        const visibleRecentRows = recentRows.slice(0, recentVisibleCount)
+        const hiddenCount = recentRows.length - visibleRecentRows.length
         const expandCount = Math.min(RECENT_SESSION_BATCH_SIZE, hiddenCount)
 
         return (
@@ -1932,30 +1965,11 @@ export function SessionList(props: {
                     <div className="collapsible-inner">
                     {!recentSectionCollapsed ? (
                         <div className="flex flex-col gap-0.5 ml-2 py-1">
-                            {pinInProgressSessions ? renderChatGroups(chatGroupSections.recent) : null}
-                            {visibleRecentSessions.map((session) => (
-                                <SessionItem
-                                    key={session.id}
-                                    session={session}
-                                    onSelect={props.onSelect}
-                                    showPath={false}
-                                    api={api}
-                                    titleSuggestionAvailable={titleSuggestionAvailable}
-                                    selected={session.id === selectedSessionId}
-                                    showDetailedStatus={showDetailedStatus}
-                                    inRunningSection
-                                    projectLabel={getProjectDisplayName(session)}
-                                    machineLabel={resolveMachineLabel(session.metadata?.machineId ?? null)}
-                                    activityTimeBasis="agent"
-                                    lastSeenVersion={lastSeenVersion}
-                                    currentContext={resolveSessionContext(session, contextOptions)}
-                                    onSetContext={(ctx) => setSessionContextOverride(session.id, ctx)}
-                                />
-                            ))}
+                            {visibleRecentRows.map(row => renderMixedRow(row, 'agent'))}
                             {hiddenCount > 0 ? (
                                 <button
                                     type="button"
-                                    onClick={() => setRecentVisibleCount((count) => Math.min(count + RECENT_SESSION_BATCH_SIZE, recentSessions.length))}
+                                    onClick={() => setRecentVisibleCount((count) => Math.min(count + RECENT_SESSION_BATCH_SIZE, recentRows.length))}
                                     className="ml-2.5 mr-2 my-1 flex items-center justify-center gap-1 rounded-md border border-dashed border-[var(--app-border)] px-2 py-1 text-center text-xs text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
                                 >
                                     <SessionPreviewArrowIcon direction="down" className="h-3 w-3 shrink-0" />

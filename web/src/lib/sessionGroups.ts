@@ -1,7 +1,7 @@
 import type { SessionGroup } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
 import { isWorkingSession } from './navigationBadges'
-import { classifySessionAttention } from './sessionAttention'
+import { classifySessionAttention, getSessionUnreadActivityAt } from './sessionAttention'
 
 export type GroupSection = 'active' | 'working' | 'idle' | 'recent'
 
@@ -29,6 +29,10 @@ export function presentSessionGroup(
     const section: GroupSection = group.closed && !partiallyClosed ? 'recent' : group.parked ? 'idle' : questions || permissions || unread ? 'active' : working ? 'working'
         : live.some(chat => chat.metadata?.lifecycleState !== 'idle') ? 'active'
         : live.length || chats.some(chat => chat.metadata?.lifecycleState === 'parked') ? 'idle' : 'recent'
-    return { chats, partiallyClosed, questions, permissions, unread, working, flavors, section,
-        activityAt: Math.max(group.updatedAt, ...chats.map(chat => chat.lastAgentMessageAt ?? chat.updatedAt)) }
+    // Match the surrounding section's clock. Group edits and session status
+    // updates are not conversation activity. Empty groups have no member clock.
+    const activityAt = chats.length ? Math.max(...chats.map(chat => section === 'working'
+        ? chat.lastUserMessageAt || chat.createdAt || chat.updatedAt
+        : getSessionUnreadActivityAt(chat) || chat.lastUserMessageAt || chat.createdAt || 0)) : group.updatedAt
+    return { chats, partiallyClosed, questions, permissions, unread, working, flavors, section, activityAt }
 }
