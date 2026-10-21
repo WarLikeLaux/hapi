@@ -1840,17 +1840,19 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                 }
             }}>
                 {editingMessage ? (
-                    <div className="mx-auto mb-1 flex max-w-content items-center gap-2 rounded-xl bg-[var(--app-secondary-bg)] px-3 py-2">
-                        <div className="min-w-0 flex-1">
-                            <div className="text-xs font-semibold text-[var(--app-link)]">{t('chats.edit.title')}</div>
-                            <div className="truncate text-xs text-[var(--app-hint)]">{editingMessage.text}</div>
+                    <div className="mx-auto mb-1 flex w-full max-w-content justify-start">
+                        <div className="flex min-w-0 max-w-sm items-center gap-2 rounded-xl bg-[var(--app-secondary-bg)] px-3 py-2">
+                            <div className="min-w-0 flex-1">
+                                <div className="text-xs font-semibold text-[var(--app-link)]">{t('chats.edit.title')}</div>
+                                <div className="truncate text-xs text-[var(--app-hint)]">{editingMessage.text}</div>
+                            </div>
+                            <button type="button" disabled={editMessage.isPending} onClick={() => {
+                                cancelEditing()
+                                editMessage.reset()
+                            }} aria-label={t('chats.edit.cancel')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] hover:bg-[var(--app-bg)] disabled:opacity-35">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
+                            </button>
                         </div>
-                        <button type="button" disabled={editMessage.isPending} onClick={() => {
-                            cancelEditing()
-                            editMessage.reset()
-                        }} aria-label={t('chats.edit.cancel')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] hover:bg-[var(--app-bg)] disabled:opacity-35">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
-                        </button>
                     </div>
                 ) : null}
                 {replyTo ? (
