@@ -568,6 +568,34 @@ describe('NewSession launch preferences', () => {
         expect(sessionStorage.getItem('hapi:session-composition:standalone')).toBeNull()
     })
 
+    it('keeps a newer launch recoverable when an earlier visit finishes in the background', async () => {
+        type Result = Awaited<ReturnType<ApiClient['launchSession']>>
+        let finishFirst!: (result: Result) => void
+        let finishSecond!: (result: Result) => void
+        const launch = vi.fn()
+            .mockImplementationOnce(() => new Promise<Result>(resolve => { finishFirst = resolve }))
+            .mockImplementationOnce(() => new Promise<Result>(resolve => { finishSecond = resolve }))
+        const first = renderComposer(launch)
+        fireEvent.change(screen.getByRole('textbox', { name: 'newSession.initialPrompt' }), { target: { value: 'First task' } })
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(launch).toHaveBeenCalledTimes(1))
+        first.unmount()
+        renderComposer(launch)
+        fireEvent.click(screen.getByRole('button', { name: 'batch.prepareMore' }))
+        fireEvent.change(screen.getByRole('textbox', { name: 'batch.commonPrompt' }), { target: { value: 'Second task' } })
+        await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchOne' })).toBeEnabled())
+        fireEvent.click(screen.getByRole('button', { name: 'batch.launchOne' }))
+        await waitFor(() => expect(launch).toHaveBeenCalledTimes(2))
+        const secondRequest = launch.mock.calls[1][1]
+        expect(secondRequest.initialPrompt).toBe('Second task')
+        await act(async () => { finishFirst({ state: 'succeeded', sessionId: 'first' }) })
+        const saved = JSON.parse(sessionStorage.getItem('hapi:session-composition:standalone') ?? 'null')
+        expect(saved?.cards[0].launch.input).toEqual(secondRequest)
+        await act(async () => { finishSecond({ state: 'succeeded', sessionId: 'second' }) })
+        expect(sessionStorage.getItem('hapi:session-composition:standalone')).toBeNull()
+    })
+
     it('keeps a single prompt when adding chats and brings back the first chat override', async () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'one-chat' })
         renderComposer(launch)

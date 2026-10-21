@@ -212,7 +212,11 @@ function BatchComposer(props: Props & {
             }
             if (composition.cards.length === 1 && result.state === 'succeeded' && result.sessionId) {
                 singleCompleted.current = true
-                try { sessionStorage.removeItem(storageKey) } catch { /* Optional draft. */ }
+                // A previous visit can finish after the user has prepared another launch.
+                // Clear only this request's receipt, leaving the newer launch recoverable.
+                if (loadComposition(props.groupId)?.cards.some(item => item.launch?.input.requestId === input.requestId)) {
+                    try { sessionStorage.removeItem(storageKey) } catch { /* Optional draft. */ }
+                }
                 props.onSuccess(result.sessionId, true)
             }
         } catch (e) {
