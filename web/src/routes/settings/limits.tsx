@@ -1,9 +1,8 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import type { MachineQuotaSnapshot, QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
 import { SettingsPageContent, SettingsSection } from '@/components/settings/SettingsPrimitives'
 import { useAppContext } from '@/lib/app-context'
-import { queryKeys } from '@/lib/query-keys'
+import { useQuotas } from '@/hooks/queries/useQuotas'
 import { useTranslation } from '@/lib/use-translation'
 
 const STALE_AFTER_MS = 15 * 60_000
@@ -212,21 +211,11 @@ function MachineQuotaSection(props: { snapshot: MachineQuotaSnapshot }) {
 export default function SettingsLimitsPage() {
     const { api } = useAppContext()
     const { t } = useTranslation()
-    const query = useQuery({
-        queryKey: queryKeys.quotas,
-        queryFn: async () => {
-            if (!api) throw new Error('API unavailable')
-            return await api.getQuotas()
-        },
-        enabled: Boolean(api),
-        staleTime: 30_000,
-        refetchOnWindowFocus: false,
-        retry: false
-    })
+    const query = useQuotas({ api })
 
     const snapshots = useMemo(
-        () => [...(query.data?.quotas ?? [])].sort((a, b) => (a.displayName ?? a.machineId).localeCompare(b.displayName ?? b.machineId)),
-        [query.data?.quotas]
+        () => [...query.snapshots].sort((a, b) => (a.displayName ?? a.machineId).localeCompare(b.displayName ?? b.machineId)),
+        [query.snapshots]
     )
     const hasContent = snapshots.some((snapshot) => snapshot.quotas.length > 0 || snapshot.unavailable.length > 0)
 
