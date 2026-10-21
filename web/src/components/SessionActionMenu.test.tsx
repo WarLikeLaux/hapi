@@ -479,3 +479,15 @@ describe('SessionActionMenu - Context action', () => {
         expect(onSetContext).toHaveBeenCalledWith(null)
     })
 })
+
+
+it('explains why parking is disabled without disabling Stop session', () => {
+    const onPark = vi.fn()
+    renderMenu({ sessionActive: true, onPark, parkDisabledReason: 'Wait until the agent finishes.' })
+    const park = screen.getByRole('menuitem', { name: /^Park/ })
+    expect(park).toBeDisabled()
+    expect(park).toHaveTextContent('Wait until the agent finishes.')
+    fireEvent.click(park)
+    expect(onPark).not.toHaveBeenCalled()
+    expect(screen.getByRole('menuitem', { name: 'Stop session' })).toBeEnabled()
+})

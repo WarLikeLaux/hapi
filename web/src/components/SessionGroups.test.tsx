@@ -214,13 +214,15 @@ describe('group tab session actions', () => {
 describe('parked group workspace', () => {
     it('restores the entire group while retaining its tabs and pin, and disables restore while saving', async () => {
         const onUpdate = vi.fn(async () => true)
+        const changeGroupLifecycle = vi.fn(async () => ({ group, failures: [] }))
         const ui = (pending: boolean) => <I18nProvider><SessionGroupWorkspace group={{ ...group, parked: true }} groups={[group]}
-            sessions={chats(true)} selectedSessionId="first" onSelect={vi.fn()} onNew={vi.fn()} onBack={vi.fn()} onUpdate={onUpdate} pending={pending} /></I18nProvider>
+            sessions={chats(false, { active: false })} api={{ changeGroupLifecycle } as unknown as ApiClient} selectedSessionId="first" onSelect={vi.fn()} onNew={vi.fn()} onBack={vi.fn()} onUpdate={onUpdate} pending={pending} /></I18nProvider>
         const view = render(ui(false))
-        expect(screen.getByText('This group is parked. Chats stay open and agents keep running.')).toBeVisible()
+        expect(screen.getByText('This group is parked. Agents are stopped. Restore group resumes all chats.')).toBeVisible()
         expect(screen.getAllByRole('tab').map(tab => tab.title)).toEqual(['first · codex', 'worker · codex'])
         fireEvent.click(screen.getByRole('button', { name: 'Restore group' }))
-        await waitFor(() => expect(onUpdate).toHaveBeenCalledWith({ ...group, parked: true }, { ...group, parked: false }))
+        await waitFor(() => expect(changeGroupLifecycle).toHaveBeenCalledWith(group.id, group.version, 'reopen'))
+        expect(onUpdate).not.toHaveBeenCalled()
         view.rerender(ui(true))
         expect(screen.getByRole('button', { name: 'Restore group' })).toBeDisabled()
     })

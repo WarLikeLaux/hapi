@@ -1161,7 +1161,9 @@ export class SessionCache {
                 next,
                 session.metadataVersion,
                 session.namespace,
-                { touchUpdatedAt: false }
+                // This hub-only transition follows confirmed termination; it must
+                // replace the archive written by archiveSession.
+                { touchUpdatedAt: false, allowUnarchive: true }
             )
 
             if (result.result === 'error') {

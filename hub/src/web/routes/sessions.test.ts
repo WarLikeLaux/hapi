@@ -1665,6 +1665,20 @@ describe('sessions routes', () => {
             expect(calls).toEqual(['session-1'])
         })
 
+        it.each([
+            { thinking: true },
+            { backgroundTaskCount: 1 },
+            { agentState: { requests: { q: { tool: 'AskUserQuestion', arguments: {}, createdAt: 1 } } } },
+            { agentState: { codexAsyncQuestions: { q: { tool: 'request_user_input_async', arguments: {}, createdAt: 1 } } } },
+        ])('rejects busy sessions without calling park: %j', async patch => {
+            let called = false
+            const { app } = createApp(createSession(patch), { parkSession: async () => { called = true } })
+            const response = await app.request('/api/sessions/session-1/park', { method: 'POST' })
+            expect(response.status).toBe(409)
+            expect(await response.json()).toMatchObject({ code: 'session_busy' })
+            expect(called).toBe(false)
+        })
+
         it('returns 409 for an inactive session', async () => {
             let called = false
             const session = createSession({ active: false })

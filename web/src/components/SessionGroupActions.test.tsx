@@ -13,15 +13,15 @@ const chats = group.members.map(member => ({ id: member.sessionId, active: true,
     metadata: { path: '/work', name: member.sessionId, flavor: 'codex', lifecycleState: 'running' },
 })) as SessionSummary[]
 
-function mount(overrides: Partial<SessionGroup> = {}, failures: { sessionId: string; message: string }[] = []) {
+function mount(overrides: Partial<SessionGroup> = {}, failures: { sessionId: string; message: string }[] = [], sessions = chats) {
     const current = { ...group, ...overrides }
     const onOpen = vi.fn()
     const onHidden = vi.fn()
     const onNew = vi.fn()
     const updateGroup = vi.fn(async (_id: string, patch: object) => ({ group: { ...current, ...patch } }))
-    const changeGroupLifecycle = vi.fn(async (_id: string, _version: number, action: string) => ({ group: { ...current, closed: action === 'close' }, failures }))
+    const changeGroupLifecycle = vi.fn(async (_id: string, _version: number, action: string) => ({ group: { ...current, closed: action === 'close', parked: action === 'park' }, failures }))
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    render(<QueryClientProvider client={client}><I18nProvider><SessionGroupRows groups={[current]} sessions={chats}
+    render(<QueryClientProvider client={client}><I18nProvider><SessionGroupRows groups={[current]} sessions={sessions}
         search="" api={{ updateGroup, changeGroupLifecycle } as unknown as ApiClient} onOpen={onOpen} onHidden={onHidden} onNew={onNew} /></I18nProvider></QueryClientProvider>)
     return { row: screen.getByTestId('session-group-row'), onOpen, onHidden, updateGroup, changeGroupLifecycle }
 }
@@ -38,8 +38,8 @@ describe('group context menu', () => {
         expect(screen.getByRole('menu', { name: 'Group actions' })).toBeVisible()
         fireEvent.click(screen.getByRole('menuitem', { name: 'Park group' }))
         await waitFor(() => expect(f.onHidden).toHaveBeenCalled())
-        expect(f.updateGroup).toHaveBeenCalledWith(group.id, { ...group, parked: true })
-        expect(f.changeGroupLifecycle).not.toHaveBeenCalled()
+        expect(f.changeGroupLifecycle).toHaveBeenCalledWith(group.id, group.version, 'park')
+        expect(f.updateGroup).not.toHaveBeenCalled()
     })
 
     it('supports keyboard navigation, restoring a parked group and ordinary row activation', async () => {
@@ -50,9 +50,21 @@ describe('group context menu', () => {
         fireEvent.keyDown(screen.getByRole('menu'), { key: 'End' })
         expect(screen.getByRole('menuitem', { name: 'Close group' })).toHaveFocus()
         fireEvent.click(restore)
-        await waitFor(() => expect(f.updateGroup).toHaveBeenCalledWith(group.id, { ...group, parked: false }))
+        await waitFor(() => expect(f.changeGroupLifecycle).toHaveBeenCalledWith(group.id, group.version, 'reopen'))
         fireEvent.click(f.row)
         expect(f.onOpen).toHaveBeenCalledWith({ ...group, parked: true })
+    })
+
+    it.each([
+        { thinking: true }, { backgroundTaskCount: 1 }, { pendingRequestsCount: 1 }, { pendingAsyncQuestionsCount: 1 },
+    ])('disables group parking with an explanation when a chat is busy: %j', patch => {
+        const f = mount({}, [], chats.map((chat, index) => index ? { ...chat, ...patch } : chat))
+        fireEvent.contextMenu(f.row)
+        const park = screen.getByRole('menuitem', { name: /^Park group/ })
+        expect(park).toBeDisabled()
+        expect(park).toHaveTextContent('Wait until all agents finish')
+        fireEvent.click(park)
+        expect(f.changeGroupLifecycle).not.toHaveBeenCalled()
     })
 
     it('opens on a long touch and suppresses the following compatibility click', async () => {

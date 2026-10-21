@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { SessionGroup } from '@hapi/protocol'
+import { isSessionBusy, type SessionGroup } from '@hapi/protocol'
 import type { ApiClient } from '@/api/client'
 import type { SessionSummary } from '@/types/api'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
@@ -67,8 +67,8 @@ export function SessionGroupActions(props: {
         mutationKey,
         mutationFn: async (action: Action) => {
             if (!api) throw new Error(t('dialog.error.default'))
-            if (action.type === 'close' || action.type === 'reopen') {
-                const result = await api.changeGroupLifecycle(group.id, group.version, action.type)
+            if (action.type !== 'rename') {
+                const result = await api.changeGroupLifecycle(group.id, group.version, action.type === 'restore' ? 'reopen' : action.type)
                 if (result.failures.length) {
                     throw new Error(result.failures.map(failure => {
                         const chat = props.sessions.find(session => session.id === failure.sessionId)
@@ -78,14 +78,14 @@ export function SessionGroupActions(props: {
                 return result.group
             }
             return (await api.updateGroup(group.id, { ...group,
-                ...(action.type === 'rename' ? { name: action.name } : { parked: action.type === 'park' }),
+                name: action.name,
             })).group
         },
         onSuccess: (saved, action) => {
             client.setQueryData<{ groups: SessionGroup[] }>(sessionGroupsKey, previous => previous
                 ? { groups: previous.groups.map(item => item.id === saved.id ? saved : item) } : previous)
             if (action.type === 'park' || action.type === 'close') props.onHidden?.()
-            if (action.type === 'reopen') props.onOpen(saved)
+            if (action.type === 'reopen' || action.type === 'restore') props.onOpen(saved)
         },
         onError: error => props.onActionError?.(error.message),
         onSettled: async () => {
@@ -130,19 +130,23 @@ export function SessionGroupActions(props: {
         const rect = event.currentTarget.getBoundingClientRect()
         setPoint({ x: rect.left, y: rect.bottom })
     }
-    const item = (label: string, icon: ReactNode, action: () => void, destructive = false, needsApi = false, hint?: string) => <button type="button" role="menuitem"
-        title={hint} disabled={pending || (needsApi && !api)}
+    const item = (label: string, icon: ReactNode, action: () => void, destructive = false, needsApi = false, hint?: string, disabled = false) => <button type="button" role="menuitem"
+        title={hint} disabled={disabled || pending || (needsApi && !api)}
         className={cn(ACTION_MENU_ITEM_CLASS, 'disabled:opacity-50', destructive ? 'text-red-500 hover:bg-red-500/10' : 'hover:bg-[var(--app-subtle-bg)]')}
         onClick={() => { closeMenu(); action() }}>
         <span className={cn('inline-flex h-[18px] w-[18px] shrink-0', destructive ? 'text-red-500' : 'text-[var(--app-hint)]')} aria-hidden="true">{icon}</span>
-        {label}
+        <span>{label}{disabled && hint ? <span className="mt-0.5 block max-w-64 whitespace-normal text-xs font-normal text-[var(--app-hint)]">{hint}</span> : null}</span>
     </button>
+    const parkBlocked = group.members.some(member => {
+        const chat = props.sessions.find(session => session.id === member.sessionId)
+        return !chat || isSessionBusy(chat)
+    })
     const hasOpenChats = group.members.some(member => {
         const chat = props.sessions.find(session => session.id === member.sessionId)
         return chat && (chat.active || chat.metadata?.lifecycleState !== 'archived')
     })
     return <>
-        {props.children(handlers, openMenu, () => group.closed ? void run({ type: 'reopen' }) : props.onOpen(group), pending)}
+        {props.children(handlers, openMenu, () => group.closed || group.parked ? void run({ type: 'reopen' }) : props.onOpen(group), pending)}
         {point ? createPortal(<div ref={menuRef} style={menuStyle} role="menu" aria-label={t('groups.actions')}
             className={cn(ACTION_MENU_CLASS, 'text-[var(--app-fg)]')}
             onKeyDown={event => {
@@ -160,12 +164,12 @@ export function SessionGroupActions(props: {
                 if (event.key === 'Tab') closeMenu()
             }}>
             <div className={ACTION_MENU_HEADING_CLASS}>{t('session.more')}</div>
-            {item(t('groups.open'), <ReopenIcon />, () => group.closed ? void run({ type: 'reopen' }) : props.onOpen(group), false, group.closed)}
+            {item(t('groups.open'), <ReopenIcon />, () => group.closed || group.parked ? void run({ type: 'reopen' }) : props.onOpen(group), false, group.closed || group.parked)}
             {group.closed ? item(t('groups.viewHistory'), <HistoryIcon />, () => props.onOpen(group)) : null}
             {!group.closed && props.onNew ? item(t('groups.newChat'), <PlusIcon />, props.onNew) : null}
             {props.onManage ? item(t('groups.manage'), <SettingsIcon />, props.onManage) : null}
             {item(t('groups.rename'), <EditIcon />, () => { setError(null); setName(group.name); setRenameOpen(true) }, false, true)}
-            {!group.closed ? item(t(group.parked ? 'groups.restore' : 'groups.park'), group.parked ? <ReopenIcon /> : <StopIcon />, () => void run({ type: group.parked ? 'restore' : 'park' }), false, true, group.parked ? undefined : t('groups.parkHint')) : null}
+            {!group.closed ? item(t(group.parked ? 'groups.restore' : 'groups.park'), group.parked ? <ReopenIcon /> : <StopIcon />, () => void run({ type: group.parked ? 'restore' : 'park' }), false, true, group.parked ? undefined : t(parkBlocked ? 'groups.parkBusy' : 'groups.parkHint'), !group.parked && parkBlocked) : null}
             {!group.closed || hasOpenChats ? item(t('groups.close'), <StopIcon />, () => setCloseOpen(true), true, true) : null}
         </div>, document.body) : null}
         <ConfirmDialog isOpen={closeOpen} onClose={() => setCloseOpen(false)} title={t('groups.close')}

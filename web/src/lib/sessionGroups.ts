@@ -24,7 +24,7 @@ export function presentSessionGroup(
     const live = chats.filter(chat => chat.active)
     const flavors = [...new Set(live.flatMap(chat => chat.metadata?.flavor ? [chat.metadata.flavor] : []))].sort()
     // Quiet, reachable chats remain ready in Active, just like standalone chats.
-    // Idle contains idle chats and explicitly parked groups, even when their agents keep working.
+    // Parked groups stay in Idle with their stopped chats available for restore.
     const partiallyClosed = group.closed && chats.some(chat => chat.active || chat.metadata?.lifecycleState !== 'archived')
     const section: GroupSection = group.closed && !partiallyClosed ? 'recent' : group.parked ? 'idle' : questions || permissions || unread ? 'active' : working ? 'working'
         : live.some(chat => chat.metadata?.lifecycleState !== 'idle') ? 'active'

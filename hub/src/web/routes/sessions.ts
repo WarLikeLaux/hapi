@@ -7,6 +7,7 @@ import {
     ImplementCodexPlanRequestSchema,
     getPermissionModesForFlavor,
     isLiveLifecycleState,
+    isSessionBusy,
     isParkedLifecycleState,
     isPermissionModeAllowedForFlavor,
     RenameSessionRequestSchema,
@@ -33,7 +34,7 @@ import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type { SlashCommand } from '@hapi/protocol/apiTypes'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
-import { SessionStopUnconfirmedError, type SyncEngine, type Session } from '../../sync/syncEngine'
+import { SessionBusyError, SessionStopUnconfirmedError, type SyncEngine, type Session } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { loadScratchlistAttachmentLimitsFromEnv } from '../../config/scratchlistAttachmentLimits'
 import { validateScratchlistAttachmentsForWrite, scratchlistSessionBytesBeforeForPut } from '../../scratchlistAttachments/validate'
@@ -515,7 +516,16 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ error: 'Session is inactive' }, 409)
         }
 
-        await engine.parkSession(sessionResult.sessionId)
+        if (isSessionBusy(toSessionSummary(sessionResult.session))) {
+            return c.json({ error: new SessionBusyError().message, code: 'session_busy' }, 409)
+        }
+        try {
+            await engine.parkSession(sessionResult.sessionId)
+        } catch (error) {
+            if (error instanceof SessionBusyError) return c.json({ error: error.message, code: 'session_busy' }, 409)
+            if (error instanceof SessionStopUnconfirmedError) return c.json({ error: error.message, code: 'stop_unconfirmed' }, 409)
+            throw error
+        }
         return c.json({ ok: true })
     })
 

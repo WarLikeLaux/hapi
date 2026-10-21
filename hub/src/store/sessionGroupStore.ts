@@ -139,9 +139,9 @@ export class SessionGroupStore {
         return this.get(namespace, id)!
     }
 
-    finishLifecycle(namespace: string, id: string, closed: boolean): SessionGroup {
+    finishLifecycle(namespace: string, id: string, closed: boolean, parked = false): SessionGroup {
         try {
-            this.db.query('UPDATE session_groups SET closed = ?, version = version + 1, updated_at = ? WHERE id = ? AND namespace = ?').run(Number(closed), Date.now(), id, namespace)
+            this.db.query('UPDATE session_groups SET closed = ?, parked = ?, version = version + 1, updated_at = ? WHERE id = ? AND namespace = ?').run(Number(closed), Number(parked), Date.now(), id, namespace)
             return this.get(namespace, id)!
         } finally { this.lifecycleOperations.delete(id) }
     }

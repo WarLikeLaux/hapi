@@ -42,6 +42,7 @@ type SessionActionMenuProps = {
     onContinueInFolder?: () => void
     onRestart?: () => void
     onPark?: () => void
+    parkDisabledReason?: string
     onArchive: () => void
     onReopen?: () => void
     reopenDisabledReason?: string
@@ -225,6 +226,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onContinueInFolder,
         onRestart,
         onPark,
+        parkDisabledReason,
         onArchive,
         onReopen,
         reopenDisabledReason,
@@ -729,11 +731,13 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                             <button
                                 type="button"
                                 role="menuitem"
-                                className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                                disabled={Boolean(parkDisabledReason)}
+                                title={parkDisabledReason}
+                                className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)] disabled:opacity-50`}
                                 onClick={handlePark}
                             >
-                                <StopIcon className="text-[var(--app-hint)]" />
-                                {t('session.action.park')}
+                                <StopIcon className="shrink-0 text-[var(--app-hint)]" />
+                                <span>{t('session.action.park')}{parkDisabledReason ? <span className="mt-0.5 block max-w-64 whitespace-normal text-xs font-normal text-[var(--app-hint)]">{parkDisabledReason}</span> : null}</span>
                             </button>
                         ) : null}
                     </>

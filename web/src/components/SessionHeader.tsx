@@ -1,3 +1,4 @@
+import { isSessionBusy, toSessionSummary } from '@hapi/protocol'
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useIsMutating, useQueryClient } from '@tanstack/react-query'
 import type { Session } from '@/types/api'
@@ -739,6 +740,7 @@ export function SessionHeader(props: {
                     },
                 })}
                 onRestart={props.canReopen === false ? undefined : () => setRestartOpen(true)}
+                parkDisabledReason={isSessionBusy(toSessionSummary(session)) ? t('session.park.busy') : undefined}
                 onPark={session.active && props.canReopen !== false ? () => setParkOpen(true) : undefined}
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={props.canReopen === false ? undefined : handleReopen}
