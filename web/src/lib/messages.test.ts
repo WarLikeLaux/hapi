@@ -19,6 +19,20 @@ function userMessage(partial: Partial<DecryptedMessage> & { id: string }): Decry
 }
 
 describe('mergeMessages', () => {
+    it.each([true, false])('uses durable chat placement across a cold load and optimistic echo: displayInChat=%s', (displayInChat) => {
+        const echo = {
+            ...userMessage({ id: 'server-launch', localId: 'launch:request', status: 'queued' }),
+            content: { role: 'user', content: { type: 'text', text: 'first prompt' }, meta: { displayInChat } },
+        }
+        const optimistic = userMessage({ id: 'launch:request', status: 'sending', optimisticImmediate: true })
+        for (const messages of [mergeMessages([], [echo]), mergeMessages([optimistic], [echo])]) {
+            expect(messages).toHaveLength(1)
+            expect(messages[0].invokedAt).toBeNull()
+            expect(isQueuedForInvocation(messages[0])).toBe(!displayInChat)
+            expect(messages[0].status).toBe(displayInChat ? 'sent' : 'queued')
+            expect(isQueuedForInvocation({ ...messages[0], deliveryState: 'indeterminate' })).toBe(true)
+        }
+    })
     it('keeps an idle send in the thread through server echoes and refetches without inventing an invocation', () => {
         const optimistic = userMessage({ id: 'local-idle', optimisticImmediate: true, status: 'sending' })
         const echo = userMessage({ id: 'server-idle', localId: 'local-idle' })

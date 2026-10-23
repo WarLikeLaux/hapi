@@ -59,6 +59,7 @@ describe('useSendMessage', () => {
         { thinking: false, waiting: 'none', queued: false },
         { thinking: true, waiting: 'none', queued: true },
         { thinking: false, waiting: 'immediate', queued: true },
+        { thinking: false, waiting: 'in-chat', queued: true },
         { thinking: false, waiting: 'scheduled', queued: false },
         { thinking: false, waiting: 'indeterminate', queued: false },
     ])('places a send before its HTTP receipt: thinking=$thinking, waiting=$waiting', async ({ thinking, waiting, queued }) => {
@@ -69,6 +70,7 @@ describe('useSendMessage', () => {
             content: { role: 'user', content: { type: 'text', text: 'prior' } },
             scheduledAt: waiting === 'scheduled' ? 4102444800000 : null,
             deliveryState: waiting === 'indeterminate' ? 'indeterminate' : undefined,
+            optimisticImmediate: waiting === 'in-chat' ? true : undefined,
         }
         vi.mocked(getMessageWindowState).mockReturnValue({
             messages: waiting === 'none' ? [] : [prior],

@@ -102,6 +102,35 @@ function makePublisher() {
 // Tests
 // ---------------------------------------------------------------------------
 
+describe('MessageService idle chat placement', () => {
+    it.each(['idle', 'busy', 'waiting', 'scheduled', 'held'] as const)('persists placement and delivers without claiming invocation: %s', async (state) => {
+        const store = makeStore()
+        const session = makeSession(store, `placement-${state}`)
+        if (state === 'waiting' || state === 'held') {
+            store.messages.addMessage(session.id, { role: 'user', content: 'earlier' }, 'earlier')
+            if (state === 'held') store.messages.setMessagesDeliveryState(session.id, ['earlier'], 'indeterminate')
+        }
+        const publisher = makePublisher()
+        const emitted: unknown[] = []
+        const io = { of: () => ({ to: () => ({ emit: (...args: unknown[]) => emitted.push(args) }) }) } as unknown as Server
+        const service = new MessageService(store, io, publisher as unknown as EventPublisher, undefined,
+            () => ({ ...toProtocolSession(session), active: true, thinking: state === 'busy' }))
+        await service.sendMessage(session.id, {
+            text: 'first prompt', localId: 'launch:request',
+            scheduledAt: state === 'scheduled' ? Date.now() + 60_000 : null,
+        })
+        const row = store.messages.getMessages(session.id).find(message => message.localId === 'launch:request')!
+        expect(row.content).toMatchObject({ meta: { displayInChat: state === 'idle' || state === 'held' } })
+        expect(row.invokedAt).toBeNull()
+        expect(emitted).toHaveLength(state === 'scheduled' ? 0 : 1)
+        expect(publisher.events.find(event => event.type === 'message-received')).toMatchObject({ message: { content: row.content, invokedAt: null } })
+        // The persisted placement survives retry even after this row itself occupies the queue.
+        await service.sendMessage(session.id, { text: 'first prompt', localId: 'launch:request' })
+        expect(store.messages.getMessages(session.id).filter(message => message.localId === 'launch:request')).toHaveLength(1)
+        expect(store.messages.getMessages(session.id).find(message => message.localId === 'launch:request')!.content).toEqual(row.content)
+    })
+})
+
 describe('MessageService goal status filtering', () => {
     it('does not discard or replay an uncertain shared input on a not-found cancellation ACK', async () => {
         const store = makeStore()

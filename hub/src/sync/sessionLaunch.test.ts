@@ -123,7 +123,7 @@ describe('durable session launch', () => {
             const id = args[17] as string
             expect(store.groups.forSession('owner', id)?.id).toBe(group.id)
             expect(store.messages.getUninvokedLocalMessages(id).map(row => row.content)).toEqual([
-                expect.objectContaining({ role: 'user', content: expect.objectContaining({ text: request.initialPrompt }) }),
+                expect.objectContaining({ role: 'user', content: expect.objectContaining({ text: request.initialPrompt }), meta: expect.objectContaining({ displayInChat: true }) }),
             ])
             expect(args[1]).toBe('/project')
             expect(args[3]).toBe('chosen-model')

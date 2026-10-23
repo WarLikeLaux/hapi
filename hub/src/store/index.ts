@@ -244,7 +244,7 @@ export class Store {
     /** Resolve a durable OpenCode clear reservation and insert in one SQLite transaction. */
     addMessageForCurrentSession(
         sessionId: string,
-        content: unknown,
+        createContent: (targetSessionId: string) => unknown,
         localId?: string,
         scheduledAt?: number | null
     ): { sessionId: string; message: StoredMessage; inserted: boolean } {
@@ -271,7 +271,7 @@ export class Store {
                 : false
             return {
                 sessionId: targetSessionId,
-                message: addMessage(this.db, targetSessionId, content, localId, scheduledAt),
+                message: addMessage(this.db, targetSessionId, createContent(targetSessionId), localId, scheduledAt),
                 inserted: !alreadyExists
             }
         })()
