@@ -1967,7 +1967,11 @@ describe('optimistic and queued-message operations', () => {
         const id = sessionId('queued-reconcile')
         ingestIncomingMessages(id, [
             makeUserMessage({ id: 'stale', seq: 1, localId: 'local-stale', invokedAt: null }),
-            makeUserMessage({ id: 'queued', seq: 2, localId: 'local-queued', invokedAt: null }),
+            {
+                ...makeUserMessage({ id: 'queued', seq: 2, localId: 'local-queued', invokedAt: null }),
+                content: { role: 'user', content: { type: 'text', text: 'idle send' }, meta: { displayInChat: true } },
+                optimisticImmediate: true,
+            },
             makeUserMessage({
                 id: 'local-optimistic',
                 localId: 'local-optimistic',

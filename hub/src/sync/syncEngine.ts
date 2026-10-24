@@ -282,7 +282,8 @@ export class SyncEngine {
             store,
             io,
             this.eventPublisher,
-            (sessionId, updatedAt) => this.recordSessionActivity(sessionId, updatedAt)
+            (sessionId, updatedAt) => this.recordSessionActivity(sessionId, updatedAt),
+            (sessionId) => this.getSession(sessionId)
         )
         this.titleSuggestionService = createTitleSuggestionService(store)
         this.rpcGateway = new RpcGateway(io, rpcRegistry)

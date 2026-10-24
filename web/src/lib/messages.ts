@@ -13,16 +13,24 @@ export function isUserMessage(msg: DecryptedMessage): boolean {
     return false
 }
 
-/** A user message that is still waiting for the CLI ack (messages-consumed).
+/** A user message shown in the floating queue while waiting for the CLI ACK.
+ *  Idle sends stay in the thread via durable placement or its optimistic
+ *  precursor; neither grants an invocation timestamp. Uncertain delivery
+ *  always returns to the queue for recovery.
  *  Strict null on `invokedAt` so a pre-V8 hub response that omits the field
  *  (`undefined`) is treated as already-invoked; only optimistic / V8-loaded
  *  rows that explicitly carry `invokedAt: null` are queued. `failed` rows are
  *  not queued either — they're surfaced as send errors, not pending work. */
 export function isQueuedForInvocation(msg: DecryptedMessage): boolean {
+    const meta = msg.content && typeof msg.content === 'object' && 'meta' in msg.content
+        ? msg.content.meta
+        : null
+    const placement = meta && typeof meta === 'object' && 'displayInChat' in meta
+        && typeof meta.displayInChat === 'boolean' ? meta.displayInChat : undefined
     return isUserMessage(msg)
         && msg.invokedAt === null
         && msg.status !== 'failed'
-        && (!msg.optimisticImmediate || msg.deliveryState === 'indeterminate')
+        && (!(placement ?? msg.optimisticImmediate) || msg.deliveryState === 'indeterminate')
 }
 
 function isOptimisticMessage(msg: DecryptedMessage): boolean {
@@ -46,13 +54,12 @@ function compareMessages(a: DecryptedMessage, b: DecryptedMessage): number {
     return a.id.localeCompare(b.id)
 }
 
-// Invariant: a message the CLI has consumed (invokedAt set) is delivered, not
-// queued. A message delivered immediately — e.g. steered into the active turn —
-// can carry a stale optimistic 'queued' status while its invokedAt is already
-// set; normalize so the queued clock never lingers on a delivered message.
+// A consumed or immediately displayed message can carry a stale queued status
+// after an optimistic echo or cache hydration. Clear its queue clock without
+// inventing an invocation timestamp.
 function clearStaleQueuedStatus(list: DecryptedMessage[]): DecryptedMessage[] {
     return list.map((msg) =>
-        msg.status === 'queued' && msg.invokedAt != null
+        msg.status === 'queued' && !isQueuedForInvocation(msg)
             ? { ...msg, status: 'sent' as DecryptedMessage['status'] }
             : msg
     )

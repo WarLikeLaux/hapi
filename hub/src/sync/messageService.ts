@@ -178,7 +178,8 @@ export class MessageService {
         private readonly store: Store,
         private readonly io: Server,
         private readonly publisher: EventPublisher,
-        private readonly onSessionActivity?: (sessionId: string, updatedAt: number) => void
+        private readonly onSessionActivity?: (sessionId: string, updatedAt: number) => void,
+        private readonly getSession?: (sessionId: string) => Session | undefined
     ) {
     }
 
@@ -904,7 +905,18 @@ export class MessageService {
 
         const inserted = this.store.addMessageForCurrentSession(
             sessionId,
-            content,
+            (targetSessionId) => {
+                const session = this.getSession?.(targetSessionId)
+                // Placement is durable presentation, never an invocation ACK.
+                // Decide inside the redirect/insert transaction so simultaneous
+                // sends cannot both jump ahead of an existing FIFO row.
+                const displayInChat = session !== undefined
+                    && !session.thinking
+                    && payload.scheduledAt == null
+                    && !this.store.isOpenCodeClearDeliveryGated(targetSessionId)
+                    && this.store.messages.getImmediateQueuedLocalMessages(targetSessionId).length === 0
+                return { ...content, meta: { ...content.meta, displayInChat } }
+            },
             payload.localId ?? undefined,
             payload.scheduledAt ?? null
         )

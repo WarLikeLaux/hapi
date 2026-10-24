@@ -2,7 +2,7 @@ import { getReasoningStreamId } from '@hapi/protocol/messages'
 import type { ApiClient } from '@/api/client'
 import { normalizeDecryptedMessage } from '@/chat/normalize'
 import type { DecryptedMessage, MessageStatus, MessagesResponse } from '@/types/api'
-import { isQueuedForInvocation, mergeMessages } from '@/lib/messages'
+import { isQueuedForInvocation, isUserMessage, mergeMessages } from '@/lib/messages'
 
 export type MessageViewMode = 'tail' | 'history'
 
@@ -1603,7 +1603,8 @@ export function seedMessageWindowFromSession(fromSessionId: string, toSessionId:
 }
 
 function isQueuedReconcileCandidate(message: DecryptedMessage): boolean {
-    if (!message.localId || !isQueuedForInvocation(message)) return false
+    // Reconciliation follows delivery, independent of where an idle send is displayed.
+    if (!message.localId || !isUserMessage(message) || message.invokedAt !== null || message.status === 'failed') return false
     if (!optimisticMessage(message)) return true
     return message.status === 'queued' || message.status === 'sent'
 }

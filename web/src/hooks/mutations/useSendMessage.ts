@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { AttachmentMetadata, DecryptedMessage } from '@/types/api'
-import { isQueuedForInvocation, makeClientSideId } from '@/lib/messages'
+import { isUserMessage, makeClientSideId } from '@/lib/messages'
 import {
     appendOptimisticMessage,
     getMessageWindowState,
@@ -231,7 +231,9 @@ export function useSendMessage(
             const immediate = !isSessionThinkingRef.current
                 && input.scheduledAt == null
                 && !getMessageWindowState(input.sessionId).messages.some(message =>
-                    isQueuedForInvocation(message)
+                    isUserMessage(message)
+                    && message.invokedAt === null
+                    && message.status !== 'failed'
                     && message.scheduledAt == null
                     && message.deliveryState !== 'indeterminate')
             appendOptimisticMessage(input.sessionId, createOptimisticMessage(input, 'sending', immediate))
