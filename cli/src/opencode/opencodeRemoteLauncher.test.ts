@@ -1865,7 +1865,6 @@ describe('opencodeRemoteLauncher inline model switch', () => {
 
     it.each([
         { model: 'opencode-go/gemini-4-argon-contributor', effort: 'high', variants: ['low', 'medium', 'high'] },
-        { model: 'opencode-go/muse-spark-1.3-contributor', effort: 'max', variants: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
         { model: 'opencode-go/deepseek-v4.1-flash', effort: 'max', variants: ['low', 'high', 'max'] },
     ])('uses the fixed $effort for $model on every prompt despite stale effort', async ({ model, effort, variants }) => {
         harness.sessionModelsMetadata = { currentModelId: model, availableModels: [] };
@@ -1884,6 +1883,25 @@ describe('opencodeRemoteLauncher inline model switch', () => {
             { sessionId: 'acp-session-1', configId: 'effort', value: effort }
         ]);
         expect(setModelReasoningEffort).toHaveBeenCalledWith(effort);
+    });
+
+    it.each([
+        { requested: null, resumed: false, expected: 'medium' },
+        { requested: null, resumed: true, expected: 'max' },
+        ...['minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map(requested => ({ requested, resumed: false, expected: requested })),
+    ])('applies Muse defaults without overriding explicit or resumed effort: $requested, resumed=$resumed', async ({ requested, resumed, expected }) => {
+        const model = 'opencode-go/muse-spark-1.3-contributor';
+        harness.sessionModelsMetadata = { currentModelId: model, availableModels: [] };
+        harness.thoughtLevelOption = {
+            id: 'effort', currentValue: 'max',
+            options: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map(value => ({ value }))
+        };
+        const seen: Array<string | undefined> = [];
+        harness.promptImpl = async () => { seen.push(harness.thoughtLevelOption?.currentValue); };
+        const { session } = createSessionStub([{ message: 'first', mode: createModeWithEffort(model, requested) }]);
+        if (resumed) session.sessionId = 'existing-muse';
+        await opencodeRemoteLauncher(session as never);
+        expect(seen).toEqual([expected]);
     });
 
     it('rejects unsupported reasoning effort values before calling setConfigOption', async () => {

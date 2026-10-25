@@ -1,5 +1,5 @@
 import { seedOpencodeModelsCache } from '@/modules/common/opencodeModels';
-import { getPinnedOpencodeReasoningEffort } from '@hapi/protocol';
+import { getDefaultOpencodeReasoningEffort, getPinnedOpencodeReasoningEffort } from '@hapi/protocol';
 import React from 'react';
 import { randomUUID } from 'node:crypto';
 import { registerAcpSessionTitleSync } from '@/agent/acpSessionTitle';
@@ -596,7 +596,10 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
             }
 
             const pinnedEffort = getPinnedOpencodeReasoningEffort(this.currentBackendModel);
-            const requestedEffort = pinnedEffort ?? batch.mode.modelReasoningEffort ?? this.defaultBackendEffort;
+            const launchDefaultEffort = !resumeSessionId
+                ? getDefaultOpencodeReasoningEffort(this.currentBackendModel)
+                : undefined;
+            const requestedEffort = pinnedEffort ?? batch.mode.modelReasoningEffort ?? launchDefaultEffort ?? this.defaultBackendEffort;
             if (requestedEffort && requestedEffort !== this.currentBackendEffort) {
                 const thoughtLevelOption = backend.getThoughtLevelConfigOption?.(acpSessionId);
                 if (!backend.setConfigOption || !thoughtLevelOption || this.setEffortSupported === false) {
@@ -646,9 +649,10 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                 }
             }
 
-            // Persist the applied policy for reopened sessions and subsequent queued turns.
-            if (pinnedEffort && this.currentBackendEffort === pinnedEffort && batch.mode.modelReasoningEffort !== pinnedEffort) {
-                this.rollbackReasoningEffort(batch, pinnedEffort);
+            // Mirror applied defaults so the UI and reopened sessions retain the actual effort.
+            const appliedDefault = pinnedEffort ?? (batch.mode.modelReasoningEffort == null ? launchDefaultEffort : undefined);
+            if (appliedDefault && this.currentBackendEffort === appliedDefault && batch.mode.modelReasoningEffort !== appliedDefault) {
+                this.rollbackReasoningEffort(batch, appliedDefault);
             }
 
             this.applyDisplayMode(batch.mode.permissionMode);

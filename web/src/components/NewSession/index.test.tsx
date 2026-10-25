@@ -746,27 +746,27 @@ describe('NewSession launch preferences', () => {
     it('hides effort in model choices while keeping it in card summaries, duplication and launches', async () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'started' })
         renderComposer(launch)
-        const muse = screen.getByRole('button', { name: 'Muse Spark 1.3 (Max)' })
-        expect(muse).not.toHaveTextContent('(Max)')
+        const muse = screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })
+        expect(muse).not.toHaveTextContent('(Medium)')
         fireEvent.click(muse)
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         const second = screen.getAllByRole('article')[1]
         const argon = within(second).getByRole('button', { name: 'Gemini 4 Argon (High)' })
         expect(argon).not.toHaveTextContent('(High)')
         fireEvent.click(argon)
-        expect(within(screen.getAllByRole('article')[0]).getByText('Muse Spark 1.3 (Max)')).toBeVisible()
+        expect(within(screen.getAllByRole('article')[0]).getByText('Muse Spark 1.3 (Medium)')).toBeVisible()
         expect(within(second).getByText('Gemini 4 Argon (High)')).toBeVisible()
         fireEvent.click(screen.getByRole('button', { name: 'batch.duplicate 1' }))
         const duplicate = screen.getAllByRole('article')[2]
-        expect(within(duplicate).getByText('Muse Spark 1.3 (Max)')).toBeVisible()
-        expect(within(duplicate).getByRole('button', { name: 'Muse Spark 1.3 (Max)' })).toHaveAttribute('aria-pressed', 'true')
+        expect(within(duplicate).getByText('Muse Spark 1.3 (Medium)')).toBeVisible()
+        expect(within(duplicate).getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).toHaveAttribute('aria-pressed', 'true')
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchCount' })).toBeEnabled())
         fireEvent.click(screen.getByRole('button', { name: 'batch.launchCount' }))
         await waitFor(() => expect(launch).toHaveBeenCalledTimes(3))
         expect(launch.mock.calls.map(call => [call[1].agent, call[1].model, call[1].modelReasoningEffort])).toEqual([
-            ['opencode', 'opencode-go/muse-spark-1.3-contributor', 'max'],
+            ['opencode', 'opencode-go/muse-spark-1.3-contributor', 'medium'],
             ['opencode', 'opencode-go/gemini-4-argon-contributor', 'high'],
-            ['opencode', 'opencode-go/muse-spark-1.3-contributor', 'max'],
+            ['opencode', 'opencode-go/muse-spark-1.3-contributor', 'medium'],
         ])
     })
 
@@ -1590,7 +1590,7 @@ describe('NewSession launch preferences', () => {
         </QueryClientProvider>)
 
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
-        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Max)' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).toBeInTheDocument()
         // No dropdown: the catalog is never requested unless the hatch opens it.
         expect(getMachineOpencodeModelsForCwd.mock.calls.length).toBe(0)
         expect(getMachineOpencodeModelVariants.mock.calls.length).toBe(0)
@@ -1612,7 +1612,7 @@ describe('NewSession launch preferences', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash (Max)' }))
         await waitFor(() => expect(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash (Max)' })).toHaveAttribute('aria-pressed', 'true'))
-        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Max)' })).toHaveAttribute('aria-pressed', 'false')
+        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).toHaveAttribute('aria-pressed', 'false')
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
@@ -1627,7 +1627,7 @@ describe('NewSession launch preferences', () => {
         const argon = screen.getByRole('button', { name: 'Gemini 4 Argon (High)' })
         expect(argon).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getAllByRole('button').indexOf(argon)).toBeLessThan(
-            screen.getAllByRole('button').indexOf(screen.getByRole('button', { name: 'Muse Spark 1.3 (Max)' }))
+            screen.getAllByRole('button').indexOf(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' }))
         )
         if (returnToDefault) {
             fireEvent.click(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash (Max)' }))
@@ -1646,7 +1646,6 @@ describe('NewSession launch preferences', () => {
 
     it.each([
         { label: 'Gemini 4 Argon (High)', model: 'opencode-go/gemini-4-argon-contributor', effort: 'high' },
-        { label: 'Muse Spark 1.3 (Max)', model: 'opencode-go/muse-spark-1.3-contributor', effort: 'max' },
         { label: 'DeepSeek V4.1 Flash (Max)', model: 'opencode-go/deepseek-v4.1-flash', effort: 'max' },
     ])('pins $label to $effort despite stale remembered effort', async ({label, model, effort}) => {
         savePreferredAgent('opencode')
@@ -1663,17 +1662,30 @@ describe('NewSession launch preferences', () => {
         })))
     })
 
-    it('keeps the OpenCode model and pins its effort when continuing a session', async () => {
+    it('launches Muse with Medium by default', async () => {
+        savePreferredAgent('opencode')
+        mocks.opencodeVariants = { 'opencode-go/muse-spark-1.3-contributor': ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] }
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'muse-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        fireEvent.click(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' }))
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'opencode', model: 'opencode-go/muse-spark-1.3-contributor', modelReasoningEffort: 'medium'
+        })))
+    })
+
+    it.each(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('preserves the OpenCode model and explicit %s effort when continuing a session', async (selectedEffort) => {
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'continued-muse' })
         const source = {
             id: 'source-muse', metadata: { flavor: 'opencode', path: 'C:\\repo', host: 'desktop' },
-            model: 'opencode-go/muse-spark-1.3-contributor', modelReasoningEffort: 'low'
+            model: 'opencode-go/muse-spark-1.3-contributor', modelReasoningEffort: selectedEffort
         } as unknown as import('@/types/api').Session
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" continueFromSession={source} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
-            agent: 'opencode', model: 'opencode-go/muse-spark-1.3-contributor', modelReasoningEffort: 'max'
+            agent: 'opencode', model: 'opencode-go/muse-spark-1.3-contributor', modelReasoningEffort: selectedEffort
         })))
     })
 
@@ -2532,7 +2544,7 @@ describe('NewSession fork launch defaults', () => {
         ]
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         const choices = screen.getByRole('region', { name: 'newSession.model' })
-        expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Composer 2.5', 'Muse Spark 1.3 (Max)', 'GPT-6.1 Sol', 'GLM 5.3 Flash', 'Gemini 3.8 Flash (High)', ...(minimaxAvailable ? ['MiniMax M3.1-Flash-Preview'] : [])])
+        expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Composer 2.5', 'Muse Spark 1.3 (Medium)', 'GPT-6.1 Sol', 'GLM 5.3 Flash', 'Gemini 3.8 Flash (High)', ...(minimaxAvailable ? ['MiniMax M3.1-Flash-Preview'] : [])])
         expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' }).querySelector('svg')).not.toBeNull()
         expect(screen.queryByRole('button', { name: 'GPT-6 Luna' })).toBeNull()
@@ -2540,7 +2552,7 @@ describe('NewSession fork launch defaults', () => {
             fireEvent.click(screen.getByRole('button', { name: 'MiniMax M3.1-Flash-Preview' }))
             expect(screen.getByRole('button', { name: 'MiniMax M3.1-Flash-Preview' })).toHaveAttribute('aria-pressed', 'true')
             expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual([
-                'Composer 2.5', 'Muse Spark 1.3 (Max)', 'GPT-6.1 Sol', 'GLM 5.3 Flash', 'Gemini 3.8 Flash (High)', 'MiniMax M3.1-Flash-Preview'
+                'Composer 2.5', 'Muse Spark 1.3 (Medium)', 'GPT-6.1 Sol', 'GLM 5.3 Flash', 'Gemini 3.8 Flash (High)', 'MiniMax M3.1-Flash-Preview'
             ])
         }
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
@@ -2565,21 +2577,21 @@ describe('NewSession fork launch defaults', () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         expect(screen.queryByLabelText('newSession.allAgents')).toBeNull()
         expect(screen.getAllByRole('radio').every(input => !(input as HTMLInputElement).checked)).toBe(true)
-        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Max)' })).toBeVisible()
-        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Max)' })).not.toHaveTextContent('(Max)')
+        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).toBeVisible()
+        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).not.toHaveTextContent('(Medium)')
         expect(screen.queryByRole('button', { name: 'GPT-6 Luna' })).toBeNull()
         fireEvent.click(screen.getByRole('radio', { name: 'OpenCode' }))
         expect(screen.getByRole('radio', { name: 'OpenCode' })).toBeChecked()
         expect(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash (Max)' })).toBeVisible()
         expect(screen.queryByRole('button', { name: 'GPT-6.1 Sol' })).toBeNull()
-        fireEvent.click(screen.getByRole('button', { name: 'Muse Spark 1.3 (Max)' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' }))
         fireEvent.click(screen.getByRole('radio', { name: 'OpenCode' }))
         expect(screen.getAllByRole('radio').every(input => !(input as HTMLInputElement).checked)).toBe(true)
         expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toBeVisible()
-        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Max)' })).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByTestId('create')).toBeEnabled()
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: 'opencode-go/muse-spark-1.3-contributor', modelReasoningEffort: 'max', serviceTier: undefined })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: 'opencode-go/muse-spark-1.3-contributor', modelReasoningEffort: 'medium', serviceTier: undefined })))
     })
 
 })

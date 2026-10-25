@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary, Session } from '@/types/api'
-import { getPinnedOpencodeReasoningEffort, isKnownFlavor, isRemovedAgyModel, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
+import { MUSE_SPARK_MODEL_ID, getDefaultOpencodeReasoningEffort, getPinnedOpencodeReasoningEffort, isKnownFlavor, isRemovedAgyModel, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
 import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
@@ -640,6 +640,10 @@ export function NewSession(props: {
         const effectiveModelId = !opencodeSelectedModel || opencodeSelectedModel === 'auto'
             ? OPENCODE_HARDCODED_MODEL_ID
             : opencodeSelectedModel
+        // The native catalog can omit Muse variants that the provider supports.
+        if (effectiveModelId === MUSE_SPARK_MODEL_ID) {
+            return ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+        }
         if (!effectiveModelId) {
             return null
         }
@@ -1684,7 +1688,7 @@ export function NewSession(props: {
             ? effort
             : undefined
         const resolvedModelReasoningEffort = agent === 'opencode'
-            ? getPinnedOpencodeReasoningEffort(resolvedModel) ?? (modelReasoningEffort !== 'default' ? modelReasoningEffort : undefined)
+            ? getPinnedOpencodeReasoningEffort(resolvedModel) ?? (modelReasoningEffort !== 'default' ? modelReasoningEffort : getDefaultOpencodeReasoningEffort(resolvedModel))
             : agent === 'codex' && modelReasoningEffort !== 'default'
                 ? modelReasoningEffort
                 : undefined
