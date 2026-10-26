@@ -19,6 +19,10 @@ export function createUsageRoutes(store: Store): Hono<WebAppEnv> {
             return c.json({ error: 'Usage summary is only available to the hub owner' }, 403)
         }
         const range = c.req.query('range')
+        const sessionId = c.req.query('sessionId')
+        if (sessionId !== undefined && !store.sessions.getSessionByNamespace(sessionId, c.get('namespace'))) {
+            return c.json({ error: 'Session not found' }, 404)
+        }
         const timeZone = c.req.query('timeZone') ?? 'UTC'
         if (timeZone.length > 100) {
             return c.json({ error: 'Invalid timeZone' }, 400)
@@ -28,7 +32,7 @@ export function createUsageRoutes(store: Store): Hono<WebAppEnv> {
         } catch {
             return c.json({ error: 'Invalid timeZone' }, 400)
         }
-        const response: UsageSummaryResponse = getUsageSummary(store, c.get('namespace'), range, timeZone)
+        const response: UsageSummaryResponse = getUsageSummary(store, c.get('namespace'), range, timeZone, sessionId)
         c.header('Cache-Control', 'no-store')
         return c.json(response)
     })

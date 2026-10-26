@@ -48,8 +48,8 @@ const AUTO_APPROVE_EXACT_TOOL_NAMES = new Set([
     'get_group', 'hapi_get_group', 'happy__get_group', 'mcp__hapi__get_group',
     'list chat groups', 'read chat group'
 ]);
-// ping_peer / inspect_peer intentionally omitted from always-approve: they can
-// resume+inject into another session or read peer histories, so permission
+// ping_peer / inspect_peer / get_usage intentionally omitted from always-approve:
+// they can resume+inject or read peer histories/usage, so permission
 // modes must still gate them. Treat both as write-like in read-only so ACP
 // titles such as "Ping Peer Session" / "Inspect Peer Session" also require
 // approval. list_peers is discovery-only and is auto-approved above.
@@ -59,6 +59,8 @@ const SENSITIVE_TOOL_NAME_HINTS = [
     'ping peer',
     'inspect_peer',
     'inspect peer',
+    'get_usage',
+    'read collected session usage',
     'launch_agent',
     'launch agent',
 ];

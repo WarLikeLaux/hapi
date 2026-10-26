@@ -255,6 +255,19 @@ describe('session model', () => {
         expect(survivors).toHaveLength(1)
     })
 
+    it.each(['fast', 'standard'])('persists initial Codex %s tier and publishes it to session clients', (serviceTier) => {
+        const store = new Store(':memory:')
+        try {
+            const events: SyncEvent[] = []
+            const cache = new SessionCache(store, createPublisher(events))
+            const session = cache.getOrCreateSession('initial-tier', { path: '/tmp', host: 'test', flavor: 'codex' }, null, 'default')
+            cache.handleSessionAlive({ sid: session.id, time: Date.now(), thinking: false, serviceTier })
+            expect(store.sessions.getSession(session.id)?.serviceTier).toBe(serviceTier)
+            expect(cache.getSession(session.id)?.serviceTier).toBe(serviceTier)
+            expect(events).toContainEqual(expect.objectContaining({ type: 'session-updated', sessionId: session.id, data: expect.objectContaining({ serviceTier }) }))
+        } finally { store.close() }
+    })
+
     it('preserves service tier from old session when merging into resumed session', async () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []

@@ -110,6 +110,7 @@ export function createAgentLauncher(callerSessionId: string) {
             const machine = runnerId ? resolveMachine(machines, runnerId) : machines.length === 1 ? machines[0]! : undefined
             if (!machine) throw new Error('Select a runner with machineId from list_launch_options')
             const agent = args.agent ?? 'codex'
+            if (args.serviceTier !== undefined && agent !== 'codex') throw new Error('serviceTier is only supported for codex')
             const availability = AgentAvailabilityResponseSchema.parse(await hub.get(`/machines/${encodeURIComponent(machine.id)}/agent-availability`))
             if (!availability.agents.some((entry) => entry.agent === agent && entry.available)) throw new Error(`Agent '${agent}' is unavailable on runner ${machine.id}`)
             let directory = args.project
@@ -130,6 +131,7 @@ export function createAgentLauncher(callerSessionId: string) {
                 directory,
                 agent,
                 model: args.model,
+                serviceTier: args.serviceTier,
                 ...(agent === 'codex' || agent === 'opencode' ? { modelReasoningEffort: args.effort } : { effort: args.effort }),
                 permissionMode: args.permissionMode ?? resolveHapiYoloPermissionMode(agent) ?? undefined,
                 yolo: args.permissionMode === undefined,

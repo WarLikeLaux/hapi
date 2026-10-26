@@ -133,9 +133,11 @@ export function getUsageSummary(
     store: Store,
     namespace: string,
     range: string | undefined,
-    timeZone: string = 'UTC'
+    timeZone: string = 'UTC',
+    sessionId?: string
 ): UsageSummaryResponse {
     const sessions = store.sessions.getSessionsByNamespace(namespace)
+        .filter(session => sessionId === undefined || session.id === sessionId)
     // This is intentionally lazy. Existing HAPI databases have no usage table;
     // the first dashboard request backfills history, while later requests only
     // update the idempotent event rows.

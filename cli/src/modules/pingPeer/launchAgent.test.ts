@@ -72,7 +72,7 @@ describe('agent launch over HTTP MCP', () => {
             if (path === '/api/sessions/caller') return reply({ session: sessions[0] })
             if (path === '/api/sessions/spawned') return reply({ session: sessions[1] })
             if (path === '/api/machines/runner-one/list-directory') return reply({ success: true, entries: [{ name: 'project', type: 'directory' }, { name: 'other', type: 'directory' }, { name: 'readme', type: 'file' }] })
-            if (path === '/api/machines/runner-one/agent-availability') return reply({ agents: [{ agent: 'codex', available, defaultModelName: 'Configured Codex' }, { agent: 'gemini', available: true }] })
+            if (path === '/api/machines/runner-one/agent-availability') return reply({ agents: [{ agent: 'codex', available, defaultModelName: 'Configured Codex' }, { agent: 'claude', available: true }, { agent: 'gemini', available: true }] })
             if (path === '/api/machines/runner-one/paths/exists') return reply({ exists: { '/code/project': true } })
             if (path === '/api/machines/runner-one/spawn') {
                 spawnBodies.push(body)
@@ -120,7 +120,7 @@ describe('agent launch over HTTP MCP', () => {
         const result = await client.callTool({ name: 'list_launch_options', arguments: {} }) as ToolReply
         expect(result.isError).toBe(false)
         const options = JSON.parse(result.content[0]!.text!)
-        expect(options.machines[0]).toMatchObject({ id: 'runner-one', projects: ['/code', '/code/other', '/code/project'], agents: [{ agent: 'codex', available: true, defaultModelName: 'Configured Codex' }], discoveryErrors: [] })
+        expect(options.machines[0]).toMatchObject({ id: 'runner-one', projects: ['/code', '/code/other', '/code/project'], agents: [{ agent: 'codex', available: true, defaultModelName: 'Configured Codex' }, { agent: 'claude', available: true }], discoveryErrors: [] })
     })
 
     it('launches with native model/effort, maximum permissions and delivers the initial task', async () => {
@@ -129,6 +129,26 @@ describe('agent launch over HTTP MCP', () => {
         expect(JSON.parse(result.content[0]!.text!)).toEqual({ sessionId: 'spawned', url: '/sessions/spawned', messageDelivered: true })
         expect(spawnBodies).toEqual([{ directory: '/code/project', agent: 'codex', permissionMode: 'yolo', yolo: true, startingMode: 'remote', sessionType: 'simple' }])
         expect(messageBodies).toEqual([{ text: task.message, localId: 'launch:caller:task-1' }])
+    })
+
+    it.each(['fast', 'standard'])('launches Codex with explicit %s tier and protects retries from tier changes', async (serviceTier) => {
+        const client = await connect()
+        const args = { ...task, serviceTier }
+        expect((await client.callTool({ name: 'launch_agent', arguments: args })).isError).toBe(false)
+        expect(spawnBodies[0]?.serviceTier).toBe(serviceTier)
+        const changed = await client.callTool({ name: 'launch_agent', arguments: { ...args, serviceTier: serviceTier === 'fast' ? 'standard' : 'fast' } }) as ToolReply
+        expect(changed.isError).toBe(true)
+        expect(changed.content[0]?.text).toContain('different arguments')
+        expect(spawnBodies).toHaveLength(1)
+    })
+
+    it('rejects unsupported executors and invalid tiers before spawning', async () => {
+        const client = await connect()
+        const unsupported = await client.callTool({ name: 'launch_agent', arguments: { ...task, agent: 'claude', serviceTier: 'standard' } }) as ToolReply
+        expect(unsupported.isError).toBe(true)
+        expect(unsupported.content[0]?.text).toContain('only supported for codex')
+        expect((await client.callTool({ name: 'launch_agent', arguments: { ...task, serviceTier: 'priority' } })).isError).toBe(true)
+        expect(spawnBodies).toHaveLength(0)
     })
 
     it('reads the caller group with ordered independent chats and launches explicitly in it', async () => {

@@ -24,6 +24,7 @@ Commands:
   hapi doctor                Run diagnostics and troubleshooting
   hapi ping-peer             List peers or message another session
   hapi inspect-peer <id>     Read another session's metadata and messages
+  hapi get usage             Read collected session token usage (--json)
   hapi archive-peer <id>     Stop and archive an idle peer session
   hapi mcp                   Start the MCP stdio bridge
 

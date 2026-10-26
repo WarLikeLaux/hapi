@@ -80,7 +80,7 @@ afterEach(async () => {
     finally { vi.useRealTimers(); }
 });
 
-async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; initialState?: AgentState; publishInitialHistory?: boolean; nativeTurns?: NativeTurn[] }) {
+async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; initialState?: AgentState; publishInitialHistory?: boolean; nativeTurns?: NativeTurn[]; nativeSettings?: Record<string, unknown> }) {
     const directory = await mkdtemp('/tmp/hapi-shared-root-');
     let state: AgentState = opts?.initialState ?? { steeringActive: true };
     let metadata: Metadata = { path: directory, host: 'test', flavor: 'codex' };
@@ -123,7 +123,7 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; in
         abandoned(): void;
     };
     native.thread.turns = opts?.nativeTurns ?? [];
-    await root.bind('thread', { model: 'mock', thread: { turns: [] } }, false);
+    await root.bind('thread', { model: 'mock', ...opts?.nativeSettings, thread: { turns: [] } }, false);
     return {
         root, native, rpc, send, events, metadata: () => metadata, state: () => state, updateState,
         postUser: (message: UserMessage, localId?: string) => userMessage?.(message, localId),
@@ -294,6 +294,13 @@ describe('shared async questions', () => {
 });
 
 describe('shared settings confirmation', () => {
+    it.each([['priority', 'fast'], ['default', 'standard']] as const)('publishes the initial native %s tier as HAPI %s before any turn', async (nativeTier, hapiTier) => {
+        const f = await fixture({ nativeSettings: { serviceTier: nativeTier } });
+        const heartbeat = vi.spyOn(f.root.session, 'keepAlive');
+        await f.root.activate();
+        expect(heartbeat).toHaveBeenLastCalledWith(false, undefined, expect.objectContaining({ serviceTier: hapiTier }));
+        expect(f.native.queue).toHaveLength(0);
+    });
     it('skips the native round trip when the requested state already holds (Codex 0.157 no-op suppression)', async () => {
         const f = await fixture();
         // Cold-resume snapshot: thread/resume reports the active collaboration
