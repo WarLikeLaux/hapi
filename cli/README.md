@@ -43,6 +43,7 @@ Choose a supported coding agent from your terminal and control its sessions remo
   DSH is remote-only and its ACP server must be configured separately.
 - `hapi resume [sessionId]` - List resumable sessions for this machine or resume one locally.
 - `hapi ping-peer <session-id-prefix> <message>` - Resume (if needed) and message another session. Prefer this or MCP `ping_peer` / `list_peers` over reinventing JWT+curl. Use `--local-id <stable-id>` to make retries idempotent. Also supports `--message-file` / `--list`.
+- `hapi get usage [--range 7d|30d|all] [--session <id-or-prefix>] [--time-zone <IANA-zone>] [--json]` - Read collected session token usage from the configured hub (owner/default namespace only).
 - `hapi inspect-peer <session-id-or-prefix>` - Read-only peer metadata + message history (no resume). Prefer this or MCP `inspect_peer` when a user cites `[title](/sessions/<id>)` or Copy-reference `See session "…" (/sessions/<id>) for context`. `/sessions/<id>` is a hub path, not a local file. `--limit` counts text messages (tool calls skipped; default 30, max 200). Page further back with the `--before-at` / `--before-seq` pair from the previous run's "older page" footer.
 
 The picker lists agents alphabetically by command name. Use Up/Down and Enter
@@ -249,9 +250,31 @@ Call `launch_agent` with a project, task and unique request ID:
 
 `project` accepts an absolute directory path or an unambiguous project name from discovery. `agent` defaults to Codex. `machineId` defaults to the caller's runner, or the only online runner when the caller has no runner binding. The agent starts in remote mode with maximum permissions supported by its flavor. Model and effort use native defaults, so neither is required. Browser-local saved picker preferences do not apply to MCP launches. Optional `model`, `effort`, `permissionMode` and `worktreeName` override these defaults. Agents without a separate effort option reject that override.
 
+For Codex, pass `serviceTier: "fast"` or `serviceTier: "standard"` to select the tier from the initial launch. Fast maps to Codex's native `priority` service; Standard explicitly clears that override, including when native configuration enables Fast. Omitting `serviceTier` keeps native defaults. The effective tier is synchronized back to the HAPI session by Codex. Fast availability still depends on the active model and account ([Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)). Other executors reject an explicit `serviceTier`; their own model/speed options are separate contracts. HAPI does not calculate a price multiplier for either tier.
+
 The result contains `sessionId`, a `/sessions/<id>` link and `messageDelivered: true`. Use `inspect_peer` to read progress and `ping_peer` for follow-up tasks. Launching remains subject to the caller's normal MCP permissions, even though the new session defaults to maximum permissions.
 
 Reuse the same `requestId` and identical arguments when retrying. During the caller's MCP server lifetime, concurrent calls share one launch and completed calls return the original receipt. If task delivery fails, the error includes the created session link, and a retry sends to that session with the same message ID. If the spawn response is lost, HAPI refuses to spawn again for that request and asks the caller to inspect `list_peers`. Receipts are kept for up to 100 distinct launch requests per caller server and do not survive a caller process restart. After a restart or uncertain spawn, inspect existing sessions before launching a replacement.
+
+## Collected usage through CLI and MCP
+
+```bash
+hapi get usage
+hapi get usage --range all --session <session-id-or-prefix> --json
+hapi get usage --range 30d --time-zone Asia/Omsk --json
+```
+
+The default is the last 7 days across sessions in the authenticated namespace, with daily buckets in UTC. `--session` resolves a unique session ID prefix and reads that chat without resuming it. `--range` accepts `7d`, `30d` or `all`; the first two are rolling windows. `--time-zone` changes daily bucket boundaries. Unknown or ambiguous session prefixes fail instead of returning a broader summary.
+
+MCP `get_usage({ range: "all", sessionIdPrefix: "<session-id-or-prefix>", timeZone: "Asia/Omsk" })` returns the same JSON as `hapi get usage --json`. All arguments are optional. JSON contains `range`, `totals`, `daily`, `byAgent`, `byModel`, `updatedAt` and the resolved `sessionId` (`null` for a namespace summary). Text output shows totals and up to 10 entries per agent/model breakdown; JSON includes all entries and daily buckets.
+
+Both entry points reuse the configured hub credentials and its existing Usage summary endpoint. That endpoint requires the hub owner's `default` namespace and returns 403 for other namespaces. It never reads another namespace's sessions, including when an exact session ID is supplied. MCP follows the caller's ordinary approval policy, like `inspect_peer`.
+
+These are token counts collected from session messages, with cache reads/writes included in input. `totalTokens` is input plus output; `uncachedTokens` is input minus cache reads plus output. Recorded requests and sessions count only usage events included in the window. Missing provider usage is not estimated: zero means no usage was collected for that selection, not proof that a provider consumed nothing. The endpoint supplies no monetary cost, price, subscription balance or remaining quota.
+
+### Updating tools in running agents
+
+The HTTP MCP server and stdio bridge load their tool schemas when those processes start. An updated hub alone does not add `serviceTier` or `get_usage` to an already running agent. New agent sessions started with the updated CLI receive both. An existing session needs its HAPI wrapper/MCP bridge recreated from the updated CLI, followed by client tool rediscovery; clients may cache schemas until reconnect or resume. Do this at a user-approved stopping point. HAPI does not restart working sessions to update their tools. A fresh CLI invocation can already use `hapi get usage` once the CLI and hub are updated.
 
 ## Chat groups through MCP
 

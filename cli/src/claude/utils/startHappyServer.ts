@@ -33,6 +33,7 @@ import { applySessionDisplayRename, normalizeSessionDisplayTitle } from "@/agent
 import { createAgentLauncher } from '@/modules/pingPeer/launchAgent';
 import { launchAgentSchema, launchOptionsSchema, LAUNCH_AGENT_DESCRIPTION, LAUNCH_OPTIONS_DESCRIPTION, type LaunchAgentArgs } from '@/modules/pingPeer/launchAgentTools';
 import { closeSessionSchema, CLOSE_SESSION_DESCRIPTION } from '@/modules/common/closeSessionTool';
+import { getUsage, usageSchema, USAGE_DESCRIPTION, type UsageArgs } from '@/modules/usage';
 
 type StartHappyServerOptions = {
     /**
@@ -54,6 +55,7 @@ const CLAUDE_MANUAL_APPROVAL_HAPI_TOOLS = new Set([
     'display_video',
     'ping_peer',
     'inspect_peer',
+    'get_usage',
     'launch_agent',
     'create_group'
 ]);
@@ -61,7 +63,7 @@ const CLAUDE_MANUAL_APPROVAL_HAPI_TOOLS = new Set([
 /**
  * Map HAPI MCP tool names to Claude `--allowedTools` entries.
  * Keeps `display_media` / `display_video` (arbitrary local-path readers), `ping_peer`, and
- * `inspect_peer` off the auto-allow list so they still prompt.
+ * `inspect_peer` / `get_usage` off the auto-allow list so they still prompt.
  * `list_peers` stays allowed (discovery shortlist only).
  */
 export function toClaudeAllowedHapiMcpTools(toolNames: string[]): string[] {
@@ -500,6 +502,16 @@ function createHapiMcpServer(
         });
     }
 
+    mcp.registerTool<any, any>('get_usage', {
+        title: 'Read Collected Session Usage', description: USAGE_DESCRIPTION, inputSchema: usageSchema,
+    }, async (args: UsageArgs) => {
+        try {
+            return { content: [{ type: 'text' as const, text: JSON.stringify(await getUsage(args), null, 2) }], isError: false };
+        } catch (error) {
+            return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }], isError: true };
+        }
+    });
+
     mcp.registerTool<any, any>('list_launch_options', {
         description: LAUNCH_OPTIONS_DESCRIPTION,
         title: 'List Agent Launch Options',
@@ -650,7 +662,7 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
     if (options.skillLookup) {
         toolNames.push('skill_lookup');
     }
-    toolNames.push('create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent');
+    toolNames.push('create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent', 'get_usage');
     toolNames.push('close_session');
 
     return {

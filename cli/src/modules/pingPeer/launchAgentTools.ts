@@ -18,6 +18,7 @@ export const launchAgentSchema = z.object({
     machineId: z.string().trim().min(1).optional().describe('Runner ID or unique prefix; default caller runner'),
     model: z.string().trim().min(1).optional().describe('Optional native model ID; omit for agent default'),
     effort: z.string().trim().min(1).optional().describe('Optional agent reasoning effort; omit for native default'),
+    serviceTier: z.enum(['fast', 'standard']).optional().describe('Codex only: fast requests priority service; standard explicitly disables Fast. Omit to preserve native defaults.'),
     permissionMode: PermissionModeSchema.optional().describe('Optional permission override; default maximum permissions'),
     worktreeName: z.string().trim().min(1).optional().describe('Create a Git worktree with this name instead of using the project directory directly'),
 })

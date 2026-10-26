@@ -26,8 +26,9 @@ import {
 import { buildSessionTitleMcpInstructions } from '@/modules/common/sessionTitlePrompt';
 import { launchAgentSchema, launchOptionsSchema, LAUNCH_AGENT_DESCRIPTION, LAUNCH_OPTIONS_DESCRIPTION } from '@/modules/pingPeer/launchAgentTools';
 import { closeSessionSchema, CLOSE_SESSION_DESCRIPTION } from '@/modules/common/closeSessionTool';
+import { usageSchema, USAGE_DESCRIPTION } from '@/modules/usage';
 
-const DEFAULT_TOOL_NAMES = ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer', 'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent', 'close_session'];
+const DEFAULT_TOOL_NAMES = ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer', 'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent', 'get_usage', 'close_session'];
 
 function parseArgs(argv: string[]): { url: string | null; toolNames: Set<string> } {
   let url: string | null = null;
@@ -89,6 +90,7 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
       { name: 'get_group', title: 'Read Chat Group', description: GROUP_INFO_DESCRIPTION, schema: groupInfoSchema },
       { name: 'list_launch_options', title: 'List Agent Launch Options', description: LAUNCH_OPTIONS_DESCRIPTION, schema: launchOptionsSchema },
       { name: 'launch_agent', title: 'Launch Agent Session', description: LAUNCH_AGENT_DESCRIPTION, schema: launchAgentSchema },
+      { name: 'get_usage', title: 'Read Collected Session Usage', description: USAGE_DESCRIPTION, schema: usageSchema },
     ]) {
       if (!toolNames.has(tool.name)) continue;
       server.registerTool<any, any>(tool.name, {

@@ -318,6 +318,7 @@ describe('toClaudeAllowedHapiMcpTools', () => {
             'list_peers',
             'ping_peer',
             'inspect_peer',
+            'get_usage',
             'list_launch_options',
             'launch_agent',
             'create_group',

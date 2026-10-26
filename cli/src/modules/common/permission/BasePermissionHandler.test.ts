@@ -78,12 +78,13 @@ describe('resolveToolAutoApprovalDecision ping_peer', () => {
     })
 })
 
-describe('resolveToolAutoApprovalDecision inspect_peer', () => {
+describe('resolveToolAutoApprovalDecision peer and usage reads', () => {
     it.each([
         'inspect_peer',
         'mcp__hapi__inspect_peer',
         'hapi_inspect_peer',
-        'Inspect Peer Session'
+        'Inspect Peer Session',
+        'get_usage', 'mcp__hapi__get_usage', 'hapi_get_usage', 'Read Collected Session Usage'
     ])('does not auto-approve %s in default mode', (toolName) => {
         expect(resolveToolAutoApprovalDecision('default', toolName, 'call-1')).toBeNull()
     })
@@ -92,7 +93,8 @@ describe('resolveToolAutoApprovalDecision inspect_peer', () => {
         'inspect_peer',
         'mcp__hapi__inspect_peer',
         'hapi_inspect_peer',
-        'Inspect Peer Session'
+        'Inspect Peer Session',
+        'get_usage', 'mcp__hapi__get_usage', 'hapi_get_usage', 'Read Collected Session Usage'
     ])('does not auto-approve %s in read-only mode', (toolName) => {
         expect(resolveToolAutoApprovalDecision('read-only', toolName, 'call-1')).toBeNull()
     })

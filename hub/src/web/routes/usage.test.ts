@@ -65,6 +65,31 @@ describe('GET /api/usage/summary', () => {
         }
     })
 
+    it('filters collected usage to one session without exposing other namespaces', async () => {
+        const store = new Store(':memory:')
+        try {
+            const session = (id: string, namespace = 'default') => store.sessions.getOrCreateSession(id, { path: '/tmp', host: 'test', flavor: 'cursor' }, null, namespace)
+            const first = session('first')
+            const second = session('second')
+            const foreign = session('foreign', 'tenant')
+            for (const [id, inputTokens] of [[first.id, 12], [second.id, 100], [foreign.id, 999]] as const) {
+                store.messages.addMessage(id, { role: 'agent', content: { type: 'cursor', data: { type: 'usage', model: 'recorded-model', inputTokens, outputTokens: 3 } } })
+            }
+            const app = createApp(store, 'default')
+            const response = await app.request(`/api/usage/summary?range=all&sessionId=${first.id}`)
+            expect(response.status).toBe(200)
+            const body = await response.json() as { totals: { inputTokens: number; totalTokens: number; sessions: number }; byModel: Array<{ key: string }> }
+            expect(body.totals).toMatchObject({ inputTokens: 12, totalTokens: 15, sessions: 1 })
+            expect(body.byModel.map(bucket => bucket.key)).toEqual(['recorded-model'])
+            for (const id of [foreign.id, 'missing']) {
+                const denied = await app.request(`/api/usage/summary?sessionId=${id}`)
+                expect(denied.status).toBe(404)
+                expect(await denied.json()).toEqual({ error: 'Session not found' })
+            }
+            expect((await createApp(store, 'tenant').request(`/api/usage/summary?sessionId=${foreign.id}`)).status).toBe(403)
+        } finally { store.close() }
+    })
+
     it('validates IANA time zones', async () => {
         const store = new Store(':memory:')
         try {

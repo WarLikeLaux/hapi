@@ -85,13 +85,13 @@ describe('buildCliArgs', () => {
         expect(args).toContain('high')
     })
 
-    it('passes --service-tier through for codex (resume preserves Fast/Standard)', () => {
+    it.each(['fast', 'standard'])('passes --service-tier %s through for codex (resume preserves Fast/Standard)', (serviceTier) => {
         const args = buildCliArgs('codex', {
             directory: '/tmp',
-            serviceTier: 'fast',
+            serviceTier,
         })
         expect(args).toContain('--service-tier')
-        expect(args).toContain('fast')
+        expect(args).toContain(serviceTier)
     })
 
     it('passes --collaboration-mode through for codex Plan mode', () => {
