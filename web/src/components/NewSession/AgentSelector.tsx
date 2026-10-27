@@ -49,7 +49,7 @@ export function AgentSelector(props: {
                             disabled={props.isDisabled}
                             className="accent-[var(--app-link)]"
                         />
-                        <AgentFlavorIcon flavor={agentType} className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+                        <AgentFlavorIcon flavor={agentType} className="h-3.5 w-3.5 shrink-0" />
                         <span className="whitespace-nowrap text-[13px] sm:text-sm">{getFlavorLabel(agentType)}</span>
                     </label>
                 ))}

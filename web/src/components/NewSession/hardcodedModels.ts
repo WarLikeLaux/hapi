@@ -6,14 +6,21 @@
  * If a provider renames a model, update the literal.
  */
 
-export const CODEX_DEFAULT_MODEL_ID = 'gpt-6.1-sol'
+export const CODEX_DEFAULT_MODEL_ID = 'gpt-6.1-terra'
+export const CODEX_SOL_MODEL_ID = 'gpt-6-sol'
+export const CODEX_61_SOL_MODEL_ID = 'gpt-6.1-sol'
+export const CODEX_DEFAULT_REASONING_EFFORT: Readonly<Record<string, string>> = {
+    [CODEX_DEFAULT_MODEL_ID]: 'medium',
+    [CODEX_SOL_MODEL_ID]: 'medium',
+    [CODEX_61_SOL_MODEL_ID]: 'high',
+}
 export const CODEX_LUNA_MODEL_ID = 'gpt-6-luna'
-export const CODEX_ASTRA_MODEL_ID = 'gpt-6-astra'
 
 export const CODEX_HARDCODED_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-    { value: CODEX_DEFAULT_MODEL_ID, label: 'GPT-6.1 Sol' },
+    { value: CODEX_DEFAULT_MODEL_ID, label: 'GPT-6.1 Terra' },
+    { value: CODEX_SOL_MODEL_ID, label: 'GPT-6 Sol' },
+    { value: CODEX_61_SOL_MODEL_ID, label: 'GPT-6.1 Sol' },
     { value: CODEX_LUNA_MODEL_ID, label: 'GPT-6 Luna' },
-    { value: CODEX_ASTRA_MODEL_ID, label: 'GPT-6 Astra' },
 ]
 
 /** Antigravity launches Gemini 3.8 Flash at high effort. */

@@ -99,6 +99,14 @@ export type RetryIndeterminateMessageResponse =
     | { status: 'invoked'; message: DecryptedMessage }
     | { status: 'not-found' }
 
+export type ModelPreference = {
+    agent: AgentFlavor
+    modelId: string
+    pinned: boolean
+    alias: string | null
+    hidden?: boolean
+}
+
 export type ProviderCredentialSource = 'env' | 'settings' | 'none'
 
 export interface MaskedCredentialStatus {
@@ -1205,6 +1213,21 @@ export class ApiClient {
 
     async getMachines(): Promise<MachinesResponse> {
         return await this.request<MachinesResponse>('/api/machines')
+    }
+
+    async getModelPreferences(): Promise<{ preferences: ModelPreference[] }> {
+        return await this.request('/api/model-preferences')
+    }
+
+    async saveModelPreference(preference: ModelPreference): Promise<{ preference: ModelPreference }> {
+        return await this.request('/api/model-preferences', {
+            method: 'PUT',
+            body: JSON.stringify(preference)
+        })
+    }
+
+    async reorderModelPreferences(agent: AgentFlavor, modelIds: string[]): Promise<{ preferences: ModelPreference[] }> {
+        return await this.request('/api/model-preferences/order', { method: 'PUT', body: JSON.stringify({ agent, modelIds }) })
     }
 
     async getQuotas(): Promise<QuotasResponse> {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
 import { EffortField } from './EffortField'
 
@@ -22,20 +23,34 @@ function renderEffortField(overrides: Partial<Parameters<typeof EffortField>[0]>
 }
 
 describe('EffortField', () => {
-    it('hides the effort picker for Codex', () => {
-        renderEffortField()
+    it('shows supported Codex efforts as selectable chips', () => {
+        const onReasoningEffortChange = vi.fn()
+        renderEffortField({
+            reasoningEffort: 'medium',
+            codexOptions: [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }],
+            onReasoningEffortChange
+        })
 
-        expect(screen.queryByRole('combobox')).toBeNull()
-        expect(screen.queryByText('Reasoning effort')).toBeNull()
+        const group = screen.getByRole('group', { name: 'Effort' })
+        expect(within(group).getByRole('button', { name: 'Medium' })).toHaveAttribute('aria-pressed', 'true')
+        expect(within(group).queryByRole('button', { name: 'High' })).toBeNull()
+        fireEvent.click(within(group).getByRole('button', { name: 'Low' }))
+        expect(onReasoningEffortChange).toHaveBeenCalledWith('low')
     })
 
-    it('hides the effort picker for OpenCode even when variants are available', () => {
+    it('shows OpenCode model variants as the same chips', () => {
+        const onReasoningEffortChange = vi.fn()
         renderEffortField({
             agent: 'opencode',
-            opencodeVariantOptions: ['minimal', 'max']
+            reasoningEffort: 'max',
+            opencodeOptions: [{ value: 'minimal', label: 'Minimal' }, { value: 'max', label: 'Max' }],
+            onReasoningEffortChange
         })
 
         expect(screen.queryByRole('combobox')).toBeNull()
-        expect(screen.queryByRole('option')).toBeNull()
+        const group = screen.getByRole('group', { name: 'Effort' })
+        expect(within(group).getByRole('button', { name: 'Max' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(within(group).getByRole('button', { name: 'Minimal' }))
+        expect(onReasoningEffortChange).toHaveBeenCalledWith('minimal')
     })
 })

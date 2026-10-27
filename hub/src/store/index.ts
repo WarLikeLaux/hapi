@@ -18,6 +18,7 @@ import { SessionStore } from './sessionStore'
 import { UserStore } from './userStore'
 import { UsageStore } from './usageStore'
 import { WorkGraphStore } from './workGraphStore'
+import { ModelPreferenceStore, createModelPreferenceTable } from './modelPreferenceStore'
 import { shouldRecordSessionActivity } from '../sync/sessionActivity'
 
 export type {
@@ -49,7 +50,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 42
+const SCHEMA_VERSION: number = 43
 const REQUIRED_TABLES = [
     'session_launch_requests',
     'session_groups',
@@ -69,7 +70,8 @@ const REQUIRED_TABLES = [
     'event_links',
     'external_conversations',
     'external_messages',
-    'external_participants'
+    'external_participants',
+    'model_preferences'
 ] as const
 
 export class Store {
@@ -89,6 +91,7 @@ export class Store {
     readonly scratchlist: ScratchlistStore
     readonly usage: UsageStore
     readonly workGraph: WorkGraphStore
+    readonly modelPreferences: ModelPreferenceStore
 
     /**
      * Filesystem path of the underlying SQLite database, or ':memory:' for
@@ -146,6 +149,7 @@ export class Store {
         this.scratchlist = new ScratchlistStore(this.db)
         this.usage = new UsageStore(this.db)
         this.workGraph = new WorkGraphStore(this.db)
+        this.modelPreferences = new ModelPreferenceStore(this.db)
         this.backfillLastUserMessageAt()
     }
 
@@ -406,6 +410,7 @@ export class Store {
             39: () => createSessionGroupTables(this.db),
             40: () => createSessionLaunchTable(this.db),
             41: () => createSessionGroupTables(this.db),
+            42: () => createModelPreferenceTable(this.db),
         })
 
         if (currentVersion === 0) {
@@ -454,6 +459,7 @@ export class Store {
     private createSchema(): void {
         createSessionLaunchTable(this.db)
         createSessionGroupTables(this.db)
+        createModelPreferenceTable(this.db)
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,

@@ -10,6 +10,8 @@ export function ActionButtons(props: {
     onCancel: () => void
     onCreate: () => void
     onAddChat?: () => void
+    onManageModels?: () => void
+    manageModelsOpen?: boolean
 }) {
     const { t } = useTranslation()
 
@@ -18,6 +20,9 @@ export function ActionButtons(props: {
             {props.onAddChat ? <Button variant="outline" onClick={props.onAddChat} disabled={props.isDisabled} className="mr-auto gap-1.5 max-sm:px-3">
                 <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
                 {t('batch.addAnother')}
+            </Button> : null}
+            {props.onManageModels ? <Button variant="outline" onClick={props.onManageModels} aria-expanded={props.manageModelsOpen} className="max-sm:px-3">
+                {t(props.manageModelsOpen ? 'newSession.models.hide' : 'newSession.models.manage')}
             </Button> : null}
             <Button
                 variant="secondary"
