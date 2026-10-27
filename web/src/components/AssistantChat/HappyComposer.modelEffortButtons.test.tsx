@@ -423,15 +423,18 @@ describe('HappyComposer generic model/effort value buttons', () => {
         expect(screen.getByText('Sonnet 4 (High)')).toBeTruthy()
     })
 
-    it('opens the Codex settings sheet without a reasoning-effort picker', () => {
+    it('allows changing Codex reasoning effort from the settings sheet', () => {
+        const onModelReasoningEffortChange = vi.fn()
         renderComposer('codex', {
             modelReasoningEffort: 'high',
-            onModelReasoningEffortChange: vi.fn(),
+            onModelReasoningEffortChange,
             availableModelReasoningEffortOptions: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }],
         })
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-        expect(screen.queryByText('Reasoning Effort')).toBeNull()
+        expect(screen.getByText('Reasoning Effort')).toBeTruthy()
         expect(screen.getByText('Model')).toBeTruthy()
+        fireEvent.click(screen.getByRole('button', { name: 'Medium' }))
+        expect(onModelReasoningEffortChange).toHaveBeenCalledWith('medium')
     })
 
     it('labels the GLM-branded claude model pill after the default GLM model and hides effort', () => {

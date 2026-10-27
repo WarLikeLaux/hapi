@@ -1687,9 +1687,7 @@ export function HappyComposer(props: {
             && modelEffortOptions
             && modelEffortOptions.length > 1
         )
-    // Codex effort is fixed by its CLI config (always high); only OpenCode still picks it here.
-    const showModelReasoningEffortSettings = agentFlavor !== 'codex'
-        && Boolean(onModelReasoningEffortChange && codexReasoningEffortOptions.length > 0)
+    const showModelReasoningEffortSettings = Boolean(onModelReasoningEffortChange && codexReasoningEffortOptions.length > 0)
     // For Pi: hide effort while the selected model is unresolved (catalog
     // still loading/failed) or explicitly has reasoning: false — the generic
     // fallback levels would mutate a set_thinking_level the model may reject.
@@ -2006,7 +2004,8 @@ export function HappyComposer(props: {
                                             )}
                                         </div>
                                         <span className={modelReasoningEffort === option.value ? 'text-[var(--app-link)]' : ''}>
-                                            {option.label}
+                                            {option.value === null && agentFlavor === 'codex' && option.label !== 'Default'
+                                                ? `${t('newSession.model.default')} · ${option.label}` : option.label}
                                         </span>
                                     </button>
                                 ))}

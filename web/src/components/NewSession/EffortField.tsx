@@ -4,6 +4,7 @@ import { useTranslation } from '@/lib/use-translation'
 import { SelectControl } from '@/components/ui/select-control'
 import type { AgentType, CodexReasoningEffort, LaunchEffort } from './types'
 import { CLAUDE_EFFORT_OPTIONS, GROK_EFFORT_OPTIONS } from './types'
+import { ChoiceLabel } from './ChoiceLabel'
 
 export type EffortFieldProps = {
     agent: AgentType
@@ -18,6 +19,8 @@ export type EffortFieldProps = {
     grokOptions?: Array<{ value: string; label: string }>
     /** Model-dependent variant values from the OpenCode catalog (OpenCode). Array = dynamic list, [] = hide field, null/undefined = static fallback. */
     opencodeVariantOptions?: string[] | null
+    codexOptions?: Array<{ value: string; label: string }>
+    opencodeOptions?: Array<{ value: string; label: string }>
     /** Selected Pi model — hides effort when the model cannot reason and filters levels via thinkingLevelMap. */
     piSelectedModel?: { reasoning?: boolean; thinkingLevelMap?: PiThinkingLevelMap } | null
 }
@@ -31,14 +34,37 @@ export type EffortFieldProps = {
  * - Grok: model-dependent launch-effort levels.
  * - Pi: model-dependent thinking levels (filtered by the selected model's
  *   thinkingLevelMap; hidden when the model cannot reason).
- * Codex and OpenCode have no picker: Codex uses its configured effort and
- * OpenCode uses a fixed effort for each quick-pick model.
+ * Codex offers the selected model's supported reasoning levels as chips.
+ * OpenCode offers model variants when its catalog provides them.
  */
 export function EffortField(props: EffortFieldProps) {
     const { t } = useTranslation()
-    // Codex uses its configured effort; OpenCode quick picks use fixed levels.
     if (props.agent === 'codex' || props.agent === 'opencode') {
-        return null
+        const options = props.agent === 'codex' ? props.codexOptions : props.opencodeOptions
+        if (!options?.length) return null
+        return (
+            <section className="flex min-w-0 flex-col p-2 sm:flex-row sm:items-center sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.effort')}>
+                <ChoiceLabel kind="effort" />
+                <div className="flex min-w-0 flex-1 flex-wrap gap-2 sm:gap-3">
+                    {options.map((option) => (
+                        <button
+                            key={option.value}
+                            type="button"
+                            aria-pressed={props.reasoningEffort === option.value}
+                            disabled={props.isDisabled}
+                            onClick={() => props.onReasoningEffortChange(option.value)}
+                            className={`rounded-full border px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] disabled:opacity-50 ${
+                                props.reasoningEffort === option.value
+                                    ? 'border-[var(--app-link)] bg-[var(--app-link)] font-medium text-[var(--app-bg)]'
+                                    : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)]'
+                            }`}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+            </section>
+        )
     }
     const descriptor = getAgentConfigDescriptor(props.agent)
     const field = descriptor.fields.find((candidate) => candidate.id === 'effort')

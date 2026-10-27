@@ -5,7 +5,7 @@ import { useTranslation } from '@/lib/use-translation'
 import { ChoiceLabel } from './ChoiceLabel'
 import type { AgentType } from './types'
 
-export type ModelChoice = { agent: AgentType; value: string; label: string }
+export type ModelChoice = { agent: AgentType; value: string; label: string; customLabel?: boolean }
 
 // Effort stays in the accessible name. The picker shows it only for Antigravity.
 export function modelChoiceLabel(label: string, keepEffort = false): string {
@@ -26,7 +26,7 @@ export function ModelChoices(props: {
     const descriptionId = useId()
     const key = (choice: ModelChoice) => `${choice.agent}:${choice.value}`
     const selectedKey = `${props.agent}:${props.model}`
-    const choiceText = (choice: ModelChoice) => modelChoiceLabel(choice.label, choice.agent === 'agy')
+    const choiceText = (choice: ModelChoice) => modelChoiceLabel(choice.label, choice.agent === 'agy' || choice.customLabel)
     const chipClass = (choice: ModelChoice) => `inline-flex min-h-8 max-w-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--app-bg)] disabled:opacity-50 ${key(choice) === selectedKey
         ? 'border-[var(--app-link)] bg-[var(--app-link)] font-medium text-[var(--app-bg)]'
         : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)]'}`
