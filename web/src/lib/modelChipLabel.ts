@@ -9,6 +9,7 @@ import {
 const EFFORT_SUFFIXES = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
 
 const KNOWN_MODEL_NAMES: Record<string, string> = {
+    'gpt-6-astra': 'GPT-6 Astra',
     [OPENCODE_HARDCODED_MODEL_ID]: OPENCODE_HARDCODED_LABEL,
     'opencode-go/deepseek-v4.1-flash': 'DeepSeek V4.1 Flash',
 }
