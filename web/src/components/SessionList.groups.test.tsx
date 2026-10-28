@@ -85,7 +85,7 @@ describe('group placement and agent icons', () => {
 
     it.each([
         { section: 'Working sessions', thinking: true, active: true, lifecycleState: 'running', userClock: true },
-        { section: 'Idle (keepalive only)', thinking: false, active: true, lifecycleState: 'idle', userClock: false },
+        { section: 'Active sessions', thinking: false, active: true, lifecycleState: 'idle', userClock: false },
         { section: 'Closed sessions', thinking: false, active: false, lifecycleState: 'archived', userClock: false },
     ])('shares the $section activity clock and preserves its section', ({ section, thinking, active, lifecycleState, userClock }) => {
         const now = Date.now()
@@ -152,8 +152,8 @@ describe('group placement and agent icons', () => {
 
     it.each([true, false])('keeps parked groups visible alongside idle chats with section pinning %s', pinInProgress => {
         localStorage.setItem('hapi-pin-in-progress-sessions', String(pinInProgress))
-        const idle = chat('standalone-idle', { thinking: false,
-            metadata: { path: '/work', name: 'Idle chat', lifecycleState: 'idle' } })
+        const idle = chat('standalone-idle', { active: false, thinking: false,
+            metadata: { path: '/work', name: 'Idle chat', lifecycleState: 'parked' } })
         localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ 'standalone-idle': 2000 }))
         mount([chat('worker'), chat('question', { thinking: false, pendingRequestKinds: ['input'] })], [idle], true)
         expect(screen.queryByRole('region', { name: 'Working sessions' })).toBeNull()
@@ -165,7 +165,7 @@ describe('group placement and agent icons', () => {
         expect(within(row).getByText('1 working')).toBeVisible()
         expect(within(row).getByText('Parked')).toBeVisible()
         if (pinInProgress) {
-            const idleSection = screen.getByRole('region', { name: 'Idle (keepalive only)' })
+            const idleSection = screen.getByRole('region', { name: 'Parked' })
             expect(within(idleSection).getByTestId('session-group-row')).toBeVisible()
             expect(within(idleSection).getByRole('button', { name: /Idle chat/ })).toBeVisible()
         }
@@ -220,7 +220,7 @@ describe('group placement and agent icons', () => {
             expect(within(active).getByTestId('session-group-row')).toBeVisible()
             expect(within(active).getByRole('button', { name: /Standalone chat/ })).toBeVisible()
             expect(screen.queryByRole('region', { name: 'Working sessions' })).toBeNull()
-            expect(screen.queryByRole('region', { name: 'Idle (keepalive only)' })).toBeNull()
+            expect(screen.queryByRole('region', { name: 'Parked' })).toBeNull()
             expect(within(active).queryByLabelText('Agent working')).toBeNull()
         }
         update([{ ...grouped, thinking: false }], [standalone])
@@ -232,17 +232,18 @@ describe('group placement and agent icons', () => {
         assertReady()
     })
 
-    it.each(['idle', 'parked'] as const)('reserves Idle for %s lifecycle and lets a ready chat keep its group Active', (lifecycleState) => {
-        const idle = chat('idle', { thinking: false, active: lifecycleState === 'idle',
+    it('reserves Parked for parked chats and lets a ready chat keep its group Active', () => {
+        const lifecycleState = 'parked'
+        const idle = chat('idle', { thinking: false, active: false,
             metadata: { path: '/work', name: 'Idle chat', lifecycleState, flavor: 'codex' } })
         const ready = chat('ready', { thinking: false, metadata: { path: '/work', name: 'Ready chat', lifecycleState: 'running', flavor: 'codex' } })
         localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ idle: 2000, ready: 2000, 'standalone-idle': 2000 }))
         const standaloneIdle = { ...idle, id: 'standalone-idle' }
         const update = mount([idle, ready], [standaloneIdle])
         expect(groupIn('Active sessions')).toBeVisible()
-        expect(within(screen.getByRole('region', { name: 'Idle (keepalive only)' })).getByRole('button', { name: /Idle chat/ })).toBeVisible()
+        expect(within(screen.getByRole('region', { name: 'Parked' })).getByRole('button', { name: /Idle chat/ })).toBeVisible()
         update([idle, { ...ready, active: false }], [standaloneIdle])
-        expect(groupIn('Idle (keepalive only)')).toBeVisible()
+        expect(groupIn('Parked')).toBeVisible()
         expect(screen.queryByRole('region', { name: 'Working sessions' })).toBeNull()
     })
 

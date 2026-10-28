@@ -1191,9 +1191,7 @@ export class SyncEngine {
             this.triggerDedupIfNeeded(session.id)
         }
         this.machineCache.expireInactive?.()
-        // tiann/hapi#1820: `activeAt` expiry above only catches sessions whose
-        // socket went quiet. Keepalive-only zombies keep `activeAt` fresh
-        // forever, so reconcile their agent-health signal separately.
+        // Clear lifecycle markers written by older hubs.
         this.sessionCache.reconcileKeepaliveIdle()
         // Piggybacked on the inactivity tick; not a logical part of expireInactive
         // but shares its 5s cadence (avoids a second timer).

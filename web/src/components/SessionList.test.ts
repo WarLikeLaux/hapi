@@ -595,6 +595,14 @@ describe('user-authored session ordering', () => {
         expect(isNewEmptySession(makeSession({ id: 'active-with-agentMessage', active: true, lastAgentMessageAt: 100 }))).toBe(false)
     })
 
+    it('keeps a new chat above older chats when the agent emits startup output before the first user message', () => {
+        const fresh = makeSession({ id: 'fresh', active: true, createdAt: 200, lastUserMessageAt: 200,
+            lastMessageAt: 210, lastAgentMessageAt: 210, hasConversationContent: true })
+        const older = makeSession({ id: 'older', active: true, createdAt: 100, lastUserMessageAt: 150,
+            lastMessageAt: 300, lastAgentMessageAt: 300, hasConversationContent: true })
+        expect(sortActiveSessions([older, fresh]).map(session => session.id)).toEqual(['fresh', 'older'])
+    })
+
     it('sorts newly opened sessions without messages to the top of Active sessions', () => {
         const sessions = [
             makeSession({
@@ -794,11 +802,11 @@ describe('bucketRunningSessions', () => {
         metadata: { path: '/p', host: 'h', lifecycleState: 'running' } as SessionSummary['metadata']
     })
 
-    it('separates keepalive-only sessions from quiet-but-ready ones', () => {
+    it('treats legacy idle sessions as active', () => {
         const buckets = bucketRunningSessions([idle, quiet], true)
 
-        expect(buckets.idle.map((s) => s.id)).toEqual(['idle-1'])
-        expect(buckets.active.map((s) => s.id)).toEqual(['quiet-1'])
+        expect(buckets.idle).toHaveLength(0)
+        expect(buckets.active.map((s) => s.id)).toEqual(['quiet-1', 'idle-1'])
         // Exactly one bucket each — the row must not be duplicated.
         expect(buckets.working).toHaveLength(0)
         expect(buckets.pending).toHaveLength(0)

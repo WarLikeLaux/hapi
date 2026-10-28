@@ -128,15 +128,9 @@ export const MetadataSchema = z.object({
     restoreOnRestart: z.boolean().optional(),
     // Hub-authored read watermark after a successful close_session, including its final reply.
     readThrough: z.number().finite().nonnegative().optional(),
-    // 'running' | 'idle' | 'archived' (see shared/src/sessionLifecycle.ts).
-    // 'idle' is written by the hub's keepalive-idle reconciler (tiann/hapi#1820)
-    // and reverts to 'running' on the next agent progress.
+    // running, parked by the user, or archived (see sessionLifecycle.ts).
     lifecycleState: z.string().optional(),
     lifecycleStateSince: z.number().optional(),
-    // Opt out of keepalive-idle reconciliation for sessions that are meant to
-    // sit quiet indefinitely (operator holding pens, sessions owning work the
-    // hub cannot see). Never reconciled to 'idle' while true.
-    idleReconcileExempt: z.boolean().optional(),
     archivedBy: z.string().optional(),
     archiveReason: z.string().optional(),
     // Set only after a completed fresh-session clear. The source row remains
