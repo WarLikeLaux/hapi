@@ -62,7 +62,7 @@ import {
     type ComposerSendIntent,
 } from '@/lib/messageDelivery'
 import type { MessageDeliveryMode } from '@hapi/protocol'
-import { getPinnedOpencodeReasoningEffort, isSteeringSupportedForSession } from '@hapi/protocol'
+import { isSteeringSupportedForSession } from '@hapi/protocol'
 import { createAttachmentAdapter } from '@/lib/attachmentAdapter'
 import { rewindMessageWindow, type OlderLoadOutcome } from '@/lib/message-window-store'
 import { ShareSeedConsumer } from '@/components/ShareSeedConsumer'
@@ -1310,35 +1310,6 @@ function SessionChatInner(props: SessionChatProps) {
         agentFlavor,
         codexCollaborationModeSupported
     )
-
-    const opencodePinnedEffortTarget = useRef<string | null>(null)
-    useEffect(() => {
-        if (agentFlavor !== 'opencode' || !props.session.active || controlledByUser) return
-        const effort = getPinnedOpencodeReasoningEffort(props.session.model)
-        if (!effort) return
-        const target = JSON.stringify([props.session.id, props.session.model, effort])
-        if (props.session.modelReasoningEffort === effort) {
-            opencodePinnedEffortTarget.current = target
-            return
-        }
-        if (opencodePinnedEffortTarget.current === target) return
-        opencodePinnedEffortTarget.current = target
-        void setModelReasoningEffort(effort)
-            .then(() => props.onRefresh())
-            .catch((error) => {
-                opencodePinnedEffortTarget.current = null
-                console.error('Failed to set fixed OpenCode effort:', error)
-            })
-    }, [
-        agentFlavor,
-        controlledByUser,
-        props.session.active,
-        props.session.id,
-        props.session.model,
-        props.session.modelReasoningEffort,
-        props.onRefresh,
-        setModelReasoningEffort
-    ])
 
     // Voice assistant integration
     const voice = useVoiceOptional()

@@ -581,6 +581,7 @@ export default {
   'newSession.models.hide': '收起模型',
   'newSession.models.search': '搜索模型',
   'newSession.models.alias': '别名',
+  'newSession.models.effortFor': '{model} 的推理强度',
   'newSession.models.aliasFor': '{model} 的别名',
   'newSession.models.newId': '模型 ID',
   'newSession.models.choose': '选择模型',

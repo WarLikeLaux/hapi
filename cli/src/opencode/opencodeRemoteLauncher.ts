@@ -1,5 +1,5 @@
 import { seedOpencodeModelsCache } from '@/modules/common/opencodeModels';
-import { getDefaultOpencodeReasoningEffort, getPinnedOpencodeReasoningEffort } from '@hapi/protocol';
+import { getDefaultOpencodeReasoningEffort } from '@hapi/protocol';
 import React from 'react';
 import { randomUUID } from 'node:crypto';
 import { registerAcpSessionTitleSync } from '@/agent/acpSessionTitle';
@@ -595,11 +595,10 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                 }
             }
 
-            const pinnedEffort = getPinnedOpencodeReasoningEffort(this.currentBackendModel);
             const launchDefaultEffort = !resumeSessionId
                 ? getDefaultOpencodeReasoningEffort(this.currentBackendModel)
                 : undefined;
-            const requestedEffort = pinnedEffort ?? batch.mode.modelReasoningEffort ?? launchDefaultEffort ?? this.defaultBackendEffort;
+            const requestedEffort = batch.mode.modelReasoningEffort ?? launchDefaultEffort ?? this.defaultBackendEffort;
             if (requestedEffort && requestedEffort !== this.currentBackendEffort) {
                 const thoughtLevelOption = backend.getThoughtLevelConfigOption?.(acpSessionId);
                 if (!backend.setConfigOption || !thoughtLevelOption || this.setEffortSupported === false) {
@@ -650,7 +649,7 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
             }
 
             // Mirror applied defaults so the UI and reopened sessions retain the actual effort.
-            const appliedDefault = pinnedEffort ?? (batch.mode.modelReasoningEffort == null ? launchDefaultEffort : undefined);
+            const appliedDefault = batch.mode.modelReasoningEffort == null ? launchDefaultEffort : undefined;
             if (appliedDefault && this.currentBackendEffort === appliedDefault && batch.mode.modelReasoningEffort !== appliedDefault) {
                 this.rollbackReasoningEffort(batch, appliedDefault);
             }

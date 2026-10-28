@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary, Session } from '@/types/api'
-import { MUSE_SPARK_MODEL_ID, getDefaultOpencodeReasoningEffort, getPinnedOpencodeReasoningEffort, isKnownFlavor, isRemovedAgyModel, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
+import { MUSE_SPARK_MODEL_ID, getDefaultOpencodeReasoningEffort, isKnownFlavor, isRemovedAgyModel, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
 import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import { formatCodexReasoningEffortLabel } from '@/components/AssistantChat/codexReasoningEffortOptions'
 import { usePlatform } from '@/hooks/usePlatform'
@@ -60,6 +60,7 @@ import type { AgentType, LaunchEffort, CodexReasoningEffort, NewSessionServiceTi
 import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
 import { ModelChoices, modelChoiceLabel, type ModelChoice } from './ModelChoices'
+import { ChoiceLabel } from './ChoiceLabel'
 import { useNarrowViewport } from '@/hooks/useNarrowViewport'
 import { PiImportActions } from './PiImportActions'
 import { clearBatchImportedCodexSelection, resolveCodexImportRedirectSessionId } from './codexImportMerge'
@@ -93,7 +94,6 @@ import {
     CLAUDE_GLM_MODEL_LABEL,
     CODEX_HARDCODED_OPTIONS,
     CODEX_DEFAULT_MODEL_ID,
-    CODEX_DEFAULT_REASONING_EFFORT,
     MINIMAX_HARDCODED_LABEL,
     OPENCODE_HARDCODED_LABEL,
     OPENCODE_HARDCODED_MODEL_ID,
@@ -463,14 +463,11 @@ export function NewSession(props: {
         () => getCodexModelReasoningEfforts(codexModelsState.models, model),
         [codexModelsState.models, model]
     )
-    const preferredCodexEffort = CODEX_DEFAULT_REASONING_EFFORT[model]
-    const nativeCodexEffort = resolveCodexModel(codexModelsState.models, null)?.defaultReasoningEffort
-    const codexDefaultEffort = preferredCodexEffort && (!codexSupportedReasoningEfforts || codexSupportedReasoningEfforts.includes(preferredCodexEffort))
-        ? preferredCodexEffort : nativeCodexEffort && (!codexSupportedReasoningEfforts || codexSupportedReasoningEfforts.includes(nativeCodexEffort))
-            ? nativeCodexEffort : codexSupportedReasoningEfforts?.[0]
+    const savedCodexEffort = modelPreferences.preferences.find(row => row.agent === 'codex' && row.modelId === model)?.reasoningEffort
     const effectiveCodexEffort = modelReasoningEffort !== 'default'
         ? modelReasoningEffort
-        : codexDefaultEffort ?? 'default'
+        : savedCodexEffort && (!codexSupportedReasoningEfforts || codexSupportedReasoningEfforts.includes(savedCodexEffort))
+            ? savedCodexEffort : 'default'
     useEffect(() => {
         if (
             agent !== 'codex'
@@ -686,8 +683,8 @@ export function NewSession(props: {
     }, [agent, machineId, opencodeSelectedModel, opencodeModelsState.currentModelId, opencodeVariantsState.variants, opencodeVariantsState.isLoading, opencodeVariantsState.error])
     const opencodeEffectiveModelId = !opencodeSelectedModel || opencodeSelectedModel === 'auto'
         ? OPENCODE_HARDCODED_MODEL_ID : opencodeSelectedModel
-    const opencodeDefaultEffort = getPinnedOpencodeReasoningEffort(opencodeEffectiveModelId)
-        ?? getDefaultOpencodeReasoningEffort(opencodeEffectiveModelId)
+    const savedOpencodeEffort = modelPreferences.preferences.find(row => row.agent === 'opencode' && row.modelId === opencodeEffectiveModelId)?.reasoningEffort
+    const opencodeDefaultEffort = savedOpencodeEffort ?? getDefaultOpencodeReasoningEffort(opencodeEffectiveModelId)
     const effectiveOpencodeEffort = modelReasoningEffort !== 'default'
         ? modelReasoningEffort : opencodeDefaultEffort ?? 'default'
     const opencodeEffortOptions = opencodeVariantOptions === undefined || (opencodeVariantOptions?.length === 0 && !opencodeDefaultEffort)
@@ -788,6 +785,24 @@ export function NewSession(props: {
         machineId,
         enabled: agent === 'agy' && Boolean(machineId)
     })
+    const agyGroups = useMemo(() => {
+        const groups = new Map<string, { value: string; label: string; variants: Array<{ id: string; effort: string }> }>()
+        for (const entry of agyModelsState.availableModels) {
+            if (isRemovedAgyModel(entry.modelId)) continue
+            const match = entry.modelId.match(/^(.*)-(low|medium|high|xhigh|max)$/)
+            const base = match?.[1] ?? entry.modelId
+            const group = groups.get(base) ?? { value: base, label: (entry.name ?? base).replace(/\s*\([^)]*\)$/, ''), variants: [] }
+            if (match) group.variants.push({ id: entry.modelId, effort: match[2] })
+            groups.set(base, group)
+        }
+        const order = ['low', 'medium', 'high', 'xhigh', 'max']
+        return [...groups.values()].map(group => ({ ...group, variants: group.variants.sort((a, b) => order.indexOf(a.effort) - order.indexOf(b.effort)) }))
+    }, [agyModelsState.availableModels])
+    const agyWire = agyModelPickedByUserRef.current ? agySelectedModel ?? AGY_HIGH_MODEL_ID : AGY_HIGH_MODEL_ID
+    const agyBase = agyWire.replace(/-(low|medium|high|xhigh|max)$/, '')
+    const agyGroup = agyGroups.find(group => group.value === agyBase)
+    const savedAgyEffort = modelPreferences.preferences.find(row => row.agent === 'agy' && row.modelId === agyBase)?.reasoningEffort
+
     const piModelsState = usePiModelsForMachine({
         api: props.api,
         machineId,
@@ -978,7 +993,7 @@ export function NewSession(props: {
         // A GLM-branded claude hides the effort field; the remembered value
         // must not silently survive where the user cannot see or change it.
         setEffort(agent === 'claude' && getClaudeGlmBranded() ? 'auto' : preferred.effort)
-        setModelReasoningEffort(agent === 'opencode' || agent === 'codex' ? preferred.modelReasoningEffort : 'default')
+        setModelReasoningEffort('default')
         setServiceTier(agent === 'codex' ? preferred.serviceTier ?? 'fast' : 'standard')
         if (usesSharedPermissionMode) {
             // Fork: YOLO is the launch default for every flavor. A remembered
@@ -990,6 +1005,12 @@ export function NewSession(props: {
         agyModelPickedByUserRef.current = false
         setAgySelectedModel(null)
     }, [agent, legacyYoloAgent, machineId, usesSharedPermissionMode])
+
+    useEffect(() => {
+        if (agent !== 'agy' || agyModelPickedByUserRef.current || !savedAgyEffort) return
+        const variant = agyGroup?.variants.find(item => item.effort === savedAgyEffort)
+        if (variant) { agyModelPickedByUserRef.current = true; setAgySelectedModel(variant.id) }
+    }, [agent, agyGroup, savedAgyEffort])
 
     useEffect(() => {
         if (
@@ -1510,7 +1531,9 @@ export function NewSession(props: {
         if (choice.agent === 'codex' || choice.agent === 'opencode') setModelReasoningEffort('default')
         if (choice.agent === 'agy') {
             agyModelPickedByUserRef.current = choice.value !== 'auto'
-            setAgySelectedModel(choice.value === 'auto' ? null : choice.value)
+            const group = agyGroups.find(item => item.value === choice.value)
+            const saved = modelPreferences.preferences.find(row => row.agent === 'agy' && row.modelId === choice.value)?.reasoningEffort
+            setAgySelectedModel(group?.variants.find(item => item.effort === saved)?.id ?? group?.variants.find(item => item.effort === 'high')?.id ?? group?.variants[0]?.id ?? choice.value)
         } else if (choice.agent === 'opencode') {
             setOpencodeSelectedModel(choice.value === 'auto' ? null : choice.value)
         } else {
@@ -1531,13 +1554,17 @@ export function NewSession(props: {
 
     const effectiveFilter = agentFilter !== 'all' && !availableAgents.includes(agentFilter) ? 'all' : agentFilter
     const quickModels: Partial<Record<AgentType, readonly { value: string; label: string }[]>> = {
-        codex: CODEX_HARDCODED_OPTIONS,
+        codex: CODEX_HARDCODED_OPTIONS.map(option => ({
+            ...option, label: resolveCodexModel(codexModelsState.models, option.value)?.displayName ?? option.value
+        })),
         claude: claudeGlmBranded ? [
             { value: 'auto', label: CLAUDE_GLM_HARDCODED_LABEL },
             { value: CLAUDE_GLM_MODEL_ID, label: CLAUDE_GLM_MODEL_LABEL },
         ] : undefined,
         agy: [
-            { value: AGY_HIGH_MODEL_ID, label: AGY_HIGH_MODEL_LABEL },
+            ...(!agyGroups.some(group => group.value === AGY_HIGH_MODEL_ID.replace(/-high$/, ''))
+                ? [{ value: AGY_HIGH_MODEL_ID.replace(/-high$/, ''), label: AGY_HIGH_MODEL_LABEL }] : []),
+            ...agyGroups.map(({ value, label }) => ({ value, label }))
         ],
         opencode: OPENCODE_HARDCODED_OPTIONS,
         cursor: [
@@ -1553,15 +1580,15 @@ export function NewSession(props: {
         : agent === 'cursor'
             ? [...(quickModels.cursor ?? []), ...cursorModelsState.availableModels.map(option => ({ value: option.modelId, label: option.name ?? option.modelId }))]
             : agent === 'agy'
-                ? [...(quickModels.agy ?? []), ...agyModelsState.availableModels.map(option => ({ value: option.modelId, label: option.name ?? option.modelId }))]
+                ? [...(quickModels.agy ?? [])]
                 : [...(quickModels[agent] ?? []), ...launchModelOptions.filter(option => agent !== 'codex' || (option.value !== 'auto' && option.value !== 'gpt-6-astra'))]
     for (const preference of modelPreferences.preferences) {
         if (preference.agent === agent && !manageModelOptions.some(option => option.value === preference.modelId)) {
             manageModelOptions.push({ value: preference.modelId, label: preference.modelId })
         }
     }
-    const selectedModel = agent === 'agy' ? (agyModelPickedByUserRef.current ? agySelectedModel ?? AGY_HIGH_MODEL_ID : AGY_HIGH_MODEL_ID)
-        : agent === 'opencode' ? opencodeSelectedModel ?? 'auto'
+    const selectedModel = agent === 'agy' ? agyBase
+        : agent === 'opencode' ? opencodeSelectedModel ?? OPENCODE_HARDCODED_MODEL_ID
         : agent === 'cursor' ? cursorSpeedOptions?.standard ?? model : model
     const cursorDefaultChoice = model === 'auto' && agent === 'cursor'
         ? cursorQuickPick ?? quickModels.cursor?.find(option => option.value === cursorSpeedOptions?.standard || option.value === cursorEffectiveModel || option.label === nativeDefaultModelName)?.value
@@ -1781,10 +1808,8 @@ export function NewSession(props: {
             ? effort
             : undefined
         const resolvedModelReasoningEffort = agent === 'opencode'
-            ? (modelReasoningEffort !== 'default' ? modelReasoningEffort : getPinnedOpencodeReasoningEffort(resolvedModel) ?? getDefaultOpencodeReasoningEffort(resolvedModel))
+            ? (modelReasoningEffort !== 'default' ? modelReasoningEffort : opencodeDefaultEffort)
             : agent === 'codex' && effectiveCodexEffort !== 'default'
-                && (modelReasoningEffort !== 'default' || Boolean(preferredCodexEffort)
-                    || codexSupportedReasoningEfforts?.includes(nativeCodexEffort ?? '') === false)
                 ? effectiveCodexEffort
                 : undefined
         const resolvedServiceTier = agent === 'codex' && showCodexFastMode
@@ -2229,6 +2254,14 @@ export function NewSession(props: {
                 onModelChange={setModel}
             /> : null}
             {agent === 'codex' && codexModelsState.error ? <p role="alert" className="px-3 py-2 text-sm text-red-600">{t('newSession.model.loadFailed')}: {codexModelsState.error}</p> : null}
+            {agent === 'agy' && agyGroup?.variants.length ? <section className="flex min-w-0 flex-wrap items-center gap-2 p-2 sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.effort')}>
+                <ChoiceLabel kind="effort" />
+                {agyGroup.variants.map(variant => <button key={variant.id} type="button" aria-pressed={agyWire === variant.id}
+                    onClick={() => { agyModelPickedByUserRef.current = true; setAgySelectedModel(variant.id) }}
+                    className={`rounded-full border px-2.5 py-1 text-xs ${agyWire === variant.id ? 'border-[var(--app-link)] bg-[var(--app-link)] text-[var(--app-bg)]' : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)]'}`}>
+                    {formatCodexReasoningEffortLabel(variant.effort)}
+                </button>)}
+            </section> : null}
             {showPiLaunchConfig && !(agent === 'claude' && claudeGlmBranded) ? (
                 <EffortField
                     agent={agent}
@@ -2269,6 +2302,25 @@ export function NewSession(props: {
                 onChange={setCopilotAgentMode}
             />
 
+            {!props.editor && modelManagerOpen && effectiveFilter !== 'all' && effectiveFilter === agent && showPiLaunchConfig ? <ModelManager
+                agent={agent}
+                options={agent === 'opencode' ? manageModelOptions.map(option => ({ ...option, label: modelChoiceLabel(option.label) })) : manageModelOptions}
+                shown={visibleModelChoices.filter(choice => choice.agent === agent).map(choice => agent === 'opencode' ? { ...choice, label: modelChoiceLabel(choice.label) } : choice)}
+                getEffortOptions={agent === 'codex' ? id => getCodexModelReasoningEfforts(codexModelsState.models, id) ?? ['low', 'medium', 'high', 'xhigh'] : agent === 'opencode' ? id => opencodeVariantsState.variants?.[id] ?? [] : agent === 'agy' ? id => agyGroups.find(group => group.value === id)?.variants.map(item => item.effort) ?? [] : undefined}
+                preferences={modelPreferences.preferences} error={modelPreferences.error} onSave={async preference => {
+                    await modelPreferences.save(preference)
+                    if ((preference.agent === 'codex' && preference.modelId === model) || (preference.agent === 'opencode' && preference.modelId === opencodeEffectiveModelId)) setModelReasoningEffort('default')
+                    if (preference.agent === 'agy' && preference.modelId === agyBase && preference.reasoningEffort) {
+                        const variant = agyGroup?.variants.find(item => item.effort === preference.reasoningEffort)
+                        if (variant) { agyModelPickedByUserRef.current = true; setAgySelectedModel(variant.id) }
+                    }
+                }} onReorder={modelPreferences.reorder}
+                onRemove={id => {
+                    if (id === displayedModel) {
+                        const fallback = visibleModelChoices.find(choice => choice.agent === agent && choice.value !== id)
+                        if (fallback) applyModelChoice(fallback)
+                    }
+                }} /> : null}
             {props.onStartChat && !props.editor && !continueFrom && !selectedCodexImportSession && !selectedPiImportSession ? <div className="px-3 py-3">
                 <InitialPrompt label={t('newSession.initialPrompt')} value={initialPrompt} onChange={setInitialPrompt}
                     images={initialImages} onImagesChange={setInitialImages} onReadingChange={setReadingImages}
@@ -2280,15 +2332,6 @@ export function NewSession(props: {
                 </div>
             ) : null}
 
-            {!props.editor && modelManagerOpen && effectiveFilter !== 'all' && effectiveFilter === agent && showPiLaunchConfig ? <ModelManager
-                agent={agent} options={manageModelOptions} shown={visibleModelChoices.filter(choice => choice.agent === agent)}
-                preferences={modelPreferences.preferences} error={modelPreferences.error} onSave={modelPreferences.save} onReorder={modelPreferences.reorder}
-                onRemove={id => {
-                    if (id === displayedModel) {
-                        const fallback = visibleModelChoices.find(choice => choice.agent === agent && choice.value !== id)
-                        if (fallback) applyModelChoice(fallback)
-                    }
-                }} /> : null}
             {!props.editor ? <ActionButtons
                 isPending={isCreating || isPending || isImportingCodexSession || isImportingPiSession}
                 canCreate={canCreate}

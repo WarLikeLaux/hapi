@@ -1864,9 +1864,9 @@ describe('opencodeRemoteLauncher inline model switch', () => {
     });
 
     it.each([
-        { model: 'opencode-go/gemini-4-argon-contributor', effort: 'high', variants: ['low', 'medium', 'high'] },
-        { model: 'opencode-go/deepseek-v4.1-flash', effort: 'max', variants: ['low', 'high', 'max'] },
-    ])('uses the fixed $effort for $model on every prompt despite stale effort', async ({ model, effort, variants }) => {
+        { model: 'opencode-go/gemini-4-argon', variants: ['low', 'medium', 'high'] },
+        { model: 'opencode-go/deepseek-v4.1-flash', variants: ['low', 'high', 'max'] },
+    ])('uses explicitly selected effort for $model on each prompt', async ({ model, variants }) => {
         harness.sessionModelsMetadata = { currentModelId: model, availableModels: [] };
         harness.thoughtLevelOption = {
             id: 'effort', currentValue: 'low', options: variants.map(value => ({ value }))
@@ -1874,15 +1874,15 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         const seen: Array<string | undefined> = [];
         harness.promptImpl = async () => { seen.push(harness.thoughtLevelOption?.currentValue); };
         const { session, setModelReasoningEffort } = createSessionStub([
-            { message: 'first', mode: createModeWithEffort(model, 'low') },
-            { message: 'second', mode: createModeWithEffort(model, null) },
+            { message: 'first', mode: createModeWithEffort(model, 'high') },
+            { message: 'second', mode: createModeWithEffort(model, 'high') },
         ]);
         await opencodeRemoteLauncher(session as never);
-        expect(seen).toEqual([effort, effort]);
+        expect(seen).toEqual(['high', 'high']);
         expect(harness.setConfigOptionArgs).toEqual([
-            { sessionId: 'acp-session-1', configId: 'effort', value: effort }
+            { sessionId: 'acp-session-1', configId: 'effort', value: 'high' }
         ]);
-        expect(setModelReasoningEffort).toHaveBeenCalledWith(effort);
+        expect(setModelReasoningEffort).not.toHaveBeenCalled();
     });
 
     it.each([

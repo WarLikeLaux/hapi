@@ -13,6 +13,7 @@ function ModelRow(props: {
     count: number
     shown: boolean
     onSave: (preference: ModelPreference) => Promise<void>
+    effortOptions?: string[]
     onRemove: (id: string) => void
     onMove: (id: string, direction: -1 | 1) => void
 }) {
@@ -21,16 +22,27 @@ function ModelRow(props: {
     const cancelBlur = useRef(false)
     useEffect(() => setAlias(props.preference?.alias ?? ''), [props.preference?.alias])
     const save = (pinned: boolean, hidden: boolean) => props.onSave({
-        agent: props.agent, modelId: props.option.value, pinned, hidden, alias: alias.trim() || null
+        agent: props.agent, modelId: props.option.value, pinned, hidden, alias: alias.trim() || null, reasoningEffort: props.preference?.reasoningEffort ?? null
     })
-    const control = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--app-border)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-30'
-    return <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-[var(--app-divider)] px-2 py-2 last:border-b-0">
+    const control = 'flex h-7 w-6 sm:h-8 sm:w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--app-border)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-30'
+    return <div className="flex min-w-0 items-center gap-1 sm:gap-2 border-b border-[var(--app-divider)] px-2 py-2 last:border-b-0">
         {props.shown ? <>
             <button type="button" className={control} disabled={props.index === 0} aria-label={t('newSession.models.moveUp', { model: props.option.label })} onClick={() => props.onMove(props.option.value, -1)}>↑</button>
             <button type="button" className={control} disabled={props.index === props.count - 1} aria-label={t('newSession.models.moveDown', { model: props.option.label })} onClick={() => props.onMove(props.option.value, 1)}>↓</button>
             <button type="button" className={control} disabled={props.count <= 1} aria-label={t('newSession.models.remove', { model: props.option.label })} onClick={() => { void save(false, true); props.onRemove(props.option.value) }}>×</button>
         </> : <button type="button" className={control} aria-label={t('newSession.models.addNamed', { model: props.option.label })} onClick={() => void save(true, false)}>+</button>}
-        <span className="min-w-20 flex-1 truncate text-xs text-[var(--app-fg)]" title={props.option.value}>{props.option.label}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-[var(--app-fg)]" title={props.option.value}>{props.option.label}</span>
+        {props.effortOptions ? <div className="relative w-[66px] shrink-0 sm:w-24">
+            <select aria-label={t('newSession.models.effortFor', { model: props.option.label })}
+                value={props.preference?.reasoningEffort ?? ''} onChange={event => void props.onSave({
+                    agent: props.agent, modelId: props.option.value, pinned: props.preference?.pinned ?? false,
+                    hidden: props.preference?.hidden ?? false, alias: alias.trim() || null, reasoningEffort: event.target.value || null
+                })} className="w-full appearance-none rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] py-1.5 pl-2 pr-6 text-xs text-[var(--app-fg)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)]">
+                <option value="">{t('newSession.effort')}</option>
+                {props.effortOptions.map(value => <option key={value} value={value}>{value === 'xhigh' ? 'XHigh' : value.charAt(0).toUpperCase() + value.slice(1)}</option>)}
+            </select>
+            <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--app-hint)]"><path d="m4 6 4 4 4-4" /></svg>
+        </div> : null}
         <input aria-label={t('newSession.models.aliasFor', { model: props.option.label })} placeholder={t('newSession.models.alias')} maxLength={80} value={alias}
             onChange={event => setAlias(event.target.value)} onBlur={() => {
                 if (cancelBlur.current) { cancelBlur.current = false; return }
@@ -40,7 +52,7 @@ function ModelRow(props: {
                 if (event.key === 'Enter') event.currentTarget.blur()
                 if (event.key === 'Escape') { cancelBlur.current = true; setAlias(props.preference?.alias ?? ''); event.currentTarget.blur() }
             }}
-            className="w-28 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-1.5 text-xs text-[var(--app-fg)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] sm:w-40" />
+            className="w-14 min-w-0 shrink-0 sm:w-40 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-1.5 text-xs text-[var(--app-fg)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)]" />
     </div>
 }
 
@@ -49,6 +61,7 @@ export function ModelManager(props: {
     options: ModelOption[]
     shown: ModelOption[]
     preferences: ModelPreference[]
+    getEffortOptions?: (id: string) => string[]
     error: string | null
     onSave: (preference: ModelPreference) => Promise<void>
     onReorder: (agent: AgentType, ids: string[]) => Promise<void>
@@ -85,7 +98,7 @@ export function ModelManager(props: {
                 const id = candidateId
                 if (!id) return
                 const previous = props.preferences.find(row => row.agent === props.agent && row.modelId === id)
-                void props.onSave({ agent: props.agent, modelId: id, pinned: true, hidden: false, alias: previous?.alias ?? null })
+                void props.onSave({ agent: props.agent, modelId: id, pinned: true, hidden: false, alias: previous?.alias ?? null, reasoningEffort: previous?.reasoningEffort ?? null })
                 setNewId('')
                 setSelectedId('')
             }}>{t('newSession.models.add')}</button>
@@ -97,6 +110,7 @@ export function ModelManager(props: {
         <div className="max-h-64 overflow-y-auto rounded-lg bg-[var(--app-bg)]">
             {visible.map(option => <ModelRow key={`${props.agent}:${option.value}`} agent={props.agent} option={option}
                 preference={props.preferences.find(row => row.agent === props.agent && row.modelId === option.value)}
+                effortOptions={props.getEffortOptions?.(option.value)}
                 shown={shownIds.includes(option.value)} index={shownIds.indexOf(option.value)} count={shownIds.length}
                 onSave={props.onSave} onRemove={props.onRemove} onMove={move} />)}
             {visible.length === 0 ? <p className="px-3 py-2 text-xs text-[var(--app-hint)]">{t('newSession.models.noResults')}</p> : null}
