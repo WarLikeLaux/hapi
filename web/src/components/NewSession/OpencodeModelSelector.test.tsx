@@ -7,13 +7,13 @@ describe('OpencodeModelSelector', () => {
     it('keeps the HAPI default label when discovery supplies a provider-prefixed name', () => {
         const props = {
             cwd: '/project', machineId: 'machine-1', isLoading: false, error: null,
-            availableModels: [], currentModelId: 'opencode-go/gemini-4-argon-contributor', selectedModel: null,
+            availableModels: [], currentModelId: 'opencode-go/gemini-4-argon', selectedModel: null,
             defaultModelName: 'Gemini 4 Argon', onModelChange: vi.fn(),
         }
         const view = render(<I18nProvider><OpencodeModelSelector {...props} /></I18nProvider>)
         expect(screen.getByRole('combobox')).toHaveDisplayValue('Gemini 4 Argon')
         view.rerender(<I18nProvider><OpencodeModelSelector {...props}
-            availableModels={[{ modelId: 'opencode-go/gemini-4-argon-contributor', name: 'OpenCode Go/Gemini 4 Argon Contributor' }]}
+            availableModels={[{ modelId: 'opencode-go/gemini-4-argon', name: 'OpenCode Go/Gemini 4 Argon Contributor' }]}
         /></I18nProvider>)
         expect(screen.getByRole('combobox')).toHaveDisplayValue('Gemini 4 Argon')
     })

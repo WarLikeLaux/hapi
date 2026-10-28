@@ -9,11 +9,6 @@
 export const CODEX_DEFAULT_MODEL_ID = 'gpt-6.1-terra'
 export const CODEX_SOL_MODEL_ID = 'gpt-6-sol'
 export const CODEX_61_SOL_MODEL_ID = 'gpt-6.1-sol'
-export const CODEX_DEFAULT_REASONING_EFFORT: Readonly<Record<string, string>> = {
-    [CODEX_DEFAULT_MODEL_ID]: 'medium',
-    [CODEX_SOL_MODEL_ID]: 'medium',
-    [CODEX_61_SOL_MODEL_ID]: 'high',
-}
 export const CODEX_LUNA_MODEL_ID = 'gpt-6-luna'
 
 export const CODEX_HARDCODED_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
@@ -33,10 +28,10 @@ export const CLAUDE_GLM_MODEL_ID = 'glm-5.3'
 export const CLAUDE_GLM_MODEL_LABEL = 'GLM 5.3'
 
 /** The first OpenCode badge explicitly selects Argon, independently of CLI defaults. */
-export const OPENCODE_HARDCODED_MODEL_ID = 'opencode-go/gemini-4-argon-contributor'
+export const OPENCODE_HARDCODED_MODEL_ID = 'opencode-go/gemini-4-argon'
 export const OPENCODE_HARDCODED_LABEL = 'Gemini 4 Argon'
 export const OPENCODE_HARDCODED_OPTIONS = [
-    { value: 'auto', label: `${OPENCODE_HARDCODED_LABEL} (High)` },
+    { value: OPENCODE_HARDCODED_MODEL_ID, label: `${OPENCODE_HARDCODED_LABEL} (High)` },
     { value: 'opencode-go/muse-spark-1.3-contributor', label: 'Muse Spark 1.3 (Medium)' },
     { value: 'opencode-go/deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash (Max)' },
 ]

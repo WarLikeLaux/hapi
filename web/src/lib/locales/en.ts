@@ -577,6 +577,7 @@ export default {
   'newSession.models.hide': 'Hide models',
   'newSession.models.search': 'Search models',
   'newSession.models.alias': 'Alias',
+  'newSession.models.effortFor': 'Effort for {model}',
   'newSession.models.aliasFor': 'Alias for {model}',
   'newSession.models.newId': 'Model ID',
   'newSession.models.choose': 'Choose a model',

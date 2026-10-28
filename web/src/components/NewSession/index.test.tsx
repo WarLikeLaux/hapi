@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
         'agy', 'claude', 'codex', 'dsh', 'copilot', 'cursor', 'grok', 'kimi', 'opencode', 'pi'
     ].map((agent) => ({ agent, available: true, defaultModelName: undefined as string | undefined })),
     codexDefaultModelId: 'gpt-6.1-sol',
+    codexTerraName: 'GPT-6.1 Terra',
     codexModelsLoading: false,
     agyModelsLoading: false,
     agyModels: [{ modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' }],
@@ -59,7 +60,7 @@ const mocks = vi.hoisted(() => ({
     nextModelValue: 'gpt-5.6-terra',
     refetchSessions: vi.fn(),
     addToast: vi.fn(),
-    modelPreferences: [] as Array<{ agent: string; modelId: string; pinned: boolean; alias: string | null; hidden?: boolean }>,
+    modelPreferences: [] as Array<{ agent: string; modelId: string; pinned: boolean; alias: string | null; hidden?: boolean; reasoningEffort?: string | null }>,
     saveModelPreference: vi.fn(),
     reorderModelPreferences: vi.fn()
 }))
@@ -71,6 +72,7 @@ vi.mock('@/lib/use-translation', () => ({
             'newSession.models.hide': 'Hide models',
             'newSession.models.search': 'Search models',
             'newSession.models.aliasFor': 'Alias for {model}',
+            'newSession.models.effortFor': 'Effort for {model}',
             'newSession.models.pin': 'Pin {model}',
             'newSession.models.unpin': 'Unpin {model}',
             'newSession.models.addNamed': 'Add {model}',
@@ -136,7 +138,7 @@ vi.mock('@/hooks/queries/useCodexModels', () => ({
         models: [
             {
                 id: 'gpt-6.1-terra',
-                displayName: 'GPT-6.1 Terra',
+                displayName: mocks.codexTerraName,
                 isDefault: false,
                 defaultReasoningEffort: 'low',
                 supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -144,7 +146,7 @@ vi.mock('@/hooks/queries/useCodexModels', () => ({
             },
             {
                 id: 'gpt-6-sol',
-                displayName: 'GPT-6-Sol',
+                displayName: 'GPT-6 Sol',
                 isDefault: false,
                 defaultReasoningEffort: 'medium',
                 supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
@@ -152,7 +154,7 @@ vi.mock('@/hooks/queries/useCodexModels', () => ({
             },
             {
                 id: 'gpt-6.1-sol',
-                displayName: 'GPT-6.1-Sol',
+                displayName: 'GPT-6.1 Sol',
                 isDefault: true,
                 defaultReasoningEffort: 'high',
                 supportedReasoningEfforts: ['low', 'high', 'xhigh'],
@@ -161,7 +163,7 @@ vi.mock('@/hooks/queries/useCodexModels', () => ({
             {
                 id: 'gpt-6-luna',
                 defaultReasoningEffort: 'medium',
-                displayName: 'GPT-6-Luna',
+                displayName: 'GPT-6 Luna',
                 isDefault: false,
                 supportedReasoningEfforts: ['low', 'high', 'max']
             },
@@ -394,6 +396,7 @@ describe('NewSession launch preferences', () => {
     beforeEach(() => {
         mocks.narrowViewport = false
         mocks.popularModels = []
+        mocks.codexTerraName = 'GPT-6.1 Terra'
         mocks.codexDefaultModelId = 'gpt-6.1-sol'
         mocks.cursorModelsError = null
         mocks.cursorCurrentModelId = null
@@ -447,7 +450,7 @@ describe('NewSession launch preferences', () => {
         mocks.saveModelPreference.mockReset()
         mocks.saveModelPreference.mockImplementation(async preference => {
             mocks.modelPreferences = mocks.modelPreferences.filter(row => row.agent !== preference.agent || row.modelId !== preference.modelId)
-            if (preference.pinned || preference.alias || preference.hidden) mocks.modelPreferences.push(preference)
+            if (preference.pinned || preference.alias || preference.hidden || preference.reasoningEffort) mocks.modelPreferences.push(preference)
             return { preference }
         })
         mocks.reorderModelPreferences.mockReset()
@@ -778,7 +781,8 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(launch).toHaveBeenCalledTimes(2))
         expect(createGroup).toHaveBeenCalledWith('Compare', expect.any(String))
         expect(launch.mock.calls[0][1]).toMatchObject({ groupId: 'new-group', serviceTier: 'fast', directory: 'C:\\repo' })
-        expect(launch.mock.calls[0][1]).toMatchObject({ model: 'gpt-6.1-terra', modelReasoningEffort: 'medium' })
+        expect(launch.mock.calls[0][1]).toMatchObject({ model: 'gpt-6.1-terra' })
+        expect(launch.mock.calls[0][1].modelReasoningEffort).toBeUndefined()
     })
 
     it('keeps independent model pairs and Speed when duplicating and launching multiple cards', async () => {
@@ -831,7 +835,7 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(launch).toHaveBeenCalledTimes(3))
         expect(launch.mock.calls.map(call => [call[1].agent, call[1].model, call[1].modelReasoningEffort])).toEqual([
             ['opencode', 'opencode-go/muse-spark-1.3-contributor', 'medium'],
-            ['opencode', 'opencode-go/gemini-4-argon-contributor', 'high'],
+            ['opencode', 'opencode-go/gemini-4-argon', 'high'],
             ['opencode', 'opencode-go/muse-spark-1.3-contributor', 'medium'],
         ])
     })
@@ -1022,7 +1026,7 @@ describe('NewSession launch preferences', () => {
         expect(mocks.spawnSession).not.toHaveBeenCalled()
     })
 
-    it('preserves an explicit saved Codex model and effort', async () => {
+    it('preserves a saved Codex model without restoring the old agent-wide effort', async () => {
         savePreferredLaunchSettings('machine-1', 'codex', {
             model: 'gpt-5.6-sol',
             cursorSelectedBase: 'auto',
@@ -1044,7 +1048,7 @@ describe('NewSession launch preferences', () => {
 
         await waitFor(() => {
             expect(screen.getByRole('button', { name: 'GPT-5.6 Sol' })).toHaveAttribute('aria-pressed', 'true')
-            expect(within(screen.getByRole('group', { name: 'newSession.effort' })).getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
+            expect(within(screen.getByRole('group', { name: 'newSession.effort' })).queryByRole('button', { pressed: true })).toBeNull()
         })
     })
 
@@ -1082,7 +1086,7 @@ describe('NewSession launch preferences', () => {
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByRole('button', { name: 'GPT-6 Sol' })).toHaveAttribute('aria-pressed', 'false')
         expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'false')
-        expect(within(screen.getByRole('group', { name: 'newSession.effort' })).getByRole('button', { name: 'Medium' })).toHaveAttribute('aria-pressed', 'true')
+        expect(within(screen.getByRole('group', { name: 'newSession.effort' })).queryByRole('button', { pressed: true })).toBeNull()
         expect(screen.getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByRole('button', { name: 'GPT-6 Luna' })).toHaveAttribute('aria-pressed', 'false')
         expect(screen.queryByRole('button', { name: 'GPT-6 Astra' })).toBeNull()
@@ -1091,6 +1095,20 @@ describe('NewSession launch preferences', () => {
         expect(within(screen.getByRole('region', { name: 'newSession.model' })).getAllByRole('button')
             .slice(0, 3).map(button => button.getAttribute('aria-label')))
             .toEqual(['GPT-6.1 Terra', 'GPT-6 Sol', 'GPT-6.1 Sol'])
+    })
+
+    it('uses the Codex catalog name until a user alias replaces it', async () => {
+        mocks.codexTerraName = 'Catalog Terra'
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.getByRole('button', { name: 'Catalog Terra' })).toBeVisible()
+        fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
+        const alias = screen.getByRole('textbox', { name: 'Alias for Catalog Terra' })
+        fireEvent.change(alias, { target: { value: 'My Terra' } })
+        fireEvent.blur(alias)
+        await waitFor(() => expect(screen.getByRole('button', { name: 'My Terra' })).toBeVisible())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-terra' })))
     })
 
     it('pins a discovered Codex model and applies its saved alias without changing the launch id', async () => {
@@ -1102,7 +1120,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.change(alias, { target: { value: 'My Sol' } })
         fireEvent.blur(alias)
         await waitFor(() => expect(mocks.saveModelPreference).toHaveBeenCalledWith({
-            agent: 'codex', modelId: 'gpt-5.6-sol', pinned: false, hidden: false, alias: 'My Sol'
+            agent: 'codex', modelId: 'gpt-5.6-sol', pinned: false, hidden: false, alias: 'My Sol', reasoningEffort: null
         }))
         fireEvent.click(screen.getByRole('button', { name: 'Add GPT-5.6 Sol' }))
         await waitFor(() => expect(screen.getByRole('button', { name: 'My Sol' })).toBeInTheDocument())
@@ -1138,13 +1156,35 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(screen.getByRole('button', { name: 'GPT-5.6 Sol' })).toBeInTheDocument())
     })
 
+    it('restores the saved effort of the initial Antigravity model', async () => {
+        mocks.agyModels = ['low', 'medium', 'high'].map(effort => ({ modelId: `gemini-3.8-flash-${effort}`, name: `Gemini 3.8 Flash (${effort})` }))
+        mocks.modelPreferences = [{ agent: 'agy', modelId: 'gemini-3.8-flash', pinned: true, alias: null, reasoningEffort: 'low' }]
+        savePreferredAgent('agy')
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(within(screen.getByRole('group', { name: 'newSession.effort' })).getByRole('button', { name: 'Low' })).toHaveAttribute('aria-pressed', 'true'))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-3.8-flash-low' })))
+    })
+
+    it('groups Antigravity Argon variants and launches the selected effort', async () => {
+        mocks.agyModels = ['low', 'medium', 'high'].map(effort => ({ modelId: `gemini-4-argon-${effort}`, name: `Gemini 4 Argon (${effort})` }))
+        mocks.modelPreferences = [{ agent: 'agy', modelId: 'gemini-4-argon', pinned: true, alias: 'Argon work', reasoningEffort: 'medium' }]
+        savePreferredAgent('agy')
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Argon work' })).toBeVisible())
+        fireEvent.click(screen.getByRole('button', { name: 'Argon work' }))
+        const effort = screen.getByRole('group', { name: 'newSession.effort' })
+        expect(within(effort).getByRole('button', { name: 'Medium' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(within(effort).getByRole('button', { name: 'Low' }))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-4-argon-low' })))
+    })
+
     it('launches an explicitly added Antigravity model', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         fireEvent.click(screen.getByRole('radio', { name: 'Antigravity' }))
-        fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
-        fireEvent.click(screen.getByRole('button', { name: 'Add Gemini 3.6 Flash (Low)' }))
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.6 Flash (Low)' })).toBeInTheDocument())
-        fireEvent.click(screen.getByRole('button', { name: 'Gemini 3.6 Flash (Low)' }))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.6 Flash' })).toBeInTheDocument())
+        fireEvent.click(screen.getByRole('button', { name: 'Gemini 3.6 Flash' }))
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-3.6-flash-low' })))
     })
@@ -1386,12 +1426,6 @@ describe('NewSession launch preferences', () => {
             effort: 'high',
             modelReasoningEffort: 'default'
         }],
-        ['opencode', {
-            model: 'provider/model',
-            cursorSelectedBase: 'auto',
-            effort: 'auto',
-            modelReasoningEffort: 'high'
-        }]
     ] as const)('disables creation while %s cwd existence is unresolved', async (
         agent,
         settings
@@ -1502,7 +1536,7 @@ describe('NewSession launch preferences', () => {
         mocks.agyModels = [{ modelId: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' }]
         view.rerender(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash' })).toBeInTheDocument())
     })
 
     it('pins the hardcoded AGY badge even with a remembered model, without blocking creation', async () => {
@@ -1698,7 +1732,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'opencode',
-            model: 'opencode-go/gemini-4-argon-contributor',
+            model: 'opencode-go/gemini-4-argon',
             modelReasoningEffort: 'high'
         })))
         view.unmount()
@@ -1724,7 +1758,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'opencode',
-            model: 'opencode-go/gemini-4-argon-contributor',
+            model: 'opencode-go/gemini-4-argon',
             modelReasoningEffort: 'high'
         })))
         view.unmount()
@@ -1747,16 +1781,38 @@ describe('NewSession launch preferences', () => {
         })))
     })
 
+    it('uses saved OpenCode effort for each model and allows a launch override', async () => {
+        mocks.directoryExists = true
+        savePreferredAgent('opencode')
+        mocks.opencodeVariants = {
+            'opencode-go/gemini-4-argon': ['low', 'medium', 'high'],
+            'opencode-go/deepseek-v4.1-flash': ['low', 'high', 'max']
+        }
+        mocks.modelPreferences = [
+            { agent: 'opencode', modelId: 'opencode-go/gemini-4-argon', pinned: true, alias: null, reasoningEffort: 'low' },
+            { agent: 'opencode', modelId: 'opencode-go/deepseek-v4.1-flash', pinned: true, alias: null, reasoningEffort: 'high' }
+        ]
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        const effort = screen.getByRole('group', { name: 'newSession.effort' })
+        await waitFor(() => expect(within(effort).getByRole('button', { name: 'Low' })).toHaveAttribute('aria-pressed', 'true'))
+        fireEvent.click(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash (Max)' }))
+        expect(within(effort).getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(within(effort).getByRole('button', { name: 'Low' }))
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled(), { timeout: 5000 })
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'opencode', model: 'opencode-go/deepseek-v4.1-flash', modelReasoningEffort: 'low' })))
+    })
+
     it('sends a manually selected OpenCode effort even for a quick pick with a pinned default', async () => {
         savePreferredAgent('opencode')
-        mocks.opencodeVariants = { 'opencode-go/gemini-4-argon-contributor': ['low', 'high'] }
+        mocks.opencodeVariants = { 'opencode-go/gemini-4-argon': ['low', 'high'] }
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         const effort = screen.getByRole('group', { name: 'newSession.effort' })
         expect(within(effort).getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(within(effort).getByRole('button', { name: 'Low' }))
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
-            agent: 'opencode', model: 'opencode-go/gemini-4-argon-contributor', modelReasoningEffort: 'low'
+            agent: 'opencode', model: 'opencode-go/gemini-4-argon', modelReasoningEffort: 'low'
         })))
     })
 
@@ -1778,14 +1834,14 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('opencode-session', true))
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'opencode',
-            model: 'opencode-go/gemini-4-argon-contributor',
+            model: 'opencode-go/gemini-4-argon',
             modelReasoningEffort: 'high'
         }))
         expect(argon).toHaveAttribute('aria-pressed', 'true')
     })
 
     it.each([
-        { label: 'Gemini 4 Argon (High)', model: 'opencode-go/gemini-4-argon-contributor', effort: 'high' },
+        { label: 'Gemini 4 Argon (High)', model: 'opencode-go/gemini-4-argon', effort: 'high' },
         { label: 'DeepSeek V4.1 Flash (Max)', model: 'opencode-go/deepseek-v4.1-flash', effort: 'max' },
     ])('pins $label to $effort despite stale remembered effort', async ({label, model, effort}) => {
         savePreferredAgent('opencode')
@@ -1831,7 +1887,7 @@ describe('NewSession launch preferences', () => {
 
     it('probes current model variants once a non-default opencode effort is picked', async () => {
         savePreferredAgent('opencode')
-        mocks.opencodeVariants = { 'opencode-go/gemini-4-argon-contributor': ['low', 'medium', 'high'] }
+        mocks.opencodeVariants = { 'opencode-go/gemini-4-argon': ['low', 'medium', 'high'] }
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
 
         fireEvent.click(screen.getByTestId('reasoning'))
@@ -1848,7 +1904,7 @@ describe('NewSession launch preferences', () => {
         expect(screen.getByTestId('create')).toBeDisabled()
 
         mocks.opencodeVariantsLoading = false
-        mocks.opencodeVariants = { 'opencode-go/gemini-4-argon-contributor': ['high'] }
+        mocks.opencodeVariants = { 'opencode-go/gemini-4-argon': ['high'] }
         view.rerender(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
     })
@@ -1871,7 +1927,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
             agent: 'opencode',
-            model: 'opencode-go/gemini-4-argon-contributor',
+            model: 'opencode-go/gemini-4-argon',
             modelReasoningEffort: 'high'
         })))
     })
@@ -2405,6 +2461,7 @@ describe('NewSession GLM-branded claude', () => {
     beforeEach(() => {
         mocks.narrowViewport = false
         mocks.popularModels = []
+        mocks.codexTerraName = 'GPT-6.1 Terra'
         mocks.codexDefaultModelId = 'gpt-6.1-sol'
         mocks.cursorModelsError = null
         mocks.cursorCurrentModelId = null
@@ -2465,8 +2522,10 @@ describe('NewSession GLM-branded claude', () => {
 
 describe('NewSession fork launch defaults', () => {
     beforeEach(() => {
+        mocks.modelPreferences = []
         mocks.narrowViewport = false
         mocks.popularModels = []
+        mocks.codexTerraName = 'GPT-6.1 Terra'
         mocks.codexDefaultModelId = 'gpt-6.1-sol'
         mocks.cursorModelsError = null
         mocks.cursorCurrentModelId = null
@@ -2531,24 +2590,40 @@ describe('NewSession fork launch defaults', () => {
         if (serviceTier === 'standard') fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeStandard' }))
         expect(screen.getByRole('button', { name: serviceTier === 'fast' ? 'misc.fastModeFast' : 'misc.fastModeStandard' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-terra', modelReasoningEffort: 'medium', serviceTier, permissionMode: 'yolo' })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-terra', modelReasoningEffort: undefined, serviceTier, permissionMode: 'yolo' })))
     })
 
-    it('uses High for GPT-6.1 Sol after switching through Terra and GPT-6 Sol', async () => {
+    it('uses Codex default for GPT-6.1 Sol after switching through Terra and GPT-6 Sol', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6.1 Sol' }))
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Sol' }))
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6.1 Sol' }))
-        expect(within(screen.getByRole('group', { name: 'newSession.effort' })).getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
+        expect(within(screen.getByRole('group', { name: 'newSession.effort' })).queryByRole('button', { pressed: true })).toBeNull()
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-sol', modelReasoningEffort: 'high', serviceTier: 'fast' })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-sol', modelReasoningEffort: undefined, serviceTier: 'fast' })))
     })
 
     it('launches GPT-6 Sol with Medium after selecting the second badge', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Sol' }))
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6-sol', modelReasoningEffort: 'medium', serviceTier: 'fast' })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6-sol', modelReasoningEffort: undefined, serviceTier: 'fast' })))
+    })
+
+    it('uses each saved model effort and allows a one-launch override', async () => {
+        mocks.modelPreferences = [
+            { agent: 'codex', modelId: 'gpt-6.1-terra', pinned: true, alias: 'Work', reasoningEffort: 'high' },
+            { agent: 'codex', modelId: 'gpt-6.1-sol', pinned: true, alias: null, reasoningEffort: 'low' }
+        ]
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Work' })).toBeVisible())
+        const effort = screen.getByRole('group', { name: 'newSession.effort' })
+        expect(within(effort).getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(screen.getByRole('button', { name: 'GPT-6.1 Sol' }))
+        expect(within(effort).getByRole('button', { name: 'Low' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(within(effort).getByRole('button', { name: 'High' }))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-sol', modelReasoningEffort: 'high' })))
     })
 
     it('launches the explicitly selected Codex effort', async () => {
@@ -2565,20 +2640,20 @@ describe('NewSession fork launch defaults', () => {
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeStandard' }))
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-terra', modelReasoningEffort: 'medium', serviceTier: 'standard' })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-terra', modelReasoningEffort: undefined, serviceTier: 'standard' })))
     })
 
-    it('restores explicit Codex model, effort and Standard speed', async () => {
+    it('restores Codex model and speed without agent-wide effort', async () => {
         savePreferredLaunchSettings('machine-1', 'codex', {
             model: 'gpt-6.1-sol', cursorSelectedBase: 'auto', effort: 'auto',
             modelReasoningEffort: 'low', serviceTier: 'standard'
         })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'true')
-        expect(within(screen.getByRole('group', { name: 'newSession.effort' })).getByRole('button', { name: 'Low' })).toHaveAttribute('aria-pressed', 'true')
+        expect(within(screen.getByRole('group', { name: 'newSession.effort' })).queryByRole('button', { pressed: true })).toBeNull()
         expect(screen.getByRole('button', { name: 'misc.fastModeStandard' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-sol', modelReasoningEffort: 'low', serviceTier: 'standard' })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-sol', modelReasoningEffort: undefined, serviceTier: 'standard' })))
     })
 
     it('falls back to GPT-6.1 Terra when a remembered Codex model leaves the catalog', async () => {
@@ -2588,7 +2663,7 @@ describe('NewSession fork launch defaults', () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         await waitFor(() => expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true'))
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-terra', modelReasoningEffort: 'medium', serviceTier: 'fast' })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-terra', modelReasoningEffort: undefined, serviceTier: 'fast' })))
     })
 
     it('does not restore the removed Astra quick pick', async () => {
@@ -2673,7 +2748,7 @@ describe('NewSession fork launch defaults', () => {
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
         fireEvent.click(screen.getByRole('radio', { name: 'newSession.allAgents' }))
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'codex', model: 'gpt-6.1-terra', modelReasoningEffort: 'medium', serviceTier: 'fast' })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'codex', model: 'gpt-6.1-terra', modelReasoningEffort: undefined, serviceTier: 'fast' })))
     })
 
     it.each(['codex', 'minimax'] as const)('distinguishes identical model labels by executor and launches %s', async agent => {

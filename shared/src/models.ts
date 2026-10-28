@@ -22,20 +22,14 @@ export type GeminiModelPreset = keyof typeof GEMINI_MODEL_LABELS
 export const GEMINI_MODEL_PRESETS = Object.keys(GEMINI_MODEL_LABELS) as GeminiModelPreset[]
 export const DEFAULT_GEMINI_MODEL: GeminiModelPreset = 'gemini-2.5-pro'
 
-/** Fixed OpenCode quick-pick efforts, verified against the provider API. */
-export function getPinnedOpencodeReasoningEffort(model: string | null | undefined): string | undefined {
-    switch (model) {
-        case 'opencode-go/gemini-4-argon-contributor': return 'high'
-        case 'opencode-go/deepseek-v4.1-flash': return 'max'
-        default: return undefined
-    }
-}
-
 export const MUSE_SPARK_MODEL_ID = 'opencode-go/muse-spark-1.3-contributor'
 
 /** Launch defaults apply only when no effort was explicitly selected. */
 export function getDefaultOpencodeReasoningEffort(model: string | null | undefined): string | undefined {
-    return model === MUSE_SPARK_MODEL_ID ? 'medium' : undefined
+    if (model === MUSE_SPARK_MODEL_ID) return 'medium'
+    if (model === 'opencode-go/gemini-4-argon') return 'high'
+    if (model === 'opencode-go/deepseek-v4.1-flash') return 'max'
+    return undefined
 }
 
 // Order and labels mirror `agy models` output (the agy CLI's own listing) so the

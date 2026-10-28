@@ -34,7 +34,7 @@ describe('model preferences', () => {
             let app = appFor(store)
             const defaultHeaders = await headers('default')
             const otherHeaders = await headers('other')
-            const preference = { agent: 'codex', modelId: 'gpt-6.1-terra', pinned: true, alias: 'Terra Work', hidden: false }
+            const preference = { agent: 'codex', modelId: 'gpt-6.1-terra', pinned: true, alias: 'Terra Work', hidden: false, reasoningEffort: 'high' }
             expect((await app.request('/api/model-preferences', {
                 method: 'PUT', headers: defaultHeaders, body: JSON.stringify(preference)
             })).status).toBe(200)
@@ -51,15 +51,15 @@ describe('model preferences', () => {
             const loadedResponse = await app.request('/api/model-preferences', { headers: defaultHeaders })
             const loaded = await loadedResponse.json() as { preferences: unknown[] }
             expect(loaded.preferences).toEqual([
-                { agent: 'codex', modelId: 'gpt-6-sol', pinned: true, alias: null, hidden: false }, preference
+                { agent: 'codex', modelId: 'gpt-6-sol', pinned: true, alias: null, hidden: false, reasoningEffort: null }, preference
             ])
             expect((await app.request('/api/model-preferences', {
                 method: 'PUT', headers: defaultHeaders,
-                body: JSON.stringify({ ...preference, pinned: false, alias: null })
+                body: JSON.stringify({ ...preference, pinned: false, alias: null, reasoningEffort: null })
             })).status).toBe(200)
             const clearedResponse = await app.request('/api/model-preferences', { headers: defaultHeaders })
             expect((await clearedResponse.json() as { preferences: unknown[] }).preferences).toEqual([
-                { agent: 'codex', modelId: 'gpt-6-sol', pinned: true, alias: null, hidden: false }
+                { agent: 'codex', modelId: 'gpt-6-sol', pinned: true, alias: null, hidden: false, reasoningEffort: null }
             ])
             expect((await app.request('/api/model-preferences', {
                 method: 'PUT', headers: defaultHeaders,
@@ -75,6 +75,28 @@ describe('model preferences', () => {
         } finally {
             rmSync(dir, { recursive: true, force: true })
         }
+    })
+
+    it('migrates existing version 43 preferences without losing aliases', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-model-effort-migration-'))
+        const path = join(dir, 'hapi.db')
+        try {
+            const before = new Store(path)
+            before.close()
+            const db = new Database(path)
+            db.exec(`DROP TABLE model_preferences;
+                CREATE TABLE model_preferences (namespace TEXT NOT NULL, agent TEXT NOT NULL, model_id TEXT NOT NULL,
+                    pinned INTEGER NOT NULL DEFAULT 0, alias TEXT, hidden INTEGER NOT NULL DEFAULT 0, pin_order INTEGER,
+                    PRIMARY KEY (namespace, agent, model_id));
+                INSERT INTO model_preferences VALUES ('default', 'codex', 'gpt-6.1-sol', 1, 'Work', 0, 1);
+                PRAGMA user_version = 43;`)
+            db.close()
+            const after = new Store(path)
+            expect(after.modelPreferences.list('default')).toEqual([
+                { agent: 'codex', modelId: 'gpt-6.1-sol', pinned: true, alias: 'Work', hidden: false, reasoningEffort: null }
+            ])
+            after.close()
+        } finally { rmSync(dir, { recursive: true, force: true }) }
     })
 
     it('migrates a version 42 database without dropping existing data', () => {

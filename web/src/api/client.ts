@@ -105,6 +105,7 @@ export type ModelPreference = {
     pinned: boolean
     alias: string | null
     hidden?: boolean
+    reasoningEffort?: string | null
 }
 
 export type ProviderCredentialSource = 'env' | 'settings' | 'none'
