@@ -8,7 +8,7 @@ import { EventPublisher } from './eventPublisher'
 import { extractTodoWriteTodosFromMessageContent, TodosSchema } from './todos'
 import { extractBackgroundTaskDelta } from './backgroundTasks'
 import { isReadySessionEventContent } from './sessionReady'
-import { resolveSessionIdleTimeoutMs, shouldClearKeepaliveIdle, shouldMarkKeepaliveIdle } from './sessionIdle'
+
 
 const QUEUED_MESSAGE_THINKING_GRACE_MS = 15_000
 const READY_RECOVERY_MESSAGE_LIMIT = 2_000
@@ -36,7 +36,6 @@ export class SessionCache {
      * so a hub restart re-derives it from the last human turn on disk.
      */
     private readonly agentProgressAtBySessionId: Map<string, number> = new Map()
-    private readonly sessionIdleTimeoutMs: number = resolveSessionIdleTimeoutMs()
 
     constructor(
         private readonly store: Store,
@@ -725,59 +724,15 @@ export class SessionCache {
         }
     }
 
-    /**
-     * A cold cache (hub restart) has observed no progress of its own, so seed
-     * it once from disk.
-     *
-     * `updatedAt` alone is not enough: assistant messages deliberately do not
-     * move it, so a session that was streaming output a minute before the
-     * restart would read as hours idle and get marked on the very next tick.
-     * The newest stored message is the durable record of that output.
-     *
-     * `updatedAt` stays a floor on top of the seed, because todos / teamState
-     * / agentState writes bump it without routing through
-     * `recordAgentProgress`.
-     */
-    private getAgentProgressAt(session: Session): number {
-        let observed = this.agentProgressAtBySessionId.get(session.id)
-        if (observed === undefined) {
-            observed = this.store.messages.getNewestMessagePosition(session.id)?.at ?? 0
-            this.agentProgressAtBySessionId.set(session.id, observed)
-        }
-        return Math.max(observed, session.updatedAt)
-    }
-
-    /**
-     * tiann/hapi#1820: reconcile `lifecycleState` for sessions that only the
-     * keepalive is keeping alive. Runs on the existing inactivity tick.
-     *
-     * `active` is deliberately left alone: the CLI socket really is up, and
-     * flipping `active` would make `resumeSession` spawn a second agent
-     * against a live process (and would unlock dedup-merge / delete on it).
-     * What changes is the honest agent-health signal, which operators, the
-     * session list and downstream tooling can act on.
-     *
-     * Returns the session ids newly marked `idle`.
-     */
-    reconcileKeepaliveIdle(now: number = Date.now(), timeoutMs: number = this.sessionIdleTimeoutMs): string[] {
-        if (timeoutMs <= 0) return []
-
-        const marked: string[] = []
-        // Snapshot: a lifecycle write refreshes the cached Session in place.
+    /** Clear obsolete automatic idle markers without changing parked sessions. */
+    reconcileKeepaliveIdle(_now?: number, _timeoutMs?: number): string[] {
+        // Clear marks left by older hubs; inactivity no longer changes lifecycle.
         for (const session of Array.from(this.sessions.values())) {
-            const progressAt = this.getAgentProgressAt(session)
-            if (shouldClearKeepaliveIdle(session, progressAt, now, timeoutMs)) {
+            if (session.metadata?.lifecycleState === SESSION_LIFECYCLE_IDLE) {
                 this.writeLifecycleState(session.id, SESSION_LIFECYCLE_RUNNING)
-                continue
-            }
-            if (!shouldMarkKeepaliveIdle(session, progressAt, now, timeoutMs)) {
-                continue
-            }
-            if (this.writeLifecycleState(session.id, SESSION_LIFECYCLE_IDLE)) {
-                marked.push(session.id)
             }
         }
-        return marked
+        return []
     }
 
     /**

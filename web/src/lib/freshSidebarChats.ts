@@ -17,6 +17,11 @@ export function getChatSortAt(conversation: ExternalConversation): number {
 
 export function isNewEmptySession(session: SessionSummary): boolean {
     if (!session.active) return false
+    // The hub seeds lastUserMessageAt with createdAt until a human message.
+    // Startup output may already count as conversation content.
+    if (session.createdAt && session.lastUserMessageAt != null) {
+        return session.lastUserMessageAt <= session.createdAt
+    }
     if (session.hasConversationContent) return false
     if ((session.lastMessageAt ?? 0) > 0) return false
     if ((session.lastAgentMessageAt ?? 0) > 0) return false

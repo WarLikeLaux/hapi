@@ -6,7 +6,7 @@ import { presentSessionGroup, type GroupSection } from '@/lib/sessionGroups'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SessionListScrollAnchor } from './SessionListScrollAnchor'
 import type { SessionSummary } from '@/types/api'
-import { SESSION_LIFECYCLE_IDLE, SESSION_LIFECYCLE_PARKED } from '@hapi/protocol'
+import { SESSION_LIFECYCLE_PARKED } from '@hapi/protocol'
 import type { ApiClient } from '@/api/client'
 import {
     buildSessionSearchScoreIndex,
@@ -158,9 +158,6 @@ export function bucketRunningSessions(
             buckets.working.push(session)
         } else if ((session.pendingRequestsCount ?? 0) > 0) {
             buckets.pending.push(session)
-        } else if (session.metadata?.lifecycleState === SESSION_LIFECYCLE_IDLE) {
-            // Keepalive-only: socket up, no agent progress for hours.
-            buckets.idle.push(session)
         } else {
             // Quiet but connected: finished executing, operator will continue.
             buckets.active.push(session)
@@ -1626,7 +1623,6 @@ export function SessionList(props: {
                 session.active
                 && !session.globalPinned
                 && !isWorkingSession(session)
-                && session.metadata?.lifecycleState !== SESSION_LIFECYCLE_IDLE
             ))
         )
         return hasTextQuery && searchScoreIndex
@@ -1647,8 +1643,7 @@ export function SessionList(props: {
             machineFilteredSessions.filter((session) => (
                 !session.globalPinned
                 && !isWorkingSession(session)
-                && (session.metadata?.lifecycleState === SESSION_LIFECYCLE_PARKED
-                    || (session.active && session.metadata?.lifecycleState === SESSION_LIFECYCLE_IDLE))
+                && session.metadata?.lifecycleState === SESSION_LIFECYCLE_PARKED
             ))
         )
         return hasTextQuery && searchScoreIndex
