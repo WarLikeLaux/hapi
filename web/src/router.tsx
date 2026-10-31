@@ -203,6 +203,7 @@ function SessionsPage() {
         return (async () => {
             try {
                 await refetch()
+                await groupState.query.refetch()
             } catch (error) {
                 addToast({
                     title: t('sessions.refresh.failed.title'),
@@ -212,7 +213,7 @@ function SessionsPage() {
                 })
             }
         })()
-    }, [addToast, refetch, t])
+    }, [addToast, refetch, groupState.query.refetch, t])
 
     const machineLabelsById = useMachineLabels(machines)
     const machinesById = useMemo(() => {
@@ -302,7 +303,6 @@ function SessionsPage() {
                         onSelectGroup={openGroup}
                         onNewGroupChat={group => navigate({ to: '/sessions/new', search: { groupId: group.id } })}
                         onGroupHidden={group => { if (selectedGroup?.id === group.id) void navigate({ to: '/sessions' }) }}
-                        groupsStatus={groupState.query.isError ? <button type="button" className="p-3 text-sm text-red-600" onClick={() => void groupState.query.refetch()}>{t('groups.loadError')}</button> : null}
                         selectedSessionId={selectedSessionId}
                         onSelect={(sessionId) => navigate(getSessionListSelectionNavigation(sessionId))}
                         onNewSession={() => navigate({

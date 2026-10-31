@@ -716,7 +716,11 @@ export function useSSE(options: {
                 // the field, which safely reads as a full resync.
                 const resumed = data && typeof data === 'object'
                     && (data as { resume?: unknown }).resume === 'ok'
-                if (!resumed) void queryClient.invalidateQueries({ queryKey: ['session-groups'] })
+                // A REST request may have failed during the disconnect even when
+                // the event stream can resume without a full resync.
+                if (!resumed || queryClient.getQueryState(['session-groups'])?.status === 'error') {
+                    void queryClient.invalidateQueries({ queryKey: ['session-groups'] })
+                }
                 onConnectRef.current?.({ resumed: Boolean(resumed) })
             }
 
