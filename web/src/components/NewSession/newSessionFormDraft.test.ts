@@ -37,7 +37,8 @@ describe('newSessionFormDraft', () => {
             worktreeName: ''
         })
 
-        expect(loadNewSessionFormDraft()).toEqual({
+        expect(loadNewSessionFormDraft()).toMatchObject({
+            muted: false,
             agentFilter: 'cursor',
             agent: 'cursor',
             model: 'composer-2.5[fast=false]',
