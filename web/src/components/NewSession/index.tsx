@@ -53,7 +53,7 @@ import {
 } from './newSessionFormDraft'
 import { isOpencodeReasoningEffortValid, MODEL_OPTIONS } from './types'
 import type { NewSessionFormDraft } from './newSessionFormDraft'
-import { INITIAL_IMAGE_AGENTS, type LaunchSessionRequest } from '@hapi/protocol'
+import { type LaunchSessionRequest } from '@hapi/protocol'
 import { InitialPrompt } from './InitialPrompt'
 import type { InitialImageDraft } from './initialImageDrafts'
 import type { AgentType, LaunchEffort, CodexReasoningEffort, NewSessionServiceTier, SessionType } from './types'
@@ -1610,7 +1610,6 @@ export function NewSession(props: {
         pendingCursorSpeed.current = null
     }, [agent, model, cursorModelsState.isLoading, cursorModelsState.availableModels, cursorModelsState.cliModelSkus])
 
-    useEffect(() => { setModelManagerOpen(false) }, [effectiveFilter])
     useEffect(() => {
         if (modelPreferences.loading || !modelPreferences.preferences.some(row => row.agent === agent && row.modelId === displayedModel && row.hidden)) return
         const fallback = visibleModelChoices.find(choice => choice.agent === agent)
@@ -2023,7 +2022,6 @@ export function NewSession(props: {
         && !isLaunchPreferenceValidationPending
         && !fastModeSelectionPending
         && !readingImages
-        && (!initialImages.length || INITIAL_IMAGE_AGENTS.includes(agent))
         && (!createGroup || (groupName.trim().length > 0 && groupName.trim().length <= 120))
     )
 
@@ -2079,7 +2077,7 @@ export function NewSession(props: {
                     {t('newSession.continue.description', { title: getSessionTitle(continueFrom) })}
                 </div>
             ) : null}
-            {!props.editor ? <div className="px-3 py-3 text-sm">
+            {!props.editor && !projectManagerOpen && !modelManagerOpen ? <div className="px-3 py-3 text-sm">
                 {props.groupId || createdGroup ? <p className="text-[var(--app-hint)]">{t('groups.newChatIn', { name: props.groupName ?? createdGroup?.name ?? '' })}</p> : <>
                     <div className="flex flex-col gap-1.5 text-xs text-[var(--app-hint)]">
                         <label htmlFor="new-group-name">{t('groups.name')}</label>
@@ -2092,7 +2090,7 @@ export function NewSession(props: {
             </div> : null}
             {/* Fork: a single-machine setup needs no picker; it would only be
                 one more thing to scroll past on the phone. */}
-            {!props.editor && props.machines.length > 1 ? (
+            {!props.editor && !modelManagerOpen && props.machines.length > 1 ? (
                 <MachineSelector
                     machines={props.machines}
                     machineId={machineId}
@@ -2106,7 +2104,7 @@ export function NewSession(props: {
                     Runner last spawn error: {runnerSpawnError}
                 </div>
             ) : null}
-            {!props.editor ? <DirectorySection
+            {!props.editor && !modelManagerOpen ? <DirectorySection
                 directory={directory}
                 aliases={Object.fromEntries(projectPreferences.projects.filter(p => p.machineId === machineId && p.alias).map(p => [p.path, p.alias!]))}
                 suggestions={suggestions}
@@ -2124,12 +2122,15 @@ export function NewSession(props: {
                 onPathClick={handlePathClick}
                 onChooseFolder={props.onChooseFolder ? handleChooseFolderClick : undefined}
             /> : null}
+            {!props.editor && projectManagerOpen ? <div className="pt-3">
+                {projectPreferences.loading ? <p role="status" className="px-3 py-2 text-xs text-[var(--app-hint)]">{t('newSession.projects.loading')}</p> : projectPreferences.error ? <p role="alert" className="px-3 py-2 text-xs text-red-600">{t('newSession.projects.loadError')} <button type="button" className="underline" onClick={() => void projectPreferences.retry()}>{t('button.retry')}</button></p> : <ProjectManager machineId={machineId} projects={projectPreferences.projects} knownPaths={[...workPaths, ...filteredRecentPaths]} save={projectPreferences.save} />}
+            </div> : null}
             {props.editor && directoryStatusMessage ? <p role="status" className="px-3 py-2 text-xs text-[var(--app-hint)]">{directoryStatusMessage}</p> : null}
             {props.editor && props.initialAgent && !agentAvailability.isLoading && !agentAvailability.error && !availableAgents.includes(props.initialAgent) ? <p role="status" className="px-3 py-2 text-xs text-[var(--app-hint)]">{t('groups.defaultsUnavailable')}</p> : null}
             {/* Fork: worktree launches are never used here, so the type
                 selector is not rendered — sessions always launch in place
                 (`sessionType` stays 'simple'; the draft restore clamps it). */}
-            <AgentSelector
+            {!projectManagerOpen ? <AgentSelector
                 agent={agent}
                 filter={effectiveFilter}
                 showAllAgents={!isNarrow}
@@ -2142,7 +2143,7 @@ export function NewSession(props: {
                 agents={availableAgents}
                 isDisabled={isFormDisabled || agentAvailability.isLoading || Boolean(agentAvailability.error)}
                 onAgentChange={value => { setAgentFilter(value); handleAgentChange(value) }}
-            />
+            /> : null}
             {agentAvailability.isLoading ? (
                 <div className="px-3 py-2 text-xs text-[var(--app-hint)]">
                     {t('newSession.agentAvailabilityLoading')}
@@ -2163,6 +2164,7 @@ export function NewSession(props: {
                     {t('newSession.noAvailableAgents')}
                 </div>
             ) : null}
+            {!projectManagerOpen && !modelManagerOpen ? <>
             {/* Fork: codex history import is never used here, so its entry
                 point is not rendered; the plumbing stays dormant. */}
             {!props.editor && agent === 'pi' ? (
@@ -2259,6 +2261,7 @@ export function NewSession(props: {
                 onChange={setCopilotAgentMode}
             />
 
+            </> : null}
             {!props.editor && modelManagerOpen && effectiveFilter !== 'all' && effectiveFilter === agent && showPiLaunchConfig ? <ModelManager
                 agent={agent}
                 options={agent === 'opencode' ? manageModelOptions.map(option => ({ ...option, label: modelChoiceLabel(option.label) })) : manageModelOptions}
@@ -2283,7 +2286,7 @@ export function NewSession(props: {
                         if (fallback) applyModelChoice(fallback)
                     }
                 }} /> : null}
-            {props.onStartChat && !props.editor && !continueFrom && !selectedCodexImportSession && !selectedPiImportSession ? <div className="px-3 py-3">
+            {!projectManagerOpen && !modelManagerOpen && props.onStartChat && !props.editor && !continueFrom && !selectedCodexImportSession && !selectedPiImportSession ? <div className="px-3 py-3">
                 <InitialPrompt label={t('newSession.initialPrompt')} value={initialPrompt} onChange={setInitialPrompt}
                     images={initialImages} onImagesChange={setInitialImages} onReadingChange={setReadingImages}
                     agent={agent} disabled={isFormDisabled} placeholder={t('batch.promptPlaceholder')} />
@@ -2294,7 +2297,6 @@ export function NewSession(props: {
                 </div>
             ) : null}
 
-            {!props.editor && projectManagerOpen ? projectPreferences.loading ? <p role="status" className="px-3 py-2 text-xs text-[var(--app-hint)]">{t('newSession.projects.loading')}</p> : projectPreferences.error ? <p role="alert" className="px-3 py-2 text-xs text-red-600">{t('newSession.projects.loadError')} <button type="button" className="underline" onClick={() => void projectPreferences.retry()}>{t('button.retry')}</button></p> : <ProjectManager machineId={machineId} projects={projectPreferences.projects} knownPaths={[...workPaths, ...filteredRecentPaths]} save={projectPreferences.save} /> : null}
             {!props.editor ? <ActionButtons
                 isPending={isCreating || isPending || isImportingCodexSession || isImportingPiSession}
                 canCreate={canCreate}
@@ -2302,10 +2304,11 @@ export function NewSession(props: {
                 createLabel={createLabel}
                 onCancel={props.onCancel}
                 onCreate={handleCreate}
-                onAddChat={props.onAddChat && !selectedCodexImportSession && !selectedPiImportSession ? handleAddChat : undefined}
-                onManageProjects={() => setProjectManagerOpen(open => !open)}
+                managing={projectManagerOpen || modelManagerOpen}
+                onManageProjects={() => { setModelManagerOpen(false); setProjectManagerOpen(open => !open) }}
                 manageProjectsOpen={projectManagerOpen}
-                onManageModels={effectiveFilter !== 'all' && effectiveFilter === agent && agent !== 'dsh' && showPiLaunchConfig ? () => setModelManagerOpen(open => !open) : undefined}
+                onAddChat={props.onAddChat && !selectedCodexImportSession && !selectedPiImportSession ? handleAddChat : undefined}
+                onManageModels={modelManagerOpen || (effectiveFilter !== 'all' && effectiveFilter === agent && agent !== 'dsh' && showPiLaunchConfig) ? () => { setProjectManagerOpen(false); setModelManagerOpen(open => !open) } : undefined}
                 manageModelsOpen={modelManagerOpen}
             /> : null}
             <CodexSessionSyncDialog

@@ -36,16 +36,16 @@ function input(overrides: Partial<LaunchSessionRequest> = {}): LaunchSessionRequ
 }
 
 describe('durable session launch', () => {
-    it('uploads initial images to the new session before sending the exact text, and retries upload without respawning', async () => {
+    it.each(['codex', 'minimax'] as const)('uploads initial images for %s before sending the exact text, and retries without respawning', async agent => {
         const { store, engine, gateway, launch } = setup()
-        const request: LaunchSessionRequest = { ...input(), initialImages: [{ filename: 'clipboard.png', mimeType: 'image/png', content: 'aW1hZ2U=' }] }
+        const request: LaunchSessionRequest = { ...input({ agent }), initialImages: [{ filename: 'clipboard.png', mimeType: 'image/png', content: 'aW1hZ2U=' }] }
         let spawns = 0
         let uploads = 0
         gateway.spawnSession = async (...args) => {
             spawns++
             const id = args[17] as string
             expect(store.messages.getAllMessages(id)).toHaveLength(0)
-            engine.adoptPreallocatedSession(id, 'cli-tag', { path: '/project', flavor: 'codex', hostPid: 456 }, null, 'owner')
+            engine.adoptPreallocatedSession(id, 'cli-tag', { path: '/project', flavor: agent, hostPid: 456 }, null, 'owner')
             return { type: 'success', sessionId: id }
         }
         const uploadGateway = gateway as unknown as { uploadFile: (...args: string[]) => Promise<unknown> }
@@ -100,7 +100,7 @@ describe('durable session launch', () => {
     })
 
     it.each([
-        { agent: 'minimax' }, { startingMode: 'pty' },
+        { startingMode: 'pty' },
         { initialImages: [{ filename: 'script.svg', mimeType: 'image/svg+xml', content: 'aW1hZ2U=' }] },
         { initialImages: [{ filename: 'bad.png', mimeType: 'image/png', content: 'invalid base64' }] },
         { initialImages: [{ filename: 'large.png', mimeType: 'image/png', content: Buffer.alloc(50 * 1024 * 1024 + 1).toString('base64') }] },

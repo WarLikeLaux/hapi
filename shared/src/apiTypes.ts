@@ -769,7 +769,6 @@ export type SpawnSessionRequest = z.infer<typeof SpawnSessionRequestSchema>
 
 // Match the decoded image budget used by the ordinary agent attachment pipeline.
 export const MAX_INITIAL_IMAGE_BYTES = 50 * 1024 * 1024
-export const INITIAL_IMAGE_AGENTS: readonly string[] = ['claude', 'codex', 'opencode', 'pi']
 export const InitialImageSchema = UploadFileRequestSchema.extend({
     mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
     content: z.string().min(4).max(Math.ceil(MAX_INITIAL_IMAGE_BYTES / 3) * 4)
@@ -787,8 +786,8 @@ export const LaunchSessionRequestSchema = SpawnSessionRequestSchema.extend({
     requestId: z.string().uuid(),
     initialPrompt: z.string().max(100_000).optional(),
     initialImages: InitialImagesSchema.optional(),
-}).refine(input => !input.initialImages?.length || (INITIAL_IMAGE_AGENTS.includes(input.agent ?? 'claude') && input.startingMode !== 'pty'),
-    'Initial images require Claude, Codex, OpenCode or Pi in remote mode')
+}).refine(input => !input.initialImages?.length || input.startingMode !== 'pty',
+    'Initial images require remote mode')
 export type LaunchSessionRequest = z.infer<typeof LaunchSessionRequestSchema>
 export type LaunchSessionResult = {
     state: 'succeeded' | 'failed' | 'indeterminate'
