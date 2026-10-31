@@ -1592,11 +1592,15 @@ export function NewSession(props: {
 
     useEffect(() => {
         if (!agentChoicePending.current || agentChoicePending.current !== agent || modelPreferences.loading) return
+        if (agent === 'cursor' && cursorModelsState.error) {
+            agentChoicePending.current = null
+            return
+        }
         const first = visibleModelChoices.find(choice => choice.agent === agent)
         if (!first) return
         agentChoicePending.current = null
         applyModelChoice(first)
-    }, [agent, effectiveFilter, modelPreferences.loading, modelPreferences.preferences])
+    }, [agent, effectiveFilter, modelPreferences.loading, modelPreferences.preferences, cursorModelsState.error])
 
     useEffect(() => {
         const pending = pendingCursorSpeed.current

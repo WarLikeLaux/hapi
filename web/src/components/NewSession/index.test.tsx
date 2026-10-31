@@ -469,7 +469,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('codex')
     })
 
-    function renderComposer(launchSession: ApiClient['launchSession'], extra: Partial<Parameters<typeof SessionComposer>[0]> = {}) {
+    async function renderComposer(launchSession: ApiClient['launchSession'], extra: Partial<Parameters<typeof SessionComposer>[0]> = {}) {
         Element.prototype.scrollIntoView = vi.fn()
         URL.createObjectURL = vi.fn(() => 'blob:initial-image')
         URL.revokeObjectURL = vi.fn()
@@ -485,6 +485,7 @@ describe('NewSession launch preferences', () => {
             checkMachinePathsExists: vi.fn(async (_id: string, paths: string[]) => ({ exists: Object.fromEntries(paths.map(path => [path, true])) })),
         } as unknown as ApiClient
         const view = render(<ImagePreviewProvider><QueryClientProvider client={client}><SessionComposer api={composerApi} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} {...extra} /></QueryClientProvider></ImagePreviewProvider>)
+        await act(async () => {})
         return { ...view, createGroup }
     }
 
@@ -509,7 +510,7 @@ describe('NewSession launch preferences', () => {
 
     it('pastes, previews and removes images, then launches an image-only prompt with its original bytes', async () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'image-chat' })
-        renderComposer(launch)
+        await renderComposer(launch)
         const prompt = screen.getByRole('textbox', { name: 'newSession.initialPrompt' })
         const file = new File(['image'], 'clipboard.png', { type: 'image/png' })
         const paste = () => fireEvent.paste(prompt, { clipboardData: { items: [{ kind: 'file', type: file.type, getAsFile: () => file }] } })
@@ -531,7 +532,7 @@ describe('NewSession launch preferences', () => {
 
     it('keeps pasted text alongside an image and retains the attachment through adding and returning from another chat', async () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'image-and-text' })
-        renderComposer(launch)
+        await renderComposer(launch)
         const prompt = screen.getByRole('textbox', { name: 'newSession.initialPrompt' }) as HTMLTextAreaElement
         fireEvent.change(prompt, { target: { value: 'Before after' } })
         prompt.setSelectionRange(7, 7)
@@ -554,7 +555,7 @@ describe('NewSession launch preferences', () => {
     })
 
     it('rejects oversized and unsupported clipboard images without clearing the prompt', async () => {
-        renderComposer(vi.fn())
+        await renderComposer(vi.fn())
         const prompt = screen.getByRole('textbox', { name: 'newSession.initialPrompt' })
         fireEvent.change(prompt, { target: { value: 'Keep my task' } })
         for (const file of [new File(['svg'], 'drawing.svg', { type: 'image/svg+xml' }), new File([new Uint8Array(50 * 1024 * 1024 + 1)], 'large.png', { type: 'image/png' })]) {
@@ -568,7 +569,7 @@ describe('NewSession launch preferences', () => {
     it('opens the chat image viewer and keeps images above 2 MB outside the form receipt across retry', async () => {
         const launch = vi.fn().mockResolvedValueOnce({ state: 'indeterminate', message: 'Response lost' })
             .mockResolvedValueOnce({ state: 'succeeded', sessionId: 'large-image-chat' })
-        const view = renderComposer(launch)
+        const view = await renderComposer(launch)
         const bytes = new Uint8Array(3 * 1024 * 1024).fill(1)
         const file = new File([bytes], 'large.png', { type: 'image/png' })
         fireEvent.paste(screen.getByRole('textbox', { name: 'newSession.initialPrompt' }), {
@@ -588,7 +589,7 @@ describe('NewSession launch preferences', () => {
         expect(JSON.parse(receipt).cards[0].initialImages[0].content).toBeUndefined()
         expect(launch.mock.calls[0][1].initialImages[0].content).toBe(Buffer.from(bytes).toString('base64'))
         view.unmount()
-        renderComposer(launch)
+        await renderComposer(launch)
         fireEvent.click(screen.getByRole('button', { name: 'batch.checkResult' }))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('large-image-chat', true))
         expect(launch.mock.calls[1][1]).toEqual(launch.mock.calls[0][1])
@@ -597,7 +598,7 @@ describe('NewSession launch preferences', () => {
     it('keeps ordinary creation on the original form until another chat is requested', async () => {
         const launch = vi.fn()
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'ordinary-chat' })
-        const { createGroup } = renderComposer(launch)
+        const { createGroup } = await renderComposer(launch)
         expect(screen.getByRole('textbox', { name: 'groups.name' })).toHaveValue('')
         expect(screen.queryByRole('checkbox', { name: 'groups.createWithChat' })).toBeNull()
         expect(screen.queryByRole('article')).toBeNull()
@@ -617,7 +618,7 @@ describe('NewSession launch preferences', () => {
         const prompt = '  Inspect this project.\nKeep the full task.\n'
         const launch = vi.fn().mockResolvedValueOnce({ state, message: 'Runner response' })
             .mockResolvedValueOnce({ state: 'succeeded', sessionId: 'prompt-chat' })
-        const view = renderComposer(launch)
+        const view = await renderComposer(launch)
         fireEvent.change(screen.getByRole('textbox', { name: 'newSession.initialPrompt' }), { target: { value: prompt } })
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Review' } })
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6.1 Sol' }))
@@ -632,7 +633,7 @@ describe('NewSession launch preferences', () => {
         expect(mocks.spawnSession).not.toHaveBeenCalled()
         expect(mocks.sendMessage).not.toHaveBeenCalled()
         view.unmount()
-        const restored = renderComposer(launch)
+        const restored = await renderComposer(launch)
         expect(launch).toHaveBeenCalledTimes(1)
         fireEvent.click(screen.getByRole('button', { name: state === 'failed' ? 'batch.retryChat' : 'batch.checkResult' }))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('prompt-chat', true))
@@ -651,13 +652,13 @@ describe('NewSession launch preferences', () => {
         const launch = vi.fn()
             .mockImplementationOnce(() => new Promise<Result>(resolve => { finishFirst = resolve }))
             .mockImplementationOnce(() => new Promise<Result>(resolve => { finishSecond = resolve }))
-        const first = renderComposer(launch)
+        const first = await renderComposer(launch)
         fireEvent.change(screen.getByRole('textbox', { name: 'newSession.initialPrompt' }), { target: { value: 'First task' } })
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(launch).toHaveBeenCalledTimes(1))
         first.unmount()
-        renderComposer(launch)
+        await renderComposer(launch)
         fireEvent.click(screen.getByRole('button', { name: 'batch.prepareMore' }))
         fireEvent.change(screen.getByRole('textbox', { name: 'batch.commonPrompt' }), { target: { value: 'Second task' } })
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchOne' })).toBeEnabled())
@@ -674,7 +675,7 @@ describe('NewSession launch preferences', () => {
 
     it('keeps a single prompt when adding chats and brings back the first chat override', async () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'one-chat' })
-        renderComposer(launch)
+        await renderComposer(launch)
         fireEvent.change(screen.getByRole('textbox', { name: 'newSession.initialPrompt' }), { target: { value: 'Shared task' } })
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         expect(screen.getByRole('textbox', { name: 'batch.commonPrompt' })).toHaveValue('Shared task')
@@ -692,14 +693,14 @@ describe('NewSession launch preferences', () => {
 
     it('returns to ordinary creation with the first chat settings and clears the batch mode', async () => {
         const launch = vi.fn()
-        const view = renderComposer(launch)
+        const view = await renderComposer(launch)
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         await selectPlacement('new')
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Review' } })
         fireEvent.click(screen.getByRole('button', { name: 'batch.singleChat' }))
         expect(screen.queryByRole('article')).toBeNull()
-        expect(screen.getByRole('button', { name: 'GPT-6 Luna' })).toHaveAttribute('aria-pressed', 'true')
+        expect(await screen.findByRole('button', { name: 'GPT-6 Luna' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByRole('textbox', { name: 'groups.name' })).toHaveValue('Review')
         expect(screen.getByLabelText('directory-test')).toHaveValue('C:\\repo')
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
@@ -709,12 +710,12 @@ describe('NewSession launch preferences', () => {
         expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6-luna', groupId: 'new-group' }))
         expect(launch).not.toHaveBeenCalled()
         view.unmount()
-        renderComposer(launch)
+        await renderComposer(launch)
         expect(screen.queryByRole('article')).toBeNull()
     })
 
     it.each(['none', 'existing-group'])('keeps placement %s when returning to one chat from an open group', async placement => {
-        renderComposer(vi.fn(), { groupId: 'existing-group' })
+        await renderComposer(vi.fn(), { groupId: 'existing-group' })
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Temporary group' } })
         expect(screen.getByRole('button', { name: /^batch.placement/ })).toHaveTextContent('batch.newGroup')
@@ -731,7 +732,7 @@ describe('NewSession launch preferences', () => {
 
     it('preserves a prepared chat on cancel and removes only the confirmed chat', async () => {
         const launch = vi.fn()
-        renderComposer(launch)
+        await renderComposer(launch)
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         const second = screen.getAllByRole('article')[1]
         fireEvent.change(within(second).getByRole('textbox', { name: 'batch.chatPrompt' }), { target: { value: 'Keep this task until removal is confirmed.' } })
@@ -745,15 +746,15 @@ describe('NewSession launch preferences', () => {
         expect(launch).not.toHaveBeenCalled()
     })
 
-    it('cancels the batch draft so opening Create Session again starts with one chat', () => {
+    it('cancels the batch draft so opening Create Session again starts with one chat', async () => {
         const launch = vi.fn()
         const onCancel = vi.fn()
-        const view = renderComposer(launch, { onCancel })
+        const view = await renderComposer(launch, { onCancel })
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         fireEvent.click(screen.getByRole('button', { name: 'button.cancel' }))
         expect(onCancel).toHaveBeenCalledOnce()
         view.unmount()
-        renderComposer(launch)
+        await renderComposer(launch)
         expect(screen.queryByRole('article')).toBeNull()
         expect(screen.getByRole('button', { name: 'batch.addAnother' })).toBeVisible()
         expect(launch).not.toHaveBeenCalled()
@@ -772,7 +773,7 @@ describe('NewSession launch preferences', () => {
 
     it('finishes naming a group after adding chats and keeps the first chat model and Fast setting', async () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'started' })
-        const { createGroup } = renderComposer(launch)
+        const { createGroup } = await renderComposer(launch)
         fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
         expect(screen.getByTestId('create')).toBeEnabled()
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
@@ -796,17 +797,17 @@ describe('NewSession launch preferences', () => {
         mocks.cursorModels = [{ modelId: 'composer-2.5' }]
         mocks.cursorSkus = [{ modelId: 'composer-2.5-fast' }]
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'started' })
-        renderComposer(launch)
+        await renderComposer(launch)
         fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         const second = screen.getAllByRole('article')[1]
-        fireEvent.click(within(second).getByRole('button', { name: 'Composer 2.5' }))
+        fireEvent.click(await within(second).findByRole('button', { name: 'Composer 2.5' }))
         fireEvent.click(within(second).getByRole('button', { name: 'misc.fastModeFast' }))
         fireEvent.click(within(second).getByRole('radio', { name: 'Cursor' }))
         fireEvent.click(screen.getByRole('button', { name: 'batch.duplicate 2' }))
         const third = screen.getAllByRole('article')[2]
         expect(within(third).getByRole('radio', { name: 'Cursor' })).toBeChecked()
-        expect(within(third).getByRole('button', { name: 'Composer 2.5' })).toHaveAttribute('aria-pressed', 'true')
+        expect(await within(third).findByRole('button', { name: 'Composer 2.5' })).toHaveAttribute('aria-pressed', 'true')
         expect(within(third).getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(within(third).getByRole('radio', { name: 'newSession.allAgents' }))
         fireEvent.click(within(third).getByRole('button', { name: 'GPT-6 Luna' }))
@@ -822,13 +823,13 @@ describe('NewSession launch preferences', () => {
 
     it('hides effort in model choices while keeping it in card summaries, duplication and launches', async () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'started' })
-        renderComposer(launch)
+        await renderComposer(launch)
         const muse = screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })
         expect(muse).not.toHaveTextContent('(Medium)')
         fireEvent.click(muse)
         fireEvent.click(screen.getByRole('button', { name: 'batch.addAnother' }))
         const second = screen.getAllByRole('article')[1]
-        const argon = within(second).getByRole('button', { name: 'Gemini 4 Argon (High)' })
+        const argon = await within(second).findByRole('button', { name: 'Gemini 4 Argon (High)' })
         expect(argon).not.toHaveTextContent('(High)')
         fireEvent.click(argon)
         expect(within(screen.getAllByRole('article')[0]).getByText('Muse Spark 1.3 (Medium)')).toBeVisible()
@@ -836,7 +837,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByRole('button', { name: 'batch.duplicate 1' }))
         const duplicate = screen.getAllByRole('article')[2]
         expect(within(duplicate).getByText('Muse Spark 1.3 (Medium)')).toBeVisible()
-        expect(within(duplicate).getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).toHaveAttribute('aria-pressed', 'true')
+        expect(await within(duplicate).findByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).toHaveAttribute('aria-pressed', 'true')
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchCount' })).toBeEnabled())
         fireEvent.click(screen.getByRole('button', { name: 'batch.launchCount' }))
         await waitFor(() => expect(launch).toHaveBeenCalledTimes(3))
@@ -855,7 +856,7 @@ describe('NewSession launch preferences', () => {
         const launch = vi.fn().mockImplementationOnce(() => first)
             .mockResolvedValueOnce({ state: 'failed', message: 'Not installed' })
             .mockResolvedValueOnce({ state: 'succeeded', sessionId: 'second-chat' })
-        const { createGroup } = renderComposer(launch)
+        const { createGroup } = await renderComposer(launch)
         expect(screen.queryByRole('textbox', { name: 'batch.commonPrompt' })).toBeNull()
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: 'Comparison' } })
@@ -874,7 +875,7 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(sharedPreview)
         expect(within(sharedCard).queryByRole('region', { name: 'batch.showSharedPrompt' })).toBeNull()
         const second = screen.getAllByRole('article')[1]
-        expect(within(second).getByRole('button', { name: 'GPT-6 Luna' })).toHaveAttribute('aria-pressed', 'true')
+        expect(await within(second).findByRole('button', { name: 'GPT-6 Luna' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.change(within(second).getByRole('textbox', { name: 'batch.chatPrompt' }), { target: { value: ownPrompt } })
         fireEvent.click(within(second).getByRole('button', { name: 'batch.otherProject' }))
         fireEvent.change(within(second).getByLabelText('directory-test'), { target: { value: 'C:\\other' } })
@@ -905,14 +906,14 @@ describe('NewSession launch preferences', () => {
     it('checks an unknown launch with its original request and restores the result after remount', async () => {
         const launch = vi.fn().mockRejectedValueOnce(new Error('Response lost'))
             .mockResolvedValueOnce({ state: 'succeeded', sessionId: 'late-chat' })
-        const view = renderComposer(launch, { groupId: 'existing-group', initialAgent: 'claude' })
+        const view = await renderComposer(launch, { groupId: 'existing-group', initialAgent: 'claude' })
         await enterBatchWithOneChat()
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchOne' })).toBeEnabled())
         fireEvent.click(screen.getByRole('button', { name: 'batch.launchOne' }))
         await waitFor(() => expect(screen.getByText('batch.indeterminate')).toBeVisible())
         expect(launch.mock.calls[0][1]).toMatchObject({ groupId: 'existing-group', agent: 'claude', initialPrompt: '' })
         view.unmount()
-        renderComposer(launch, { groupId: 'existing-group' })
+        await renderComposer(launch, { groupId: 'existing-group' })
         expect(screen.queryByRole('button', { name: 'batch.retryChat' })).toBeNull()
         fireEvent.click(screen.getByRole('button', { name: 'batch.checkResult' }))
         await waitFor(() => expect(screen.getByText('batch.succeeded')).toBeVisible())
@@ -922,7 +923,7 @@ describe('NewSession launch preferences', () => {
 
     it('uses the common prompt when the individual prompt is empty and permits an empty regular chat', async () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'chat' })
-        const view = renderComposer(launch)
+        const view = await renderComposer(launch)
         await enterBatchWithOneChat()
         fireEvent.change(screen.getByRole('textbox', { name: 'batch.commonPrompt' }), { target: { value: 'Common task' } })
         fireEvent.change(screen.getByRole('textbox', { name: 'batch.chatPrompt' }), { target: { value: '   ' } })
@@ -934,7 +935,7 @@ describe('NewSession launch preferences', () => {
         expect(launch.mock.calls[0][1]).toMatchObject({ initialPrompt: 'Common task', groupId: undefined })
         view.unmount()
         sessionStorage.clear()
-        renderComposer(launch)
+        await renderComposer(launch)
         await enterBatchWithOneChat()
         await waitFor(() => expect(screen.getByRole('button', { name: 'batch.launchOne' })).toBeEnabled())
         fireEvent.click(screen.getByRole('button', { name: 'batch.launchOne' }))
@@ -946,12 +947,14 @@ describe('NewSession launch preferences', () => {
         mocks.projectsLoading = true
         mocks.projectPreferences = [{ machineId: 'machine-1', path: '/code/hapi', alias: 'HAPI', section: 'auto', priority: false, isDefault: true }]
         const view = render(<NewSession api={api} machines={[machine]} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.change(screen.getByLabelText('directory-test'), { target: { value: '/code/manual' } })
         mocks.projectsLoading = false
         view.rerender(<NewSession api={api} machines={[machine]} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         expect(screen.getByLabelText('directory-test')).toHaveValue('/code/manual')
         view.unmount()
         render(<NewSession api={api} machines={[machine]} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByLabelText('directory-test')).toHaveValue('/code/hapi'))
     })
 
@@ -959,6 +962,7 @@ describe('NewSession launch preferences', () => {
         const createGroup = vi.fn(async () => ({ group: { id: 'created-group', name: 'HAPI' } }))
         mocks.spawnSession.mockRejectedValueOnce(new Error('Runner unavailable')).mockResolvedValueOnce({ type: 'success', sessionId: 'new-chat' })
         render(<NewSession api={{ ...api, createGroup } as unknown as ApiClient} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByRole('textbox', { name: 'groups.name' })).toHaveValue('')
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.change(screen.getByRole('textbox', { name: 'groups.name' }), { target: { value: '  HAPI  ' } })
@@ -983,6 +987,7 @@ describe('NewSession launch preferences', () => {
         })
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'group-chat' })
         render(<NewSession api={api} machines={[machine]} groupId="group" groupName="HAPI" initialAgent="codex" initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByRole('radio', { name: 'newSession.allAgents' })).toBeChecked()
         expect(screen.queryByRole('checkbox', { name: 'groups.createWithChat' })).toBeNull()
         fireEvent.click(screen.getByRole('radio', { name: 'Claude' }))
@@ -993,6 +998,7 @@ describe('NewSession launch preferences', () => {
     it('falls back to an available group agent with an explanation', async () => {
         mocks.availableAgents = mocks.availableAgents.filter(entry => entry.agent !== 'claude')
         render(<NewSession api={api} machines={[machine]} groupId="group" initialAgent="claude" initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('radio', { name: 'newSession.allAgents' })).toBeChecked())
         expect(screen.getByRole('status')).toHaveTextContent('groups.defaultsUnavailable')
         expect(screen.getByTestId('create')).toBeEnabled()
@@ -1016,6 +1022,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => expect(screen.getByDisplayValue('all')).toBeChecked())
         expect(screen.queryByDisplayValue('claude')).not.toBeInTheDocument()
@@ -1038,6 +1045,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
@@ -1065,6 +1073,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => {
             expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
@@ -1086,6 +1095,7 @@ describe('NewSession launch preferences', () => {
         }
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'native-session' })
         render(<NewSession initialAgent={agent} api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByTestId('model-options').textContent).toBe('Native model')
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent, model: undefined })))
@@ -1101,6 +1111,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('claude')
         savePreferredLaunchSettings('machine-1', 'codex', { model: 'gpt-6.1-terra', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default', serviceTier: 'fast' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'true'))
         const buttons = within(screen.getByRole('region', { name: 'newSession.model' })).getAllByRole('button')
         expect(buttons[0]).toHaveAttribute('aria-label', 'GPT-6.1 Sol')
@@ -1120,6 +1131,7 @@ describe('NewSession launch preferences', () => {
             { agent: 'cursor', modelId: 'grok-4.7-xhigh', pinned: true, alias: null, speed: 'standard' }
         ]
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('button', { name: 'Composer 2.5' })).toBeVisible())
         fireEvent.click(screen.getByRole('button', { name: 'Composer 2.5' }))
         await waitFor(() => expect(screen.getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true'))
@@ -1133,6 +1145,7 @@ describe('NewSession launch preferences', () => {
 
     it('saves speed and All agents visibility independently in Manage models', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
         fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
         fireEvent.change(screen.getByRole('combobox', { name: 'Speed for GPT-6.1 Terra' }), { target: { value: 'standard' } })
@@ -1143,7 +1156,7 @@ describe('NewSession launch preferences', () => {
         expect(screen.queryByRole('button', { name: 'GPT-6.1 Terra' })).toBeNull()
     })
 
-    it('opens Codex on GPT-6.1 Terra with Fast and orders the three requested badges', () => {
+    it('opens Codex on GPT-6.1 Terra with Fast and orders the three requested badges', async () => {
         render(
             <NewSession
                 api={api}
@@ -1154,6 +1167,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByRole('button', { name: 'GPT-6 Sol' })).toHaveAttribute('aria-pressed', 'false')
@@ -1172,6 +1186,7 @@ describe('NewSession launch preferences', () => {
     it('uses the Codex catalog name until a user alias replaces it', async () => {
         mocks.codexTerraName = 'Catalog Terra'
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByRole('button', { name: 'Catalog Terra' })).toBeVisible()
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
         fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
@@ -1185,6 +1200,7 @@ describe('NewSession launch preferences', () => {
 
     it('pins a discovered Codex model and applies its saved alias without changing the launch id', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.queryByRole('button', { name: 'Manage models' })).toBeNull()
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
         fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
@@ -1204,6 +1220,7 @@ describe('NewSession launch preferences', () => {
 
     it('adds a model by ID, reorders models, and removes the selected one', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
         fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
         fireEvent.change(screen.getByRole('combobox', { name: 'Choose a model' }), { target: { value: '__custom__' } })
@@ -1221,6 +1238,7 @@ describe('NewSession launch preferences', () => {
 
     it('adds a discovered model from the dropdown', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
         fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
         fireEvent.change(screen.getByRole('combobox', { name: 'Choose a model' }), { target: { value: 'gpt-5.6-sol' } })
@@ -1233,6 +1251,7 @@ describe('NewSession launch preferences', () => {
         mocks.modelPreferences = [{ agent: 'agy', modelId: 'gemini-3.8-flash', pinned: true, alias: null, reasoningEffort: 'low' }]
         savePreferredAgent('agy')
         render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(within(screen.getByRole('group', { name: 'newSession.effort' })).getByRole('button', { name: 'Low' })).toHaveAttribute('aria-pressed', 'true'))
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-3.8-flash-low' })))
@@ -1246,12 +1265,14 @@ describe('NewSession launch preferences', () => {
         ]
         const props = { initialAgent: 'agy' as const, api, machines: [machine], initialMachineId: 'machine-1', initialDirectory: 'C:\\repo', onSuccess: mocks.onSuccess, onCancel: () => {} }
         const view = render(<NewSession {...props} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('radio', { name: 'Antigravity' }))
         fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
         fireEvent.click(screen.getByRole('button', { name: 'Remove Gemini 3.8 Flash' }))
         await waitFor(() => expect(mocks.modelPreferences.find(row => row.modelId === 'gemini-3.8-flash')?.hidden).toBe(true))
         view.unmount()
         render(<NewSession {...props} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('radio', { name: 'Antigravity' }))
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 4 Argon' })).toHaveAttribute('aria-pressed', 'true'))
         await waitFor(() => expect(screen.queryByRole('button', { name: 'Gemini 3.8 Flash' })).not.toBeInTheDocument())
@@ -1275,6 +1296,7 @@ describe('NewSession launch preferences', () => {
         mocks.modelPreferences = [{ agent: 'agy', modelId: 'gemini-4-argon', pinned: true, alias: 'Argon work', reasoningEffort: 'medium' }]
         savePreferredAgent('agy')
         render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('button', { name: 'Argon work' })).toBeVisible())
         fireEvent.click(screen.getByRole('button', { name: 'Argon work' }))
         const effort = screen.getByRole('group', { name: 'newSession.effort' })
@@ -1286,6 +1308,7 @@ describe('NewSession launch preferences', () => {
 
     it('launches an explicitly added Antigravity model', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('radio', { name: 'Antigravity' }))
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.6 Flash' })).toBeInTheDocument())
         fireEvent.click(screen.getByRole('button', { name: 'Gemini 3.6 Flash' }))
@@ -1293,9 +1316,10 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-3.6-flash-low' })))
     })
 
-    it('shows the curated models directly, filters them by agent and has no Other menu', () => {
+    it('shows the curated models directly, filters them by agent and has no Other menu', async () => {
         setClaudeGlmBranded(true)
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.queryByRole('button', { name: 'newSession.model.loadOptions' })).toBeNull()
         expect(screen.getByRole('button', { name: 'GLM 5.3' })).toBeVisible()
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
@@ -1313,6 +1337,7 @@ describe('NewSession launch preferences', () => {
         mocks.availableAgents.push({ agent: 'minimax', available: true, defaultModelName })
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'native-session' })
         render(<NewSession initialAgent="minimax" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByRole('button', { name: defaultModelName })).toBeInTheDocument()
         expect(screen.queryByTestId('model')).toBeNull()
         fireEvent.click(screen.getByTestId('create'))
@@ -1333,6 +1358,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         fireEvent.click(screen.getByDisplayValue('codex'))
 
@@ -1356,6 +1382,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         expect(screen.queryByText('misc.permissionMode')).toBeNull()
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'permission-session' })
@@ -1379,6 +1406,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         fireEvent.click(screen.getByLabelText('Copilot'))
 
@@ -1407,6 +1435,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         // Auto needs no catalog validation, so creation is not blocked.
         await waitFor(() => expect(screen.getByTestId('model')).toHaveTextContent('auto'))
@@ -1431,6 +1460,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         fireEvent.click(screen.getByDisplayValue('kimi'))
 
@@ -1463,6 +1493,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => {
             expect(screen.getByTestId('model')).toHaveTextContent('auto')
@@ -1492,6 +1523,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => {
             expect(screen.getByTestId('model')).toHaveTextContent('auto')
@@ -1518,6 +1550,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         expect(screen.queryByTestId('reasoning')).toBeNull()
         expect(screen.getByTestId('create')).toBeDisabled()
@@ -1548,6 +1581,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         mocks.nextModelValue = 'grok-4'
         fireEvent.click(screen.getByTestId('model'))
@@ -1567,6 +1601,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         expect(loadPreferredLaunchSettings('machine-1', 'codex')).toBeNull()
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
@@ -1591,6 +1626,7 @@ describe('NewSession launch preferences', () => {
             grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
         })
         render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.queryByRole('button', { name: 'Claude Opus 4.6 (Thinking)' })).not.toBeInTheDocument()
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
     })
@@ -1605,6 +1641,7 @@ describe('NewSession launch preferences', () => {
         })
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'agy-session' })
         render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toHaveAttribute('aria-pressed', 'true'))
         expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toHaveTextContent('(High)')
         expect(screen.queryByRole('button', { name: 'Gemini 3.6 Flash (Low)' })).toBeNull()
@@ -1621,6 +1658,7 @@ describe('NewSession launch preferences', () => {
             grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
         })
         render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
     })
 
@@ -1629,6 +1667,7 @@ describe('NewSession launch preferences', () => {
         // badge does not depend on it, so it never flickers or resets.
         savePreferredAgent('agy')
         const view = render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
 
@@ -1642,6 +1681,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('agy')
         savePreferredLaunchSettings('machine-1', 'agy', { model: 'removed-model', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default' })
         render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
     })
 
@@ -1650,6 +1690,7 @@ describe('NewSession launch preferences', () => {
         savePreferredLaunchSettings('machine-1', 'agy', { model: 'gemini-3.6-flash-low', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default' })
         mocks.agyModelsLoading = true
         render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         // Default needs no catalog validation, so creation is not blocked.
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
         expect(screen.getByTestId('create')).toBeEnabled()
@@ -1660,6 +1701,7 @@ describe('NewSession launch preferences', () => {
         mocks.agyModelsLoading = true
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'agy-session' })
         render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('radio', { name: 'Antigravity' }))
         const high = screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })
         expect(high).toHaveAttribute('aria-pressed', 'true')
@@ -1679,6 +1721,7 @@ describe('NewSession launch preferences', () => {
         savePreferredYoloMode(true)
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'dsh-session' })
         render(<NewSession initialAgent="dsh" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('dsh-session', true))
@@ -1693,6 +1736,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('claude')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
         render(<NewSession initialAgent="claude" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         fireEvent.click(screen.getByTestId('create'))
 
@@ -1708,6 +1752,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('codex')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
         render(<NewSession initialAgent="codex" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         // Switching flavors keeps each agent's own YOLO-equivalent launch mode.
         await waitFor(() => expect(screen.getByDisplayValue('all')).toBeChecked())
@@ -1727,6 +1772,7 @@ describe('NewSession launch preferences', () => {
         savePreferredYoloMode(true)
 
         render(<NewSession initialAgent="claude" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         expect(screen.queryByText('misc.permissionMode')).toBeNull()
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'permission-session' })
@@ -1744,6 +1790,7 @@ describe('NewSession launch preferences', () => {
         savePreferredYoloMode(true)
 
         render(<NewSession initialAgent="cursor" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         await waitFor(() => expect(screen.getByDisplayValue('all')).toBeChecked())
         fireEvent.click(screen.getByDisplayValue('claude'))
@@ -1764,6 +1811,7 @@ describe('NewSession launch preferences', () => {
         })
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
         render(<NewSession initialAgent="claude" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         expect(screen.getByTestId('launch-effort')).toHaveTextContent('auto')
         fireEvent.click(screen.getByTestId('create'))
@@ -1794,6 +1842,7 @@ describe('NewSession launch preferences', () => {
         const view = render(<QueryClientProvider client={client}>
             <NewSession initialAgent="cursor" api={catalogApi} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />
         </QueryClientProvider>)
+        await act(async () => {})
 
         await waitFor(() => expect(getMachineCursorModels).toHaveBeenCalledTimes(1))
         expect(screen.getByRole('button', { name: 'Composer 2.5' })).toHaveAttribute('aria-pressed', 'true')
@@ -1820,6 +1869,7 @@ describe('NewSession launch preferences', () => {
         const view = render(<QueryClientProvider client={client}>
             <NewSession initialAgent="opencode" api={catalogApi} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />
         </QueryClientProvider>)
+        await act(async () => {})
 
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         expect(getMachineCursorModels.mock.calls.length).toBe(0)
@@ -1849,6 +1899,7 @@ describe('NewSession launch preferences', () => {
         const view = render(<QueryClientProvider client={client}>
             <NewSession initialAgent="opencode" api={catalogApi} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />
         </QueryClientProvider>)
+        await act(async () => {})
 
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).toBeInTheDocument()
@@ -1869,6 +1920,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('opencode')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'deepseek-session' })
         render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         fireEvent.click(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash (Max)' }))
         await waitFor(() => expect(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash (Max)' })).toHaveAttribute('aria-pressed', 'true'))
@@ -1892,6 +1944,7 @@ describe('NewSession launch preferences', () => {
             { agent: 'opencode', modelId: 'opencode-go/deepseek-v4.1-flash', pinned: true, alias: null, reasoningEffort: 'high' }
         ]
         render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         const effort = screen.getByRole('group', { name: 'newSession.effort' })
         await waitFor(() => expect(within(effort).getByRole('button', { name: 'Low' })).toHaveAttribute('aria-pressed', 'true'))
         fireEvent.click(screen.getByRole('button', { name: 'DeepSeek V4.1 Flash (Max)' }))
@@ -1906,6 +1959,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('opencode')
         mocks.opencodeVariants = { 'opencode-go/gemini-4-argon': ['low', 'high'] }
         render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         const effort = screen.getByRole('group', { name: 'newSession.effort' })
         expect(within(effort).getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(within(effort).getByRole('button', { name: 'Low' }))
@@ -1919,6 +1973,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('opencode')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'opencode-session' })
         render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         const argon = screen.getByRole('button', { name: 'Gemini 4 Argon (High)' })
         expect(argon).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getAllByRole('button').indexOf(argon)).toBeLessThan(
@@ -1949,6 +2004,7 @@ describe('NewSession launch preferences', () => {
         })
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'pinned-session' })
         render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('button', {name: label}))
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
@@ -1962,6 +2018,7 @@ describe('NewSession launch preferences', () => {
         mocks.opencodeVariants = { 'opencode-go/muse-spark-1.3-contributor': ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] }
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'muse-session' })
         render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' }))
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
@@ -1977,6 +2034,7 @@ describe('NewSession launch preferences', () => {
             model: 'opencode-go/muse-spark-1.3-contributor', modelReasoningEffort: selectedEffort
         } as unknown as import('@/types/api').Session
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" continueFromSession={source} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
@@ -1988,6 +2046,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('opencode')
         mocks.opencodeVariants = { 'opencode-go/gemini-4-argon': ['low', 'medium', 'high'] }
         render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         fireEvent.click(screen.getByTestId('reasoning'))
         await waitFor(() => expect(screen.getByTestId('opencode-variants')).toHaveTextContent('low,medium,high'))
@@ -1998,6 +2057,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('opencode')
         mocks.opencodeVariantsLoading = true
         const view = render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         fireEvent.click(screen.getByTestId('reasoning'))
         expect(screen.getByTestId('create')).toBeDisabled()
@@ -2008,10 +2068,11 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
     })
 
-    it('does not probe OpenCode variants until the working directory is verified', () => {
+    it('does not probe OpenCode variants until the working directory is verified', async () => {
         savePreferredAgent('opencode')
         mocks.directoryExists = undefined
         render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
 
         expect(mocks.opencodeVariantsEnabled).toBe(false)
     })
@@ -2022,6 +2083,7 @@ describe('NewSession launch preferences', () => {
         mocks.opencodeModels = [{ modelId: 'provider/model', name: 'Model' }]
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'opencode-session' })
         render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 4 Argon (High)' })).toHaveAttribute('aria-pressed', 'true'))
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
@@ -2035,6 +2097,7 @@ describe('NewSession launch preferences', () => {
         savePreferredAgent('agy')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'agy-session' })
         render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('agy-session', true))
@@ -2051,6 +2114,7 @@ describe('NewSession launch preferences', () => {
         ]
         mocks.spawnSession.mockResolvedValue({ type: 'error', message: 'spawn failed' })
         render(<NewSession initialAgent="agy" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         // The remembered model is pinned to the hardcoded default; the failed
         // launch leaves the saved preference untouched.
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.8 Flash (High)' })).toBeInTheDocument())
@@ -2076,6 +2140,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         const create = screen.getByTestId('create')
         fireEvent.click(create)
@@ -2121,6 +2186,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         fireEvent.click(screen.getByRole('button', { name: 'piImport.inline.choose' }))
         await waitFor(() => expect(screen.getByTestId('select-pi-history')).toBeEnabled())
@@ -2173,6 +2239,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         fireEvent.click(screen.getByRole('button', { name: 'piImport.inline.choose' }))
         fireEvent.click(screen.getByTestId('close-pi-history'))
@@ -2246,6 +2313,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         fireEvent.click(screen.getByRole('button', { name: 'piImport.inline.choose' }))
         await waitFor(() => expect(screen.getByTestId('select-pi-history')).toBeEnabled())
@@ -2273,6 +2341,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
         fireEvent.click(screen.getByTestId('create'))
@@ -2317,6 +2386,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => {
             // The explicit draft model and its supported effort survive.
@@ -2347,6 +2417,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => {
             expect(screen.getByTestId('model')).toHaveTextContent('auto')
@@ -2382,6 +2453,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => {
             expect(screen.getByTestId('launch-effort')).toHaveTextContent('auto')
@@ -2417,6 +2489,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => {
             expect(screen.getByTestId('model')).toHaveTextContent('auto')
@@ -2449,6 +2522,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => {
             expect(screen.getByTestId('launch-effort')).toHaveTextContent('auto')
@@ -2483,6 +2557,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         await waitFor(() => {
             // Provider-qualified options surfaced through the unified ModelSelector.
@@ -2536,6 +2611,7 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
+        await act(async () => {})
 
         expect(screen.getByText('newSession.continue.description')).toBeInTheDocument()
         await waitFor(() => expect(screen.getByDisplayValue('all')).toBeChecked())
@@ -2585,6 +2661,7 @@ describe('NewSession GLM-branded claude', () => {
         savePreferredAgent('claude')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
         render(<NewSession initialAgent="claude" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByRole('button', { name: 'GLM 5.3 Flash' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(screen.getByRole('button', { name: 'GLM 5.3' }))
         await waitFor(() => expect(screen.getByRole('button', { name: 'GLM 5.3' })).toHaveAttribute('aria-pressed', 'true'))
@@ -2605,6 +2682,7 @@ describe('NewSession GLM-branded claude', () => {
         })
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'claude-session' })
         render(<NewSession initialAgent="claude" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+        await act(async () => {})
 
         // GLM serves no effort levels, so the field is gone and a value
         // remembered from a pre-branding launch cannot leak into the spawn.
@@ -2662,6 +2740,7 @@ describe('NewSession fork launch defaults', () => {
             permissionMode: 'default'
         })
         render(<NewSession initialAgent="claude" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+        await act(async () => {})
 
         // Fork: remembered permission modes no longer pin the form; every
         // fresh launch opens on the flavor's own YOLO-equivalent.
@@ -2673,6 +2752,7 @@ describe('NewSession fork launch defaults', () => {
 
     it('lands a fresh Codex form on YOLO with no stored preference', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+        await act(async () => {})
 
         expect(screen.queryByText('misc.permissionMode')).toBeNull()
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'codex-session' })
@@ -2683,6 +2763,7 @@ describe('NewSession fork launch defaults', () => {
     it.each(['standard', 'fast'] as const)('submits the selected Codex %s badge', async (serviceTier) => {
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'speed-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+        await act(async () => {})
 
         expect(screen.queryByText('newSession.collaborationMode')).toBeNull()
         expect(screen.getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true')
@@ -2694,6 +2775,7 @@ describe('NewSession fork launch defaults', () => {
 
     it('uses Codex default for GPT-6.1 Sol after switching through Terra and GPT-6 Sol', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6.1 Sol' }))
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Sol' }))
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6.1 Sol' }))
@@ -2704,6 +2786,7 @@ describe('NewSession fork launch defaults', () => {
 
     it('launches GPT-6 Sol with Medium after selecting the second badge', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Sol' }))
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6-sol', modelReasoningEffort: undefined, serviceTier: 'fast' })))
@@ -2715,6 +2798,7 @@ describe('NewSession fork launch defaults', () => {
             { agent: 'codex', modelId: 'gpt-6.1-sol', pinned: true, alias: null, reasoningEffort: 'low' }
         ]
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('button', { name: 'Work' })).toBeVisible())
         const effort = screen.getByRole('group', { name: 'newSession.effort' })
         expect(within(effort).getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
@@ -2727,6 +2811,7 @@ describe('NewSession fork launch defaults', () => {
 
     it('launches the explicitly selected Codex effort', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         const effort = screen.getByRole('group', { name: 'newSession.effort' })
         fireEvent.click(within(effort).getByRole('button', { name: 'High' }))
         expect(within(effort).getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
@@ -2736,6 +2821,7 @@ describe('NewSession fork launch defaults', () => {
 
     it('keeps Terra Medium while Standard speed is chosen manually', async () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeStandard' }))
         fireEvent.click(screen.getByTestId('create'))
@@ -2748,6 +2834,7 @@ describe('NewSession fork launch defaults', () => {
             modelReasoningEffort: 'low', serviceTier: 'standard'
         })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
         expect(within(screen.getByRole('group', { name: 'newSession.effort' })).queryByRole('button', { pressed: true })).toBeNull()
         expect(screen.getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true')
@@ -2760,6 +2847,7 @@ describe('NewSession fork launch defaults', () => {
             model: 'retired-model', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default'
         })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         await waitFor(() => expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true'))
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-terra', modelReasoningEffort: undefined, serviceTier: 'fast' })))
@@ -2770,6 +2858,7 @@ describe('NewSession fork launch defaults', () => {
             model: 'gpt-6-astra', cursorSelectedBase: 'auto', effort: 'auto', modelReasoningEffort: 'default'
         })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.queryByRole('button', { name: 'GPT-6 Astra' })).toBeNull()
     })
@@ -2777,6 +2866,7 @@ describe('NewSession fork launch defaults', () => {
     it('drops Fast when switching to a Codex model without a fast tier', async () => {
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'standard-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna' }))
         expect(screen.queryByRole('button', { name: 'misc.fastModeFast' })).toBeNull()
@@ -2793,6 +2883,7 @@ describe('NewSession fork launch defaults', () => {
         savePreferredAgent('cursor')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'fork-session' })
         render(<NewSession initialAgent="cursor" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => { }} />)
+        await act(async () => {})
 
         fireEvent.click(screen.getByRole('button', { name: label }))
         expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'true')
@@ -2817,6 +2908,7 @@ describe('NewSession fork launch defaults', () => {
             grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
         })
         render(<NewSession initialAgent="cursor" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'grok-4.7-high-fast' })))
@@ -2825,6 +2917,7 @@ describe('NewSession fork launch defaults', () => {
     it('uses All agents as a filter and launches the explicitly selected executor/model without carrying Fast', async () => {
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'pair-session' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByRole('radio', { name: 'newSession.allAgents' })).toBeChecked()
         fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
         fireEvent.click(screen.getByRole('button', { name: 'Composer 2.5' }))
@@ -2841,6 +2934,7 @@ describe('NewSession fork launch defaults', () => {
     it('keeps the create-page Codex default independent of the CLI catalog default', async () => {
         mocks.codexDefaultModelId = 'gpt-6-luna'
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'false')
         expect(screen.getByRole('button', { name: 'misc.fastModeFast' })).toHaveAttribute('aria-pressed', 'true')
@@ -2853,6 +2947,7 @@ describe('NewSession fork launch defaults', () => {
     it.each(['codex', 'minimax'] as const)('distinguishes identical model labels by executor and launches %s', async agent => {
         mocks.availableAgents.push({ agent: 'minimax', available: true, defaultModelName: 'GPT-6 Luna' })
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.getAllByRole('button', { name: 'GPT-6 Luna' })).toHaveLength(2)
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6 Luna', description: agent === 'codex' ? 'Codex' : 'MiniMax Code' }))
         fireEvent.click(screen.getByTestId('create'))
@@ -2867,6 +2962,7 @@ describe('NewSession fork launch defaults', () => {
         mocks.cursorSkus = [{ modelId: 'grok-4.7-xhigh' }, { modelId: 'grok-4.7-xhigh-fast' }, { modelId: 'composer-2.5' }, { modelId: 'composer-2.5-fast' }]
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'cursor-session' })
         render(<NewSession initialAgent="cursor" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('radio', { name: 'Cursor' }))
 
         const grok = screen.getByRole('button', { name: 'Grok 4.7 Extra High' })
@@ -2888,6 +2984,7 @@ describe('NewSession fork launch defaults', () => {
         mocks.cursorModels = [{ modelId: 'composer-2.5' }]
         mocks.cursorSkus = []
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('button', { name: 'Composer 2.5' }))
         expect(screen.queryByRole('button', { name: 'misc.fastModeFast' })).toBeNull()
         fireEvent.click(screen.getByTestId('create'))
@@ -2898,6 +2995,7 @@ describe('NewSession fork launch defaults', () => {
         mocks.cursorModels = [{ modelId: 'composer-2.5[fast=false]' }, { modelId: 'composer-2.5[fast=true]' }]
         mocks.cursorSkus = []
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('button', { name: 'Composer 2.5' }))
         fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
         expect(screen.getByRole('button', { name: 'Composer 2.5' })).toHaveAttribute('aria-pressed', 'true')
@@ -2908,6 +3006,7 @@ describe('NewSession fork launch defaults', () => {
     it('resets to Cursor native settings when filtering from Codex even if discovery fails', async () => {
         mocks.cursorModelsError = 'Discovery unavailable'
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         fireEvent.click(screen.getByRole('button', { name: 'GPT-6.1 Sol' }))
         fireEvent.click(screen.getByRole('button', { name: 'misc.fastModeFast' }))
         fireEvent.click(screen.getByRole('radio', { name: 'Cursor' }))
@@ -2924,6 +3023,7 @@ describe('NewSession fork launch defaults', () => {
             { agent: 'opencode', model: 'opencode-go/muse-spark-1.3-contributor', sessionCount: 10, lastUsedAt: 300 },
         ]
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         const choices = screen.getByRole('region', { name: 'newSession.model' })
         expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['GPT-6.1 Terra', 'GPT-6 Sol', 'GPT-6.1 Sol', 'GPT-6 Luna', 'GLM 5.3 Flash', 'GLM 5.3', 'Gemini 3.8 Flash (High)', 'Gemini 3.6 Flash', 'Gemini 4 Argon (High)', 'Muse Spark 1.3 (Medium)', 'DeepSeek V4.1 Flash (Max)', 'Grok 4.7 Extra High', 'Composer 2.5', ...(minimaxAvailable ? ['MiniMax M3.1-Flash-Preview'] : [])])
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
@@ -2954,6 +3054,7 @@ describe('NewSession fork launch defaults', () => {
             { agent: 'opencode', model: 'opencode-go/muse-spark-1.3-contributor', sessionCount: 10, lastUsedAt: 300 },
         ]
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
         expect(screen.queryByLabelText('newSession.allAgents')).toBeNull()
         expect(screen.getAllByRole('radio').every(input => !(input as HTMLInputElement).checked)).toBe(true)
         expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).toBeVisible()
