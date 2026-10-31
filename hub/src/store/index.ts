@@ -50,7 +50,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 44
+const SCHEMA_VERSION: number = 45
 const REQUIRED_TABLES = [
     'session_launch_requests',
     'session_groups',
@@ -411,6 +411,11 @@ export class Store {
             40: () => createSessionLaunchTable(this.db),
             41: () => createSessionGroupTables(this.db),
             42: () => createModelPreferenceTable(this.db),
+            44: () => {
+                const columns = this.db.query("PRAGMA table_info(model_preferences)").all() as Array<{ name: string }>
+                if (!columns.some(column => column.name === "speed")) this.db.exec("ALTER TABLE model_preferences ADD COLUMN speed TEXT")
+                if (!columns.some(column => column.name === "show_in_all")) this.db.exec("ALTER TABLE model_preferences ADD COLUMN show_in_all INTEGER NOT NULL DEFAULT 1")
+            },
             43: () => {
                 const columns = this.db.query("PRAGMA table_info(model_preferences)").all() as Array<{ name: string }>
                 if (!columns.some(column => column.name === "reasoning_effort")) this.db.exec("ALTER TABLE model_preferences ADD COLUMN reasoning_effort TEXT")

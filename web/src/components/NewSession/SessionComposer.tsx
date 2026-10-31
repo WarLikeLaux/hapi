@@ -15,8 +15,6 @@ import { useSessions } from '@/hooks/queries/useSessions'
 import { useLastUsedMachine } from '@/hooks/useLastUsedMachine'
 import { getRecentProjectPaths } from '@/hooks/useRecentProjectPaths'
 import { resolveDefaultMachineDirectory } from './defaults'
-import { savePreferredLaunchSettings } from './preferences'
-import { usesSharedPermissionModeState } from '@/lib/codexFamilyPermissionAgents'
 import { useTranslation } from '@/lib/use-translation'
 import { clearNewSessionFormDraft, type NewSessionFormDraft } from './newSessionFormDraft'
 
@@ -201,14 +199,7 @@ function BatchComposer(props: Props & {
             updateCard(card.id, { result })
             if (result.state === 'succeeded') {
                 setLastUsedMachineId(request.machineId)
-                if (card.draft) {
-                    const draft = card.draft
-                    savePreferredLaunchSettings(request.machineId, draft.agent, {
-                        model: draft.model, cursorSelectedBase: draft.cursorSelectedBase,
-                        effort: draft.effort, modelReasoningEffort: draft.modelReasoningEffort,
-                        ...(usesSharedPermissionModeState(draft.agent) ? { permissionMode: draft.nativePermissionMode } : {}),
-                    })
-                }
+
             }
             if (composition.cards.length === 1 && result.state === 'succeeded' && result.sessionId) {
                 singleCompleted.current = true

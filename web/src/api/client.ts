@@ -106,6 +106,8 @@ export type ModelPreference = {
     alias: string | null
     hidden?: boolean
     reasoningEffort?: string | null
+    speed?: 'fast' | 'standard' | null
+    showInAll?: boolean
 }
 
 export type ProviderCredentialSource = 'env' | 'settings' | 'none'
