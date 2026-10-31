@@ -23,6 +23,7 @@ import { createMessagesRoutes } from './routes/messages'
 import { createPermissionsRoutes } from './routes/permissions'
 import { createMachinesRoutes } from './routes/machines'
 import { createModelPreferenceRoutes } from './routes/modelPreferences'
+import { createProjectPreferenceRoutes } from './routes/projectPreferences'
 import { createQuotasRoutes } from './routes/quotas'
 import { createStorageRoutes } from './routes/storage'
 import { createUsageRoutes } from './routes/usage'
@@ -305,6 +306,7 @@ function createWebApp(options: {
     app.route('/api', createPermissionsRoutes(options.getSyncEngine))
     app.route('/api', createMachinesRoutes(options.getSyncEngine))
     app.route('/api', createModelPreferenceRoutes(options.store))
+    app.route('/api', createProjectPreferenceRoutes(options.store))
     app.route('/api', createQuotasRoutes(options.getSyncEngine))
     app.route('/api', createStorageRoutes(configuration.dbPath))
     app.route('/api', createHubSettingsRoutes(configuration.dataDir))

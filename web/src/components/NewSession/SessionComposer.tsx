@@ -1,3 +1,4 @@
+import { useProjectPreferences } from '@/hooks/useProjectPreferences'
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { INITIAL_IMAGE_AGENTS, getFlavorLabel, type LaunchSessionRequest, type LaunchSessionResult } from '@hapi/protocol'
@@ -112,6 +113,7 @@ function BatchComposer(props: Props & {
     const client = useQueryClient()
     const groups = useSessionGroups(props.api)
     const { sessions } = useSessions(props.api)
+    const projectPreferences = useProjectPreferences(props.api)
     const { setLastUsedMachineId } = useLastUsedMachine()
     const storageKey = `hapi:session-composition:${props.groupId ?? 'standalone'}`
     const [composition, setComposition] = useState<Composition>(() => {
@@ -152,8 +154,8 @@ function BatchComposer(props: Props & {
         if (started || !props.machines[0] || props.machines.some(machine => machine.id === composition.machineId)) return
         const machine = props.machines[0]
         setComposition(c => ({ ...c, machineId: machine.id,
-            directory: (!c.machineId && c.directory) || resolveDefaultMachineDirectory(machine, getRecentProjectPaths(sessions, machine.id)) }))
-    }, [composition.machineId, props.machines, sessions, started])
+            directory: (!c.machineId && c.directory) || resolveDefaultMachineDirectory(machine, getRecentProjectPaths(sessions, machine.id), projectPreferences.projects.filter(p => p.machineId === machine.id && p.hidden).map(p => p.path)) }))
+    }, [composition.machineId, props.machines, sessions, started, projectPreferences.projects])
     const report = useCallback((id: string, state: SessionEditorState) => {
         setPrepared(current => JSON.stringify(current[id]) === JSON.stringify(state) ? current : { ...current, [id]: state })
         setComposition(c => {
@@ -316,7 +318,7 @@ function BatchComposer(props: Props & {
             {props.machines.length > 1 ? <MachineSelector machines={props.machines} machineId={composition.machineId} isLoading={props.isLoading}
                 isDisabled={disabled} onChange={machineId => {
                     const machine = props.machines.find(m => m.id === machineId)!
-                    setComposition(c => ({ ...c, machineId, directory: resolveDefaultMachineDirectory(machine, getRecentProjectPaths(sessions, machineId)) }))
+                    setComposition(c => ({ ...c, machineId, directory: projectPreferences.projects.find(p => p.isDefault && p.machineId === machineId)?.path ?? resolveDefaultMachineDirectory(machine, getRecentProjectPaths(sessions, machineId), projectPreferences.projects.filter(p => p.machineId === machineId && p.hidden).map(p => p.path)) }))
                 }} /> : null}
             {directoryPicker(composition.directory, directory => { setComposition(c => ({ ...c, directory })); setMissingDirectories([]) }, 'common')}
             <div className="space-y-1.5 px-3 py-3">

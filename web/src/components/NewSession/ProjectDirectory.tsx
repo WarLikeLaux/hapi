@@ -1,3 +1,4 @@
+import { useProjectPreferences } from '@/hooks/useProjectPreferences'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { Machine, SessionSummary } from '@/types/api'
@@ -18,10 +19,12 @@ export function ProjectDirectory(props: {
 }) {
     const [focused, setFocused] = useState(false)
     const [suppressed, setSuppressed] = useState(false)
+    const preferences = useProjectPreferences(props.api)
     const context = useSessionContextFilter(useSessionContextHubSync())
-    const { workPaths, recentPaths } = useProjectPaths(props.sessions, props.machine?.id ?? null, context)
+    const { workPaths, recentPaths } = useProjectPaths(props.sessions, props.machine?.id ?? null, { ...context, projects: preferences.projects })
     const recent = useMemo(() => getRecentProjectPaths(props.sessions, props.machine?.id ?? null), [props.sessions, props.machine?.id])
-    const allPaths = useDirectorySuggestions(props.machine?.id ?? null, props.sessions, recent)
+    const suggestedPaths = useDirectorySuggestions(props.machine?.id ?? null, props.sessions, recent)
+    const allPaths = useMemo(() => suggestedPaths.filter(path => !preferences.projects.some(p => p.machineId === props.machine?.id && p.path === path && p.hidden)), [suggestedPaths, preferences.projects, props.machine?.id])
     const { pathExistence } = useMachinePathsExists(props.api, props.machine?.id ?? null, allPaths)
     const listings = useRef(new Map<string, Awaited<ReturnType<ApiClient['listMachineDirectory']>>>())
     const suggest = useCallback(async (query: string): Promise<Suggestion[]> => {
@@ -43,7 +46,7 @@ export function ProjectDirectory(props: {
     }, [props.machine, props.api, allPaths, pathExistence])
     const [suggestions, selectedIndex, up, down, clear] = useActiveSuggestions(focused && !suppressed && !props.disabled ? props.value : null, suggest)
     function select(path: string) { setSuppressed(true); clear(); props.onChange(path) }
-    return <DirectorySection label={props.label} directory={props.value} suggestions={suggestions} selectedIndex={selectedIndex}
+    return <DirectorySection aliases={Object.fromEntries(preferences.projects.filter(p => p.machineId === props.machine?.id && p.alias).map(p => [p.path, p.alias!]))} label={props.label} directory={props.value} suggestions={suggestions} selectedIndex={selectedIndex}
         isDisabled={props.disabled} workPaths={props.compact ? [] : workPaths} recentPaths={props.compact ? [] : recentPaths}
         onDirectoryChange={value => { setSuppressed(false); props.onChange(value) }}
         onDirectoryFocus={() => { setFocused(true); setSuppressed(false) }} onDirectoryBlur={() => setFocused(false)}
