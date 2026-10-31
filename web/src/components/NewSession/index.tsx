@@ -1,3 +1,5 @@
+import { useProjectPreferences } from '@/hooks/useProjectPreferences'
+import { ProjectManager } from './ProjectManager'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary, Session } from '@/types/api'
@@ -150,7 +152,10 @@ export function NewSession(props: {
     const { t } = useTranslation()
     const { addToast } = useToast()
     const { spawnSession, isPending, error: spawnError } = useSpawnSession(props.api)
-    const { sessions, refetch: refetchSessions } = useSessions(props.api)
+    const { sessions, isLoading: sessionsLoading, refetch: refetchSessions } = useSessions(props.api)
+    const projectPreferences = useProjectPreferences(props.api)
+    const [projectManagerOpen, setProjectManagerOpen] = useState(false)
+    const defaultApplied = useRef(false)
     const modelPreferences = useModelPreferences(props.api)
     const [modelManagerOpen, setModelManagerOpen] = useState(false)
     const { getLastUsedMachineId, setLastUsedMachineId } = useLastUsedMachine()
@@ -371,31 +376,18 @@ export function NewSession(props: {
     ])
 
     useEffect(() => {
-        if (props.machines.length === 0) return
-        if (machineId && props.machines.find((m) => m.id === machineId)) return
-
-        const lastUsed = getLastUsedMachineId()
-        const foundLast = lastUsed ? props.machines.find((m) => m.id === lastUsed) : null
-
-        if (foundLast) {
-            setMachineId(foundLast.id)
-            if (!props.initialDirectory) {
-                setDirectory(resolveDefaultMachineDirectory(
-                    foundLast,
-                    getRecentProjectPaths(sessions, foundLast.id)
-                ))
-            }
-        } else if (props.machines[0]) {
-            const firstMachine = props.machines[0]
-            setMachineId(firstMachine.id)
-            if (!props.initialDirectory) {
-                setDirectory(resolveDefaultMachineDirectory(
-                    firstMachine,
-                    getRecentProjectPaths(sessions, firstMachine.id)
-                ))
-            }
+        if (!props.machines.length) return
+        const selected = props.machines.find(m => m.id === machineId)
+            ?? props.machines.find(m => m.id === getLastUsedMachineId())
+            ?? props.machines[0]
+        if (machineId !== selected.id) setMachineId(selected.id)
+        if (defaultApplied.current || projectPreferences.loading || sessionsLoading) return
+        if (props.initialDirectory === undefined) {
+            setDirectory(projectPreferences.projects.find(p => p.isDefault && p.machineId === selected.id)?.path
+                ?? resolveDefaultMachineDirectory(selected, getRecentProjectPaths(sessions, selected.id), projectPreferences.projects.filter(p => p.machineId === selected.id && p.hidden).map(p => p.path)))
         }
-    }, [props.machines, machineId, getLastUsedMachineId, sessions, props.initialDirectory])
+        defaultApplied.current = true
+    }, [props.machines, machineId, getLastUsedMachineId, sessions, props.initialDirectory, projectPreferences.loading, projectPreferences.projects, sessionsLoading])
 
     const selectedMachine = useMemo(
         () => (machineId ? props.machines.find((machine) => machine.id === machineId) ?? null : null),
@@ -588,12 +580,13 @@ export function NewSession(props: {
     const { workPaths, recentPaths: filteredRecentPaths } = useProjectPaths(
         sessions,
         machineId,
-        { workAliases, projectOverrides }
+        { workAliases, projectOverrides, projects: projectPreferences.projects }
     )
 
     const trimmedDirectory = directory.trim()
     const deferredDirectory = useDeferredValue(trimmedDirectory)
-    const allPaths = useDirectorySuggestions(machineId, sessions, recentPaths)
+    const suggestedPaths = useDirectorySuggestions(machineId, sessions, recentPaths)
+    const allPaths = useMemo(() => suggestedPaths.filter(path => !projectPreferences.projects.some(p => p.machineId === machineId && p.path === path && p.hidden)), [suggestedPaths, projectPreferences.projects, machineId])
     const workspaceRoots = useMemo(
         () => selectedMachine?.metadata?.workspaceRoots ?? [],
         [selectedMachine?.metadata?.workspaceRoots]
@@ -1654,6 +1647,7 @@ export function NewSession(props: {
     }, [agent, displayedModel, modelPreferences.loading, modelPreferences.preferences, visibleModelChoices])
 
     const handleMachineChange = useCallback((newMachineId: string) => {
+        defaultApplied.current = true
         preserveRestoredDraftRef.current = false
         setMachineId(newMachineId)
         setModel(agent === 'codex' ? CODEX_DEFAULT_MODEL_ID : 'auto')
@@ -1666,9 +1660,9 @@ export function NewSession(props: {
         setPiImportMachineId(null)
         const machine = props.machines.find((candidate) => candidate.id === newMachineId)
         setDirectory(machine
-            ? resolveDefaultMachineDirectory(machine, getRecentProjectPaths(sessions, newMachineId))
+            ? projectPreferences.projects.find(p => p.isDefault && p.machineId === newMachineId)?.path ?? resolveDefaultMachineDirectory(machine, getRecentProjectPaths(sessions, newMachineId), projectPreferences.projects.filter(p => p.machineId === newMachineId && p.hidden).map(p => p.path))
             : '')
-    }, [sessions, props.machines])
+    }, [sessions, props.machines, projectPreferences.projects])
 
     const handleChooseFolderClick = useCallback(() => {
         if (!props.onChooseFolder) {
@@ -1743,12 +1737,14 @@ export function NewSession(props: {
     }, [])
 
     const handlePathClick = useCallback((path: string) => {
+        defaultApplied.current = true
         setDirectory(path)
     }, [])
 
     const handleSuggestionSelect = useCallback((index: number) => {
         const suggestion = suggestions[index]
         if (suggestion) {
+            defaultApplied.current = true
             setDirectory(suggestion.text)
             clearSuggestions()
             setSuppressSuggestions(true)
@@ -1756,6 +1752,7 @@ export function NewSession(props: {
     }, [suggestions, clearSuggestions])
 
     const handleDirectoryChange = useCallback((value: string) => {
+        defaultApplied.current = true
         setSuppressSuggestions(false)
         setDirectory(value)
     }, [])
@@ -2154,6 +2151,7 @@ export function NewSession(props: {
             ) : null}
             {!props.editor ? <DirectorySection
                 directory={directory}
+                aliases={Object.fromEntries(projectPreferences.projects.filter(p => p.machineId === machineId && p.alias).map(p => [p.path, p.alias!]))}
                 suggestions={suggestions}
                 selectedIndex={selectedIndex}
                 isDisabled={isFormDisabled}
@@ -2332,6 +2330,7 @@ export function NewSession(props: {
                 </div>
             ) : null}
 
+            {!props.editor && projectManagerOpen ? projectPreferences.loading ? <p role="status" className="px-3 py-2 text-xs text-[var(--app-hint)]">{t('newSession.projects.loading')}</p> : projectPreferences.error ? <p role="alert" className="px-3 py-2 text-xs text-red-600">{t('newSession.projects.loadError')} <button type="button" className="underline" onClick={() => void projectPreferences.retry()}>{t('button.retry')}</button></p> : <ProjectManager machineId={machineId} projects={projectPreferences.projects} knownPaths={[...workPaths, ...filteredRecentPaths]} save={projectPreferences.save} /> : null}
             {!props.editor ? <ActionButtons
                 isPending={isCreating || isPending || isImportingCodexSession || isImportingPiSession}
                 canCreate={canCreate}
@@ -2340,6 +2339,8 @@ export function NewSession(props: {
                 onCancel={props.onCancel}
                 onCreate={handleCreate}
                 onAddChat={props.onAddChat && !selectedCodexImportSession && !selectedPiImportSession ? handleAddChat : undefined}
+                onManageProjects={() => setProjectManagerOpen(open => !open)}
+                manageProjectsOpen={projectManagerOpen}
                 onManageModels={effectiveFilter !== 'all' && effectiveFilter === agent && agent !== 'dsh' && showPiLaunchConfig ? () => setModelManagerOpen(open => !open) : undefined}
                 manageModelsOpen={modelManagerOpen}
             /> : null}

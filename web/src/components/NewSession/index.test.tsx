@@ -60,6 +60,8 @@ const mocks = vi.hoisted(() => ({
     nextModelValue: 'gpt-5.6-terra',
     refetchSessions: vi.fn(),
     addToast: vi.fn(),
+    projectPreferences: [] as import('@/api/client').ProjectPreference[],
+    projectsLoading: false,
     modelPreferences: [] as Array<{ agent: string; modelId: string; pinned: boolean; alias: string | null; hidden?: boolean; reasoningEffort?: string | null }>,
     saveModelPreference: vi.fn(),
     reorderModelPreferences: vi.fn()
@@ -87,6 +89,7 @@ vi.mock('@/lib/use-translation', () => ({
         return (modelManagerLabels[key] ?? key).replace('{model}', params?.model ?? '')
     } })
 }))
+vi.mock('@/hooks/useProjectPreferences', () => ({ useProjectPreferences: () => ({ projects: mocks.projectPreferences, loading: mocks.projectsLoading, error: null, save: vi.fn() }) }))
 vi.mock('@/lib/toast-context', () => ({
     useToast: () => ({ addToast: mocks.addToast })
 }))
@@ -394,6 +397,8 @@ const api = {
 
 describe('NewSession launch preferences', () => {
     beforeEach(() => {
+        mocks.projectPreferences = []
+        mocks.projectsLoading = false
         mocks.narrowViewport = false
         mocks.popularModels = []
         mocks.codexTerraName = 'GPT-6.1 Terra'
@@ -933,6 +938,19 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByRole('button', { name: 'batch.launchOne' }))
         await waitFor(() => expect(launch).toHaveBeenCalledTimes(2))
         expect(launch.mock.calls[1][1]).toMatchObject({ initialPrompt: '', groupId: undefined })
+    })
+
+    it('uses the managed default and keeps a manual choice while preferences load', async () => {
+        mocks.projectsLoading = true
+        mocks.projectPreferences = [{ machineId: 'machine-1', path: '/code/hapi', alias: 'HAPI', section: 'auto', priority: false, isDefault: true }]
+        const view = render(<NewSession api={api} machines={[machine]} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        fireEvent.change(screen.getByLabelText('directory-test'), { target: { value: '/code/manual' } })
+        mocks.projectsLoading = false
+        view.rerender(<NewSession api={api} machines={[machine]} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.getByLabelText('directory-test')).toHaveValue('/code/manual')
+        view.unmount()
+        render(<NewSession api={api} machines={[machine]} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByLabelText('directory-test')).toHaveValue('/code/hapi'))
     })
 
     it('creates an optional named group and reuses its request after a failed launch', async () => {

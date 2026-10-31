@@ -1,3 +1,4 @@
+import { useProjectPreferences } from '@/hooks/useProjectPreferences'
 import { SessionItemActions } from '@/components/SessionItemActions'
 import { SESSION_LIST_ITEM_CLASS } from '@/components/SessionRowLayout'
 import type { SessionGroup as ChatGroup } from '@hapi/protocol'
@@ -1390,10 +1391,12 @@ export function SessionList(props: {
         () => prepareSidebarSessions(props.sessions, selectedSessionId),
         [props.sessions, selectedSessionId]
     )
-    const projectDisplayNames = useMemo(
-        () => getPathDisplayNames(sidebarSessions.map(getSessionProjectDirectory)),
-        [sidebarSessions]
-    )
+    const projectPreferences = useProjectPreferences(api)
+    const projectDisplayNames = useMemo(() => {
+        const names = getPathDisplayNames(sidebarSessions.map(getSessionProjectDirectory))
+        for (const project of projectPreferences.projects) if (project.alias) names.set(project.path, project.alias)
+        return names
+    }, [sidebarSessions, projectPreferences.projects])
     const getProjectDisplayName = (session: SessionSummary): string => {
         const path = getSessionProjectDirectory(session)
         return projectDisplayNames.get(path) ?? getPathDisplayName(path)

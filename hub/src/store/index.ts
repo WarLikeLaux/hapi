@@ -19,6 +19,7 @@ import { UserStore } from './userStore'
 import { UsageStore } from './usageStore'
 import { WorkGraphStore } from './workGraphStore'
 import { ModelPreferenceStore, createModelPreferenceTable } from './modelPreferenceStore'
+import { ProjectPreferenceStore, createProjectPreferenceTable } from './projectPreferenceStore'
 import { shouldRecordSessionActivity } from '../sync/sessionActivity'
 
 export type {
@@ -50,7 +51,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 44
+const SCHEMA_VERSION: number = 45
 const REQUIRED_TABLES = [
     'session_launch_requests',
     'session_groups',
@@ -71,7 +72,8 @@ const REQUIRED_TABLES = [
     'external_conversations',
     'external_messages',
     'external_participants',
-    'model_preferences'
+    'model_preferences',
+    'project_preferences'
 ] as const
 
 export class Store {
@@ -91,6 +93,7 @@ export class Store {
     readonly scratchlist: ScratchlistStore
     readonly usage: UsageStore
     readonly workGraph: WorkGraphStore
+    readonly projectPreferences: ProjectPreferenceStore
     readonly modelPreferences: ModelPreferenceStore
 
     /**
@@ -150,6 +153,7 @@ export class Store {
         this.usage = new UsageStore(this.db)
         this.workGraph = new WorkGraphStore(this.db)
         this.modelPreferences = new ModelPreferenceStore(this.db)
+        this.projectPreferences = new ProjectPreferenceStore(this.db)
         this.backfillLastUserMessageAt()
     }
 
@@ -415,6 +419,7 @@ export class Store {
                 const columns = this.db.query("PRAGMA table_info(model_preferences)").all() as Array<{ name: string }>
                 if (!columns.some(column => column.name === "reasoning_effort")) this.db.exec("ALTER TABLE model_preferences ADD COLUMN reasoning_effort TEXT")
             },
+            44: () => createProjectPreferenceTable(this.db),
         })
 
         if (currentVersion === 0) {
@@ -464,6 +469,7 @@ export class Store {
         createSessionLaunchTable(this.db)
         createSessionGroupTables(this.db)
         createModelPreferenceTable(this.db)
+        createProjectPreferenceTable(this.db)
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,

@@ -99,6 +99,16 @@ export type RetryIndeterminateMessageResponse =
     | { status: 'invoked'; message: DecryptedMessage }
     | { status: 'not-found' }
 
+export type ProjectPreference = {
+    machineId: string
+    path: string
+    alias: string | null
+    section: 'auto' | 'work' | 'recent'
+    priority: boolean
+    isDefault: boolean
+    hidden?: boolean
+}
+
 export type ModelPreference = {
     agent: AgentFlavor
     modelId: string
@@ -1214,6 +1224,14 @@ export class ApiClient {
 
     async getMachines(): Promise<MachinesResponse> {
         return await this.request<MachinesResponse>('/api/machines')
+    }
+
+    async getProjectPreferences(): Promise<{ projects: ProjectPreference[] }> {
+        return await this.request('/api/project-preferences')
+    }
+
+    async saveProjectPreferences(projects: ProjectPreference[]): Promise<{ projects: ProjectPreference[] }> {
+        return await this.request('/api/project-preferences', { method: 'PUT', body: JSON.stringify(projects) })
     }
 
     async getModelPreferences(): Promise<{ preferences: ModelPreference[] }> {

@@ -29,6 +29,11 @@ describe('new session defaults', () => {
             .toEqual(['codex', 'claude', 'agy', 'opencode', 'cursor', 'grok', 'pi', 'minimax'])
     })
 
+    it('does not fall back to a hidden project directory', () => {
+        const machine = { metadata: { workspaceRoots: ['/code/hapi'], homeDir: '/home/user' } } as Machine
+        expect(resolveDefaultMachineDirectory(machine, ['/code/hapi', '/code/other'], ['/code/hapi'])).toBe('/code/other')
+    })
+
     it('prefers a recent hapi directory over the workspace root', () => {
         expect(resolveDefaultMachineDirectory(machine({
             host: 'host',

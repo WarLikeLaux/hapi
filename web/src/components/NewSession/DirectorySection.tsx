@@ -42,6 +42,7 @@ function PathChip(props: {
     path: string
     isDisabled: boolean
     onPathClick: (path: string) => void
+    aliases?: Record<string, string>
 }) {
     return (
         <button
@@ -60,7 +61,7 @@ function PathChip(props: {
             title={props.path}
             aria-label={props.path}
         >
-            {basename(props.path)}
+            {props.aliases?.[props.path] || basename(props.path)}
         </button>
     )
 }
@@ -70,6 +71,7 @@ type PathRowProps = {
     paths: readonly string[]
     isDisabled: boolean
     onPathClick: (path: string) => void
+    aliases?: Record<string, string>
 }
 
 function PathRow(props: PathRowProps) {
@@ -82,6 +84,7 @@ function PathRow(props: PathRowProps) {
                     <PathChip
                         key={path}
                         path={path}
+                        aliases={props.aliases}
                         isDisabled={props.isDisabled}
                         onPathClick={props.onPathClick}
                     />
@@ -147,17 +150,17 @@ function RecentPathRow(props: PathRowProps) {
         <span id={labelId} className="text-xs text-[var(--app-hint)]">{props.label}:</span>
         <div className="pointer-events-none invisible absolute inset-0 overflow-hidden" aria-hidden="true">
             <div ref={measurements} className="flex w-max gap-2">
-                {props.paths.map(path => <PathChip key={path} path={path} isDisabled onPathClick={props.onPathClick} />)}
+                {props.paths.map(path => <PathChip aliases={props.aliases} key={path} path={path} isDisabled onPathClick={props.onPathClick} />)}
                 {more}
             </div>
         </div>
         <div ref={container} role="group" aria-labelledby={labelId} className="flex min-w-0 flex-wrap gap-2">
-            {props.paths.slice(0, visibleCount).map(path => <PathChip key={path} path={path} isDisabled={props.isDisabled} onPathClick={props.onPathClick} />)}
+            {props.paths.slice(0, visibleCount).map(path => <PathChip aliases={props.aliases} key={path} path={path} isDisabled={props.isDisabled} onPathClick={props.onPathClick} />)}
             {remaining.length ? <Popover.Root open={open && !props.isDisabled} onOpenChange={setOpen}>
                 <Popover.Trigger asChild>{more}</Popover.Trigger>
                 <Popover.Portal><Popover.Content aria-label={t('newSession.moreRecentPaths')} side="bottom" align="end" sideOffset={6} collisionPadding={12}
                     className="z-50 flex max-h-[min(22rem,var(--radix-popover-content-available-height))] w-[min(24rem,calc(100vw-1.5rem))] flex-wrap gap-2 overflow-y-auto rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3 text-[var(--app-fg)] shadow-lg">
-                    {remaining.map(path => <PathChip key={path} path={path} isDisabled={props.isDisabled} onPathClick={path => { props.onPathClick(path); setOpen(false) }} />)}
+                    {remaining.map(path => <PathChip aliases={props.aliases} key={path} path={path} isDisabled={props.isDisabled} onPathClick={path => { props.onPathClick(path); setOpen(false) }} />)}
                 </Popover.Content></Popover.Portal>
             </Popover.Root> : null}
         </div>
@@ -172,6 +175,7 @@ export function DirectorySection(props: {
     isDisabled: boolean
     workPaths: string[]
     recentPaths: string[]
+    aliases?: Record<string, string>
     statusMessage?: string | null
     statusTone?: 'warning' | 'error' | null
     onDirectoryChange: (value: string) => void
@@ -250,12 +254,14 @@ export function DirectorySection(props: {
             </div>
 
             <PathRow
+                aliases={props.aliases}
                 label={t('newSession.working')}
                 paths={props.workPaths}
                 isDisabled={props.isDisabled}
                 onPathClick={props.onPathClick}
             />
             <RecentPathRow
+                aliases={props.aliases}
                 label={t('newSession.recent')}
                 paths={props.recentPaths}
                 isDisabled={props.isDisabled}

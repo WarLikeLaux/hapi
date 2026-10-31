@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import type { ProjectPreference } from '@/api/client'
 import type { SessionSummary } from '@/types/api'
 import { getSessionUserActivityAt } from '@/components/SessionList'
 import { resolveSessionContext, type SessionContextId } from '@/lib/sessionContexts'
@@ -22,6 +23,7 @@ export interface ProjectPaths {
 export interface SessionContextOptionsForPaths {
     workAliases?: readonly string[] | null
     projectOverrides?: Record<string, SessionContextId> | null
+    projects?: readonly ProjectPreference[]
 }
 
 /**
@@ -60,7 +62,7 @@ export function getProjectPaths(
     workLimit: number = WORK_PROJECT_PATHS_LIMIT,
     minSessions: number = MIN_SESSIONS_FOR_PICKER
 ): ProjectPaths {
-    const { workAliases = null, projectOverrides = null } = options
+    const { workAliases = null, projectOverrides = null, projects = [] } = options
 
     if (!machineId) {
         return { workPaths: [], recentPaths: [] }
@@ -83,30 +85,39 @@ export function getProjectPaths(
         }
     }
 
+    const configured = projects.filter(project => project.machineId === machineId)
+    for (const project of configured) {
+        if (!statsByPath.has(project.path)) statsByPath.set(project.path, { latestActivity: 0, totalSessions: 0 })
+    }
+    const preferences = new Map(configured.map(project => [project.path, project]))
     const classified = [...statsByPath.entries()]
-        .filter(([, stats]) => stats.totalSessions >= minSessions)
+        .filter(([path, stats]) => !preferences.get(path)?.hidden && (stats.totalSessions >= minSessions || preferences.has(path)))
         .map(([path, stats]) => ({
             path,
             stats,
-            isWork: isWorkPath(path, { workAliases, projectOverrides }),
+            isWork: preferences.get(path)?.section === 'work' || (preferences.get(path)?.section !== 'recent' && isWorkPath(path, { workAliases, projectOverrides })),
         }))
 
+    const priority = new Map(configured.filter(project => project.priority).map((project, index) => [project.path, index]))
+    const comparePriority = (a: string, b: string) => (priority.get(a) ?? Infinity) - (priority.get(b) ?? Infinity)
     // Working: highest lifetime session count first; recent activity breaks ties.
     const workPaths = classified
         .filter((entry) => entry.isWork)
         .sort((a, b) => {
+            const order = comparePriority(a.path, b.path)
+            if (order) return order
             if (b.stats.totalSessions !== a.stats.totalSessions) {
                 return b.stats.totalSessions - a.stats.totalSessions
             }
             return b.stats.latestActivity - a.stats.latestActivity
         })
-        .slice(0, workLimit)
+        .filter((entry, index) => index < workLimit || preferences.has(entry.path))
         .map((entry) => entry.path)
 
     // Recent: most recent activity first.
     const recentPaths = classified
         .filter((entry) => !entry.isWork)
-        .sort((a, b) => b.stats.latestActivity - a.stats.latestActivity)
+        .sort((a, b) => comparePriority(a.path, b.path) || b.stats.latestActivity - a.stats.latestActivity)
         .map((entry) => entry.path)
 
     return { workPaths, recentPaths }
@@ -117,9 +128,9 @@ export function useProjectPaths(
     machineId: string | null,
     options: SessionContextOptionsForPaths = {}
 ): ProjectPaths {
-    const { workAliases, projectOverrides } = options
+    const { workAliases, projectOverrides, projects } = options
     return useMemo(
-        () => getProjectPaths(sessions, machineId, { workAliases, projectOverrides }),
-        [sessions, machineId, workAliases, projectOverrides]
+        () => getProjectPaths(sessions, machineId, { workAliases, projectOverrides, projects }),
+        [sessions, machineId, workAliases, projectOverrides, projects]
     )
 }

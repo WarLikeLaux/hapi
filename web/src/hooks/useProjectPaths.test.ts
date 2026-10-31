@@ -31,6 +31,21 @@ function session(
 }
 
 describe('getProjectPaths', () => {
+    it('keeps managed paths without sessions and prioritizes them within their chosen lists', () => {
+        const sessions = [session('a', '/code/corp', { lastUserMessageAt: 100 }), session('b', '/code/corp'), session('c', '/code/corp'),
+            session('d', '/code/recent', { lastUserMessageAt: 200 }), session('e', '/code/recent'), session('f', '/code/recent')]
+        const base = { machineId: 'm1', alias: null, priority: true, isDefault: false } as const
+        expect(getProjectPaths(sessions, 'm1', { workAliases: ['corp'], projects: [
+            { ...base, path: '/code/personal', section: 'work' },
+            { ...base, path: '/code/other', section: 'recent' },
+        ] })).toEqual({ workPaths: ['/code/personal', '/code/corp'], recentPaths: ['/code/other', '/code/recent'] })
+    })
+
+    it('omits a hidden project even if its sessions would normally qualify', () => {
+        const sessions = [session('a', '/code/hidden'), session('b', '/code/hidden'), session('c', '/code/hidden')]
+        expect(getProjectPaths(sessions, 'm1', { projects: [{ machineId: 'm1', path: '/code/hidden', alias: null, section: 'auto', priority: false, isDefault: false, hidden: true }] })).toEqual({ workPaths: [], recentPaths: [] })
+    })
+
     it('returns empty arrays when no machine is selected', () => {
         const sessions = [session('a', '/repo/x', { lastUserMessageAt: 100 })]
         expect(getProjectPaths(sessions, null)).toEqual({ workPaths: [], recentPaths: [] })

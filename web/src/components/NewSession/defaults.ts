@@ -30,20 +30,23 @@ export function orderCreateSessionAgents(agents: readonly AgentType[]): AgentTyp
 
 export function resolveDefaultMachineDirectory(
     machine: Machine,
-    recentPaths: readonly string[]
+    recentPaths: readonly string[],
+    hiddenPaths: readonly string[] = []
 ): string {
-    const hapiPath = recentPaths
+    const visiblePaths = recentPaths.filter(path => !hiddenPaths.includes(path.trim()))
+    const hapiPath = visiblePaths
         .map((path) => path.trim())
         .find((path) => path.length > 0 && basename(path) === 'hapi')
     if (hapiPath) return hapiPath
 
     const workspaceRoot = machine.metadata?.workspaceRoots
-        ?.find((path) => path.trim().length > 0)
+        ?.find((path) => path.trim().length > 0 && !hiddenPaths.includes(path.trim()))
         ?.trim()
     if (workspaceRoot) return workspaceRoot
 
-    const recentPath = recentPaths.find((path) => path.trim().length > 0)?.trim()
+    const recentPath = visiblePaths.find((path) => path.trim().length > 0)?.trim()
     if (recentPath) return recentPath
 
-    return machine.metadata?.homeDir?.trim() ?? ''
+    const home = machine.metadata?.homeDir?.trim() ?? ''
+    return hiddenPaths.includes(home) ? '' : home
 }
