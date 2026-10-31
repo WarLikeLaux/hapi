@@ -28,6 +28,12 @@ export function isNewEmptySession(session: SessionSummary): boolean {
     return true
 }
 
+// A prompted session has content before the agent has replied. Use its creation
+// time until agent activity exists, without changing unread semantics.
+export function getActiveSessionSortAt(session: SessionSummary): number {
+    return getSessionUnreadActivityAt(session) || session.createdAt || 0
+}
+
 /** Unread chats are always fresh; read ones stay for the grace window only. */
 export function isFreshConversation(
     conversation: ExternalConversation,
@@ -66,7 +72,7 @@ export function mergeSidebarChatRows(
         kind: 'session',
         key: `session:${session.id}`,
         session,
-        sortAt: getSessionUnreadActivityAt(session),
+        sortAt: getActiveSessionSortAt(session),
     }))
     const chatRows: Extract<SidebarChatRow, { kind: 'chat' }>[] = conversations.map(conversation => ({
         kind: 'chat',
