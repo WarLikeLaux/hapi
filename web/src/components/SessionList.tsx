@@ -26,6 +26,7 @@ import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { useFreshChatsWindow, getFreshChatsWindowMs } from '@/hooks/useFreshChatsWindow'
 import {
     isNewEmptySession,
+    getActiveSessionSortAt,
     mergeSidebarChatRows,
     selectFreshSidebarConversations,
     type SidebarChatRow,
@@ -315,7 +316,7 @@ export function sortActiveSessions(sessions: SessionSummary[]): SessionSummary[]
             const timeB = getEmptySessionTime(b)
             return timeB - timeA || a.id.localeCompare(b.id)
         }
-        return getSessionUnreadActivityAt(b) - getSessionUnreadActivityAt(a) || a.id.localeCompare(b.id)
+        return getActiveSessionSortAt(b) - getActiveSessionSortAt(a) || a.id.localeCompare(b.id)
     })
 }
 
@@ -1818,7 +1819,7 @@ export function SessionList(props: {
         type Row = SidebarChatRow | { kind: 'group'; key: string; group: ChatGroup; sortAt: number }
         const rows: Row[] = mergedRows ?? sessions.map(session => ({
             kind: 'session', key: `session:${session.id}`, session,
-            sortAt: timeBasis === 'user' ? getSessionUserActivityAt(session) : getSessionUnreadActivityAt(session),
+            sortAt: timeBasis === 'user' ? getSessionUserActivityAt(session) : prioritizeEmpty ? getActiveSessionSortAt(session) : getSessionUnreadActivityAt(session),
         }))
         const byId = new Map((props.groupedSessions ?? []).map(session => [session.id, session]))
         const groupRows = chatGroups.map<Row>(group => ({

@@ -603,6 +603,15 @@ describe('user-authored session ordering', () => {
         expect(sortActiveSessions([older, fresh]).map(session => session.id)).toEqual(['fresh', 'older'])
     })
 
+    it('places a new prompted chat above older chats before the first agent reply', () => {
+        const older = makeSession({ id: 'older', active: true, createdAt: 100, lastAgentMessageAt: 150, hasConversationContent: true })
+        const prompted = makeSession({ id: 'prompted', active: true, createdAt: 200, lastUserMessageAt: 210, lastMessageAt: 210, lastAgentMessageAt: 0, hasConversationContent: true })
+        const empty = makeSession({ id: 'empty', active: true, createdAt: 220, lastUserMessageAt: 220, lastAgentMessageAt: 0 })
+
+        expect(sortActiveSessions([older, prompted, empty]).map(session => session.id))
+            .toEqual(['empty', 'prompted', 'older'])
+    })
+
     it('sorts newly opened sessions without messages to the top of Active sessions', () => {
         const sessions = [
             makeSession({
