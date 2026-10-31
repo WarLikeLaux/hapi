@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
     codexDefaultModelId: 'gpt-6.1-sol',
     codexTerraName: 'GPT-6.1 Terra',
     codexModelsLoading: false,
+    codexModelsError: null as string | null,
     agyModelsLoading: false,
     agyModels: [{ modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' }],
     directoryExists: undefined as boolean | undefined,
@@ -186,7 +187,7 @@ vi.mock('@/hooks/queries/useCodexModels', () => ({
             }
         ].map(model => ({ ...model, isDefault: model.id === mocks.codexDefaultModelId })),
         isLoading: mocks.codexModelsLoading,
-        error: null
+        error: mocks.codexModelsError
     })
 }))
 vi.mock('@/hooks/queries/useAgyModels', () => ({
@@ -403,6 +404,7 @@ describe('NewSession launch preferences', () => {
         mocks.projectsLoading = false
         mocks.narrowViewport = false
         mocks.popularModels = []
+        mocks.codexModelsError = null
         mocks.codexTerraName = 'GPT-6.1 Terra'
         mocks.codexDefaultModelId = 'gpt-6.1-sol'
         mocks.cursorModelsError = null
@@ -1099,6 +1101,98 @@ describe('NewSession launch preferences', () => {
         expect(screen.getByTestId('model-options').textContent).toBe('Native model')
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent, model: undefined })))
+    })
+
+    it('keeps the restored GLM draft after model preferences load', async () => {
+        setClaudeGlmBranded(true)
+        mocks.modelPreferences = [{ agent: 'claude', modelId: 'glm-5.3', pinned: true, alias: null }]
+        saveNewSessionFormDraft({
+            agent: 'claude', model: 'glm-5.3', cursorSelectedBase: 'auto', machineId: 'machine-1',
+            effort: 'auto', modelReasoningEffort: 'default', serviceTier: 'standard', collaborationMode: 'default',
+            copilotAgentMode: 'interactive', yoloMode: false, nativePermissionMode: 'bypassPermissions',
+            grokPermissionMode: 'default', sessionType: 'simple', worktreeName: ''
+        })
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'glm-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByRole('button', { name: 'GLM 5.3' })).toHaveAttribute('aria-pressed', 'true'))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'claude', model: 'glm-5.3' })))
+        setClaudeGlmBranded(false)
+    })
+
+    it('does not attribute the previous GLM model to Codex while its catalog is loading', async () => {
+        setClaudeGlmBranded(true)
+        mocks.modelPreferences = [
+            { agent: 'claude', modelId: 'glm-5.3', pinned: true, alias: null },
+            { agent: 'codex', modelId: 'gpt-6-luna', pinned: false, hidden: true, alias: null },
+            { agent: 'codex', modelId: 'gpt-6-sol', pinned: false, hidden: true, alias: null }
+        ]
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
+        fireEvent.click(screen.getByRole('button', { name: 'GLM 5.3' }))
+        mocks.codexModelsLoading = true
+        fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
+        fireEvent.click(screen.getByRole('radio', { name: 'newSession.allAgents' }))
+        expect(screen.queryByRole('button', { name: 'glm-5.3', description: 'Codex' })).toBeNull()
+        expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
+        setClaudeGlmBranded(false)
+    })
+
+    it('keeps the selected Codex model when its catalog fails after switching from GLM', async () => {
+        setClaudeGlmBranded(true)
+        mocks.modelPreferences = [{ agent: 'claude', modelId: 'glm-5.3', pinned: true, alias: null }]
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'codex-session' })
+        const view = render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
+        fireEvent.click(screen.getByRole('button', { name: 'GLM 5.3' }))
+        mocks.codexModelsLoading = true
+        fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
+        mocks.codexModelsLoading = false
+        mocks.codexModelsError = 'Catalog unavailable'
+        view.rerender(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'codex', model: 'gpt-6.1-terra' })))
+        setClaudeGlmBranded(false)
+    })
+
+    it('keeps the last model selected when agent switches are batched', async () => {
+        setClaudeGlmBranded(true)
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'codex-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
+        act(() => {
+            fireEvent.click(screen.getByRole('button', { name: 'GLM 5.3' }))
+            fireEvent.click(screen.getByRole('button', { name: 'GPT-6.1 Sol' }))
+        })
+        expect(screen.getByRole('button', { name: 'GPT-6.1 Sol' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'codex', model: 'gpt-6.1-sol' })))
+        setClaudeGlmBranded(false)
+    })
+
+    it('switches from GLM to Codex without carrying the GLM model into the selection or launch', async () => {
+        setClaudeGlmBranded(true)
+        mocks.modelPreferences = [
+            { agent: 'claude', modelId: 'glm-5.3', pinned: true, alias: null },
+            { agent: 'claude', modelId: 'auto', pinned: true, alias: null, showInAll: false },
+            { agent: 'codex', modelId: 'gpt-6-luna', pinned: false, hidden: true, alias: null },
+            { agent: 'codex', modelId: 'gpt-6-sol', pinned: false, hidden: true, alias: null },
+            { agent: 'codex', modelId: 'gpt-6.1-sol', pinned: false, alias: null },
+            { agent: 'codex', modelId: 'gpt-6.1-terra', pinned: false, alias: null }
+        ]
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'codex-session' })
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
+        act(() => {
+            fireEvent.click(screen.getByRole('button', { name: 'GLM 5.3' }))
+            fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
+        })
+        fireEvent.click(screen.getByRole('radio', { name: 'newSession.allAgents' }))
+        expect(screen.queryByRole('button', { name: 'glm-5.3', description: 'Codex' })).toBeNull()
+        expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'codex', model: 'gpt-6.1-terra' })))
+        setClaudeGlmBranded(false)
     })
 
     it('uses configured agent order, visibility and first model with its saved speed', async () => {
@@ -2636,6 +2730,7 @@ describe('NewSession GLM-branded claude', () => {
     beforeEach(() => {
         mocks.narrowViewport = false
         mocks.popularModels = []
+        mocks.codexModelsError = null
         mocks.codexTerraName = 'GPT-6.1 Terra'
         mocks.codexDefaultModelId = 'gpt-6.1-sol'
         mocks.cursorModelsError = null
@@ -2702,6 +2797,7 @@ describe('NewSession fork launch defaults', () => {
         mocks.modelPreferences = []
         mocks.narrowViewport = false
         mocks.popularModels = []
+        mocks.codexModelsError = null
         mocks.codexTerraName = 'GPT-6.1 Terra'
         mocks.codexDefaultModelId = 'gpt-6.1-sol'
         mocks.cursorModelsError = null
