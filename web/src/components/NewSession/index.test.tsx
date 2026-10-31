@@ -1238,6 +1238,38 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-3.8-flash-low' })))
     })
 
+    it('keeps a removed Antigravity model hidden and selects an available model when reopened', async () => {
+        mocks.agyModels = [
+            { modelId: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash (High)' },
+            { modelId: 'gemini-4-argon-high', name: 'Gemini 4 Argon (High)' },
+            { modelId: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B (Medium)' }
+        ]
+        const props = { initialAgent: 'agy' as const, api, machines: [machine], initialMachineId: 'machine-1', initialDirectory: 'C:\\repo', onSuccess: mocks.onSuccess, onCancel: () => {} }
+        const view = render(<NewSession {...props} />)
+        fireEvent.click(screen.getByRole('radio', { name: 'Antigravity' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Remove Gemini 3.8 Flash' }))
+        await waitFor(() => expect(mocks.modelPreferences.find(row => row.modelId === 'gemini-3.8-flash')?.hidden).toBe(true))
+        view.unmount()
+        render(<NewSession {...props} />)
+        fireEvent.click(screen.getByRole('radio', { name: 'Antigravity' }))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 4 Argon' })).toHaveAttribute('aria-pressed', 'true'))
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'Gemini 3.8 Flash' })).not.toBeInTheDocument())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-4-argon-high' })))
+    })
+
+    it('waits for saved model preferences before offering a launch', async () => {
+        let resolvePreferences!: (value: { preferences: typeof mocks.modelPreferences }) => void
+        const delayedApi = { ...api, getModelPreferences: () => new Promise<{ preferences: typeof mocks.modelPreferences }>(resolve => { resolvePreferences = resolve }) } as ApiClient
+        mocks.agyModels = [{ modelId: 'gemini-4-argon-high', name: 'Gemini 4 Argon (High)' }]
+        render(<NewSession initialAgent="agy" api={delayedApi} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.getByTestId('create')).toBeDisabled()
+        await act(async () => resolvePreferences({ preferences: [{ agent: 'agy', modelId: 'gemini-3.8-flash', pinned: false, alias: null, hidden: true }] }))
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        expect(screen.queryByRole('button', { name: 'Gemini 3.8 Flash (High)' })).not.toBeInTheDocument()
+    })
+
     it('groups Antigravity Argon variants and launches the selected effort', async () => {
         mocks.agyModels = ['low', 'medium', 'high'].map(effort => ({ modelId: `gemini-4-argon-${effort}`, name: `Gemini 4 Argon (${effort})` }))
         mocks.modelPreferences = [{ agent: 'agy', modelId: 'gemini-4-argon', pinned: true, alias: 'Argon work', reasoningEffort: 'medium' }]
