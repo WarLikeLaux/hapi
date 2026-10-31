@@ -166,6 +166,7 @@ function createApp(session: Session, opts?: {
             status: { onDisk: true, store: 'acp' as const }
         })),
         archiveSession: archiveSessionMock,
+        markSessionRead: () => {},
         parkSession: parkSessionMock,
         markSessionExplicitlyStopped: opts?.markSessionExplicitlyStopped ?? (() => {}),
         markSessionExplicitlyResumed: opts?.markSessionExplicitlyResumed ?? (() => {}),
