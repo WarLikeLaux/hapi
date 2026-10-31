@@ -1,7 +1,7 @@
 export default {
   'newSession.imageUnavailable': '图片不可用。请移除后重新粘贴。',
   'newSession.imagesReading': '正在读取图片…',
-  'newSession.imagesHint': '从剪贴板粘贴图片。支持 PNG、JPEG、WebP 或 GIF，总计 50 MB，与聊天相同。请选择支持图片的模型。',
+  'newSession.imagesHint': '粘贴或添加图片（PNG、JPEG、WebP 或 GIF，总计 50 MB）。部分代理接收文件路径；图片读取取决于代理和模型。',
   'newSession.imagesUnsupported': '初始图片支持 Claude、Codex、OpenCode 和 Pi。请选择其中一个代理，或移除图片后启动。',
   'newSession.imagesInvalid': '请使用 PNG、JPEG、WebP 或 GIF：总计 50 MB，与聊天相同。请粘贴更小的图片或移除附件。',
   'newSession.imagesSaveFailed': '无法保存剪贴板图片。请清理浏览器存储空间后重新粘贴。',

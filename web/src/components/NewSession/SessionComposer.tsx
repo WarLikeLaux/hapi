@@ -1,7 +1,7 @@
 import { useProjectPreferences } from '@/hooks/useProjectPreferences'
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { INITIAL_IMAGE_AGENTS, getFlavorLabel, type LaunchSessionRequest, type LaunchSessionResult } from '@hapi/protocol'
+import { getFlavorLabel, type LaunchSessionRequest, type LaunchSessionResult } from '@hapi/protocol'
 import { NewSession, type SessionEditorState } from './index'
 import { MachineSelector } from './MachineSelector'
 import { ProjectDirectory } from './ProjectDirectory'
@@ -261,8 +261,7 @@ function BatchComposer(props: Props & {
     }
     const groupMissing = !['none', 'new'].includes(composition.placement) && !groups.query.isPending
         && !groups.query.isError && !groups.groups.some(group => group.id === composition.placement)
-    const canStart = !readingImages.length && !groupMissing && composition.cards.every(card => prepared[card.id]?.canCreate
-        && (!card.initialImages?.length || INITIAL_IMAGE_AGENTS.includes(prepared[card.id]?.input.agent ?? 'claude')))
+    const canStart = !readingImages.length && !groupMissing && composition.cards.every(card => prepared[card.id]?.canCreate)
         && Boolean(composition.machineId && composition.directory.trim())
         && (composition.placement !== 'new' || composition.groupName.trim().length <= 120)
         && !disabled

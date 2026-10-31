@@ -377,10 +377,10 @@ vi.mock('./ModelSelector', () => ({
     )
 }))
 vi.mock('./ActionButtons', () => ({
-    ActionButtons: (props: { onCreate: () => void; onAddChat?: () => void; onChooseFolder?: () => void; onManageModels?: () => void; canCreate: boolean; isDisabled: boolean }) => (
+    ActionButtons: (props: { onCreate: () => void; onAddChat?: () => void; onChooseFolder?: () => void; onManageModels?: () => void; manageModelsOpen?: boolean; canCreate: boolean; isDisabled: boolean }) => (
         <>
             {props.onAddChat ? <button type="button" disabled={props.isDisabled} onClick={props.onAddChat}>batch.addAnother</button> : null}
-            {props.onManageModels ? <button type="button" onClick={props.onManageModels}>Manage models</button> : null}
+            {props.onManageModels ? <button type="button" onClick={props.onManageModels}>{props.manageModelsOpen ? 'Hide models' : 'Manage models'}</button> : null}
             <button type="button" data-testid="create" disabled={!props.canCreate} onClick={props.onCreate}>create</button>
             {props.onChooseFolder ? <button type="button" data-testid="browse" onClick={props.onChooseFolder}>browse</button> : null}
         </>
@@ -530,6 +530,19 @@ describe('NewSession launch preferences', () => {
             { filename: 'clipboard.png', mimeType: 'image/png', content: 'aW1hZ2U=' },
         ] })
         expect(mocks.spawnSession).not.toHaveBeenCalled()
+    })
+
+    it('attaches selected image files to the initial message', async () => {
+        const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'file-chat' })
+        const view = await renderComposer(launch)
+        const file = new File(['image'], 'selected.png', { type: 'image/png' })
+        const input = view.container.querySelector('input[type=file]')!
+        fireEvent.change(input, { target: { files: [file] } })
+        await screen.findByRole('img', { name: 'Image' })
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(launch).toHaveBeenCalledTimes(1))
+        expect(launch.mock.calls[0][1].initialImages).toMatchObject([{ filename: 'selected.png', content: 'aW1hZ2U=' }])
     })
 
     it('keeps pasted text alongside an image and retains the attachment through adding and returning from another chat', async () => {
@@ -1243,11 +1256,26 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
         fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
         fireEvent.change(screen.getByRole('combobox', { name: 'Speed for GPT-6.1 Terra' }), { target: { value: 'standard' } })
-        await waitFor(() => expect(screen.getByRole('button', { name: 'misc.fastModeStandard' })).toHaveAttribute('aria-pressed', 'true'))
+        await waitFor(() => expect(mocks.saveModelPreference).toHaveBeenCalledWith(expect.objectContaining({ speed: 'standard' })))
         fireEvent.click(screen.getByRole('checkbox', { name: 'Show GPT-6.1 Terra in All agents' }))
         await waitFor(() => expect(mocks.saveModelPreference).toHaveBeenLastCalledWith(expect.objectContaining({ modelId: 'gpt-6.1-terra', speed: 'standard', showInAll: false })))
+        fireEvent.click(screen.getByRole('button', { name: 'Hide models' }))
+        expect(screen.getByRole('button', { name: 'misc.fastModeStandard' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(screen.getByRole('radio', { name: 'newSession.allAgents' }))
         expect(screen.queryByRole('button', { name: 'GPT-6.1 Terra' })).toBeNull()
+    })
+
+    it('keeps model management open while switching agents and restores the form when closed', async () => {
+        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
+        fireEvent.click(screen.getByRole('radio', { name: 'Codex' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
+        expect(screen.queryByRole('textbox', { name: 'newSession.directory' })).toBeNull()
+        fireEvent.click(screen.getByRole('radio', { name: 'Antigravity' }))
+        expect(screen.getByRole('radio', { name: 'Antigravity' })).toBeChecked()
+        expect(screen.getByRole('button', { name: 'Hide models' })).toBeVisible()
+        fireEvent.click(screen.getByRole('button', { name: 'Hide models' }))
+        expect(screen.getByTestId('create')).toBeInTheDocument()
     })
 
     it('opens Codex on GPT-6.1 Terra with Fast and orders the three requested badges', async () => {
@@ -1287,6 +1315,8 @@ describe('NewSession launch preferences', () => {
         const alias = screen.getByRole('textbox', { name: 'Alias for Catalog Terra' })
         fireEvent.change(alias, { target: { value: 'My Terra' } })
         fireEvent.blur(alias)
+        await waitFor(() => expect(mocks.saveModelPreference).toHaveBeenCalledWith(expect.objectContaining({ alias: 'My Terra' })))
+        fireEvent.click(screen.getByRole('button', { name: 'Hide models' }))
         await waitFor(() => expect(screen.getByRole('button', { name: 'My Terra' })).toBeVisible())
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-6.1-terra' })))
@@ -1305,6 +1335,8 @@ describe('NewSession launch preferences', () => {
             agent: 'codex', modelId: 'gpt-5.6-sol', pinned: false, hidden: false, alias: 'My Sol', reasoningEffort: null, speed: null, showInAll: true
         }))
         fireEvent.click(screen.getByRole('button', { name: 'Add GPT-5.6 Sol' }))
+        await waitFor(() => expect(mocks.saveModelPreference).toHaveBeenLastCalledWith(expect.objectContaining({ modelId: 'gpt-5.6-sol', pinned: true })))
+        fireEvent.click(screen.getByRole('button', { name: 'Hide models' }))
         await waitFor(() => expect(screen.getByRole('button', { name: 'My Sol' })).toBeInTheDocument())
         expect(within(screen.getByRole('region', { name: 'newSession.model' })).getAllByRole('button')[0]).toHaveAttribute('aria-label', 'My Sol')
         fireEvent.click(screen.getByRole('button', { name: 'My Sol' }))
@@ -1320,11 +1352,12 @@ describe('NewSession launch preferences', () => {
         fireEvent.change(screen.getByRole('combobox', { name: 'Choose a model' }), { target: { value: '__custom__' } })
         fireEvent.change(screen.getByRole('textbox', { name: 'Model ID' }), { target: { value: 'new-codex-model' } })
         fireEvent.click(screen.getByRole('button', { name: 'Add' }))
-        await waitFor(() => expect(screen.getByRole('button', { name: 'new-codex-model' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Remove new-codex-model' })).toBeInTheDocument())
         fireEvent.click(screen.getByRole('button', { name: 'Move GPT-6.1 Terra down' }))
         await waitFor(() => expect(mocks.reorderModelPreferences).toHaveBeenCalled())
         fireEvent.click(screen.getByRole('button', { name: 'Remove GPT-6.1 Terra' }))
         await waitFor(() => expect(screen.queryByRole('button', { name: 'GPT-6.1 Terra' })).toBeNull())
+        fireEvent.click(screen.getByRole('button', { name: 'Hide models' }))
         fireEvent.click(screen.getByRole('button', { name: 'new-codex-model' }))
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'new-codex-model' })))
@@ -1337,7 +1370,9 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
         fireEvent.change(screen.getByRole('combobox', { name: 'Choose a model' }), { target: { value: 'gpt-5.6-sol' } })
         fireEvent.click(screen.getByRole('button', { name: 'Add' }))
-        await waitFor(() => expect(screen.getByRole('button', { name: 'GPT-5.6 Sol' })).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Remove GPT-5.6 Sol' })).toBeInTheDocument())
+        fireEvent.click(screen.getByRole('button', { name: 'Hide models' }))
+        expect(screen.getByRole('button', { name: 'GPT-5.6 Sol' })).toBeInTheDocument()
     })
 
     it('restores the saved effort of the initial Antigravity model', async () => {

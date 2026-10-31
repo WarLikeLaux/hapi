@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ClipboardEvent } from 'react'
-import { INITIAL_IMAGE_AGENTS, MAX_INITIAL_IMAGE_BYTES } from '@hapi/protocol'
+import { MAX_INITIAL_IMAGE_BYTES } from '@hapi/protocol'
 import { useTranslation } from '@/lib/use-translation'
 import { ImagePreview } from '@/components/ImagePreview'
 import { Spinner } from '@/components/Spinner'
@@ -45,7 +45,7 @@ export function InitialPrompt(props: Props) {
     const [error, setError] = useState<string | null>(null)
     const reading = useRef(false)
     const [isReading, setIsReading] = useState(false)
-    const supported = INITIAL_IMAGE_AGENTS.includes(props.agent ?? 'claude')
+    const fileInput = useRef<HTMLInputElement>(null)
     async function paste(event: ClipboardEvent<HTMLTextAreaElement>) {
         const files = Array.from(event.clipboardData.items)
             .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
@@ -57,8 +57,11 @@ export function InitialPrompt(props: Props) {
             const input = event.currentTarget
             props.onChange((props.value.slice(0, input.selectionStart) + text + props.value.slice(input.selectionEnd)).slice(0, 100000))
         }
+        await addFiles(files)
+    }
+    async function addFiles(files: File[]) {
+        if (!files.length) return
         setError(null)
-        if (!supported) { setError(t('newSession.imagesUnsupported')); return }
         if (reading.current) return
         const total = [...props.images, ...files].reduce((sum, image) => sum + image.size, 0)
         if (total > MAX_INITIAL_IMAGE_BYTES || files.some(file => !InitialImageDraftSchema.omit({ id: true }).safeParse({
@@ -99,9 +102,15 @@ export function InitialPrompt(props: Props) {
             <textarea id={inputId} className="min-h-24 w-full resize-y rounded-md bg-transparent px-3 py-2 text-sm font-normal text-[var(--app-fg)] outline-none disabled:opacity-50"
                 rows={3} maxLength={100000} value={props.value} disabled={props.disabled}
                 placeholder={props.placeholder} onChange={event => props.onChange(event.target.value)} onPaste={paste} />
+            <div className="flex items-center gap-2 px-2 pb-2 pt-1">
+                <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple className="hidden" onChange={event => { void addFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = '' }} />
+                <button type="button" aria-label={t('composer.attach')} title={t('composer.attach')} disabled={props.disabled || isReading} onClick={() => fileInput.current?.click()} className="flex h-9 w-9 items-center justify-center rounded-md text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50">
+                    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.4 11.1-8.5 8.5a6 6 0 0 1-8.5-8.5l8.5-8.5a4 4 0 0 1 5.7 5.7l-8.5 8.5a2 2 0 0 1-2.8-2.8l7.8-7.8" /></svg>
+                </button>
+            </div>
         </div>
         {isReading ? <p role="status" className="text-xs text-[var(--app-hint)]">{t('newSession.imagesReading')}</p> : null}
-        {supported || (!error && !props.images.length) ? <p className="text-xs text-[var(--app-hint)]">{t(supported ? 'newSession.imagesHint' : 'newSession.imagesUnsupported')}</p> : null}
-        {error || (!supported && props.images.length) ? <p role="alert" className="text-sm text-red-600">{error ?? t('newSession.imagesUnsupported')}</p> : null}
+        <p className="text-xs text-[var(--app-hint)]">{t('newSession.imagesHint')}</p>
+        {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
     </div>
 }

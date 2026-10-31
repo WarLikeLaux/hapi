@@ -1,7 +1,7 @@
 export default {
   'newSession.imageUnavailable': 'Image unavailable. Remove it and paste it again.',
   'newSession.imagesReading': 'Reading image…',
-  'newSession.imagesHint': 'Paste images from the clipboard. PNG, JPEG, WebP or GIF; 50 MB total, as in chat. Use a model that can read images.',
+  'newSession.imagesHint': 'Paste or attach images (PNG, JPEG, WebP or GIF; 50 MB total). Some agents receive file paths; image reading depends on the agent and model.',
   'newSession.imagesUnsupported': 'Initial images work with Claude, Codex, OpenCode and Pi. Choose one of these agents or remove the images to start.',
   'newSession.imagesInvalid': 'Use PNG, JPEG, WebP or GIF: 50 MB total, as in chat. Paste a smaller image or remove an attachment.',
   'newSession.imagesSaveFailed': 'Could not save the clipboard image. Free up browser storage and paste it again.',
