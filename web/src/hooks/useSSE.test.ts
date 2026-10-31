@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
 import { act, renderHook } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -78,6 +78,23 @@ describe('useSSE connection liveness (mobile suspend/resume)', () => {
     afterEach(() => {
         vi.unstubAllGlobals()
         vi.useRealTimers()
+    })
+
+    it('reloads groups after a failed request when the event stream resumes', async () => {
+        vi.useRealTimers()
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        const getGroups = vi.fn().mockRejectedValueOnce(new Error('hub unavailable')).mockResolvedValue({ groups: [] })
+        const observer = new QueryObserver(queryClient, { queryKey: ['session-groups'], queryFn: getGroups })
+        const unsubscribe = observer.subscribe(() => {})
+        await vi.waitFor(() => expect(observer.getCurrentResult().isError).toBe(true))
+        const { unmount } = renderUseSSE({ scope: 'global', queryClient })
+
+        act(() => {
+            FakeEventSource.instances[0]?.simulateMessage({ type: 'connection-changed', data: { subscriptionId: 'new', resume: 'ok' } })
+        })
+        await vi.waitFor(() => expect(observer.getCurrentResult().data).toEqual({ groups: [] }))
+        unsubscribe()
+        unmount()
     })
 
     it('reconnects on visibility resume when a heartbeat interval was missed', () => {
