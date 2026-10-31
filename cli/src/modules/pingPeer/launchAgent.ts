@@ -128,6 +128,7 @@ export function createAgentLauncher(callerSessionId: string) {
             if (args.groupId) await hub.get(`/groups/${encodeURIComponent(args.groupId)}`)
             const payload: SpawnSessionRequest = {
                 groupId: args.groupId,
+                muted: args.muted,
                 directory,
                 agent,
                 model: args.model,

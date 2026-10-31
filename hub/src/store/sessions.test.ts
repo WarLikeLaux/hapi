@@ -174,6 +174,7 @@ describe('getOrCreateSession: requested identity', () => {
                 machineId: 'machine-1',
                 startedBy: 'runner',
                 startedFromRunner: true,
+                muted: true,
             },
             null,
             'default',
@@ -205,8 +206,9 @@ describe('getOrCreateSession: requested identity', () => {
         expect(adopted.id).toBe(allocatedId)
         expect(adopted.tag).toBe(cliTag)
         expect(adopted.model).toBe('claude-sonnet')
-        const meta = adopted.metadata as { hostPid?: number }
+        const meta = adopted.metadata as { hostPid?: number; muted?: boolean }
         expect(meta.hostPid).toBe(4242)
+        expect(meta.muted).toBe(true)
         // Idempotent adopt with same tag returns the row
         const again = store.sessions.adoptPreallocatedSession(
             allocatedId,

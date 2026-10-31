@@ -1365,7 +1365,8 @@ export class ApiClient {
         collaborationMode?: CodexCollaborationMode,
         copilotAgentMode?: CopilotAgentMode,
         startingMode?: 'remote' | 'pty',
-        groupId?: string
+        groupId?: string,
+        muted?: boolean
     ): Promise<SpawnResponse> {
         return await this.request<SpawnResponse>(`/api/machines/${encodeURIComponent(machineId)}/spawn`, {
             method: 'POST',
@@ -1383,7 +1384,8 @@ export class ApiClient {
                 collaborationMode,
                 copilotAgentMode,
                 startingMode,
-                groupId
+                groupId,
+                muted
             })
         })
     }

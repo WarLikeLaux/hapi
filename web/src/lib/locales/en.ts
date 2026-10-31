@@ -592,6 +592,8 @@ export default {
   'newSession.agentAvailabilityFailed': 'Could not check installed Agents.',
   'newSession.runnerUpgradeRequired': 'Upgrade and restart this machine\'s HAPI runner before creating sessions.',
   'newSession.noAvailableAgents': 'No supported Agents are installed on this machine.',
+  'newSession.muted': 'Mute this chat',
+  'newSession.mutedHint': 'Hide unread indicators and suppress notifications.',
   'newSession.agentUnavailable': 'The selected Agent is no longer available on this machine. Refresh and choose another Agent.',
   'newSession.directoryOutsideWorkspaceRoots': 'Directory must be inside one of this machine\'s workspace roots.',
   'newSession.model': 'Model',

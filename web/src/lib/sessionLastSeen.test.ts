@@ -210,6 +210,11 @@ describe('sessionLastSeen', () => {
         expect(getSessionLastSeenAt('closed')).toBe(5500)
     })
 
+    it('excludes muted sessions from unread counts, including manual unread', () => {
+        markSessionUnread('muted', 1000)
+        expect(getUnreadSessionCount([{ id: 'muted', updatedAt: 1000, metadata: { muted: true } }, { id: 'normal', updatedAt: 1000 }])).toBe(1)
+    })
+
     it('initializes each hub independently', () => {
         initializeSessionLastSeen('hub-a', [{ id: 'session-a', updatedAt: 1000 }])
         initializeSessionLastSeen('hub-b', [{ id: 'session-b', updatedAt: 2000 }])

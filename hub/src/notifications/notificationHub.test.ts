@@ -123,6 +123,25 @@ describe('NotificationHub', () => {
         hub.stop()
     })
 
+    it('suppresses notifications for muted sessions', async () => {
+        const engine = new FakeSyncEngine()
+        const channel = new StubChannel()
+        const hub = new NotificationHub(engine as unknown as SyncEngine, [channel], { permissionDebounceMs: 1 })
+        const session = createSession({ metadata: { path: '/work', host: 'test', muted: true }, agentState: { requests: { req: { tool: 'Edit', arguments: {}, createdAt: 1 } } } })
+        engine.setSession(session)
+        engine.emit({ type: 'session-updated', sessionId: session.id })
+        engine.emit({ type: 'session-ended', sessionId: session.id, reason: 'completed' })
+        engine.emit({ type: 'message-received', sessionId: session.id, message: {
+            id: 'message', seq: 1, localId: null, createdAt: 0,
+            content: { role: 'agent', content: { id: 'event', type: 'event', data: { type: 'ready' } } }
+        } })
+        await sleep(25)
+        expect(channel.permissionSessions).toHaveLength(0)
+        expect(channel.readySessions).toHaveLength(0)
+        expect(channel.sessionCompletions).toHaveLength(0)
+        hub.stop()
+    })
+
     it('throttles ready notifications per session', async () => {
         const engine = new FakeSyncEngine()
         const channel = new StubChannel()

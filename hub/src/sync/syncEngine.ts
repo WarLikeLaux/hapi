@@ -2583,7 +2583,7 @@ export class SyncEngine {
                         if (!input.initialImages?.length && input.initialPrompt?.trim()) {
                             await this.sendMessage(id, { text: input.initialPrompt, localId: `launch:${input.requestId}` })
                         }
-                    }
+                    }, input.muted
                 )
                 if (result.type === 'success' && input.initialImages?.length) {
                     return await this.deliverLaunchImages(namespace, input, result.sessionId)
@@ -2660,7 +2660,8 @@ export class SyncEngine {
         // argv before the first webhook (#1911 Major: unreapable window).
         namespace?: string,
         groupId?: string,
-        beforeDispatch?: (sessionId: string) => Promise<void>
+        beforeDispatch?: (sessionId: string) => Promise<void>,
+        muted?: boolean
     ): ReturnType<RpcGateway['spawnSession']> {
         if (groupId && (!namespace || !this.groups.get(namespace, groupId))) {
             return { type: 'error', message: 'Group not found', childStarted: false }
@@ -2685,6 +2686,7 @@ export class SyncEngine {
                     machineId,
                     startedBy: 'runner',
                     startedFromRunner: true,
+                    ...(muted ? { muted: true } : {}),
                 },
                 null,
                 namespace,

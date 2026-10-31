@@ -10,6 +10,7 @@ export const launchOptionsSchema = z.object({
 })
 
 export const launchAgentSchema = z.object({
+    muted: z.boolean().optional().describe('Suppress notifications and unread indicators for this session; default false'),
     groupId: z.string().trim().min(1).optional().describe('Add the new chat to this user-created group. Get its ID with create_group, get_group or list_groups. Omit for a standalone chat.'),
     project: z.string().trim().min(1).describe('Project directory path or unique project name from list_launch_options'),
     message: z.string().trim().min(1).describe('Initial task for the new agent'),

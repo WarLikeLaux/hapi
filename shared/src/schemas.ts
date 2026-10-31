@@ -128,6 +128,7 @@ export const MetadataSchema = z.object({
     restoreOnRestart: z.boolean().optional(),
     // Hub-authored read watermark after a successful close_session, including its final reply.
     readThrough: z.number().finite().nonnegative().optional(),
+    muted: z.boolean().optional(),
     // running, parked by the user, or archived (see sessionLifecycle.ts).
     lifecycleState: z.string().optional(),
     lifecycleStateSince: z.number().optional(),

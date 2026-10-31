@@ -137,6 +137,7 @@ export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
     merged = carryForwardIfMissing(prior, next, merged, ROUTING_FIELDS)
     merged = carryForwardIfMissing(prior, next, merged, SIMPLE_RESUME_TOKENS)
     merged = carryForwardIfMissing(prior, next, merged, DURABLE_LIFECYCLE_FIELDS)
+    merged = carryForwardIfMissing(prior, next, merged, ['muted'])
     merged = preserveCursorProtocolPair(prior, next, merged)
     // A stale or sparse CLI metadata replacement must not undo hub read state.
     if (typeof prior.readThrough === 'number' && Number.isFinite(prior.readThrough)) {
@@ -404,7 +405,10 @@ export function adoptPreallocatedSession(
         }
 
         const now = Date.now()
-        const metadataJson = JSON.stringify(preserveSessionTitle(existing.metadata, metadata))
+        const adoptedMetadata = isPlainObject(existing.metadata) && isPlainObject(metadata)
+            ? carryForwardIfMissing(existing.metadata, metadata, null, ['muted']) ?? metadata
+            : metadata
+        const metadataJson = JSON.stringify(preserveSessionTitle(existing.metadata, adoptedMetadata))
         const agentStateJson = agentState === null || agentState === undefined ? null : JSON.stringify(agentState)
         const stubTag = machineSpawnPreallocTag(id)
 

@@ -44,7 +44,7 @@ export class NotificationHub {
     private handleSyncEvent(event: SyncEvent): void {
         if ((event.type === 'session-updated' || event.type === 'session-added') && event.sessionId) {
             const session = this.syncEngine.getSession(event.sessionId)
-            if (!session || !session.active) {
+            if (!session || !session.active || session.metadata?.muted) {
                 this.clearSessionState(event.sessionId)
                 return
             }
@@ -95,7 +95,7 @@ export class NotificationHub {
 
     private getNotifiableSession(sessionId: string): Session | null {
         const session = this.syncEngine.getSession(sessionId)
-        if (!session || !session.active) {
+        if (!session || !session.active || session.metadata?.muted) {
             return null
         }
         return session
@@ -195,7 +195,7 @@ export class NotificationHub {
 
     private async sendSessionCompletion(sessionId: string, reason: SessionEndReason): Promise<void> {
         const session = this.syncEngine.getSession(sessionId)
-        if (!session) {
+        if (!session || session.metadata?.muted) {
             return
         }
 

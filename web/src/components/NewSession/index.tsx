@@ -67,6 +67,7 @@ import { clearBatchImportedCodexSelection, resolveCodexImportRedirectSessionId }
 import { DirectorySection } from './DirectorySection'
 import { CopilotAgentModeSelector } from './CopilotAgentModeSelector'
 import { FastModeSelector } from './FastModeSelector'
+import { MuteControl } from './MuteControl'
 import { MachineSelector } from './MachineSelector'
 import { ModelSelector } from './ModelSelector'
 import { EffortField } from './EffortField'
@@ -161,6 +162,7 @@ export function NewSession(props: {
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
     const [initialPrompt, setInitialPrompt] = useState(editorDraft?.initialPrompt ?? '')
+    const [muted, setMuted] = useState(editorDraft?.muted ?? false)
     const [initialImages, setInitialImages] = useState<InitialImageDraft[]>(editorDraft?.initialImages ?? [])
     const [readingImages, setReadingImages] = useState(false)
     const [groupName, setGroupName] = useState(editorDraft?.groupCreation?.name ?? '')
@@ -326,6 +328,7 @@ export function NewSession(props: {
         restoredFromBrowseRef.current = true
         initialChoicePending.current = false
         preserveRestoredDraftRef.current = true
+        setMuted(draft.muted ?? false)
         setInitialPrompt(draft.initialPrompt ?? '')
         setInitialImages(draft.initialImages ?? [])
         setAgent(draft.agent)
@@ -1640,6 +1643,7 @@ export function NewSession(props: {
             return
         }
         saveNewSessionFormDraft({
+            muted,
             agentFilter,
             initialPrompt,
             initialImages,
@@ -1670,6 +1674,7 @@ export function NewSession(props: {
         props.onChooseFolder({ machineId, directory: trimmedDirectory })
     }, [
         props.onChooseFolder,
+        muted,
         agentFilter,
         initialPrompt,
         initialImages,
@@ -1788,6 +1793,7 @@ export function NewSession(props: {
             : undefined
 
         return {
+            muted,
             directory: trimmedDirectory,
             agent,
             model: resolvedModel,
@@ -2044,7 +2050,7 @@ export function NewSession(props: {
                 modelReasoningEffort: agent === 'codex' ? undefined : input.modelReasoningEffort,
                 effort: input.effort, fast: input.serviceTier === 'fast',
             }),
-            draft: { initialPrompt, initialImages, agent, model: agent === 'agy' ? (agySelectedModel ?? 'auto') : agent === 'opencode' ? (opencodeSelectedModel ?? 'auto') : model,
+            draft: { muted, initialPrompt, initialImages, agent, model: agent === 'agy' ? (agySelectedModel ?? 'auto') : agent === 'opencode' ? (opencodeSelectedModel ?? 'auto') : model,
                 cursorSelectedBase, machineId, effort, modelReasoningEffort, serviceTier, collaborationMode, copilotAgentMode,
                 yoloMode, nativePermissionMode, grokPermissionMode, sessionType, worktreeName, agentFilter }
         }
@@ -2071,6 +2077,8 @@ export function NewSession(props: {
         if (editorStateJson) editorOnChange?.(JSON.parse(editorStateJson) as SessionEditorState)
     }, [editorStateJson, editorOnChange])
 
+    const muteControl = !continueFrom ? <MuteControl muted={muted} disabled={isFormDisabled} onChange={setMuted} /> : null
+
     return (
         <div className="flex flex-col divide-y divide-[var(--app-divider)] [&>div]:pr-[10px] lg:[&>div]:pr-3">
             {continueFrom ? (
@@ -2079,12 +2087,12 @@ export function NewSession(props: {
                 </div>
             ) : null}
             {!props.editor && !projectManagerOpen && !modelManagerOpen ? <div className="px-3 py-3 text-sm">
-                {props.groupId || createdGroup ? <p className="text-[var(--app-hint)]">{t('groups.newChatIn', { name: props.groupName ?? createdGroup?.name ?? '' })}</p> : <>
+                {props.groupId || createdGroup ? <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[var(--app-hint)]">{t('groups.newChatIn', { name: props.groupName ?? createdGroup?.name ?? '' })}</p>{muteControl}</div> : <>
                     <div className="flex flex-col gap-1.5 text-xs text-[var(--app-hint)]">
-                        <label htmlFor="new-group-name">{t('groups.name')}</label>
+                        <div className="flex flex-wrap items-center justify-between gap-2"><label htmlFor="new-group-name" title={t('batch.groupHint')}>{t('groups.name')} <span className="font-normal">({t('newSession.model.optional')})</span></label>{muteControl}</div>
                         <input id="new-group-name" aria-describedby="new-group-description" value={groupName} maxLength={120} disabled={isFormDisabled} onChange={event => setGroupName(event.target.value)} placeholder={t('groups.namePlaceholder')}
                             className="min-h-10 rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 text-sm text-[var(--app-fg)]" />
-                        <p id="new-group-description">{t('batch.groupHint')}</p>
+                        <p id="new-group-description" className="sr-only">{t('batch.groupHint')}</p>
                     </div>
                 </>}
                 {props.groupDefaultsUnavailable || (props.initialAgent && !agentAvailability.isLoading && !agentAvailability.error && !availableAgents.includes(props.initialAgent)) ? <p role="status" className="mt-2 text-xs text-[var(--app-hint)]">{t('groups.defaultsUnavailable')}</p> : null}
@@ -2133,6 +2141,8 @@ export function NewSession(props: {
                 (`sessionType` stays 'simple'; the draft restore clamps it). */}
             {!projectManagerOpen ? <AgentSelector
                 agent={agent}
+                muted={props.editor && !continueFrom ? muted : undefined}
+                onMutedChange={setMuted}
                 filter={effectiveFilter}
                 showAllAgents={!isNarrow}
                 allowClear={isNarrow}
@@ -2226,6 +2236,7 @@ export function NewSession(props: {
                 onModelChange={setModel}
             /> : null}
             {agent === 'codex' && codexModelsState.error ? <p role="alert" className="px-3 py-2 text-sm text-red-600">{t('newSession.model.loadFailed')}: {codexModelsState.error}</p> : null}
+            <div className={showCodexFastMode || cursorSpeedOptions ? 'divide-y divide-[var(--app-divider)] lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:divide-x lg:divide-y-0' : ''}>
             {!modelPreferences.loading && agent === 'agy' && agyGroup?.variants.length ? <section className="flex min-w-0 flex-wrap items-center gap-2 p-2 sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.effort')}>
                 <ChoiceLabel kind="effort" />
                 {agyGroup.variants.map(variant => <button key={variant.id} type="button" aria-pressed={agyWire === variant.id}
@@ -2264,6 +2275,7 @@ export function NewSession(props: {
                     }
                 }}
             />
+            </div>
             {/* Fork: the collaboration-mode selector is dormant — codex
                 launches with its own default mode and the field stays out of
                 the form. State/plumbing remain for a future restore. */}

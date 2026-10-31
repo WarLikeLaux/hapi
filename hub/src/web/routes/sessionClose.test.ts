@@ -78,7 +78,7 @@ describe('session close read state', () => {
         }
     })
 
-    it.each(['failed', 'ordinary'] as const)('does not mark read on %s archive', async (mode) => {
+    it.each(['failed', 'ordinary'] as const)('marks read only after successful %s archive', async (mode) => {
         const { store, engine, session, rpc, archive } = fixture()
         try {
             rpc.killSession = async () => {
@@ -87,7 +87,9 @@ describe('session close read state', () => {
             }
             const response = await archive(mode === 'failed')
             expect(response.status).toBe(mode === 'failed' ? 500 : 200)
-            expect((store.sessions.getSession(session.id)!.metadata as Record<string, unknown>).readThrough).toBeUndefined()
+            const readThrough = (store.sessions.getSession(session.id)!.metadata as Record<string, unknown>).readThrough
+            if (mode === 'failed') expect(readThrough).toBeUndefined()
+            else expect(typeof readThrough).toBe('number')
         } finally {
             engine.stop()
             store.close()

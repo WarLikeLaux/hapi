@@ -152,7 +152,7 @@ type SessionReadStateInput = {
     id: string
     updatedAt: number
     lastAgentMessageAt?: number
-    metadata?: { readThrough?: number } | null
+    metadata?: { readThrough?: number; muted?: boolean } | null
 }
 
 function getUnreadActivityAt(session: SessionReadStateInput): number {
@@ -167,6 +167,7 @@ function getUnreadActivityAt(session: SessionReadStateInput): number {
 function latestSessionUpdates(sessions: Iterable<SessionReadStateInput>): Map<string, number> {
     const latest = new Map<string, number>()
     for (const session of sessions) {
+        if (session.metadata?.muted) continue
         const activityAt = getUnreadActivityAt(session)
         if (!session.id || !Number.isFinite(activityAt) || activityAt <= 0) {
             continue

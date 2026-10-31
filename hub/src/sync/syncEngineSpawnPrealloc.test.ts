@@ -69,7 +69,7 @@ describe('SyncEngine.spawnSession preallocates HAPI id for fresh machine spawns'
                 undefined,
                 undefined,
                 undefined,
-                'default'
+                'default', undefined, undefined, true
             )
 
             expect(result.type).toBe('success')
@@ -80,7 +80,8 @@ describe('SyncEngine.spawnSession preallocates HAPI id for fresh machine spawns'
             }
             const row = store.sessions.getSession(forwardedExistingId!)
             expect(row?.id).toBe(forwardedExistingId)
-            const meta = row?.metadata as { flavor?: string; machineId?: string } | null
+            const meta = row?.metadata as { flavor?: string; machineId?: string; muted?: boolean } | null
+            expect(meta?.muted).toBe(true)
             expect(meta?.flavor).toBe('claude')
             expect(meta?.machineId).toBe('machine-prealloc')
         } finally {

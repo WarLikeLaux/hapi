@@ -131,6 +131,13 @@ describe('agent launch over HTTP MCP', () => {
         expect(messageBodies).toEqual([{ text: task.message, localId: 'launch:caller:task-1' }])
     })
 
+    it('forwards mute when launching a session', async () => {
+        const client = await connect()
+        const result = await client.callTool({ name: 'launch_agent', arguments: { ...task, muted: true } }) as ToolReply
+        expect(result.isError).toBe(false)
+        expect(spawnBodies[0]?.muted).toBe(true)
+    })
+
     it.each(['fast', 'standard'])('launches Codex with explicit %s tier and protects retries from tier changes', async (serviceTier) => {
         const client = await connect()
         const args = { ...task, serviceTier }

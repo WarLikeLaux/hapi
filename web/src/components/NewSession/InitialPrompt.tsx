@@ -1,8 +1,10 @@
-import { useEffect, useId, useRef, useState, type ClipboardEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ClipboardEvent } from 'react'
 import { MAX_INITIAL_IMAGE_BYTES } from '@hapi/protocol'
 import { useTranslation } from '@/lib/use-translation'
 import { ImagePreview } from '@/components/ImagePreview'
 import { Spinner } from '@/components/Spinner'
+import { ComposerExpandButton } from '@/components/AssistantChat/ComposerButtons'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { getInitialImageFile, InitialImageDraftSchema, saveInitialImage, type InitialImageDraft } from './initialImageDrafts'
 
 type Props = {
@@ -46,6 +48,22 @@ export function InitialPrompt(props: Props) {
     const reading = useRef(false)
     const [isReading, setIsReading] = useState(false)
     const fileInput = useRef<HTMLInputElement>(null)
+    const textInput = useRef<HTMLTextAreaElement>(null)
+    const [expanded, setExpanded] = useState(false)
+    const selection = useRef<{ start: number; end: number; direction: 'forward' | 'backward' | 'none' } | null>(null)
+    function toggleExpanded(next: boolean) {
+        const input = textInput.current
+        if (input) selection.current = { start: input.selectionStart, end: input.selectionEnd, direction: input.selectionDirection }
+        setExpanded(next)
+    }
+    const setTextInput = useCallback((input: HTMLTextAreaElement | null) => {
+        textInput.current = input
+        if (!input || !selection.current) return
+        const { start, end, direction } = selection.current
+        input.focus()
+        input.setSelectionRange(start, end, direction)
+        selection.current = null
+    }, [])
     async function paste(event: ClipboardEvent<HTMLTextAreaElement>) {
         const files = Array.from(event.clipboardData.items)
             .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
@@ -83,9 +101,8 @@ export function InitialPrompt(props: Props) {
             props.onReadingChange(false)
         }
     }
-    return <div className="space-y-1.5">
-        <label htmlFor={inputId} className="block text-xs font-medium text-[var(--app-hint)]">{props.label}</label>
-        <div className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] focus-within:outline-2 focus-within:outline-[var(--app-link)]">
+    const editor = <div className={`flex min-h-0 flex-col rounded-2xl bg-[var(--app-subtle-bg)] ${expanded ? 'flex-1' : ''}`}>
+
             {props.images.length ? <ul className="flex flex-wrap gap-2 px-3 pt-3" aria-label={t('newSession.attachedImages')}>
                 {props.images.map((image) => <li key={image.id} data-hapi-composer-attachment-id={image.id}
                     className="group relative h-16 w-24 overflow-hidden rounded-lg bg-[var(--app-subtle-bg)]">
@@ -99,18 +116,32 @@ export function InitialPrompt(props: Props) {
                     </button>
                 </li>)}
             </ul> : null}
-            <textarea id={inputId} className="min-h-24 w-full resize-y rounded-md bg-transparent px-3 py-2 text-sm font-normal text-[var(--app-fg)] outline-none disabled:opacity-50"
-                rows={3} maxLength={100000} value={props.value} disabled={props.disabled}
+            <textarea ref={setTextInput} id={inputId} aria-label={props.label} className={`w-full resize-none bg-transparent px-4 pt-4 text-base leading-relaxed text-[var(--app-fg)] outline-none disabled:opacity-50 ${expanded ? 'min-h-0 flex-1' : 'min-h-32'}`}
+                rows={4} maxLength={100000} value={props.value} disabled={props.disabled}
                 placeholder={props.placeholder} onChange={event => props.onChange(event.target.value)} onPaste={paste} />
             <div className="flex items-center gap-2 px-2 pb-2 pt-1">
                 <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple className="hidden" onChange={event => { void addFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = '' }} />
                 <button type="button" aria-label={t('composer.attach')} title={t('composer.attach')} disabled={props.disabled || isReading} onClick={() => fileInput.current?.click()} className="flex h-9 w-9 items-center justify-center rounded-md text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50">
                     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.4 11.1-8.5 8.5a6 6 0 0 1-8.5-8.5l8.5-8.5a4 4 0 0 1 5.7 5.7l-8.5 8.5a2 2 0 0 1-2.8-2.8l7.8-7.8" /></svg>
                 </button>
+                <ComposerExpandButton expanded={expanded} onToggle={() => toggleExpanded(!expanded)} />
             </div>
         </div>
+    const status = <>
         {isReading ? <p role="status" className="text-xs text-[var(--app-hint)]">{t('newSession.imagesReading')}</p> : null}
-        <p className="text-xs text-[var(--app-hint)]">{t('newSession.imagesHint')}</p>
+        <span className="sr-only">{t('newSession.imagesHint')}</span>
         {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
-    </div>
+    </>
+    return <>
+        {!expanded ? <div className="space-y-1.5">
+            <label htmlFor={inputId} className="block text-xs font-medium text-[var(--app-hint)]">{props.label}</label>
+            {editor}{status}
+        </div> : null}
+        <Dialog open={expanded} onOpenChange={toggleExpanded}>
+            {expanded ? <DialogContent className="inset-0 flex h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-3 rounded-none p-3 sm:p-5" aria-describedby={undefined} onOpenAutoFocus={event => event.preventDefault()} onCloseAutoFocus={event => event.preventDefault()}>
+                <DialogTitle className="pr-12 text-sm text-[var(--app-hint)]">{props.label}</DialogTitle>
+                {editor}{status}
+            </DialogContent> : null}
+        </Dialog>
+    </>
 }
