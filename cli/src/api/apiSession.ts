@@ -1551,7 +1551,7 @@ export class ApiSessionClient extends EventEmitter {
         }, 'droppable')
     }
 
-    emitMessagesConsumed(localIds: string[], options?: { clearQueuedThinkingGrace?: boolean; steered?: boolean }): void {
+    emitMessagesConsumed(localIds: string[], options?: { clearQueuedThinkingGrace?: boolean; steered?: boolean; invokedAt?: number }): void {
         if (localIds.length === 0) return
         if (!options?.clearQueuedThinkingGrace) {
             if (this.workspaceChangesTracker.begin(this.metadata?.path)) {
@@ -1569,6 +1569,7 @@ export class ApiSessionClient extends EventEmitter {
             localIds: string[]
             clearQueuedThinkingGrace?: boolean
             steered?: boolean
+            invokedAt?: number
         } = {
             sid: this.sessionId,
             localIds
@@ -1579,6 +1580,7 @@ export class ApiSessionClient extends EventEmitter {
         if (options?.steered) {
             payload.steered = true
         }
+        payload.invokedAt = options?.invokedAt ?? Date.now()
         this.emitOrQueue(() => this.socket.emit('messages-consumed', payload))
     }
 

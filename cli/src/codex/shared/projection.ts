@@ -57,7 +57,7 @@ export class SharedCodexProjection {
     private pendingAsyncQuestionIds = new Set<string>();
     private asyncQuestionsInitialized = false;
     constructor(private readonly session: ApiSessionClient, readonly threadId: string,
-        private readonly committed: (id: string) => Promise<void>, private readonly parentThreadId?: string,
+        private readonly committed: (id: string, invokedAt?: number) => Promise<void>, private readonly parentThreadId?: string,
         private readonly acceptedAsyncAnswer: (questionId: string) => Record<string, { answers: string[] }> | undefined = () => undefined) {
         if (!parentThreadId) for (const [id, turn] of Object.entries(session.getMetadata()?.conversationHistoryTurns ?? {})) this.turns.set(id, turn);
     }
@@ -184,7 +184,7 @@ export class SharedCodexProjection {
             if (id) {
                 const firstInTurn = turnId ? [...this.turns].find(([, value]) => value === turnId)?.[0] : undefined;
                 if (turnId) this.turns.set(id, turnId);
-                if (publish) await this.committed(id);
+                if (publish) await this.committed(id, typeof item.startedAtMs === 'number' ? item.startedAtMs : undefined);
                 const text = inputText(item.content);
                 const answer = parseAsyncQuestionAnswer(text);
                 if (answer && id === asyncQuestionAnswerId(answer.questionId) && publish) {

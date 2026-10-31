@@ -455,7 +455,7 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
         onSessionBusy?.(data.sid, data.time)
     })
 
-    socket.on('messages-consumed', (data: { sid: string; localIds: string[]; clearQueuedThinkingGrace?: boolean; steered?: boolean }) => {
+    socket.on('messages-consumed', (data: { sid: string; localIds: string[]; clearQueuedThinkingGrace?: boolean; steered?: boolean; invokedAt?: number }) => {
         if (!data || typeof data.sid !== 'string' || !Array.isArray(data.localIds)) {
             return
         }
@@ -468,7 +468,9 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
             emitAccessError('session', data.sid, sessionAccess.reason)
             return
         }
-        const invokedAt = Date.now()
+        const now = Date.now()
+        const invokedAt = typeof data.invokedAt === 'number' && Number.isSafeInteger(data.invokedAt) && data.invokedAt > 0
+            ? Math.min(data.invokedAt, now) : now
         let sessionUserActivityAt: number
         let newlyConsumed: boolean
         try {

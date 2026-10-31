@@ -93,6 +93,17 @@ describe('shared history projection', () => {
         await projection.history(snapshot); projection.reset(); await projection.history(snapshot);
         expect(send).toHaveBeenCalledTimes(2); expect(send.mock.calls[0]).toEqual(send.mock.calls[1]);
     });
+    it('uses the native receipt time when replaying a consumed user message', async () => {
+        const committed = vi.fn(async (_id: string, _at?: number) => {});
+        const session = { getMetadata: () => ({}), updateAgentState: vi.fn(), sendUserMessage: vi.fn(),
+            updateMetadata: vi.fn(), sendAgentMessage: vi.fn() } as unknown as SessionClient;
+        const projection = new SharedCodexProjection(session, 'thread', committed);
+        await projection.history({ turns: [{ id: 'turn', status: 'completed', items: [
+            { id: 'user', type: 'userMessage', clientId: 'prompt', startedAtMs: 1234, content: [{ type: 'text', text: 'hello' }] }
+        ] }] });
+        expect(committed).toHaveBeenCalledWith('prompt', 1234);
+    });
+
     it('primes existing history without publishing it, then emits only new events', async () => {
         const send = vi.fn(); const user = vi.fn(); const committed = vi.fn(async () => {});
         const session = { getMetadata: () => ({}), updateAgentState: vi.fn(), sendAgentMessage: send, sendUserMessage: user,

@@ -65,14 +65,14 @@ describe('shared native queue', () => {
         const restarted = new SharedCodexQueue(client, 'thread', join(dir, 'ledger.json'), consumed, uncertain); await restarted.load();
         await restarted.command('clear', create);
         await expect(restarted.command('unknown', create)).rejects.toThrow('not replaying');
-        expect(create).toHaveBeenCalledOnce(); expect(consumed).toHaveBeenCalledWith(['clear']);
+        expect(create).toHaveBeenCalledOnce(); expect(consumed).toHaveBeenCalledWith(['clear'], undefined, expect.any(Number));
     });
     it('remembers cold-history acceptance before redelivery from the hub', async () => {
         const { queue, rpc, client, dir, consumed, uncertain } = await fixture();
-        await queue.committed('history-only');
+        await queue.committed('history-only', 1234);
         const restarted = new SharedCodexQueue(client, 'thread', join(dir, 'ledger.json'), consumed, uncertain); await restarted.load();
         await restarted.enqueue('history-only', input);
-        expect(rpc).not.toHaveBeenCalled(); expect(consumed).toHaveBeenCalledWith(['history-only']);
+        expect(rpc).not.toHaveBeenCalled(); expect(consumed).toHaveBeenLastCalledWith(['history-only'], undefined, 1234);
     });
     it('adopts native queued input, mirrors edits and withdraws only after a proven native delete', async () => {
         const { rpc, client, dir, consumed, uncertain } = await fixture(); const mirror = vi.fn();
@@ -99,7 +99,7 @@ describe('shared native queue', () => {
         const { queue, rpc, consumed } = await fixture();
         rpc.mockImplementation(async () => { await queue.committed('local'); return { queuedSubmission: { id: 'native', input, clientUserMessageId: 'local' } }; });
         await queue.enqueue('local', input);
-        expect(queue.state('local')).toBe('consumed'); expect(consumed).toHaveBeenCalledWith(['local']);
+        expect(queue.state('local')).toBe('consumed'); expect(consumed).toHaveBeenCalledWith(['local'], undefined, expect.any(Number));
     });
     it('persists uncertainty before dispatch and never blindly re-enqueues after a crash', async () => {
         const { queue, rpc, client, dir, consumed, uncertain } = await fixture();

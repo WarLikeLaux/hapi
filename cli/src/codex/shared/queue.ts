@@ -8,7 +8,7 @@ import { isIndeterminateError } from '../codexAppServerClient';
 const InputSchema = z.array(z.object({ type: z.string() }).passthrough());
 export const SubmissionSchema = z.object({ id: z.string(), input: InputSchema, clientUserMessageId: z.string() });
 const LedgerSchema = z.record(z.string(), z.object({
-    input: InputSchema, state: z.enum(['unknown', 'queued', 'consumed', 'canceled', 'rejected', 'released']), nativeId: z.string().optional()
+    input: InputSchema, state: z.enum(['unknown', 'queued', 'consumed', 'canceled', 'rejected', 'released']), nativeId: z.string().optional(), invokedAt: z.number().optional()
 }));
 export type QueueInput = z.infer<typeof InputSchema>;
 type Entry = z.infer<typeof LedgerSchema>[string];
@@ -19,7 +19,7 @@ export class SharedCodexQueue {
     private operations: Promise<unknown> = Promise.resolve();
     private writes = Promise.resolve();
     constructor(private readonly client: Pick<CodexAppServerClient, 'request'>, readonly threadId: string,
-        private readonly file: string, private readonly consumed: (ids: string[], steered?: boolean) => void,
+        private readonly file: string, private readonly consumed: (ids: string[], steered?: boolean, invokedAt?: number) => void,
         private readonly uncertain: (ids: string[]) => void,
         private readonly mirror?: (id: string, input: QueueInput | null) => void,
         private readonly requeued?: (ids: string[]) => Promise<unknown>) {}
@@ -50,7 +50,7 @@ export class SharedCodexQueue {
     command(id: string, work: () => Promise<string | null>): Promise<string | null> {
         return this.serial(async () => {
             const existing = this.entries[id];
-            if (existing?.state === 'consumed') { this.consumed([id]); return null; }
+            if (existing?.state === 'consumed') { this.consumed([id], undefined, existing.invokedAt); return null; }
             if (existing && !['rejected', 'canceled'].includes(existing.state)) {
                 this.uncertain([id]); throw new Error('Previous command outcome is unknown; not replaying');
             }
@@ -63,12 +63,13 @@ export class SharedCodexQueue {
             } catch (error) { this.uncertain([id]); throw error; }
         });
     }
-    async committed(id: string): Promise<void> {
+    async committed(id: string, invokedAt?: number): Promise<void> {
         // History may prove acceptance after execution replacement, before hub
         // redelivery. Remember it even when this generation did not enqueue it.
         const entry = this.entries[id] ??= { state: 'consumed', input: [] };
         entry.state = 'consumed';
-        await this.save(); this.consumed([id]);
+        entry.invokedAt ??= invokedAt ?? Date.now();
+        await this.save(); this.consumed([id], undefined, entry.invokedAt);
     }
 
     async list(): Promise<Array<z.infer<typeof SubmissionSchema>>> {
@@ -167,7 +168,7 @@ export class SharedCodexQueue {
         return this.serial(async () => {
             const existing = this.entries[id];
             if (existing && !['rejected', 'canceled', 'released'].includes(existing.state)) {
-                if (existing.state === 'consumed') this.consumed([id]);
+                if (existing.state === 'consumed') this.consumed([id], undefined, existing.invokedAt);
                 else await this.reconcileNow();
                 return;
             }
