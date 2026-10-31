@@ -324,6 +324,7 @@ export function NewSession(props: {
             groupRequestRef.current = draft.groupCreation
         }
         restoredFromBrowseRef.current = true
+        initialChoicePending.current = false
         preserveRestoredDraftRef.current = true
         setInitialPrompt(draft.initialPrompt ?? '')
         setInitialImages(draft.initialImages ?? [])
@@ -1560,7 +1561,7 @@ export function NewSession(props: {
                 const normalize = (name: string) => name.toLowerCase().replace(/[^a-z0-9.]/g, '')
                 return { ...option, label: normalize(defaultName).startsWith(normalize(option.label)) ? option.label : defaultName }
             })
-            if ((quickModels[flavor] || savedForFlavor.length > 0) && flavor === agent && !options.some(option => option.value === displayedModel) && !savedForFlavor.some(row => row.modelId === displayedModel && row.hidden) && flavor !== 'dsh') {
+            if ((quickModels[flavor] || savedForFlavor.length > 0) && flavor === agent && agentChoicePending.current !== flavor && !options.some(option => option.value === displayedModel) && !savedForFlavor.some(row => row.modelId === displayedModel && row.hidden) && flavor !== 'dsh') {
                 const customLabel = savedForFlavor.find(row => row.modelId === displayedModel)?.alias
                 options.unshift({ value: displayedModel, customLabel: Boolean(customLabel), label: customLabel ?? (displayedModel === 'auto'
                     ? nativeDefaultModelName ?? t('newSession.model.default')
@@ -2137,7 +2138,14 @@ export function NewSession(props: {
                 onFilterChange={value => {
                     initialChoicePending.current = false
                     setAgentFilter(value)
-                    if (value !== 'all' && value !== agent) { agentChoicePending.current = value; handleAgentChange(value) }
+                    if (value !== 'all') {
+                        const hasPendingChoice = pendingModelChoice.current !== null
+                        pendingModelChoice.current = null
+                        if (value !== agent || hasPendingChoice) {
+                            agentChoicePending.current = value
+                            handleAgentChange(value)
+                        }
+                    }
                 }}
                 agents={availableAgents}
                 isDisabled={isFormDisabled || agentAvailability.isLoading || Boolean(agentAvailability.error)}
@@ -2187,8 +2195,13 @@ export function NewSession(props: {
                 onSelect={choice => {
                     initialChoicePending.current = false
                     agentChoicePending.current = null
-                    if (choice.agent === agent) applyModelChoice(choice)
-                    else {
+                    if (choice.agent === agent) {
+                        if (pendingModelChoice.current) {
+                            pendingModelChoice.current = null
+                            handleAgentChange(choice.agent)
+                        }
+                        applyModelChoice(choice)
+                    } else {
                         pendingModelChoice.current = choice
                         handleAgentChange(choice.agent)
                     }
