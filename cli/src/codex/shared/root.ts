@@ -223,11 +223,11 @@ export class SharedCodexRoot {
         if (this.threadId && this.threadId !== threadId) throw new Error('Cannot retarget a shared HAPI session');
         this.threadId = threadId;
         this.queue = new SharedCodexQueue(this.client, threadId, join(this.host.directory, `${this.session.sessionId}.queue.json`),
-            (ids, steered) => this.session.emitMessagesConsumed(ids, { steered }), ids => this.session.emitSteerIndeterminate(ids),
+            (ids, steered, invokedAt) => this.session.emitMessagesConsumed(ids, { steered, invokedAt }), ids => this.session.emitSteerIndeterminate(ids),
             (id, input) => this.session.syncNativeQueuedMessage(id, input === null ? null : asyncQuestionAnswerDisplay(inputText(input))),
             ids => this.session.setSteerDeliveryState(ids, 'queued'));
         await this.queue.load();
-        this.projection = new SharedCodexProjection(this.session, threadId, id => this.queue.committed(id), undefined, id => {
+        this.projection = new SharedCodexProjection(this.session, threadId, (id, invokedAt) => this.queue.committed(id, invokedAt), undefined, id => {
             const answerId = asyncQuestionAnswerId(id);
             const state = this.queue.state(answerId);
             return state === 'queued' || state === 'consumed'

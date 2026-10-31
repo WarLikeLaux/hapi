@@ -126,6 +126,23 @@ describe('cli session handlers', () => {
         store.close()
     })
 
+    it('keeps the actual consumption time when an acknowledgement arrives after a reply', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('delayed-consumption', {}, null, 'default')
+        store.messages.addMessage(session.id, { role: 'user', content: { type: 'text', text: 'hello' } }, 'prompt')
+        const socket = new FakeSocket()
+        const events: SyncEvent[] = []
+        registerSessionHandlers(socket as unknown as CliSocketWithData, {
+            store, resolveSessionAccess: () => ({ ok: true, value: session }), emitAccessError() {},
+            onWebappEvent: event => events.push(event)
+        })
+        const invokedAt = Date.now() - 5000
+        socket.trigger('messages-consumed', { sid: session.id, localIds: ['prompt'], invokedAt })
+        expect(store.messages.getAllMessages(session.id)[0].invokedAt).toBe(invokedAt)
+        expect(events.find(event => event.type === 'messages-consumed')).toMatchObject({ invokedAt })
+        store.close()
+    })
+
     it('does not rebroadcast transcript rows replayed with the same local id', () => {
         const store = new Store(':memory:')
         const session = store.sessions.getOrCreateSession('message-replay', {}, null, 'default')
