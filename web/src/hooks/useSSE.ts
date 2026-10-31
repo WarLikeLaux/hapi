@@ -157,6 +157,7 @@ export function sameSessionSummaryMetadata(
         && current.agentSessionId === next.agentSessionId
         && current.lifecycleState === next.lifecycleState
         && current.readThrough === next.readThrough
+        && current.muted === next.muted
         && current.worktree?.basePath === next.worktree?.basePath
         && current.worktree?.branch === next.worktree?.branch
         && current.worktree?.name === next.worktree?.name

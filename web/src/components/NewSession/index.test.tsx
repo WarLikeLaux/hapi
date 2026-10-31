@@ -510,6 +510,21 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(within(screen.getByRole('article')).getByRole('button', { expanded: false }))
     }
 
+    it('preserves prompt text and selection when expanding and collapsing the editor', async () => {
+        await renderComposer(vi.fn())
+        const input = screen.getByRole('textbox', { name: 'newSession.initialPrompt' }) as HTMLTextAreaElement
+        fireEvent.change(input, { target: { value: 'A longer initial task' } })
+        input.focus()
+        input.setSelectionRange(2, 8)
+        fireEvent.click(screen.getByRole('button', { name: 'composer.expand' }))
+        const expanded = await screen.findByRole('textbox', { name: 'newSession.initialPrompt' }) as HTMLTextAreaElement
+        expect(expanded).toHaveValue('A longer initial task')
+        expect([expanded.selectionStart, expanded.selectionEnd]).toEqual([2, 8])
+        fireEvent.change(expanded, { target: { value: 'Edited task' } })
+        fireEvent.click(screen.getByRole('button', { name: 'composer.collapse' }))
+        expect(screen.getByRole('textbox', { name: 'newSession.initialPrompt' })).toHaveValue('Edited task')
+    })
+
     it('pastes, previews and removes images, then launches an image-only prompt with its original bytes', async () => {
         const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'image-chat' })
         await renderComposer(launch)
@@ -608,6 +623,15 @@ describe('NewSession launch preferences', () => {
         fireEvent.click(screen.getByRole('button', { name: 'batch.checkResult' }))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('large-image-chat', true))
         expect(launch.mock.calls[1][1]).toEqual(launch.mock.calls[0][1])
+    })
+
+    it('passes mute from the creation form to the new session', async () => {
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'muted-chat' })
+        await renderComposer(vi.fn())
+        fireEvent.click(screen.getByRole('checkbox', { name: /newSession.muted/ }))
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ muted: true })))
     })
 
     it('keeps ordinary creation on the original form until another chat is requested', async () => {

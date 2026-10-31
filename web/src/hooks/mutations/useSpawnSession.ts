@@ -5,6 +5,7 @@ import type { SpawnResponse } from '@/types/api'
 import { queryKeys } from '@/lib/query-keys'
 
 type SpawnInput = {
+    muted?: boolean
     groupId?: string
     machineId: string
     directory: string
@@ -49,7 +50,8 @@ export function useSpawnSession(api: ApiClient | null): {
                 input.collaborationMode,
                 input.copilotAgentMode,
                 input.startingMode,
-                input.groupId
+                input.groupId,
+                input.muted
             )
         },
         onSuccess: () => {

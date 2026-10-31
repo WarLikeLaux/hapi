@@ -457,7 +457,6 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const body = await c.req.text()
-        let markRead = false
         if (body) {
             let payload: unknown
             try {
@@ -467,7 +466,6 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             }
             const parsed = z.object({ markRead: z.boolean().optional() }).safeParse(payload)
             if (!parsed.success) return c.json({ error: 'Invalid archive request' }, 400)
-            markRead = parsed.data.markRead === true
         }
 
         const lifecycleState = sessionResult.session.metadata?.lifecycleState
@@ -475,7 +473,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             // Repeating Archive on a row left by a technical restart is still
             // explicit user intent and must suppress the next cold restore.
             engine.markSessionExplicitlyStopped(sessionResult.sessionId)
-            if (markRead) engine.markSessionRead(sessionResult.sessionId)
+            engine.markSessionRead(sessionResult.sessionId)
             return c.json({ ok: true, alreadyArchived: true })
         }
 
@@ -495,7 +493,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             }
             throw error
         }
-        if (markRead) engine.markSessionRead(sessionResult.sessionId)
+        engine.markSessionRead(sessionResult.sessionId)
         return c.json({ ok: true })
     })
 

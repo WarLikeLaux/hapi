@@ -16,6 +16,7 @@ import { LEGACY_YOLO_BRIDGE_AGENTS } from '@/lib/codexFamilyPermissionAgents'
 const DRAFT_STORAGE_KEY = 'hapi:new-session-form-draft'
 
 export type NewSessionFormDraft = {
+    muted?: boolean
     agentFilter?: AgentType | 'all'
     initialPrompt?: string
     initialImages?: InitialImageDraft[]
@@ -64,6 +65,7 @@ export function loadNewSessionFormDraft(): NewSessionFormDraft | null {
             : 'claude'
         const agentPreserved = restoredAgent === parsed.agent
         return {
+            muted: parsed.muted === true,
             initialImages: InitialImageDraftSchema.array().safeParse(parsed.initialImages).success ? parsed.initialImages : undefined,
             initialPrompt: typeof parsed.initialPrompt === 'string' ? parsed.initialPrompt : undefined,
             groupId: typeof parsed.groupId === 'string' ? parsed.groupId : undefined,

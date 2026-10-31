@@ -4,9 +4,12 @@ import type { AgentType } from './types'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { useTranslation } from '@/lib/use-translation'
 import { ChoiceLabel } from './ChoiceLabel'
+import { MuteControl } from './MuteControl'
 
 export function AgentSelector(props: {
     agent: AgentType
+    muted?: boolean
+    onMutedChange?: (value: boolean) => void
     filter?: AgentType | 'all'
     showAllAgents?: boolean
     allowClear?: boolean
@@ -53,6 +56,7 @@ export function AgentSelector(props: {
                         <span className="whitespace-nowrap text-[13px] sm:text-sm">{getFlavorLabel(agentType)}</span>
                     </label>
                 ))}
+                {props.muted !== undefined ? <span className="sm:ml-auto"><MuteControl muted={props.muted} disabled={props.isDisabled} onChange={value => props.onMutedChange?.(value)} /></span> : null}
             </div>
         </fieldset>
     )

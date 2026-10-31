@@ -136,7 +136,9 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             parsed.data.copilotAgentMode,
             startingMode,
             namespace,
-            parsed.data.groupId
+            parsed.data.groupId,
+            undefined,
+            parsed.data.muted
         )
         return c.json(result)
     })

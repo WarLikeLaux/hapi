@@ -21,13 +21,14 @@ export function sessionIsUnread(
     summary: SessionSummary,
     options: { lastSeenAt: number }
 ): boolean {
-    return getSessionUnreadActivityAt(summary) > options.lastSeenAt
+    return !summary.metadata?.muted && getSessionUnreadActivityAt(summary) > options.lastSeenAt
 }
 
 export function classifySessionAttention(
     summary: SessionSummary,
     options: { selected: boolean; lastSeenAt: number; manualUnreadAt?: number | null }
 ): SessionAttention | null {
+    if (summary.metadata?.muted) return null
     const pendingRequestKinds = Array.isArray(summary.pendingRequestKinds)
         ? summary.pendingRequestKinds
         : []

@@ -596,6 +596,8 @@ export default {
   'newSession.agentAvailabilityFailed': '无法检查已安装的 Agent。',
   'newSession.runnerUpgradeRequired': '创建会话前，请升级并重启此机器上的 HAPI runner。',
   'newSession.noAvailableAgents': '此机器上没有安装受支持的 Agent。',
+  'newSession.muted': '静音此对话',
+  'newSession.mutedHint': '隐藏未读提示并关闭通知。',
   'newSession.agentUnavailable': '所选 Agent 在此机器上已不可用，请刷新后选择其他 Agent。',
   'newSession.directoryOutsideWorkspaceRoots': '目录必须位于此机器配置的任一 workspace root 内。',
   'newSession.model': '模型',
