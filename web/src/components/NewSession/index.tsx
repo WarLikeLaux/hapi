@@ -2009,6 +2009,7 @@ export function NewSession(props: {
     const canCreate = Boolean(
         machineId
         && trimmedDirectory
+        && !modelPreferences.loading
         && !isFormDisabled
         && !missingWorktreeDirectory
         && !directoryOutsideWorkspaceRoots
@@ -2174,7 +2175,7 @@ export function NewSession(props: {
                 />
             ) : null}
             <ModelChoices
-                options={visibleModelChoices}
+                options={modelPreferences.loading ? [] : visibleModelChoices}
                 showAgent={effectiveFilter === 'all'}
                 agent={agent}
                 model={displayedModel}
@@ -2206,7 +2207,7 @@ export function NewSession(props: {
                 onModelChange={setModel}
             /> : null}
             {agent === 'codex' && codexModelsState.error ? <p role="alert" className="px-3 py-2 text-sm text-red-600">{t('newSession.model.loadFailed')}: {codexModelsState.error}</p> : null}
-            {agent === 'agy' && agyGroup?.variants.length ? <section className="flex min-w-0 flex-wrap items-center gap-2 p-2 sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.effort')}>
+            {!modelPreferences.loading && agent === 'agy' && agyGroup?.variants.length ? <section className="flex min-w-0 flex-wrap items-center gap-2 p-2 sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.effort')}>
                 <ChoiceLabel kind="effort" />
                 {agyGroup.variants.map(variant => <button key={variant.id} type="button" aria-pressed={agyWire === variant.id}
                     onClick={() => { agyModelPickedByUserRef.current = true; setAgySelectedModel(variant.id) }}
