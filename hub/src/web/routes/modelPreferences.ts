@@ -10,7 +10,9 @@ const preferenceSchema = z.object({
     pinned: z.boolean(),
     alias: z.string().trim().max(80).nullable(),
     hidden: z.boolean().optional().default(false),
-    reasoningEffort: z.string().trim().min(1).max(64).nullable().optional().default(null)
+    reasoningEffort: z.string().trim().min(1).max(64).nullable().optional().default(null),
+    speed: z.enum(['fast', 'standard']).nullable().optional().default(null),
+    showInAll: z.boolean().optional().default(true)
 })
 
 export function createModelPreferenceRoutes(store: Store): Hono<WebAppEnv> {

@@ -24,7 +24,7 @@ export function useModelPreferences(api: ApiClient) {
                 setPreferences(current => {
                     const index = current.findIndex(row => row.agent === preference.agent && row.modelId === preference.modelId)
                     const next = current.filter(row => row.agent !== preference.agent || row.modelId !== preference.modelId)
-                    if (result.preference.pinned || result.preference.alias || result.preference.hidden || result.preference.reasoningEffort) {
+                    if (result.preference.pinned || result.preference.alias || result.preference.hidden || result.preference.reasoningEffort || result.preference.speed || result.preference.showInAll === false) {
                         const keptPinOrder = index >= 0 && current[index].pinned === result.preference.pinned
                         next.splice(keptPinOrder ? index : next.length, 0, result.preference)
                     }

@@ -34,7 +34,7 @@ describe('model preferences', () => {
             let app = appFor(store)
             const defaultHeaders = await headers('default')
             const otherHeaders = await headers('other')
-            const preference = { agent: 'codex', modelId: 'gpt-6.1-terra', pinned: true, alias: 'Terra Work', hidden: false, reasoningEffort: 'high' }
+            const preference = { agent: 'codex', modelId: 'gpt-6.1-terra', pinned: true, alias: 'Terra Work', hidden: false, reasoningEffort: 'high', speed: 'fast', showInAll: false }
             expect((await app.request('/api/model-preferences', {
                 method: 'PUT', headers: defaultHeaders, body: JSON.stringify(preference)
             })).status).toBe(200)
@@ -51,15 +51,15 @@ describe('model preferences', () => {
             const loadedResponse = await app.request('/api/model-preferences', { headers: defaultHeaders })
             const loaded = await loadedResponse.json() as { preferences: unknown[] }
             expect(loaded.preferences).toEqual([
-                { agent: 'codex', modelId: 'gpt-6-sol', pinned: true, alias: null, hidden: false, reasoningEffort: null }, preference
+                { agent: 'codex', modelId: 'gpt-6-sol', pinned: true, alias: null, hidden: false, reasoningEffort: null, speed: null, showInAll: true }, preference
             ])
             expect((await app.request('/api/model-preferences', {
                 method: 'PUT', headers: defaultHeaders,
-                body: JSON.stringify({ ...preference, pinned: false, alias: null, reasoningEffort: null })
+                body: JSON.stringify({ ...preference, pinned: false, alias: null, reasoningEffort: null, speed: null, showInAll: true })
             })).status).toBe(200)
             const clearedResponse = await app.request('/api/model-preferences', { headers: defaultHeaders })
             expect((await clearedResponse.json() as { preferences: unknown[] }).preferences).toEqual([
-                { agent: 'codex', modelId: 'gpt-6-sol', pinned: true, alias: null, hidden: false, reasoningEffort: null }
+                { agent: 'codex', modelId: 'gpt-6-sol', pinned: true, alias: null, hidden: false, reasoningEffort: null, speed: null, showInAll: true }
             ])
             expect((await app.request('/api/model-preferences', {
                 method: 'PUT', headers: defaultHeaders,
@@ -93,7 +93,7 @@ describe('model preferences', () => {
             db.close()
             const after = new Store(path)
             expect(after.modelPreferences.list('default')).toEqual([
-                { agent: 'codex', modelId: 'gpt-6.1-sol', pinned: true, alias: 'Work', hidden: false, reasoningEffort: null }
+                { agent: 'codex', modelId: 'gpt-6.1-sol', pinned: true, alias: 'Work', hidden: false, reasoningEffort: null, speed: null, showInAll: true }
             ])
             after.close()
         } finally { rmSync(dir, { recursive: true, force: true }) }

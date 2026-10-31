@@ -33,7 +33,6 @@ export function ModelChoices(props: {
     if (!props.options.length && !props.isLoading) return null
     return (
         <section aria-label={t('newSession.model')} aria-busy={props.isLoading || undefined}
-            title={props.showAgent ? t('newSession.popularModels.hint') : undefined}
             className="flex min-w-0 flex-col gap-2 p-2 sm:flex-row sm:items-center sm:gap-3 sm:p-3">
             <ChoiceLabel kind="model" />
             <div className="relative min-w-0 flex-1">
