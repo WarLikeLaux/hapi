@@ -7,6 +7,7 @@ export const settingsCategories = [
     { id: 'storage', path: '/settings/storage', titleKey: 'settings.storage.title' },
     { id: 'usage', path: '/settings/usage', titleKey: 'settings.usage.title' },
     { id: 'limits', path: '/settings/limits', titleKey: 'settings.limits.title' },
+    { id: 'debug', path: '/settings/debug', titleKey: 'settings.debug.title' },
     { id: 'about', path: '/settings/about', titleKey: 'settings.about.title' },
 ] as const
 
