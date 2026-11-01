@@ -1,8 +1,10 @@
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act, cleanup, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
 import { getProjectLabelHue, getSessionActivityTime, SessionRowSummary } from './SessionRowSummary'
+import { markCodexSessionsImported } from '@/lib/codexImportedSessions'
+import { configureSessionReadState, markSessionSeen, markSessionUnread } from '@/lib/sessionLastSeen'
 
 afterEach(() => cleanup())
 
@@ -26,6 +28,7 @@ function makeSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
         nextScheduledAt: null,
         model: null,
         effort: null,
+        contentRevision: overrides.updatedAt ?? 0,
         ...overrides
     }
 }
@@ -60,6 +63,7 @@ describe('SessionRowSummary activity time', () => {
 describe('SessionRowSummary background status', () => {
     beforeEach(() => {
         localStorage.clear()
+        configureSessionReadState('row-summary-test', async () => { throw new Error('offline') })()
     })
 
     it.each([false, true])('shows questions in a selected Working session (detailed: %s)', (showDetailedStatus) => {
@@ -127,7 +131,7 @@ describe('SessionRowSummary background status', () => {
             backgroundTaskCount: 0,
             updatedAt: 2_000,
         })
-        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ [session.id]: 2_000 }))
+        markSessionSeen(session.id, 2_000)
         const view = render(
             <I18nProvider>
                 <SessionRowSummary
@@ -140,7 +144,7 @@ describe('SessionRowSummary background status', () => {
 
         expect(screen.queryByRole('tooltip', { hidden: true })).not.toBeInTheDocument()
 
-        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ [session.id]: 1_999 }))
+        markSessionUnread(session.id)
         view.rerender(
             <I18nProvider>
                 <SessionRowSummary
@@ -154,15 +158,15 @@ describe('SessionRowSummary background status', () => {
         expect(screen.getByRole('tooltip', { hidden: true })).toHaveTextContent('New activity')
     })
 
-    it('shows an explicit unread dot for the selected session only', () => {
+    it('keeps an explicit unread dot across newer activity', () => {
         const session = makeSummary({
             id: 'selected-unread',
             active: false,
             backgroundTaskCount: 0,
             updatedAt: 2_000,
         })
-        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ [session.id]: 2_000 }))
-        localStorage.setItem('hapi.sessionManualUnread.v1', JSON.stringify({ [session.id]: 2_000 }))
+        markSessionSeen(session.id, 2_000)
+        markSessionUnread(session.id)
 
         const view = render(
             <I18nProvider>
@@ -188,7 +192,7 @@ describe('SessionRowSummary background status', () => {
             </I18nProvider>
         )
 
-        expect(screen.queryByRole('tooltip', { hidden: true })).not.toBeInTheDocument()
+        expect(screen.getByRole('tooltip', { hidden: true })).toHaveTextContent('New activity')
     })
 
     it('shows an explicit unread dot before the thinking spinner', () => {
@@ -197,8 +201,8 @@ describe('SessionRowSummary background status', () => {
             thinking: true,
             updatedAt: 2_000,
         })
-        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ [session.id]: 2_000 }))
-        localStorage.setItem('hapi.sessionManualUnread.v1', JSON.stringify({ [session.id]: 2_000 }))
+        markSessionSeen(session.id, 2_000)
+        markSessionUnread(session.id)
 
         render(
             <I18nProvider>
@@ -212,5 +216,46 @@ describe('SessionRowSummary background status', () => {
         )
 
         expect(screen.getByRole('tooltip', { hidden: true })).toHaveTextContent('New activity')
+    })
+})
+
+describe('SessionRowSummary time label', () => {
+    beforeEach(() => {
+        localStorage.clear()
+        configureSessionReadState('row-summary-test', async () => { throw new Error('offline') })()
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    it('advances the relative time without a parent render', () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(1_800_000_000_000)
+        render(
+            <I18nProvider>
+                <SessionRowSummary session={makeSummary({ updatedAt: 1_800_000_000_000, backgroundTaskCount: 0 })} />
+            </I18nProvider>
+        )
+        expect(screen.getByText('just now')).toBeInTheDocument()
+
+        act(() => { vi.advanceTimersByTime(2 * 60_000) })
+        expect(screen.getByText('2m ago')).toBeInTheDocument()
+    })
+
+    it('shows a Codex import marker set after the first render', () => {
+        render(
+            <I18nProvider>
+                <SessionRowSummary session={makeSummary({
+                    updatedAt: Date.now() - 3 * 60 * 60_000,
+                    backgroundTaskCount: 0,
+                    metadata: { path: '/demo', name: 'Imported', flavor: 'codex', agentSessionId: 'codex-thread' },
+                })} />
+            </I18nProvider>
+        )
+        expect(screen.queryByText('just imported from Codex')).toBeNull()
+
+        act(() => { markCodexSessionsImported(['codex-thread']) })
+        expect(screen.getByText('just imported from Codex')).toBeInTheDocument()
     })
 })

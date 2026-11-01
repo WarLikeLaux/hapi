@@ -2,18 +2,19 @@ import type { ClientToServerEvents } from '@hapi/protocol'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { CopilotAgentMode } from '@hapi/protocol'
-import type { AgentState, CodexCollaborationMode, Metadata, PermissionMode } from '@hapi/protocol/types'
+import type { AgentState, BackgroundTask, CodexCollaborationMode, Metadata, PermissionMode } from '@hapi/protocol/types'
 import { getReasoningStreamId, isRedundantGoalStatusEventContent } from '@hapi/protocol/messages'
 import type { Store, StoredSession } from '../../../store'
 import type { SyncEvent } from '../../../sync/syncEngine'
 import { extractTodoWriteTodosFromMessageContent } from '../../../sync/todos'
 import { extractTeamStateFromMessageContent, applyTeamStateDelta } from '../../../sync/teams'
-import { extractBackgroundTaskDelta } from '../../../sync/backgroundTasks'
+import { extractBackgroundTasks, extractBackgroundTaskDelta } from '../../../sync/backgroundTasks'
 import { shouldRecordSessionActivity } from '../../../sync/sessionActivity'
 import type { CliSocketWithData } from '../../socketTypes'
 import type { SessionEndReason } from '@hapi/protocol'
 import type { AccessErrorReason, AccessResult } from './types'
 import { isReadySessionEventContent } from '../../../sync/sessionReady'
+import { preserveHubOwnedSessionMetadata } from '../../../utils/sessionMetadata'
 
 type SessionAlivePayload = {
     sid: string
@@ -75,21 +76,6 @@ const updateStateSchema = z.object({
     agentState: z.unknown().nullable()
 })
 
-const HUB_OWNED_METADATA_KEYS = ['supersededBySessionId', 'opencodeClearOperation'] as const
-
-function preserveHubOwnedMetadata(incoming: unknown, current: unknown): unknown {
-    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return incoming
-    const next = { ...(incoming as Record<string, unknown>) }
-    const existing = current && typeof current === 'object' && !Array.isArray(current)
-        ? current as Record<string, unknown>
-        : {}
-    for (const key of HUB_OWNED_METADATA_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(existing, key)) next[key] = existing[key]
-        else delete next[key]
-    }
-    return next
-}
-
 export type SessionHandlersDeps = {
     store: Store
     resolveSessionAccess: ResolveSessionAccess
@@ -100,6 +86,7 @@ export type SessionHandlersDeps = {
     onSessionIdle?: (sessionId: string, time: number) => void
     onSessionEnd?: (payload: SessionEndPayload) => void
     onWebappEvent?: (event: SyncEvent) => void
+    onBackgroundTasks?: (sessionId: string, tasks: BackgroundTask[]) => void
     onBackgroundTaskDelta?: (sessionId: string, delta: { started: number; completed: number }) => void
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
     /** tiann/hapi#1820: any message is agent progress, either direction. */
@@ -112,7 +99,7 @@ export type SessionHandlersDeps = {
 }
 
 export function registerSessionHandlers(socket: CliSocketWithData, deps: SessionHandlersDeps): void {
-    const { store, resolveSessionAccess, emitAccessError, onSessionAlive, onSessionReady, onSessionBusy, onSessionIdle, onSessionEnd, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onAgentProgress, onSweepImmediateQueued, onMessagesConsumed } = deps
+    const { store, resolveSessionAccess, emitAccessError, onSessionAlive, onSessionReady, onSessionBusy, onSessionIdle, onSessionEnd, onWebappEvent, onBackgroundTasks, onBackgroundTaskDelta, onSessionActivity, onAgentProgress, onSweepImmediateQueued, onMessagesConsumed } = deps
 
     socket.on('native-queue-message', data => {
         const parsed = z.object({ sid: z.string(), localId: z.string().min(1), text: z.string().nullable() }).safeParse(data)
@@ -167,6 +154,14 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
             return
         }
 
+        // A background-task snapshot is session state, not chat: apply it
+        // without storing a hidden row.
+        const backgroundTasks = extractBackgroundTasks(content)
+        if (backgroundTasks !== null) {
+            onBackgroundTasks?.(sid, backgroundTasks)
+            return
+        }
+
         const { message: msg, inserted } = store.messages.addMessageWithStatus(
             sid,
             content,
@@ -179,6 +174,9 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
         if (!inserted) {
             return
         }
+
+        const delta = extractBackgroundTaskDelta(content)
+        if (delta) onBackgroundTaskDelta?.(sid, delta)
 
         // The launcher's thinking=false keepalive is volatile and may be lost
         // while the socket reconnects after a hub restart. The persisted ready
@@ -252,11 +250,6 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
             }
         }
 
-        const bgDelta = extractBackgroundTaskDelta(content)
-        if (bgDelta) {
-            onBackgroundTaskDelta?.(sid, bgDelta)
-        }
-
         const update = {
             id: randomUUID(),
             seq: msg.seq,
@@ -284,7 +277,8 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
                 localId: msg.localId,
                 content: msg.content,
                 createdAt: msg.createdAt,
-                invokedAt: msg.invokedAt
+                invokedAt: msg.invokedAt,
+                ...(msg.contentRevision ? { contentRevision: msg.contentRevision } : {})
             }
         })
     })
@@ -301,7 +295,7 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
             cb({ result: 'error' })
             return
         }
-        // Fresh resolve: preserveHubOwnedMetadata below merges against
+        // Fresh resolve: preserveHubOwnedSessionMetadata below merges against
         // sessionAccess.value.metadata, so the base must be the live row.
         // A memo-stale base would drop a concurrently-set hub-owned key or
         // resurrect a concurrently-cleared one in this very write.
@@ -313,7 +307,7 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
 
         const result = store.sessions.updateSessionMetadata(
             sid,
-            preserveHubOwnedMetadata(metadata, sessionAccess.value.metadata),
+            preserveHubOwnedSessionMetadata(metadata, sessionAccess.value.metadata),
             expectedVersion,
             sessionAccess.value.namespace,
             pinTitle ? { titleOperation: 'pin' } : undefined

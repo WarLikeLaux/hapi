@@ -1,6 +1,8 @@
+import { compareSessionSummaries } from '@hapi/protocol'
 import {
     AnswerCodexAsyncQuestionRequestSchema,
     DismissCodexAsyncQuestionRequestSchema,
+    SessionReadStateRequestSchema,
     CursorMigrateToAcpRequestSchema,
     DeleteUploadRequestSchema,
     ForkConversationRequestSchema,
@@ -30,11 +32,12 @@ import {
     toSessionSummary,
     UploadFileRequestSchema
 } from '@hapi/protocol'
-import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
+import { RPC_METHODS, RPC_TARGET_MISSING_ERROR_CODE } from '@hapi/protocol/rpcMethods'
 import type { SlashCommand } from '@hapi/protocol/apiTypes'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { SessionBusyError, SessionStopUnconfirmedError, type SyncEngine, type Session } from '../../sync/syncEngine'
+import { RpcTargetMissingError } from '../../sync/rpcGateway'
 import type { WebAppEnv } from '../middleware/auth'
 import { loadScratchlistAttachmentLimitsFromEnv } from '../../config/scratchlistAttachmentLimits'
 import { validateScratchlistAttachmentsForWrite, scratchlistSessionBytesBeforeForPut } from '../../scratchlistAttachments/validate'
@@ -83,8 +86,6 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const getPendingCount = (s: Session) => s.agentState?.requests ? Object.keys(s.agentState.requests).length : 0
-
         const namespace = c.get('namespace')
         const limitRaw = c.req.query('limit')
         const parsedLimit = limitRaw === undefined ? null : Number(limitRaw)
@@ -99,24 +100,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
                 if (order === 'updatedAt') {
                     return b.updatedAt - a.updatedAt
                 }
-                if (Boolean(a.globalPinned) !== Boolean(b.globalPinned)) {
-                    return a.globalPinned ? -1 : 1
-                }
-                if (Boolean(a.pinned) !== Boolean(b.pinned)) {
-                    return a.pinned ? -1 : 1
-                }
-                // Active sessions first (web session list)
-                if (a.active !== b.active) {
-                    return a.active ? -1 : 1
-                }
-                // Within active sessions, sort by pending requests count
-                const aPending = getPendingCount(a)
-                const bPending = getPendingCount(b)
-                if (a.active && aPending !== bPending) {
-                    return bPending - aPending
-                }
-                // Then by updatedAt
-                return b.updatedAt - a.updatedAt
+                return compareSessionSummaries(a, b)
             })
         if (limit !== null) {
             sessionRecords = sessionRecords.slice(0, limit)
@@ -133,6 +117,21 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         })
 
         return c.json({ sessions })
+    })
+
+    app.put('/sessions/:id/read-state', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const access = requireSessionFromParam(c, engine)
+        if (access instanceof Response) return access
+        // A revision belongs to one session ID. Never apply an old ID's
+        // pending operation to a replacement session via alias resolution.
+        if (access.sessionId !== c.req.param('id')) return c.json({ error: 'Session replaced' }, 409)
+        const body = SessionReadStateRequestSchema.safeParse(await c.req.json().catch(() => null))
+        if (!body.success) return c.json({ error: 'Invalid read state' }, 400)
+        const result = engine.updateReadState(access.sessionId, c.get('namespace'), body.data)
+        if (!result) return c.json({ error: 'Session not found' }, 404)
+        return c.json(result, result.status === 'invalid' ? 400 : result.status === 'conflict' ? 409 : 200)
     })
 
     app.get('/sessions/:id/export', (c) => {
@@ -377,7 +376,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -811,8 +810,15 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             }
         }
 
+        // Pi commits the model before setting its thinking level, so a failure
+        // in between would leave half of the request applied.
+        const { model, effort } = parsed.data
+        if (effort !== undefined && flavor !== 'claude' && flavor !== 'agy') {
+            return c.json({ error: 'Effort can only be sent with a model change for Claude and Antigravity sessions' }, 400)
+        }
+
         try {
-            await engine.applySessionConfig(sessionResult.sessionId, { model: parsed.data.model })
+            await engine.applySessionConfig(sessionResult.sessionId, effort === undefined ? { model } : { model, effort })
             return c.json({ ok: true })
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to apply model'
@@ -1486,6 +1492,13 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             const result = await engine.listCodexModelsForSession(sessionResult.sessionId)
             return c.json(result)
         } catch (error) {
+            if (error instanceof RpcTargetMissingError) {
+                return c.json({
+                    success: false,
+                    error: error.message,
+                    code: RPC_TARGET_MISSING_ERROR_CODE
+                }, 503)
+            }
             return c.json({
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to list Codex models'
@@ -1567,6 +1580,24 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to list Grok models'
+            }, 500)
+        }
+    })
+
+    app.get('/sessions/:id/dsh-models', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'dsh') {
+            return c.json({ success: false, error: 'DSH models are only available for DeepSeek Harness sessions' }, 400)
+        }
+        try {
+            return c.json(await engine.listDshModelsForSession(sessionResult.sessionId))
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list DSH models'
             }, 500)
         }
     })

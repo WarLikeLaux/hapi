@@ -70,6 +70,13 @@ Native pending queue text is mirrored to HAPI. Native edits and acknowledged
 removals update it. Losing a queue entry during transport recovery is not proof
 that it was canceled or executed.
 
+During live context compaction, Web may show **Compacting context — waiting for
+message acceptance** for input just removed from the native queue. This is not
+an acceptance acknowledgement: only the native user-message event or history
+confirms consumption. Compaction completion, turn completion/interruption or a
+native disconnect withdraws this temporary status. Unconfirmed input retains
+the existing unknown-delivery recovery controls and is never automatically replayed.
+
 Codex arbitrates terminal/Web answers. A submitted Web answer is only a
 candidate. Native `serverRequest/resolved` closes the prompt with neutral
 **Resolved in Codex** status; HAPI does not invent the winner or their answer.
@@ -82,6 +89,25 @@ Child-agent traces/permissions are attributed by native ancestry, not merely by
 being received on the same app-server connection.
 
 ## Recovery and local data
+
+### Fork an archived conversation
+
+With an online Runner that advertises archived Codex forks, the Web chat can
+fork an inactive Codex conversation directly. The source stays inactive and
+archived in HAPI. A historical fork excludes the selected user message's native
+turn and all later turns; Fork current retains the whole persisted conversation.
+
+The Runner reads the native history, temporarily unarchives the native source
+when required, creates an independent branch, and restores the source archive.
+No prompt is sent to the source and no model turn is started by the fork itself.
+The new branch uses its own HAPI identity and Codex execution.
+
+If an operation is interrupted, retry the same fork boundary so HAPI can reconcile
+its persisted reservation. Reopen, archive and delete are blocked while that
+reservation is pending. An unconfirmed native fork without a returned thread id
+is never automatically repeated: inspect the Runner's operation journal under
+`$CODEX_HOME/hapi-archived-forks` before recovery. Missing history, an offline
+machine, a loaded native source, or a Runner needing an upgrade produces an error.
 
 - Hub outage: existing native threads continue. Reconnect reconciles history,
   queue and pending state with stable IDs.
@@ -112,9 +138,10 @@ endpoints/tokens never go into HAPI session metadata or SSE.
 
 - Cold resume accepts root threads only. To revisit a child agent, resume its
   parent HAPI session; HAPI does not independently start a child execution.
-- HAPI's legacy `safe-yolo` auto-approval policy is not a native Codex mode;
-  shared sessions reject it instead of silently weakening or misreporting it.
-  Use `default`, `read-only`, `yolo`, or native `--approve-for-me`.
+- Codex permission modes are `default`, `read-only`, `autoReview`, and
+  `yolo`; HAPI's `safe-yolo` is not a native Codex mode. `autoReview` keeps the
+  workspace-write sandbox and routes escalations to Codex's native auto-review
+  (`approvals_reviewer = "auto_review"`, same as `--approve-for-me`).
 - Web-created new/fork roots preserve the standard native sandbox restrictions.
   Named permission profiles and external sandboxes must be created in the
   native TUI; HAPI never converts them silently to workspace-write.
@@ -125,6 +152,11 @@ endpoints/tokens never go into HAPI session metadata or SSE.
   sessions: a native mutation plus hub transcript truncation needs a commit
   barrier across every sender. Use **Fork at message** instead. Cuts inside a
   steered turn are rejected; select its first user message.
+- **Fork at message** can branch from a finished historical turn while a later
+  turn is still running. It excludes the selected user message's native turn
+  and all later turns; the source keeps running. The selected turn and retained
+  prefix must have finished, and queued messages or conflicting history actions
+  still block the operation. **Fork current** continues to require an idle session.
 - `--worktree` and unsupported launch flags fail explicitly; create/select the
   working directory before launch. `--oss` requires an explicit
   `--local-provider`. Bare resume pickers use `hapi resume` or the attached TUI.

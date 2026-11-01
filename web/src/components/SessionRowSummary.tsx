@@ -1,5 +1,5 @@
 import { SessionRowLayout, SessionWorkingIcon } from '@/components/SessionRowLayout'
-import { useMemo, type CSSProperties } from 'react'
+import { useMemo, useSyncExternalStore, type CSSProperties } from 'react'
 import type { SessionSummary } from '@/types/api'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { ScheduleIcon } from '@/components/icons'
@@ -9,7 +9,7 @@ import { classifyVisibleSessionAttention } from '@/lib/sessionAttention'
 import { getSessionLastSeenAt, getSessionManualUnreadAt } from '@/lib/sessionLastSeen'
 import { formatRelativeTime } from '@/lib/relativeTime'
 import { formatScheduledTooltipDetail } from '@/lib/scheduledTime'
-import { getCodexImportedAt } from '@/lib/codexImportedSessions'
+import { getCodexImportedAt, subscribeCodexImportedSessions } from '@/lib/codexImportedSessions'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { useTranslation } from '@/lib/use-translation'
 import { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
@@ -112,15 +112,13 @@ export function getSessionActivityTime(
 function getSessionTimeLabel(
     session: SessionSummary,
     t: (key: string, params?: Record<string, string | number>) => string,
-    basis: SessionActivityTimeBasis = 'default'
+    basis: SessionActivityTimeBasis = 'default',
+    importedAt: number | null = null
 ): string | null {
     const activityTime = getSessionActivityTime(session, basis)
     if (activityTime !== null && activityTime > 0) {
         return formatRelativeTime(activityTime, t)
     }
-    const importedAt = session.metadata?.flavor === 'codex'
-        ? getCodexImportedAt(session.metadata?.agentSessionId)
-        : null
     if (importedAt !== null) {
         return formatCodexImportedRelativeTime(importedAt, t)
     }
@@ -192,7 +190,7 @@ export function SessionRowSummary(props: {
         () => classifyVisibleSessionAttention(s, {
             selected,
             lastSeenAt: getSessionLastSeenAt(s.id),
-            manualUnreadAt: getSessionManualUnreadAt(s.id),
+            manualUnreadAt: getSessionManualUnreadAt(s.id, s.readState),
             detailed: showDetailedStatus,
         }),
         [s, selected, showDetailedStatus, lastSeenVersion]
@@ -212,7 +210,10 @@ export function SessionRowSummary(props: {
     const attentionId = attentionTooltipIdProp ?? ownedIds.attentionId
     const scheduleId = scheduleTooltipIdProp ?? ownedIds.scheduleId
     useMinuteTick(true)
-    const timeLabel = getSessionTimeLabel(s, t, activityTimeBasis)
+    const importedAt = useSyncExternalStore(subscribeCodexImportedSessions, () => (
+        s.metadata?.flavor === 'codex' ? getCodexImportedAt(s.metadata.agentSessionId) : null
+    ), () => null)
+    const timeLabel = getSessionTimeLabel(s, t, activityTimeBasis, importedAt)
 
     return (
         <SessionRowLayout

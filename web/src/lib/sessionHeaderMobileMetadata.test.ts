@@ -7,6 +7,15 @@ describe('selectMobileSessionHeaderSecondary', () => {
         expect(selectMobileSessionHeaderSecondary({ machine: true, updatedAt: true })).toBe('machine')
     })
 
+    it('prioritizes the project label when it is available', () => {
+        expect(selectMobileSessionHeaderSecondary({ project: true, machine: true })).toBe('project')
+    })
+
+    it('follows the upstream-first display order', () => {
+        expect(selectMobileSessionHeaderSecondary({ machine: true, model: true, updatedAt: true })).toBe('machine')
+        expect(selectMobileSessionHeaderSecondary({ model: true, updatedAt: true, worktree: true })).toBe('model')
+    })
+
     it('uses the next enabled and available detail when the branch is absent', () => {
         expect(selectMobileSessionHeaderSecondary({ machine: true, lastActive: true, updatedAt: true })).toBe('machine')
         expect(selectMobileSessionHeaderSecondary({ lastActive: true, updatedAt: true })).toBe('lastActive')

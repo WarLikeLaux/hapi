@@ -16,18 +16,22 @@ import {
     useMatchRoute,
     useNavigate,
     useParams,
+    useRouter,
     useSearch,
 } from '@tanstack/react-router'
 import { getScrollRestorationKey } from '@/lib/scrollRestorationKey'
 import {
     getSessionListSelectionNavigation,
+    isSessionSidebarHidden,
     PRESERVE_SESSION_SIDEBAR_SCROLL,
+    shouldShowSessionSidebar,
 } from '@/lib/sessionNavigation'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
 import { QuotaLimitsModal } from '@/components/QuotaLimitsModal'
 import { SessionList } from '@/components/SessionList'
 import { SessionComposer as NewSession } from '@/components/NewSession/SessionComposer'
+import { SidebarShowButton } from '@/components/SidebarToggle'
 import { WorkspaceBrowser } from '@/components/WorkspaceBrowser'
 import { LoadingState } from '@/components/LoadingState'
 import { useAppContext } from '@/lib/app-context'
@@ -45,7 +49,8 @@ import { useSlashCommands } from '@/hooks/queries/useSlashCommands'
 import { useSkills } from '@/hooks/queries/useSkills'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { buildSessionReferenceText, matchSessionsForMention } from '@/lib/sessionReference'
-import type { Suggestion } from '@/hooks/useActiveSuggestions'
+import { createDeferredSuggestions } from '@/lib/deferredSuggestions'
+import type { Suggestion, SuggestionRequestContext } from '@/hooks/useActiveSuggestions'
 import { useSendMessage, type SendErrorInfo } from '@/hooks/mutations/useSendMessage'
 import type { ComposerSendError } from '@/components/AssistantChat/HappyComposer'
 import { ApiError } from '@/api/client'
@@ -59,8 +64,8 @@ import { transferComposerDraftThenNavigate } from '@/lib/composer-draft-transfer
 import { getDraftAttachments } from '@/lib/composer-attachment-drafts'
 import { refreshSessionDetailPreservingActive } from '@/lib/session-detail-optimistic'
 import { inactiveSessionCanResume, resolveCursorReopenGate } from '@/lib/sessionResume'
-import { initializeSessionLastSeen } from '@/lib/sessionLastSeen'
-import { useSelectedSessionSeen } from '@/hooks/useSelectedSessionSeen'
+import { isOnSessionPage, resolveVoiceSession } from '@/lib/dictationSend'
+import { observeSessionReadStates } from '@/lib/sessionLastSeen'
 import { useDocumentVisibility } from '@/hooks/useDocumentVisibility'
 import { useGroupSessionCloseNavigation } from '@/hooks/useGroupSessionCloseNavigation'
 import { getGroupEntrySession, rememberGroupSession } from '@/lib/sessionGroupSelection'
@@ -150,6 +155,26 @@ function LimitsGaugeIcon(props: { className?: string }) {
     )
 }
 
+
+function FolderOpenIcon(props: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={props.className}
+        >
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+        </svg>
+    )
+}
+
 function SettingsIcon(props: { className?: string }) {
     return (
         <svg
@@ -173,6 +198,7 @@ function SettingsIcon(props: { className?: string }) {
 function SessionsPage() {
     const { api, baseUrl, titleSuggestionAvailable = false, isHubConnected = true } = useAppContext()
     const navigate = useNavigate()
+    const router = useRouter()
     const pathname = useLocation({ select: location => location.pathname })
     const matchRoute = useMatchRoute()
     const { t } = useTranslation()
@@ -246,7 +272,7 @@ function SessionsPage() {
         if (isLoading || error) {
             return
         }
-        initializeSessionLastSeen(baseUrl, sessions)
+        observeSessionReadStates(sessions)
         setInitializedHub(baseUrl)
     }, [baseUrl, error, isLoading, sessions])
     const entryGroupId = groupRoute ? groupRoute.groupId : null
@@ -266,9 +292,41 @@ function SessionsPage() {
             || pathname !== `/sessions/${selectedSession.id}`) return
         rememberGroupSession(baseUrl, selectedGroup.id, selectedSession.id)
     }, [isDocumentVisible, selectedGroup, selectedSession, pathname, baseUrl])
-    useSelectedSessionSeen(selectedSessionId, selectedSession?.lastAgentMessageAt)
     const isSessionsIndex = pathname === '/sessions' || pathname === '/sessions/'
+    const sidebarSearch = useLocation({ select: location => location.search })
+    const [isSidebarVisible, setIsSidebarVisible] = useState(
+        () => shouldShowSessionSidebar(pathname, sidebarSearch)
+    )
+    useEffect(() => {
+        if (isSessionsIndex) {
+            setIsSidebarVisible(true)
+        } else if (!shouldShowSessionSidebar(pathname, sidebarSearch)) {
+            setIsSidebarVisible(false)
+        }
+    }, [isSessionsIndex, pathname, sidebarSearch])
+    const sidebarHidden = !isSidebarVisible
+    const shouldShowSidebar = isSessionsIndex || isSidebarVisible
+    useEffect(() => {
+        // Child routes and in-session actions can navigate without carrying
+        // the parent session search state. Keep the chat-focused URL explicit
+        // while this layout remains hidden so reloads do not restore the rail.
+        if (isSessionsIndex || !sidebarHidden) return
+        const { pathname: currentPathname, search, hash, state } = router.history.location
+        const searchParams = new URLSearchParams(search)
+        if (searchParams.get('sidebar') === 'hidden') return
+        searchParams.set('sidebar', 'hidden')
+        router.history.replace(
+            `${currentPathname}?${searchParams.toString()}${hash}`,
+            state,
+        )
+    }, [isSessionsIndex, pathname, router, sidebarHidden, sidebarSearch])
     const sidebar = useSidebarResize()
+    const handleSelectSession = useCallback((sessionId: string) => {
+        navigate(getSessionListSelectionNavigation(
+            sessionId,
+            isSessionSidebarHidden(sidebarSearch) ? { sidebar: 'hidden' } : undefined,
+        ))
+    }, [navigate, sidebarSearch])
     const handleNewSessionInDirectory = useCallback((args: { machineId: string | null; directory: string }) => {
         navigate({
             to: '/sessions/new',
@@ -278,13 +336,26 @@ function SessionsPage() {
             ...PRESERVE_SESSION_SIDEBAR_SCROLL,
         })
     }, [navigate])
+    const showSidebar = useCallback(() => {
+        if (!sidebarHidden) return
+        setIsSidebarVisible(true)
+        const { pathname: currentPathname, search, hash, state } = router.history.location
+        const searchParams = new URLSearchParams(search)
+        searchParams.delete('sidebar')
+        const nextSearch = searchParams.toString()
+        const nextHref = `${currentPathname}${nextSearch ? `?${nextSearch}` : ''}${hash}`
+        router.history.replace(nextHref, state)
+    }, [router, setIsSidebarVisible, sidebarHidden])
 
     return (
         <>
             <QuotaLimitsModal isOpen={limitsOpen} onClose={() => setLimitsOpen(false)} />
             <div className="flex h-full min-h-0">
             <div
-                className={`${isSessionsIndex ? 'flex' : 'hidden split:flex'} w-full shrink-0 flex-col bg-[var(--app-bg)]`}
+                // min-w-0: without it, shrink-0 toolbar icons inflate the flex
+                // item's min-content past --sidebar-w and the shed never sees a
+                // tight budget (#2039 desktop overflow past the split).
+                className={`${shouldShowSidebar ? (isSessionsIndex ? 'flex' : 'hidden split:flex') : 'hidden'} min-w-0 w-full shrink-0 flex-col bg-[var(--app-bg)]`}
                 style={{ '--sidebar-w': `${sidebar.width}px` } as React.CSSProperties}
             >
                 <div className="flex min-h-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">
@@ -304,7 +375,7 @@ function SessionsPage() {
                         onNewGroupChat={group => navigate({ to: '/sessions/new', search: { groupId: group.id } })}
                         onGroupHidden={group => { if (selectedGroup?.id === group.id) void navigate({ to: '/sessions' }) }}
                         selectedSessionId={selectedSessionId}
-                        onSelect={(sessionId) => navigate(getSessionListSelectionNavigation(sessionId))}
+                        onSelect={handleSelectSession}
                         onNewSession={() => navigate({
                             to: '/sessions/new',
                             ...PRESERVE_SESSION_SIDEBAR_SCROLL,
@@ -313,38 +384,44 @@ function SessionsPage() {
                         onBrowse={canBrowse ? () => navigate({ to: '/browse' }) : undefined}
                         onRefresh={handleRefresh}
                         isLoading={isLoading}
-                        renderHeader={false}
-                        headerActions={(
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setLimitsOpen(true)}
-                                    className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
-                                    title={t('settings.limits.title')}
-                                >
-                                    <LimitsGaugeIcon className="h-5 w-5" />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => navigate({ to: '/settings' })}
-                                    className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
-                                    title={t('settings.title')}
-                                >
-                                    <SettingsIcon className="h-5 w-5" />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => navigate({
-                                        to: '/sessions/new',
-                                        ...PRESERVE_SESSION_SIDEBAR_SCROLL,
-                                    })}
-                                    className="session-list-new-button flex h-9 w-9 items-center justify-center rounded-full text-[var(--app-link)] transition-colors"
-                                    title={t('sessions.new')}
-                                >
-                                    <PlusIcon className="h-5 w-5" />
-                                </button>
-                            </div>
-                        )}
+                        // Keep ranks: new 4, settings 6,
+                        // mark-all 7, browse 8. Higher sheds into More first (#2039).
+                        renderHeader
+                        toolbarExtras={[
+                            ...(canBrowse ? [{
+                                id: 'browse',
+                                keep: 8,
+                                node: (
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate({ to: '/browse' })}
+                                        className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
+                                        title={t('browse.nav')}
+                                    >
+                                        <FolderOpenIcon className="h-5 w-5" />
+                                    </button>
+                                )
+                            }] : []),
+                            {
+                                id: 'limits',
+                                keep: 7,
+                                node: <button type="button" onClick={() => setLimitsOpen(true)} className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)]" title={t('settings.limits.title')}><LimitsGaugeIcon className="h-5 w-5" /></button>
+                            },
+                            {
+                                id: 'settings',
+                                keep: 6,
+                                node: (
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate({ to: '/settings' })}
+                                        className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
+                                        title={t('settings.title')}
+                                    >
+                                        <SettingsIcon className="h-5 w-5" />
+                                    </button>
+                                )
+                            }
+                        ]}
                         api={api}
                         titleSuggestionAvailable={titleSuggestionAvailable}
                         machineLabelsById={machineLabelsById}
@@ -354,14 +431,21 @@ function SessionsPage() {
                 <PrimarySectionNav />
             </div>
 
-            {/* Resize handle - desktop only */}
-            <div
-                className="sidebar-resize-handle hidden split:block shrink-0"
-                data-dragging={sidebar.isDragging || undefined}
-                onPointerDown={sidebar.onPointerDown}
-            />
+            {shouldShowSidebar ? (
+                <div
+                    className="sidebar-resize-handle hidden split:block shrink-0"
+                    data-dragging={sidebar.isDragging || undefined}
+                    onPointerDown={sidebar.onPointerDown}
+                />
+            ) : null}
 
-            <div className={`${isSessionsIndex ? 'hidden split:flex' : 'flex'} min-w-0 flex-1 flex-col bg-[var(--app-bg)]`}>
+            <div className={`${isSessionsIndex ? 'hidden split:flex' : 'flex'} relative min-w-0 flex-1 flex-col bg-[var(--app-bg)]`}>
+                {!shouldShowSidebar ? (
+                    <SidebarShowButton
+                        showLabel={t('session.sidebar.show')}
+                        onShow={showSidebar}
+                    />
+                ) : null}
                 {selectedGroup ? <SessionGroupWorkspace onOpenGroup={openGroup} api={api} titleSuggestionAvailable={titleSuggestionAvailable}
                     contextOptions={groupContexts.contextOptions} onSetContext={groupContexts.setSessionContextOverride} key={selectedGroup.id} group={selectedGroup} groups={groupState.groups} sessions={sessions} selectedSessionId={selectedSessionId}
                     onSelect={id => navigate(getSessionListSelectionNavigation(id))} onBack={() => navigate({ to: '/sessions' })}
@@ -442,6 +526,7 @@ function SessionPage() {
         messagesVersion,
         historyVersion,
         tailRevision,
+        readThroughRevision,
         setViewMode,
     } = useMessages(api, sessionId)
 
@@ -653,6 +738,25 @@ function SessionPage() {
         }
     }, [api, navigate, queryClient, session])
 
+    const resolveVoiceSessionId = useCallback(async (currentSessionId: string) => {
+        if (!api) throw new Error('API unavailable')
+        return resolveVoiceSession(api, currentSessionId)
+    }, [api])
+
+    // Voice dictation direct-sends finish asynchronously after transcription
+    // and may complete long after the operator navigated away (stopAndSend is
+    // designed to survive unmount, #1435). Only navigate to the resumed
+    // session when the operator is still on the source session's page;
+    // otherwise the completed background send would yank them away from where
+    // they moved. The router instance is stable and its state is read live at
+    // callback time — a render-time pathname would be stale once the source
+    // SessionPage unmounts.
+    const router = useRouter()
+    const handleVoiceSessionResolved = useCallback((resolvedSessionId: string) => {
+        if (!isOnSessionPage(router.state.location.pathname, sessionId)) return
+        handleSessionResolved(resolvedSessionId)
+    }, [handleSessionResolved, router, sessionId])
+
     const {
         sendMessage,
         retryMessage,
@@ -750,7 +854,9 @@ function SessionPage() {
         return t('machine.unknown')
     }, [mentionMachineLabelsById, t])
 
-    const getAutocompleteSuggestions = useCallback(async (query: string) => {
+    const fileSuggestions = useMemo(() => createDeferredSuggestions(), [api, sessionId, agentType])
+
+    const getAutocompleteSuggestions = useCallback(async (query: string, context: SuggestionRequestContext) => {
         if (query.startsWith('@')) {
             const search = query.slice(1)
             // v1: plain-text expansion (same grammar as Copy reference) — #1213.
@@ -776,26 +882,29 @@ function SessionPage() {
                 }
             })
 
-            const fileHits: Suggestion[] = []
             if ((agentType === 'codex' || agentType === 'copilot') && api && sessionId) {
-                const response = await api.searchSessionFiles(sessionId, search, 50)
-                if (response.success && response.files) {
-                    for (const file of response.files) {
-                        // Codex App Server expects @"path"; Copilot CLI uses @path (relative preferred).
-                        const mentionText = agentType === 'copilot'
-                            ? `@${file.fullPath}`
-                            : `@"${file.fullPath.replace(/(["\\])/g, '\\$1')}"`
-                        fileHits.push({
-                            key: mentionText,
-                            text: mentionText,
-                            label: `@${file.fileName}`,
-                            description: file.filePath || file.fullPath,
-                        })
+                return fileSuggestions(JSON.stringify([sessionId, agentType, search]), sessionHits, async () => {
+                    const response = await api.searchSessionFiles(sessionId, search, 50, context.signal)
+                    if (!response.success) throw new Error(response.error ?? 'File search failed')
+                    const fileHits: Suggestion[] = []
+                    if (response.files) {
+                        for (const file of response.files) {
+                            // Codex App Server expects @"path"; Copilot CLI uses @path (relative preferred).
+                            const mentionText = agentType === 'copilot'
+                                ? `@${file.fullPath}`
+                                : `@"${file.fullPath.replace(/(["\\])/g, '\\$1')}"`
+                            fileHits.push({
+                                key: mentionText,
+                                text: mentionText,
+                                label: `@${file.fileName}`,
+                                description: file.filePath || file.fullPath,
+                            })
+                        }
                     }
-                }
+                    return fileHits
+                }, context)
             }
-
-            return [...sessionHits, ...fileHits]
+            return sessionHits
         }
         if (query.startsWith('$')) {
             return await getSkillSuggestions(query)
@@ -803,6 +912,7 @@ function SessionPage() {
         return await getSlashSuggestions(query)
     }, [
         agentType,
+        fileSuggestions,
         api,
         sessionId,
         allSessions,
@@ -861,6 +971,7 @@ function SessionPage() {
 
     return (
         <SessionChat
+            readThroughRevision={readThroughRevision}
             api={api}
             titleSuggestionAvailable={titleSuggestionAvailable}
             session={session}
@@ -885,6 +996,8 @@ function SessionPage() {
             onSend={sendMessage}
             resolveSessionIdForUpload={async (id) => (await resolveSessionId(id)).sessionId}
             onUploadSessionResolved={handleSessionResolved}
+            resolveSessionIdForVoice={resolveVoiceSessionId}
+            onVoiceSessionResolved={handleVoiceSessionResolved}
             onViewModeChange={setViewMode}
             onRetryMessage={retryMessage}
             autocompleteSuggestions={getAutocompleteSuggestions}
@@ -1182,9 +1295,13 @@ const groupDetailRoute = createRoute({
 const sessionDetailRoute = createRoute({
     getParentRoute: () => sessionsRoute,
     path: '$sessionId',
-    validateSearch: (search: Record<string, unknown>): { outline?: boolean } => {
+    validateSearch: (search: Record<string, unknown>): { outline?: boolean; sidebar?: 'hidden' } => {
         const outline = search.outline === true || search.outline === 'true'
-        return outline ? { outline: true } : {}
+        const sidebar = search.sidebar === 'hidden' ? 'hidden' : undefined
+        return {
+            ...(outline ? { outline: true } : {}),
+            ...(sidebar ? { sidebar } : {}),
+        }
     },
     component: SessionDetailRoute,
 })

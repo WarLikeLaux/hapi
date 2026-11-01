@@ -35,7 +35,9 @@ function Fixture() {
     window.updateSession = (id, patch) => setSessions(previous => previous.map(session =>
         session.id === id ? { ...session, ...patch } : session))
     return <div style={{ width: 360, height: 600, display: 'flex', flexDirection: 'column' }}>
-        <SessionList sessions={sessions} onSelect={() => {}} onNewSession={() => {}}
+        <SessionList sessions={sessions}
+            selectedSessionId={new URLSearchParams(location.search).has('collapsed') ? null : 'session-20'}
+            onSelect={() => {}} onNewSession={() => {}}
             isLoading={false} renderHeader={false} api={null} />
     </div>
 }

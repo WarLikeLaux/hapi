@@ -25,7 +25,8 @@ export function getToolGroupTiming(tools: ToolCallBlock[], now: number): {
         .filter((tool) => tool.tool.state !== 'pending')
         .map((tool) => tool.tool.startedAt ?? tool.tool.createdAt)
         .filter((value): value is number => Number.isFinite(value))
-    const startedAt = startedValues.length > 0 ? Math.min(...startedValues) : null
+    const startedAt = !tools.some(tool => tool.tool.startUnavailable) && startedValues.length > 0
+        ? Math.min(...startedValues) : null
     const running = tools.some((tool) => tool.tool.state === 'running')
     const allFinished = tools.length > 0 && tools.every((tool) => tool.tool.state === 'completed' || tool.tool.state === 'error')
     const completedValues = allFinished
@@ -292,13 +293,16 @@ export function ToolGroupCard(props: {
     const summaryBadgeText = props.block.presentationMode === 'codex-exploration'
         ? null
         : subtitle ?? t('toolGroup.toolCount', { n: props.block.tools.length })
+    const mobileSummaryBadgeText = summaryBadgeText
+        ? t('toolGroup.mobileToolCount', { n: props.block.tools.length })
+        : null
     const fileCount = props.block.summary.fileTargets.length
     const hasTiming = groupTiming.startedAt != null || groupTiming.completedAt != null || groupTiming.durationMs != null
     const hasSubRow = hasTiming || Boolean(summaryBadgeText) || fileCount > 0
 
     return (
         <Card className="overflow-hidden rounded-[20px] bg-[var(--app-tool-group-bg)] shadow-none">
-            <CardHeader className={cn('space-y-0 p-3', hasSubRow ? 'pb-2.5' : null)}>
+            <CardHeader data-testid="tool-group-card-header" className={cn('space-y-0 p-3', hasSubRow ? 'pb-2.5' : null)}>
                 <button
                     type="button"
                     onClick={() => setOpen((value) => !value)}
@@ -352,12 +356,20 @@ export function ToolGroupCard(props: {
                                     typography="group"
                                 />
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                    {summaryBadgeText ? (
+                            {summaryBadgeText ? (
+                                <>
+                                    <SummaryBadge
+                                        className="hidden bg-[var(--app-subtle-bg)] text-xs font-normal text-[var(--app-hint)] sm:inline-flex"
+                                        text={summaryBadgeText}
+                                    />
+                                    {mobileSummaryBadgeText ? (
                                         <SummaryBadge
-                                            className="bg-[var(--app-subtle-bg)] text-xs font-normal text-[var(--app-hint)]"
-                                            text={summaryBadgeText}
+                                            className="inline-flex bg-[var(--app-subtle-bg)] text-xs font-normal text-[var(--app-hint)] sm:hidden"
+                                            text={mobileSummaryBadgeText}
                                         />
                                     ) : null}
+                                </>
+                            ) : null}
                                     {fileCount > 0 ? (
                                         <SummaryBadge
                                             className="bg-[var(--app-subtle-bg)] text-xs font-normal text-[var(--app-hint)]"

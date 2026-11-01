@@ -24,6 +24,7 @@ export type RoundModelUsage = {
 
 export type RoundSummary = {
     provider?: 'codex'
+    turnId?: string
     usage?: UsageData
     modelUsage: Record<string, RoundModelUsage>
     totalCostUsd?: number
@@ -41,14 +42,14 @@ export type AgentEvent =
     | { type: 'limit-warning'; /** 0–1 ratio (e.g. 0.9 = 90%), integer-precision via CLI pipe format */ utilization: number; endsAt: number; limitType: string }
     | { type: 'ready' }
     | { type: 'api-error'; retryAttempt: number; maxRetries: number; error: unknown }
-    | { type: 'turn-duration'; durationMs: number; targetMessageId?: string }
+    | { type: 'turn-duration'; durationMs: number; targetMessageId?: string; provider?: 'codex'; turnId?: string }
     | { type: 'turn-summary'; summary: RoundSummary }
     | { type: 'workspace-changes'; changes: WorkspaceChanges }
-    | { type: 'token-count'; info: unknown; provider?: 'codex'; model?: string | null }
+    | { type: 'token-count'; info: unknown; provider?: 'codex'; turnId?: string; model?: string | null }
     | { type: 'microcompact'; trigger: string; preTokens: number; tokensSaved: number }
     | { type: 'compact'; trigger: string; preTokens: number }
-    // Structured result of Pi's compact RPC; rendered as a dedicated chat block.
-    | { type: 'compact-summary'; summary: string; tokensBefore?: number; estimatedTokensAfter?: number }
+    // Structured compaction outcome with optional native identity and token facts.
+    | { type: 'compact-summary'; summary: string; compactionId?: string; tokensBefore?: number; tokensAfter?: number; estimatedTokensAfter?: number }
     // Native Codex recap or Claude Code's automatic away-summary.
     | { type: 'recap'; text: string; flavor?: 'codex' }
     | { type: 'thread-goal-updated'; goal: ThreadGoal; threadId?: string; turnId?: string }
@@ -82,6 +83,7 @@ export type ToolResult = {
     tool_use_id: string
     content: unknown
     is_error: boolean
+    commandExecution?: { input: Record<string, unknown>; durationMs?: number }
     uuid: string
     parentUUID: string | null
     permissions?: ToolResultPermission
@@ -200,6 +202,10 @@ export type ChatToolCall = {
     createdAt: number
     startedAt: number | null
     completedAt: number | null
+    /** Native command duration, independent of message delivery timing. */
+    executionDurationMs?: number
+    /** A result-only command has no observed invocation timestamp. */
+    startUnavailable?: boolean
     /**
      * Execution-machine timestamps (from `NormalizedMessage.agentTimestamp`)
      * for the tool_use/tool_result entries, when available. Kept separate

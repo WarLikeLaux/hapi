@@ -2109,9 +2109,11 @@ function importSingleCodexSession(options: {
         if (targetIsActive && messagesToAppend.length > 0) {
             throw new Error('当前会话正在运行且 Codex transcript 有新消息，停止或归档后再同步，避免消息顺序错乱')
         }
-        const appendedMessages = messagesToAppend.map((message) => {
+        const appendedMessages = messagesToAppend.map((message, index) => {
             const { createdAt, ...content } = message
-            return options.store.messages.addMessage(sessionId!, content, undefined, undefined, createdAt)
+            return options.store.messages.addImportedMessage(
+                sessionId!, content, `codex-desktop:${options.codexSessionId}:${comparablePrefixCount + index}`, createdAt ?? Date.now()
+            ).message
         })
 
         // Keep imported sessions on the transcript timeline. Re-syncing an old

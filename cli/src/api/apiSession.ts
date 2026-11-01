@@ -287,6 +287,8 @@ export class ApiSessionClient extends EventEmitter {
     private backfillInFlight: Promise<void> | null = null
     private needsBackfill = false
     private hasConnectedOnce = false
+    // Replayed on (re)connect: a volatile heartbeat sent while disconnected is dropped (#2053).
+    private latestKeepAlive: Omit<Parameters<ClientToServerEvents['session-alive']>[0], 'sid' | 'time'> | null = null
     readonly rpcHandlerManager: RpcHandlerManager
     private readonly terminalManager: TerminalManager
     private agentTerminalResize: ((cols: number, rows: number) => void) | null = null
@@ -416,7 +418,7 @@ export class ApiSessionClient extends EventEmitter {
             // no live update-session). On reconnect, reconcile metadata before
             // message backfill so hub-archived can stop reconnect immortality (#1910).
             const afterMeta = isReconnect
-                ? this.reconcileSessionMetadata()
+                ? this.refreshMetadata()
                 : Promise.resolve()
             void afterMeta.finally(() => {
                 void this.backfillIfNeeded()
@@ -433,7 +435,8 @@ export class ApiSessionClient extends EventEmitter {
             this.socket.emit('session-alive', {
                 sid: this.sessionId,
                 time: Date.now(),
-                thinking: this.currentThinking
+                thinking: this.currentThinking,
+                ...this.latestKeepAlive
             })
         })
 
@@ -539,8 +542,8 @@ export class ApiSessionClient extends EventEmitter {
                     // Explicit user retry: release any held in-memory
                     // reservation and bypass the normal message-id dedup.
                     let accepted = true
-                    if (data.body.localId && this.cancelQueuedMessageCallback) {
-                        const cancellation = this.cancelQueuedMessageCallback(data.body.localId)
+                    if (data.body.localId) {
+                        const cancellation = this.cancelQueuedMessage(data.body.localId)
                         const cancelled = cancellation instanceof Promise ? await cancellation : cancellation
                         accepted = cancelled !== 'in-flight' && cancelled !== 'consumed'
                         if (cancelled === 'indeterminate') {
@@ -559,8 +562,8 @@ export class ApiSessionClient extends EventEmitter {
                 }
 
                 if (data.body.t === 'cancel-queued-message') {
-                    const cancellation = (data.body.localId && this.cancelQueuedMessageCallback)
-                        ? this.cancelQueuedMessageCallback(data.body.localId)
+                    const cancellation = data.body.localId
+                        ? this.cancelQueuedMessage(data.body.localId)
                         : false
                     const result = cancellation instanceof Promise ? await cancellation : cancellation
                     // 'in-flight' = the row is inside an async steer: not
@@ -846,6 +849,15 @@ export class ApiSessionClient extends EventEmitter {
         this.retryQueuedMessageCallback = callback
     }
 
+    private cancelQueuedMessage(localId: string): QueueCancelResult | Promise<QueueCancelResult> {
+        const remaining = this.pendingMessages.filter((pending) => pending.localId !== localId)
+        if (remaining.length !== this.pendingMessages.length) {
+            this.pendingMessages = remaining
+            return true
+        }
+        return this.cancelQueuedMessageCallback?.(localId) ?? false
+    }
+
     private enqueueUserMessage(message: UserMessage, localId?: string): void {
         this.cancelSelfClose()
         const hasTitle = Boolean(this.metadata?.name?.trim() || this.metadata?.summary?.text.trim())
@@ -1020,8 +1032,8 @@ export class ApiSessionClient extends EventEmitter {
         this.emit('hub-archived')
     }
 
-    /** Fetch current hub metadata after reconnect; apply hub-archived if set. */
-    private async reconcileSessionMetadata(): Promise<void> {
+    /** Refresh Hub-owned metadata before an explicit tool action or after reconnect. */
+    async refreshMetadata(): Promise<boolean> {
         try {
             const response = await axios.get(
                 `${configuration.apiUrl}/cli/sessions/${encodeURIComponent(this.sessionId)}`,
@@ -1034,10 +1046,15 @@ export class ApiSessionClient extends EventEmitter {
                 }
             )
             const session = response.data?.session
-            if (!session || typeof session.metadataVersion !== 'number') return
-            this.applyRemoteMetadata(session.metadataVersion, session.metadata)
+            if (!session || typeof session.metadataVersion !== 'number') return false
+            if (session.metadata !== null && !MetadataSchema.safeParse(session.metadata).success) return false
+            if (session.metadataVersion >= this.metadataVersion) {
+                this.applyRemoteMetadata(session.metadataVersion, session.metadata)
+            }
+            return true
         } catch (error) {
             logger.debug('[API] Session metadata reconcile failed', error)
+            return false
         }
     }
 
@@ -1116,13 +1133,9 @@ export class ApiSessionClient extends EventEmitter {
 
     sendClaudeSessionMessage(body: RawJSONLines): void {
         let content: MessageContent
-        // Origin timestamp (epoch ms) from the transcript entry's own `timestamp`,
-        // forwarded only for agent messages so the hub can stamp created_at/invoked_at
-        // with the jsonl entry's own time instead of hub-receive time (fixes chat
-        // order drifting from the PTY transcript during bursts/resume — see
-        // transcript ordering contract). The external-user-echo path is left
-        // unchanged: it has no localId either, but its existing arrival-time
-        // stamping already reflects when it was actually forwarded/consumed.
+        // Preserve transcript time for agent output and genuine local input.
+        // Replaying a historical user row must not promote the session as if
+        // the user just sent a new prompt. Hub prompt echoes are not input.
         let createdAt: number | undefined
 
         if (isExternalUserMessage(body)) {
@@ -1133,6 +1146,10 @@ export class ApiSessionClient extends EventEmitter {
             // while the hub already stores the original user text.
             const text = stripHapiTitleReminder(rawText.trim()).trim()
             if (!text) return
+            if (!isTranscriptEcho && body.timestamp) {
+                const parsed = Date.parse(body.timestamp)
+                if (Number.isFinite(parsed)) createdAt = parsed
+            }
             content = {
                 role: 'user',
                 content: {
@@ -1403,8 +1420,9 @@ export class ApiSessionClient extends EventEmitter {
         type: 'compact-summary'
         summary: string
         tokensBefore?: number
+        tokensAfter?: number
         estimatedTokensAfter?: number
-    }, id?: string): void {
+    }, id?: string, options?: { localId: string }): void {
         if (event.type === 'ready') {
             // Stop the periodic stats poll BEFORE finish(): a pending tick can
             // then never emit a stats event after this final full-diff event.
@@ -1427,7 +1445,8 @@ export class ApiSessionClient extends EventEmitter {
         this.emitOrQueue(() => {
             this.socket.emit('message', {
                 sid: this.sessionId,
-                message: content
+                message: content,
+                ...(options?.localId ? { localId: options.localId } : {})
             })
         }, event.type === 'message' || event.type === 'error' || event.type === 'compact-summary' || event.type === 'recap' ? 'lossless' : 'droppable')
     }
@@ -1522,7 +1541,8 @@ export class ApiSessionClient extends EventEmitter {
         if (!thinking) {
             this.emittedBusyForCurrentThinking = false
         }
-        if (this.state !== 'active') {
+        this.latestKeepAlive = { thinking, mode, ...(runtime ?? {}) }
+        if (this.state !== 'active' || !this.socket.connected) {
             return
         }
         if (thinking && !this.emittedBusyForCurrentThinking) {
@@ -1535,9 +1555,7 @@ export class ApiSessionClient extends EventEmitter {
         this.socket.volatile.emit('session-alive', {
             sid: this.sessionId,
             time: Date.now(),
-            thinking,
-            mode,
-            ...(runtime ?? {})
+            ...this.latestKeepAlive
         })
     }
 

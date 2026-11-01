@@ -10,6 +10,7 @@ import { registerCliHandlers } from './handlers/cli'
 import { registerTerminalHandlers } from './handlers/terminal'
 import { RpcRegistry } from './rpcRegistry'
 import { SOCKET_MAX_HTTP_BUFFER_SIZE } from './socketLimits'
+import type { BackgroundTask } from '@hapi/protocol/types'
 import type { SyncEvent } from '../sync/syncEngine'
 import { TerminalRegistry } from './terminalRegistry'
 import { clearUserTerminalBuffer } from './userTerminalBuffer'
@@ -46,6 +47,7 @@ export type SocketServerDeps = {
     onSessionEnd?: (payload: { sid: string; time: number }) => void
     onMachineAlive?: (payload: { machineId: string; time: number; health?: unknown }) => void
     onQuotaUpdate?: (machineId: string, report: { capturedAt: number; quotas: QuotaWindow[]; unavailable: QuotaUnavailable[] }) => void
+    onBackgroundTasks?: (sessionId: string, tasks: BackgroundTask[]) => void
     onBackgroundTaskDelta?: (sessionId: string, delta: { started: number; completed: number }) => void
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
     onAgentProgress?: (sessionId: string, at: number) => void
@@ -138,6 +140,7 @@ export function createSocketServer(deps: SocketServerDeps): {
         onMachineAlive: deps.onMachineAlive,
         onQuotaUpdate: deps.onQuotaUpdate,
         onWebappEvent: deps.onWebappEvent,
+        onBackgroundTasks: deps.onBackgroundTasks,
         onBackgroundTaskDelta: deps.onBackgroundTaskDelta,
         onSessionActivity: deps.onSessionActivity,
         onAgentProgress: deps.onAgentProgress,

@@ -5,7 +5,8 @@ import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import { FloatingOverlay } from '@/components/ChatInput/FloatingOverlay'
 import { getProjectLabelHue } from '@/components/SessionRowSummary'
 import { useTranslation } from '@/lib/use-translation'
-import { basename } from '@/utils/path'
+import { basename, getPathDisplayName } from '@/utils/path'
+import { DirectoryInput } from './DirectoryInput'
 
 
 function CodexImportIcon(props: { className?: string }) {
@@ -190,6 +191,7 @@ export function DirectorySection(props: {
 }) {
     const { t } = useTranslation()
     const inputId = useId()
+    const [pathSelection, setPathSelection] = useState(0)
 
     return (
         <div className="flex flex-col gap-1.5 px-3 py-3">
@@ -200,9 +202,11 @@ export function DirectorySection(props: {
             </div>
             <div className="flex items-start gap-2">
                 <div className="relative flex-1 min-w-0">
-                    <input
+                    <DirectoryInput
                         id={inputId}
                         type="text"
+                        revealTailKey={pathSelection}
+                        aria-label={t('newSession.directory')}
                         placeholder={t('newSession.placeholder')}
                         value={props.directory}
                         onChange={(event) => props.onDirectoryChange(event.target.value)}

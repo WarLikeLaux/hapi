@@ -29,6 +29,28 @@ class FakeSocket {
     }
 }
 
+it('does not rebroadcast stored messages and retains repeated consumption acknowledgements', () => {
+    const store = new Store(':memory:')
+    const session = store.sessions.getOrCreateSession('dedupe-replay', {}, null, 'default')
+    const socket = new FakeSocket()
+    const events: SyncEvent[] = []
+    const progress = mock(() => {})
+    registerSessionHandlers(socket as unknown as CliSocketWithData, {
+        store, resolveSessionAccess: () => ({ ok: true, value: session }), emitAccessError() {},
+        onWebappEvent: event => events.push(event), onAgentProgress: progress
+    })
+    const message = { sid: session.id, localId: 'stable-1', message: { role: 'user', content: { type: 'text', text: 'hello' } } }
+    socket.trigger('message', message)
+    socket.trigger('messages-consumed', { sid: session.id, localIds: ['stable-1'] })
+    socket.trigger('message', message)
+    socket.trigger('messages-consumed', { sid: session.id, localIds: ['stable-1'] })
+    expect(events.filter(event => event.type === 'message-received')).toHaveLength(1)
+    expect(events.filter(event => event.type === 'messages-consumed')).toHaveLength(2)
+    expect(progress).toHaveBeenCalledTimes(1)
+    expect(store.messages.getAllMessages(session.id)).toHaveLength(1)
+    store.close()
+})
+
 function redundantGoalStatusContent(message: string): unknown {
     return {
         role: 'agent',
@@ -629,7 +651,7 @@ describe('cli session handlers', () => {
         expect(uuids).toEqual(['msg-1', 'msg-2'])
     })
 
-    it.each(['supersededBySessionId', 'opencodeClearOperation'] as const)(
+    it.each(['supersededBySessionId', 'opencodeClearOperation', 'promptTitle', 'codexArchivedFork', 'codexResumePending'] as const)(
         'ignores a forged hub-owned %s addition from CLI metadata',
         (field) => {
             const store = new Store(':memory:')
@@ -647,7 +669,13 @@ describe('cli session handlers', () => {
                     path: '/tmp/project',
                     [field]: field === 'supersededBySessionId'
                         ? 'foreign-session'
-                        : { replacementSessionId: 'foreign-session', state: 'reserved', updatedAt: Date.now() }
+                        : field === 'promptTitle' ? 'Forged title'
+                            : field === 'codexArchivedFork' ? {
+                                operationId: '11111111-1111-4111-8111-111111111111',
+                                childSessionId: '22222222-2222-4222-8222-222222222222'
+                            } : field === 'codexResumePending' ? {
+                                machineId: 'foreign-machine', nativeSessionId: 'foreign-thread'
+                            } : { replacementSessionId: 'foreign-session', state: 'reserved', updatedAt: Date.now() }
                 }
             }, () => {})
             expect(store.sessions.getSessionByNamespace(session.id, 'default')?.metadata).not.toHaveProperty(field)
@@ -679,6 +707,40 @@ describe('cli session handlers', () => {
             supersededBySessionId: 'owned-target', opencodeClearOperation: operation, lifecycleState: 'archived'
         })
     })
+
+})
+
+it('preserves Hub-owned reservations and prompt title across sparse, forged and malformed CLI metadata writes', () => {
+    const store = new Store(':memory:')
+    try {
+        const owned = {
+            promptTitle: 'Fix the login bug',
+            codexArchivedFork: {
+                operationId: '11111111-1111-4111-8111-111111111111',
+                childSessionId: '22222222-2222-4222-8222-222222222222'
+            },
+            codexResumePending: { machineId: 'machine', nativeSessionId: 'thread' }
+        }
+        const session = store.sessions.getOrCreateSession('prompt-title-marker', {
+            path: '/tmp/project', ...owned
+        }, null, 'default')
+        const socket = new FakeSocket()
+        registerSessionHandlers(socket as unknown as CliSocketWithData, {
+            store,
+            resolveSessionAccess: () => ({ ok: true, value: store.sessions.getSession(session.id)! }),
+            emitAccessError: () => { throw new Error('unexpected access error') }
+        })
+        for (const metadata of [{ path: '/tmp/project' }, { path: '/tmp/project', promptTitle: 'Forged title',
+            codexArchivedFork: null, codexResumePending: null }, null, []]) {
+            const current = store.sessions.getSession(session.id)!
+            socket.trigger('update-metadata', {
+                sid: session.id, expectedVersion: current.metadataVersion, metadata
+            }, () => {})
+            expect(store.sessions.getSession(session.id)?.metadata).toMatchObject(owned)
+        }
+    } finally {
+        store.close()
+    }
 })
 
 describe('CLI title pin requests', () => {

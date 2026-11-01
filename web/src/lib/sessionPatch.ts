@@ -1,3 +1,4 @@
+import { mergeReadState } from '@hapi/protocol'
 import type { Session, SessionPatch } from '@/types/api'
 
 // Pure session-patch application logic, extracted from useSSE.ts so the rules
@@ -62,6 +63,8 @@ export function applySessionDetailPatch(session: Session, patch: SessionPatch): 
             changed = true
         }
     }
+    if (patch.contentRevision !== undefined) assign('contentRevision', Math.max(session.contentRevision ?? 0, patch.contentRevision))
+    if (patch.readState) assign('readState', mergeReadState(session.readState, patch.readState))
     if (patch.active !== undefined) assign('active', patch.active)
     if (patch.thinking !== undefined) assign('thinking', patch.thinking)
     if (patch.activeAt !== undefined) assign('activeAt', patch.activeAt)
@@ -94,6 +97,7 @@ export function applySessionDetailPatch(session: Session, patch: SessionPatch): 
     if (patch.collaborationMode !== undefined) assign('collaborationMode', patch.collaborationMode)
     if (patch.copilotAgentMode !== undefined) assign('copilotAgentMode', patch.copilotAgentMode)
     if (patch.backgroundTaskCount !== undefined) assign('backgroundTaskCount', patch.backgroundTaskCount)
+    if (patch.backgroundTasks !== undefined) assign('backgroundTasks', patch.backgroundTasks)
     // Version gates: dual SSE can deliver duplicates out of order.
     // Only mark changed when a strictly newer version lands —
     // otherwise keep previous object identity (no redundant render).

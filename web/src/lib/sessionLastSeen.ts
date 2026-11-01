@@ -1,363 +1,261 @@
 import { useSyncExternalStore } from 'react'
+import { EMPTY_READ_STATE, mergeReadState, type SessionReadState, type SessionReadStateRequest } from '@hapi/protocol'
 
-const STORAGE_KEY = 'hapi.sessionLastSeen.v1'
-const MANUAL_UNREAD_KEY = 'hapi.sessionManualUnread.v1'
-const BASELINE_KEY = 'hapi.sessionLastSeenBaseline.v1'
-const APPLIED_READ_KEY = 'hapi.sessionAppliedRead.v1'
-const CHANGE_EVENT = 'hapi.sessionLastSeen.changed'
-
+type SessionInput = {
+    id: string; contentRevision?: number; readState?: SessionReadState; active?: boolean; thinking?: boolean
+    lastAgentMessageAt?: number; updatedAt?: number
+    metadata?: { muted?: boolean; readThrough?: number } | null
+}
+type Pending = { id: string; request: SessionReadStateRequest }
+type Entry = { server: SessionReadState; pending?: Pending; legacyMigrated?: boolean }
+type Store = Record<string, Entry>
+type Sender = (id: string, request: SessionReadStateRequest) => Promise<{ readState: SessionReadState }>
+const CHANGE_EVENT = 'hapi.sessionReadState.changed'
+const PREFIX = 'hapi.sessionReadState.v1:'
+let scope = 'unconfigured'
+let sender: Sender | null = null
 let changeVersion = 0
+let running = false
+let retry: ReturnType<typeof setTimeout> | undefined
 
-type LastSeenStore = Record<string, number>
-type ManualUnreadStore = Record<string, number>
-
-function getLocalStorage(): Storage | null {
-    if (typeof window === 'undefined') {
-        return null
-    }
+function readStore(key = scope): Store {
     try {
-        return window.localStorage
-    } catch {
-        return null
-    }
+        const value: unknown = JSON.parse(localStorage.getItem(PREFIX + key) ?? '{}')
+        return value && typeof value === 'object' && !Array.isArray(value) ? value as Store : {}
+    } catch { return {} }
 }
-
-function readStore(key = STORAGE_KEY): LastSeenStore {
-    const storage = getLocalStorage()
-    if (!storage) {
-        return {}
-    }
-
-    try {
-        const raw = storage.getItem(key)
-        if (!raw) {
-            return {}
-        }
-        const parsed: unknown = JSON.parse(raw)
-        if (!parsed || typeof parsed !== 'object') {
-            return {}
-        }
-        return parsed as LastSeenStore
-    } catch {
-        return {}
-    }
+function save(store: Store, key = scope): boolean {
+    try { localStorage.setItem(PREFIX + key, JSON.stringify(store)); return true } catch { return false }
 }
-
-function readManualUnreadStore(): ManualUnreadStore {
-    const storage = getLocalStorage()
-    if (!storage) {
-        return {}
-    }
-
-    try {
-        const raw = storage.getItem(MANUAL_UNREAD_KEY)
-        if (!raw) {
-            return {}
-        }
-        const parsed: unknown = JSON.parse(raw)
-        if (!parsed || typeof parsed !== 'object') {
-            return {}
-        }
-        return parsed as ManualUnreadStore
-    } catch {
-        return {}
-    }
-}
-
-function writeStore(store: LastSeenStore): boolean {
-    const storage = getLocalStorage()
-    if (!storage) {
-        return false
-    }
-    try {
-        storage.setItem(STORAGE_KEY, JSON.stringify(store))
-        return true
-    } catch {
-        // Ignore storage errors
-        return false
-    }
-}
-
-function writeManualUnreadStore(store: ManualUnreadStore): boolean {
-    const storage = getLocalStorage()
-    if (!storage) {
-        return false
-    }
-    try {
-        storage.setItem(MANUAL_UNREAD_KEY, JSON.stringify(store))
-        return true
-    } catch {
-        // Ignore storage errors
-        return false
-    }
-}
-
-function notifyStoreChanged(): void {
+function notify(): void {
     changeVersion += 1
-    if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event(CHANGE_EVENT))
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(CHANGE_EVENT))
+}
+function effective(entry?: Entry, incoming?: SessionReadState): SessionReadState {
+    const pending = entry?.pending?.request
+    const state = mergeReadState(entry?.server, incoming) ?? EMPTY_READ_STATE
+    if (!pending) return state
+    return {
+        ...state,
+        readRevision: pending.type === 'read' ? Math.max(state.readRevision, pending.readRevision) : state.readRevision,
+        manualUnread: pending.expectedVersion === state.version ? pending.type === 'unread' : state.manualUnread
     }
 }
 
-function subscribeToStoreChanges(listener: () => void): () => void {
-    if (typeof window === 'undefined') {
-        return () => {}
-    }
-
-    const handleStorage = (event: StorageEvent) => {
-        if (event.key !== STORAGE_KEY && event.key !== MANUAL_UNREAD_KEY) {
-            return
-        }
-        changeVersion += 1
-        listener()
-    }
-
-    window.addEventListener(CHANGE_EVENT, listener)
-    window.addEventListener('storage', handleStorage)
+/** Scope includes the authenticated namespace; never re-use another hub's outbox. */
+export function configureSessionReadState(key: string, send: Sender): () => void {
+    scope = key
+    sender = send
+    notify()
+    void flushSessionReadState()
+    const retryNow = () => { void flushSessionReadState() }
+    window.addEventListener('online', retryNow)
+    window.addEventListener('focus', retryNow)
     return () => {
-        window.removeEventListener(CHANGE_EVENT, listener)
-        window.removeEventListener('storage', handleStorage)
+        window.removeEventListener('online', retryNow)
+        window.removeEventListener('focus', retryNow)
+        if (sender === send) { sender = null; clearTimeout(retry) }
     }
 }
 
-function getStoreChangeVersion(): number {
-    return changeVersion
-}
-
-/** Re-render consumers when same-tab read-state changes. */
-export function useSessionLastSeenVersion(): number {
-    return useSyncExternalStore(
-        subscribeToStoreChanges,
-        getStoreChangeVersion,
-        () => 0
-    )
-}
-
-export function getSessionLastSeenAt(sessionId: string): number {
-    return readStore()[sessionId] ?? 0
-}
-
-/** Timestamp of the activity the operator explicitly marked unread, if any. */
-export function getSessionManualUnreadAt(sessionId: string): number | null {
-    const value = readManualUnreadStore()[sessionId]
-    return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-/** One localStorage read/parse for bulk filters (e.g. unread-only lens). */
-export function getSessionLastSeenSnapshot(): Readonly<Record<string, number>> {
-    return readStore()
-}
-
-type SessionReadStateInput = {
-    id: string
-    updatedAt: number
-    lastAgentMessageAt?: number
-    metadata?: { readThrough?: number; muted?: boolean } | null
-}
-
-function getUnreadActivityAt(session: SessionReadStateInput): number {
-    if (Object.prototype.hasOwnProperty.call(session, 'lastAgentMessageAt')) {
-        return typeof session.lastAgentMessageAt === 'number' && Number.isFinite(session.lastAgentMessageAt)
-            ? session.lastAgentMessageAt
-            : 0
-    }
-    return session.updatedAt
-}
-
-function latestSessionUpdates(sessions: Iterable<SessionReadStateInput>): Map<string, number> {
-    const latest = new Map<string, number>()
-    for (const session of sessions) {
-        if (session.metadata?.muted) continue
-        const activityAt = getUnreadActivityAt(session)
-        if (!session.id || !Number.isFinite(activityAt) || activityAt <= 0) {
-            continue
+/** Durable operations survive refresh/offline. A stale request is never rebased
+ * onto a newer manual choice; only a new viewing action can clear that choice. */
+export async function flushSessionReadState(): Promise<void> {
+    if (running || !sender) return
+    running = true
+    const key = scope
+    const send = sender
+    let failed = false
+    try {
+        for (const [id, entry] of Object.entries(readStore(key))) {
+            const pending = entry.pending
+            if (!pending || sender !== send || scope !== key) continue
+            try {
+                const response = await send(id, pending.request)
+                const store = readStore(key)
+                const current = store[id] ?? entry
+                current.server = mergeReadState(current.server, response.readState)!
+                if (current.pending?.id === pending.id) delete current.pending
+                else if (current.pending?.request.expectedVersion === pending.request.expectedVersion
+                    && response.readState.version <= pending.request.expectedVersion + 1
+                    && response.readState.manualUnread === (pending.request.type === 'unread')) {
+                    // A newer local intent follows our own acknowledged write.
+                    // Do not rebase across another client's manual-unread change.
+                    current.pending.request.expectedVersion = response.readState.version
+                }
+                store[id] = current
+                if (!save(store, key)) failed = true
+                if (scope === key) notify()
+            } catch (error) {
+                const failure = error as { status?: number; body?: string }
+                if ([400, 403, 404, 409].includes(failure.status ?? 0)) {
+                    const store = readStore(key)
+                    const current = store[id]
+                    if (current?.pending?.id === pending.id) {
+                        // 409 includes the authoritative manual choice.
+                        try {
+                            const body = JSON.parse(failure.body ?? '{}') as { readState?: SessionReadState }
+                            current.server = mergeReadState(current.server, body.readState)!
+                        } catch { /* a removed/replaced session has no read state */ }
+                        delete current.pending
+                        if (!save(store, key)) failed = true
+                        if (scope === key) notify()
+                    }
+                } else { failed = true; break }
+            }
         }
-        const current = latest.get(session.id)
-        if (current === undefined || activityAt > current) {
-            latest.set(session.id, activityAt)
+    } finally {
+        running = false
+        clearTimeout(retry)
+        if (Object.values(readStore()).some(entry => entry.pending)) {
+            retry = setTimeout(() => { void flushSessionReadState() }, failed ? 5_000 : 0)
         }
     }
-    return latest
 }
 
-function hasUnreadActivity(
-    sessionId: string,
-    updatedAt: number,
-    store: LastSeenStore,
-    manualUnreadStore: ManualUnreadStore
-): boolean {
-    const lastSeenAt = store[sessionId]
-    const manualUnreadAt = manualUnreadStore[sessionId]
-    return updatedAt > (typeof lastSeenAt === 'number' && Number.isFinite(lastSeenAt) ? lastSeenAt : 0)
-        || manualUnreadAt === updatedAt
-}
-
-/** Count unread sessions in the supplied list using one localStorage snapshot. */
-export function getUnreadSessionCount(sessions: Iterable<SessionReadStateInput>): number {
-    const latest = latestSessionUpdates(sessions)
+export function observeSessionReadStates(sessions: Iterable<SessionInput>, legacyScope?: string): void {
+    if (scope === 'unconfigured') return
     const store = readStore()
-    const manualUnreadStore = readManualUnreadStore()
+    const legacy = legacyScope === undefined ? undefined : readLegacyReadState(legacyScope)
+    let changed = false
+    let migratedUnread = false
+    for (const session of sessions) {
+        if (!session.readState) continue
+        const current = store[session.id]
+        const server = mergeReadState(current?.server, session.readState)!
+        const entry: Entry = { ...current, server }
+        if (legacy && !entry.legacyMigrated) {
+            entry.legacyMigrated = true
+            // Shared choices made after the upgrade take precedence over an old
+            // browser coming online. Never rebase an old mark over that choice.
+            if (server.version === 0 && !entry.pending && legacyIsUnread(session, legacy)) {
+                entry.pending = { id: crypto.randomUUID(), request: { type: 'unread', expectedVersion: 0 } }
+                migratedUnread = true
+            }
+        }
+        if (!current || JSON.stringify(current) !== JSON.stringify(entry)) {
+            store[session.id] = entry
+            changed = true
+        }
+    }
+    if (changed && save(store)) {
+        notify()
+        if (migratedUnread) void flushSessionReadState()
+    }
+}
+
+function readLegacyReadState(legacyScope: string) {
+    const read = (key: string): Record<string, number> => {
+        try {
+            const value: unknown = JSON.parse(localStorage.getItem(key) ?? '{}')
+            return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, number> : {}
+        } catch { return {} }
+    }
+    return {
+        seen: read('hapi.sessionLastSeen.v1'),
+        manual: read('hapi.sessionManualUnread.v1'),
+        applied: read(`hapi.sessionAppliedRead.v1:${legacyScope}`)
+    }
+}
+
+function legacyIsUnread(session: SessionInput, legacy: ReturnType<typeof readLegacyReadState>): boolean {
+    const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+    const seen = legacy.seen[session.id]
+    const manual = legacy.manual[session.id]
+    const readThrough = session.metadata?.readThrough
+    const freshHubRead = finite(readThrough) && readThrough > (legacy.applied[session.id] ?? 0)
+    if (finite(manual) && !(freshHubRead && manual <= readThrough)) return true
+    if (!finite(seen)) return false // A new browser retains upstream's historical baseline.
+    const activity = session.lastAgentMessageAt ?? session.updatedAt ?? 0
+    return activity > Math.max(seen, freshHubRead ? readThrough : 0)
+}
+
+function enqueue(sessionId: string, request: SessionReadStateRequest): void {
+    if (!sessionId) return
+    const store = readStore()
+    const entry = store[sessionId] ?? { server: EMPTY_READ_STATE }
+    const previous = entry.pending?.request
+    if (request.type === 'read' && previous?.type === 'read') {
+        request = { ...request, readRevision: Math.max(request.readRevision, previous.readRevision) }
+    }
+    store[sessionId] = { ...entry, pending: { id: crypto.randomUUID(), request } }
+    // Persistence failure must not claim a successful local read.
+    if (save(store)) { notify(); void flushSessionReadState() }
+}
+
+export function getSessionLastSeenAt(sessionId: string): number { return effective(readStore()[sessionId]).readRevision }
+export function getSessionManualUnreadAt(sessionId: string, serverState?: SessionReadState): number | null {
+    return effective(readStore()[sessionId], serverState).manualUnread ? 0 : null
+}
+export function getSessionLastSeenSnapshot(): Readonly<Record<string, number>> {
+    return Object.fromEntries(Object.entries(readStore()).map(([id, entry]) => [id, effective(entry).readRevision]))
+}
+export function getSessionManualUnreadSnapshot(sessions: readonly SessionInput[] = []): Readonly<Record<string, number | null>> {
+    const store = readStore()
+    return Object.fromEntries(sessions.map(session => [session.id, effective(store[session.id], session.readState).manualUnread ? 0 : null]))
+}
+export function markSessionSeen(sessionId: string, readRevision: number, observedVersion?: number): void {
+    if (!Number.isSafeInteger(readRevision) || readRevision < 0) return
+    const entry = readStore()[sessionId]
+    const current = effective(entry)
+    if (current.readRevision >= readRevision && !current.manualUnread) return
+    enqueue(sessionId, { type: 'read', readRevision, expectedVersion: observedVersion ?? entry?.server.version ?? 0 })
+}
+export function markSessionUnread(sessionId: string, observedState?: SessionReadState): void {
+    if (observedState) observeSessionReadStates([{ id: sessionId, readState: observedState }])
+    enqueue(sessionId, { type: 'unread', expectedVersion: readStore()[sessionId]?.server.version ?? 0 })
+}
+export function markAllSessionsSeen(sessions: Iterable<SessionInput>): number {
+    const list = uniqueSessions(sessions).filter(s => !s.metadata?.muted)
+    observeSessionReadStates(list)
+    const store = readStore()
     let count = 0
-    for (const [sessionId, updatedAt] of latest) {
-        if (hasUnreadActivity(sessionId, updatedAt, store, manualUnreadStore)) {
+    for (const session of list) {
+        const entry = store[session.id] ?? { server: session.readState ?? EMPTY_READ_STATE }
+        const state = effective(entry, session.readState)
+        if (state.manualUnread || (session.contentRevision ?? 0) > state.readRevision) {
+            store[session.id] = { ...entry, pending: { id: crypto.randomUUID(), request: {
+                type: 'read', readRevision: Math.max(state.readRevision, session.contentRevision ?? 0),
+                expectedVersion: entry.server.version
+            } } }
             count += 1
         }
     }
-    return count
-}
-
-/** Mark all supplied unread sessions as seen on this device. Returns changed count. */
-export function markAllSessionsSeen(sessions: Iterable<SessionReadStateInput>): number {
-    const latest = latestSessionUpdates(sessions)
-    if (latest.size === 0) {
-        return 0
-    }
-
-    const store = readStore()
-    const manualUnreadStore = readManualUnreadStore()
-    let count = 0
-    let seenChanged = false
-    let manualUnreadChanged = false
-
-    for (const [sessionId, updatedAt] of latest) {
-        if (!hasUnreadActivity(sessionId, updatedAt, store, manualUnreadStore)) {
-            continue
-        }
-
-        count += 1
-        const currentSeenAt = store[sessionId]
-        const nextSeenAt = Math.max(
-            typeof currentSeenAt === 'number' && Number.isFinite(currentSeenAt) ? currentSeenAt : 0,
-            updatedAt
-        )
-        if (store[sessionId] !== nextSeenAt) {
-            store[sessionId] = nextSeenAt
-            seenChanged = true
-        }
-        if (Object.prototype.hasOwnProperty.call(manualUnreadStore, sessionId)) {
-            delete manualUnreadStore[sessionId]
-            manualUnreadChanged = true
-        }
-    }
-
-    if (count === 0) {
-        return 0
-    }
-
-    const seenWritten = !seenChanged || writeStore(store)
-    const manualUnreadWritten = !manualUnreadChanged || writeManualUnreadStore(manualUnreadStore)
-    if (seenWritten || manualUnreadWritten) {
-        notifyStoreChanged()
+    if (count > 0) {
+        if (!save(store)) return 0
+        notify()
+        void flushSessionReadState()
     }
     return count
 }
-
-export function initializeSessionLastSeen(scope: string, sessions: Iterable<SessionReadStateInput>): void {
-    const storage = getLocalStorage()
-    if (!storage) {
-        return
+function uniqueSessions(sessions: Iterable<SessionInput>): SessionInput[] {
+    const unique = new Map<string, SessionInput>()
+    for (const session of sessions) {
+        const prior = unique.get(session.id)
+        unique.set(session.id, prior ? {
+            ...((session.contentRevision ?? 0) >= (prior.contentRevision ?? 0) ? session : prior),
+            contentRevision: Math.max(prior.contentRevision ?? 0, session.contentRevision ?? 0),
+            readState: mergeReadState(prior.readState, session.readState)
+        } : session)
     }
-
-    try {
-        const baselineKey = `${BASELINE_KEY}:${scope}`
-        const initialize = storage.getItem(baselineKey) !== '1'
-        const appliedKey = `${APPLIED_READ_KEY}:${scope}`
-        const applied = readStore(appliedKey)
-        const store = readStore()
-        const manualUnread = readManualUnreadStore()
-        let seenChanged = false
-        let manualChanged = false
-        let appliedChanged = false
-        for (const session of sessions) {
-            if (initialize && store[session.id] === undefined) {
-                store[session.id] = getUnreadActivityAt(session)
-                seenChanged = true
-            }
-            const readThrough = session.metadata?.readThrough
-            if (typeof readThrough !== 'number' || !Number.isFinite(readThrough)
-                || readThrough <= (applied[session.id] ?? 0)) continue
-
-            // Consume each hub mark once. Repeated snapshots must allow a later
-            // local "mark unread" action, while offline devices catch up on reconnect.
-            const nextSeenAt = Math.max(store[session.id] ?? 0, readThrough)
-            if (store[session.id] !== nextSeenAt) {
-                store[session.id] = nextSeenAt
-                seenChanged = true
-            }
-            if (manualUnread[session.id] !== undefined && manualUnread[session.id] <= readThrough) {
-                delete manualUnread[session.id]
-                manualChanged = true
-            }
-            applied[session.id] = readThrough
-            appliedChanged = true
-        }
-        if (seenChanged) storage.setItem(STORAGE_KEY, JSON.stringify(store))
-        if (manualChanged) storage.setItem(MANUAL_UNREAD_KEY, JSON.stringify(manualUnread))
-        // Write this last so a failed read-state write can be retried next time.
-        if (appliedChanged) storage.setItem(appliedKey, JSON.stringify(applied))
-        if (initialize) storage.setItem(baselineKey, '1')
-        if (seenChanged || manualChanged) notifyStoreChanged()
-    } catch {
-        // Ignore storage errors
-    }
+    return [...unique.values()]
 }
-
-export function markSessionSeen(sessionId: string, seenAt: number): void {
-    if (!sessionId) {
-        return
-    }
+export function getUnreadSessionCount(sessions: Iterable<SessionInput>): number {
     const store = readStore()
-    const manualUnreadStore = readManualUnreadStore()
-    const nextSeenAt = Math.max(store[sessionId] ?? 0, seenAt)
-    const seenChanged = store[sessionId] !== nextSeenAt
-    const manualUnreadAt = manualUnreadStore[sessionId]
-    const manualUnreadChanged = typeof manualUnreadAt === 'number'
-        && Number.isFinite(manualUnreadAt)
-        && nextSeenAt >= manualUnreadAt
-    if (!seenChanged && !manualUnreadChanged) {
-        return
-    }
-
-    if (seenChanged) {
-        store[sessionId] = nextSeenAt
-    }
-    if (manualUnreadChanged) {
-        delete manualUnreadStore[sessionId]
-    }
-
-    const seenWritten = !seenChanged || writeStore(store)
-    const manualUnreadWritten = !manualUnreadChanged || writeManualUnreadStore(manualUnreadStore)
-    if (seenWritten || manualUnreadWritten) {
-        notifyStoreChanged()
-    }
+    return uniqueSessions(sessions).filter(session => {
+        const state = effective(store[session.id], session.readState)
+        return !session.metadata?.muted && (state.manualUnread
+            || (session.contentRevision ?? 0) > Math.max(state.readRevision, session.readState?.readRevision ?? 0))
+    }).length
 }
-
-/** Move the local watermark just behind the current activity and remember the explicit action. */
-export function markSessionUnread(sessionId: string, updatedAt: number): void {
-    if (!sessionId || !Number.isFinite(updatedAt) || updatedAt <= 0) {
-        return
+function subscribe(listener: () => void): () => void {
+    const storage = (event: StorageEvent) => {
+        if (event.key === PREFIX + scope || event.key === null) { changeVersion += 1; listener(); void flushSessionReadState() }
     }
-
-    const store = readStore()
-    const manualUnreadStore = readManualUnreadStore()
-    const unreadBefore = updatedAt - 1
-    const currentSeenAt = store[sessionId]
-    const seenChanged = !(typeof currentSeenAt === 'number' && currentSeenAt <= unreadBefore)
-    const manualUnreadChanged = manualUnreadStore[sessionId] !== updatedAt
-    if (!seenChanged && !manualUnreadChanged) {
-        return
-    }
-
-    if (seenChanged) {
-        store[sessionId] = unreadBefore
-    }
-    if (manualUnreadChanged) {
-        manualUnreadStore[sessionId] = updatedAt
-    }
-
-    const seenWritten = !seenChanged || writeStore(store)
-    const manualUnreadWritten = !manualUnreadChanged || writeManualUnreadStore(manualUnreadStore)
-    if (seenWritten || manualUnreadWritten) {
-        notifyStoreChanged()
-    }
+    window.addEventListener(CHANGE_EVENT, listener)
+    window.addEventListener('storage', storage)
+    return () => { window.removeEventListener(CHANGE_EVENT, listener); window.removeEventListener('storage', storage) }
+}
+export function useSessionLastSeenVersion(): number {
+    return useSyncExternalStore(subscribe, () => changeVersion, () => 0)
 }

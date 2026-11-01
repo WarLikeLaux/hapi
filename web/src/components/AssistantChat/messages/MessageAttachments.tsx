@@ -15,8 +15,10 @@ function ImageAttachment(props: { attachment: AttachmentMetadata; galleryId: str
     return (
         <ImagePreview
             src={attachment.previewUrl ?? ''}
-            label="Image"
             galleryId={props.galleryId}
+            fileName={attachment.filename}
+            label={attachment.filename}
+            fileSize={attachment.size}
             buttonClassName="relative overflow-hidden rounded-lg text-left cursor-zoom-in"
             imageClassName="max-h-48 max-w-full object-contain"
         />

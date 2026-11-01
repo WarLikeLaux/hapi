@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Outlet, useLocation, useMatchRoute, useRouter } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getTelegramWebApp, isTelegramApp } from '@/hooks/useTelegram'
@@ -30,7 +30,7 @@ import { getAppGlobalSseSubscription, getAppSessionSseSubscription } from '@/lib
 import { canUseAppBadging, countUnreadSessions, useAppBadge } from '@/hooks/useAppBadge'
 import { useAppBadgePreference } from '@/hooks/useAppBadgePreference'
 import { countUnreadConversations, isWorkingSession } from '@/lib/navigationBadges'
-import { getSessionLastSeenSnapshot, useSessionLastSeenVersion } from '@/lib/sessionLastSeen'
+import { configureSessionReadState, observeSessionReadStates, getSessionLastSeenSnapshot, getSessionManualUnreadSnapshot, useSessionLastSeenVersion } from '@/lib/sessionLastSeen'
 import { useTabNotification } from '@/hooks/useTabNotification'
 import { reconcileQueuedStateAfterConnect } from '@/lib/queued-state-reconciliation'
 import { LoginPrompt } from '@/components/LoginPrompt'
@@ -195,6 +195,28 @@ function AppInner() {
         () => appSessions.filter((session) => !isWorkingSession(session)),
         [appSessions]
     )
+    const readStateScope = api?.getReadStateScope()
+    const previousReadStateScope = useRef<string | null | undefined>(undefined)
+    useLayoutEffect(() => {
+        const scope = readStateScope
+        if (previousReadStateScope.current !== undefined && previousReadStateScope.current !== scope) {
+            queryClient.clear()
+        }
+        previousReadStateScope.current = scope
+        if (!api || !scope) return
+        return configureSessionReadState(scope, (id, request) => {
+            if (api.getReadStateScope() !== scope) return Promise.reject(new Error('Read-state identity changed'))
+            return api.updateSessionReadState(id, request)
+        })
+    }, [api, readStateScope, queryClient])
+    useEffect(() => {
+        // A render from the previous identity may still hold its old array
+        // after the layout effect cleared the cache. Never migrate that list.
+        const current = queryClient.getQueryData<{ sessions: typeof appSessions }>(queryKeys.sessions)
+        if (api && readStateScope && !appSessionsLoading && !appSessionsError && current?.sessions === appSessions) {
+            observeSessionReadStates(appSessions, baseUrl)
+        }
+    }, [api, readStateScope, appSessions, appSessionsLoading, appSessionsError, baseUrl, queryClient])
     useAppBadge({
         enabled: appBadgeEnabled,
         scope: baseUrl,
@@ -213,7 +235,7 @@ function AppInner() {
             return 0
         }
         const lastSeenById = getSessionLastSeenSnapshot()
-        const unreadSessionsCount = countUnreadSessions(idleAppSessions, lastSeenById)
+        const unreadSessionsCount = countUnreadSessions(idleAppSessions, lastSeenById, getSessionManualUnreadSnapshot(idleAppSessions))
         const unreadChatsCount = countUnreadConversations(externalConversationsQuery.data ?? [])
         return unreadSessionsCount + unreadChatsCount
     }, [api, token, idleAppSessions, lastSeenVersion, externalConversationsQuery.data])

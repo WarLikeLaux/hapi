@@ -4,7 +4,7 @@ import type { SessionSummary } from '@/types/api'
 import { getGroupEntrySession, rememberGroupSession } from './sessionGroupSelection'
 
 const chat = (id: string, extra: Partial<SessionSummary> = {}) => ({
-    id, active: true, thinking: false, updatedAt: 100, lastAgentMessageAt: 0,
+    id, active: true, thinking: false, updatedAt: 100, lastAgentMessageAt: 0, contentRevision: extra.lastAgentMessageAt ?? 0,
     metadata: { path: '/work', lifecycleState: 'running' }, ...extra,
 }) as SessionSummary
 const group: SessionGroup = {

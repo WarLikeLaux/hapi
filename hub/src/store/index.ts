@@ -10,12 +10,15 @@ import { MessageStore } from './messageStore'
 import { addMessage } from './messages'
 import { messageSearchText } from './messageSearch'
 import { decodeMessageContent } from './contentCodec'
+import { clearCachedStatements } from './statementCache'
+import { backfillLastUserMessageAt } from './sessionUserActivity'
 import type { StoredMessage } from './types'
 import { PushStore } from './pushStore'
 import { FcmStore } from './fcmStore'
 import { ScratchlistStore } from './scratchlistStore'
 import { SessionStore } from './sessionStore'
 import { UserStore } from './userStore'
+import { TurnStore } from './turnStore'
 import { UsageStore } from './usageStore'
 import { WorkGraphStore } from './workGraphStore'
 import { ModelPreferenceStore, createModelPreferenceTable } from './modelPreferenceStore'
@@ -43,6 +46,8 @@ export { FcmStore } from './fcmStore'
 export { ScratchlistStore } from './scratchlistStore'
 export { SessionStore } from './sessionStore'
 export { UserStore } from './userStore'
+export { TurnStore } from './turnStore'
+export type { SessionTurn, SessionTurnEndReason, SessionTurnTrigger } from './turns'
 export { UsageStore } from './usageStore'
 export { WorkGraphStore } from './workGraphStore'
 export {
@@ -51,7 +56,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 45
+const SCHEMA_VERSION: number = 47
 const REQUIRED_TABLES = [
     'session_launch_requests',
     'session_groups',
@@ -73,7 +78,8 @@ const REQUIRED_TABLES = [
     'external_messages',
     'external_participants',
     'model_preferences',
-    'project_preferences'
+    'project_preferences',
+    'session_turns'
 ] as const
 
 export class Store {
@@ -92,6 +98,7 @@ export class Store {
     readonly fcm: FcmStore
     readonly scratchlist: ScratchlistStore
     readonly usage: UsageStore
+    readonly turns: TurnStore
     readonly workGraph: WorkGraphStore
     readonly projectPreferences: ProjectPreferenceStore
     readonly modelPreferences: ModelPreferenceStore
@@ -151,10 +158,15 @@ export class Store {
         this.fcm = new FcmStore(this.db)
         this.scratchlist = new ScratchlistStore(this.db)
         this.usage = new UsageStore(this.db)
+        this.turns = new TurnStore(this.db)
         this.workGraph = new WorkGraphStore(this.db)
         this.modelPreferences = new ModelPreferenceStore(this.db)
         this.projectPreferences = new ProjectPreferenceStore(this.db)
         this.backfillLastUserMessageAt()
+    }
+
+    runInTransaction<T>(work: () => T): T {
+        return this.db.transaction(work)()
     }
 
     /**
@@ -354,6 +366,7 @@ export class Store {
 
     close(): void {
         if (this.closed) return
+        clearCachedStatements(this.db)
         this.db.close()
         this.closed = true
 
@@ -425,6 +438,12 @@ export class Store {
                 if (!columns.some(column => column.name === "show_in_all")) this.db.exec("ALTER TABLE model_preferences ADD COLUMN show_in_all INTEGER NOT NULL DEFAULT 1")
                 createProjectPreferenceTable(this.db)
             },
+            45: () => {
+                this.createFutureScheduledMessageIndex()
+                this.createSessionTurns()
+                backfillLastUserMessageAt(this.db)
+            },
+            46: () => this.migrateSessionReadState(),
         })
 
         if (currentVersion === 0) {
@@ -484,6 +503,10 @@ export class Store {
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 last_user_message_at INTEGER,
+                content_revision INTEGER NOT NULL DEFAULT 0,
+                read_revision INTEGER NOT NULL DEFAULT 0,
+                read_state_version INTEGER NOT NULL DEFAULT 0,
+                manual_unread INTEGER NOT NULL DEFAULT 0,
                 metadata TEXT,
                 metadata_version INTEGER DEFAULT 1,
                 agent_state TEXT,
@@ -521,6 +544,7 @@ export class Store {
             CREATE INDEX IF NOT EXISTS idx_machines_namespace ON machines(namespace);
 
             CREATE TABLE IF NOT EXISTS messages (
+                content_revision INTEGER NOT NULL DEFAULT 0,
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
                 content TEXT NOT NULL,
@@ -545,6 +569,12 @@ export class Store {
                 WHERE invoked_at IS NULL
                   AND local_id IS NOT NULL
                   AND scheduled_at IS NULL
+                  AND delivery_state = 'queued';
+            CREATE INDEX IF NOT EXISTS idx_messages_future_scheduled_queued
+                ON messages(session_id, scheduled_at)
+                WHERE invoked_at IS NULL
+                  AND local_id IS NOT NULL
+                  AND scheduled_at IS NOT NULL
                   AND delivery_state = 'queued';
 
             CREATE TABLE IF NOT EXISTS message_epochs (
@@ -741,6 +771,24 @@ export class Store {
                 avatar_data_url TEXT,
                 PRIMARY KEY (namespace, provider, remote_id)
             );
+            CREATE TABLE IF NOT EXISTS session_turns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                namespace TEXT NOT NULL,
+                started_at INTEGER NOT NULL,
+                ended_at INTEGER,
+                end_reason TEXT,
+                started_by TEXT NOT NULL,
+                recover_until INTEGER,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_turns_namespace_started
+                ON session_turns(namespace, started_at);
+            CREATE INDEX IF NOT EXISTS idx_session_turns_session_started
+                ON session_turns(session_id, started_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_session_turns_one_open
+                ON session_turns(session_id)
+                WHERE ended_at IS NULL;
         `)
     }
 
@@ -1299,6 +1347,63 @@ export class Store {
     }
 
     /**
+     * Index the session-list future-scheduled lookups.
+     * GET /api/sessions runs countFutureScheduledBySessionIds and
+     * minFutureScheduledAtBySessionIds over every session id in the namespace.
+     * Neither the (session_id, seq) indexes nor idx_messages_scheduled_pending
+     * match the full predicate set, so SQLite falls back to probing
+     * idx_messages_local_id — one pass over every local message per call
+     * (O(all local messages), twice per session-list refresh) even though the
+     * matching set is almost always empty. This partial index covers every
+     * constant predicate and exposes (session_id, scheduled_at), so both
+     * queries become a near-empty index range scan.
+     */
+    private createFutureScheduledMessageIndex(): void {
+        this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_messages_future_scheduled_queued
+                ON messages(session_id, scheduled_at)
+                WHERE invoked_at IS NULL
+                  AND local_id IS NOT NULL
+                  AND scheduled_at IS NOT NULL
+                  AND delivery_state = 'queued';
+        `)
+    }
+
+    /**
+     * Persist when agents were working. `thinking` used to live only
+     * in the session cache, so a hub restart forgot it and nothing could say
+     * afterwards how long an agent worked. Each false→true→false stretch is
+     * now a row; at most one per session is open (ended_at IS NULL).
+     * recover_until marks a turn a restart interrupted, which the agent can
+     * still continue until then.
+     */
+    private createSessionTurns(): void {
+        // In the legacy branch sessions may not exist yet; createSchema adds
+        // the table once it does.
+        if (this.getSessionColumnNames().size === 0) return
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS session_turns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                namespace TEXT NOT NULL,
+                started_at INTEGER NOT NULL,
+                ended_at INTEGER,
+                end_reason TEXT,
+                started_by TEXT NOT NULL,
+                recover_until INTEGER,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_turns_namespace_started
+                ON session_turns(namespace, started_at);
+            CREATE INDEX IF NOT EXISTS idx_session_turns_session_started
+                ON session_turns(session_id, started_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_session_turns_one_open
+                ON session_turns(session_id)
+                WHERE ended_at IS NULL;
+        `)
+    }
+
+    /**
      * A2A Layer 1 / P1 (#1374) + P3 substrate: hub work-graph ledger tables.
      * Namespace + principal_json required on every events row.
      * Bumped as v22→v23 because upstream main already ships schema 22.
@@ -1369,6 +1474,18 @@ export class Store {
     private getMessageColumnNames(): Set<string> {
         const rows = this.db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
         return new Set(rows.map((row) => row.name))
+    }
+
+    /** Historical rows start at zero; Web imports existing unread choices once. */
+    private migrateSessionReadState(): void {
+        const columns = this.getSessionColumnNames()
+        for (const name of ['content_revision', 'read_revision', 'read_state_version', 'manual_unread']) {
+            if (columns.size > 0 && !columns.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0`)
+        }
+        const messageColumns = this.getMessageColumnNames()
+        if (messageColumns.size > 0 && !messageColumns.has('content_revision')) {
+            this.db.exec('ALTER TABLE messages ADD COLUMN content_revision INTEGER NOT NULL DEFAULT 0')
+        }
     }
 
     private getUserVersion(): number {

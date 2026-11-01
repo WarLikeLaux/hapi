@@ -9,6 +9,7 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { getHappyCliCommand } from '@/utils/spawnHappyCLI';
 import type { ApiSessionClient } from '@/api/apiSession';
 import { exportHapiSessionEnv } from '@/agent/hapiSessionEnv';
+import { isPeerToolsDisabled } from '@/modules/common/peerTools';
 import type { CodexMcpServerConfig } from './codexMcpServers';
 
 /**
@@ -84,12 +85,16 @@ export async function buildHapiMcpBridge(
         enableChangeTitle: options.enableChangeTitle,
         skillLookup: options.skillLookup
     });
+    // Stamp the hub row id so orphanReap can find MCP helpers after the agent
+    // root dies without a full tree kill (#2003 / #1911 follow-up).
     const bridgeCommand = getHappyCliCommand([
         'mcp',
         '--url',
         happyServer.url,
         '--tools',
-        happyServer.toolNames.join(',')
+        happyServer.toolNames.join(','),
+        '--hapi-session-id',
+        client.sessionId,
     ]);
     const tools: Record<string, McpServerToolConfig> = {
         display_image: {
@@ -108,14 +113,12 @@ export async function buildHapiMcpBridge(
         };
     }
     // Discovery shortlist only - same trust as skill_lookup / change_title.
-    tools.list_groups = { approval_mode: 'approve' };
-    tools.get_group = { approval_mode: 'approve' };
-    tools.list_peers = {
-        approval_mode: 'approve'
-    };
-    tools.list_launch_options = {
-        approval_mode: 'approve'
-    };
+    if (!isPeerToolsDisabled()) {
+        tools.list_groups = { approval_mode: 'approve' };
+        tools.get_group = { approval_mode: 'approve' };
+        tools.list_launch_options = { approval_mode: 'approve' };
+        tools.list_peers = { approval_mode: 'approve' };
+    }
     // launch_agent / ping_peer / inspect_peer use the caller's approval policy.
     // They are registered on the HTTP MCP server / stdio
     // bridge, but are not auto-approved: they target another session (resume +

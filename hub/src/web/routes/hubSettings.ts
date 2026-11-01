@@ -8,7 +8,7 @@ import {
 } from '@hapi/protocol'
 import {
     getSettingsFile,
-    readSettingsOrThrow,
+    readSettingsOrThrowCached,
     updateSettings,
     type Settings
 } from '../../config/settings'
@@ -46,7 +46,7 @@ export function createHubSettingsRoutes(dataDir: string): Hono<WebAppEnv> {
     // Hub-side branding: notifications resolve agent names through
     // `getFlavorLabel`, so keep the in-process override in sync with the
     // persisted setting — at boot and after every owner update.
-    void readSettingsOrThrow(getSettingsFile(dataDir))
+    void readSettingsOrThrowCached(getSettingsFile(dataDir))
         .then((settings) => applyClaudeGlmBranding(settings.claudeBrandedAsGlm === true))
         .catch(() => applyClaudeGlmBranding(false))
 
@@ -54,7 +54,7 @@ export function createHubSettingsRoutes(dataDir: string): Hono<WebAppEnv> {
     // flags. Mutations stay owner-only below.
     app.get('/hub-settings', async (c) => {
         c.header('Cache-Control', 'no-store')
-        const settings = await readSettingsOrThrow(getSettingsFile(dataDir))
+        const settings = await readSettingsOrThrowCached(getSettingsFile(dataDir))
         return c.json(toHubSettings(settings))
     })
 
@@ -102,7 +102,7 @@ export function createHubSettingsRoutes(dataDir: string): Hono<WebAppEnv> {
             return c.json({ error: OWNER_ONLY_ERROR }, 403)
         }
         c.header('Cache-Control', 'no-store')
-        const settings = await readSettingsOrThrow(getSettingsFile(dataDir))
+        const settings = await readSettingsOrThrowCached(getSettingsFile(dataDir))
         return c.json({ pins: settings.workspacePins ?? [] })
     })
 

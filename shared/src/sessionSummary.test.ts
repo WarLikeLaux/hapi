@@ -89,6 +89,10 @@ describe('toSessionSummary', () => {
         expect(toSessionSummary(makeSession()).createdAt).toBe(500)
     })
 
+    it('carries createdAt for the fixed-order list sort', () => {
+        expect(toSessionSummary(makeSession({ createdAt: 1_234 })).createdAt).toBe(1_234)
+    })
+
     it('includes the pinned state', () => {
         expect(toSessionSummary(makeSession({ pinned: true })).pinned).toBe(true)
         expect(toSessionSummary(makeSession({ globalPinned: true })).globalPinned).toBe(true)

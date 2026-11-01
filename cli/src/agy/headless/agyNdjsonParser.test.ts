@@ -40,14 +40,21 @@ describe('parseAgyNdjsonLine', () => {
         expect(parseAgyNdjsonLine('{"event":"result","result":{}}')).toEqual({ kind: 'ignored', reason: 'result without status' });
     });
 
-    it('parses a failed result envelope including its diagnostic', () => {
-        const event = parseAgyNdjsonLine('{"event":"result","result":{"conversation_id":"abc","status":"ERROR","response":"partial answer","error":"model stream failed"}}');
+    it('parses a FAILURE result envelope', () => {
+        const event = parseAgyNdjsonLine('{"event":"result","result":{"conversation_id":"abc","status":"FAILURE","response":""}}');
+        expect(event).toEqual({ kind: 'result', conversationId: 'abc', status: 'FAILURE', response: '', error: null });
+    });
+
+    it('carries the failure reason from a failed envelope', () => {
+        // agy reports why the turn failed in `error`; `response` stays the
+        // answer field (empty here, since the turn produced no answer).
+        const event = parseAgyNdjsonLine('{"event":"result","result":{"conversation_id":"abc","status":"ERROR","response":"","error":"timeout waiting for response","duration_seconds":2.4}}');
         expect(event).toEqual({
             kind: 'result',
             conversationId: 'abc',
             status: 'ERROR',
-            response: 'partial answer',
-            error: 'model stream failed',
+            response: '',
+            error: 'timeout waiting for response',
         });
     });
 

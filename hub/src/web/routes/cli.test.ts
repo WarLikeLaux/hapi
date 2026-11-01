@@ -1,9 +1,11 @@
 import { beforeAll, describe, expect, it, mock } from 'bun:test'
 import { Hono } from 'hono'
-import type { SyncEngine } from '../../sync/syncEngine'
+import { SyncEngine } from '../../sync/syncEngine'
 import { createConfiguration } from '../../configuration'
 import { createCliRoutes } from './cli'
-import { SessionIdentityConflictError } from '../../store/sessions'
+import { SessionIdentityConflictError, machineSpawnPreallocTag } from '../../store/sessions'
+import { Store } from '../../store'
+import { RpcRegistry } from '../../socket/rpcRegistry'
 
 function createApp(engine: Partial<SyncEngine>) {
     const app = new Hono()
@@ -191,6 +193,45 @@ describe('cli OpenCode clear route', () => {
 
 describe('cli lazy session creation', () => {
     const sessionId = '11111111-1111-4111-8111-111111111111'
+
+    it.each(['create', 'adopt'] as const)('keeps Hub-owned metadata authoritative during CLI %s', async (operation) => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(store, { of: () => ({ to: () => ({ emit() {} }) }) } as never,
+            new RpcRegistry(), { broadcast() {} } as never)
+        const owned = {
+            promptTitle: 'Original task',
+            codexArchivedFork: {
+                operationId: '22222222-2222-4222-8222-222222222222',
+                childSessionId: '33333333-3333-4333-8333-333333333333'
+            },
+            codexResumePending: { machineId: 'owned-machine', nativeSessionId: 'owned-thread' }
+        }
+        try {
+            if (operation === 'adopt') {
+                engine.getOrCreateSession(machineSpawnPreallocTag(sessionId), {
+                    path: '/tmp/project', host: 'test', ...owned
+                }, null, 'default', undefined, undefined, undefined, sessionId)
+            }
+            const response = await createApp(engine).request('/cli/sessions', {
+                method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' },
+                body: JSON.stringify({ id: sessionId, tag: 'metadata-bootstrap', adopt: operation === 'adopt',
+                    metadata: { path: '/tmp/project', host: 'test', promptTitle: 'Forged title',
+                        codexArchivedFork: { ...owned.codexArchivedFork, spawnAttempted: true },
+                        codexResumePending: { machineId: 'forged-machine', nativeSessionId: 'forged-thread' } } })
+            })
+            expect(response.status).toBe(200)
+            const persisted = store.sessions.getSession(sessionId)?.metadata
+            if (operation === 'adopt') {
+                expect(persisted).toMatchObject(owned)
+                expect((persisted as typeof owned).codexArchivedFork).toEqual(owned.codexArchivedFork)
+            }
+            else {
+                expect(persisted).not.toHaveProperty('promptTitle')
+                expect(persisted).not.toHaveProperty('codexArchivedFork')
+                expect(persisted).not.toHaveProperty('codexResumePending')
+            }
+        } finally { engine.stop(); store.close() }
+    })
 
     it('creates the machine and requested session identity in one request', async () => {
         const getOrCreateMachine = mock(() => ({ id: 'machine-1' }))

@@ -156,7 +156,7 @@ Lifecycle:
 
 **Placement and delivery**: the hub persists `content.meta.displayInChat` on messages accepted through the send pipeline. It is `true` for an unscheduled message when the agent is idle, no immediate deliverable row is waiting, and no OpenCode clear gate blocks delivery. This includes a launch prompt inserted before the new agent starts. Otherwise it is `false`. The value survives SSE echoes, REST reloads and idempotent retries. Before the server echo, the sending client uses the same idle/empty-queue decision optimistically. A server placement decision takes precedence over that optimistic hint.
 
-A user row with `invokedAt === null` and `status !== 'failed'` appears in the queued bar unless `displayInChat` (or its pending optimistic hint) places it in the thread. `deliveryState:'indeterminate'` always appears in the unresolved-delivery bar and remains excluded from automatic replay. Thread placement and HTTP success do not confirm invocation or stamp `invokedAt`. All uninvoked local rows still participate in delivery reconciliation and block subsequent immediate sends from bypassing the FIFO, except indeterminate holds. `undefined` `invokedAt` is treated as already invoked. Server-side, rows sent without a `localId` are stamped invoked at insert because they have no ACK path.
+A user row with `invokedAt === null` and `status !== 'failed'` appears in the queued bar unless `displayInChat` (or its pending optimistic hint) places it in the thread. `deliveryState:'indeterminate'` always appears in the unresolved-delivery bar and remains excluded from automatic replay. Thread placement and HTTP success do not confirm invocation or stamp `invokedAt`. All uninvoked local rows still participate in delivery reconciliation and block subsequent immediate sends from bypassing the FIFO, except indeterminate holds. `undefined` `invokedAt` is treated as already invoked. Server-side, a REST send without a `localId` gets a hub-minted one and follows the queue/ack path; agent-originated rows without a `localId` are stamped invoked at insert.
 
 ### Queued-state recovery
 
@@ -176,7 +176,7 @@ After a reconnect whose handshake said `resume: 'gap'` (an `ok` resume replayed 
 | Field | Type | Rules |
 |---|---|---|
 | `text` | string | Required (route also accepts empty text when `attachments` is non-empty). |
-| `localId` | string | Optional but **required for `scheduledAt`**, and required in practice: without it the row is stamped invoked at insert (no queue/ack/cancel path). |
+| `localId` | string | Optional but **required for `scheduledAt`**. When omitted the hub mints one; send your own to reconcile an optimistic row with its stored copy. |
 | `attachments` | `AttachmentMetadata[]` | Optional. Not allowed with `scheduledAt`. |
 | `scheduledAt` | epoch ms | Optional. Must be ≤ now + **7 days**; requires `localId`; no attachments; never `steer`. |
 | `deliveryMode` | `'queue'` \| `'steer'` | Optional, default `queue`. `steer` is honored only for **Pi-flavor** sessions and never for scheduled sends — the hub silently normalizes everything else to `queue`, and deferred/replayed delivery (reconnect backfill, retries, scheduled release) always degrades `steer` to `queue`. |

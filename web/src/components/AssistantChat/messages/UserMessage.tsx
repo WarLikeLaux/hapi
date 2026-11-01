@@ -1,3 +1,4 @@
+import { MessageActions } from './MessageActions'
 import { MessagePrimitive, useAuiState, type TextMessagePart } from '@assistant-ui/react'
 import { useHappyChatContext } from '@/components/AssistantChat/context'
 import type { HappyChatMessageMetadata } from '@/lib/assistant-runtime'
@@ -14,6 +15,7 @@ export function HappyUserMessage() {
     const { t } = useTranslation()
     const role = useAuiState((s) => s.message.role)
     const messageId = useAuiState((s) => s.message.id)
+    const threadIsRunning = useAuiState((s) => s.thread.isRunning)
     const elementId = getConversationMessageAnchorId(messageId)
     const text = useAuiState((s) => {
         if (s.message.role !== 'user') return ''
@@ -50,6 +52,39 @@ export function HappyUserMessage() {
     const canRetry = status === 'failed' && typeof localId === 'string' && Boolean(ctx.onRetryMessage)
     const onRetry = canRetry ? () => ctx.onRetryMessage!(localId) : undefined
     const showStatus = shouldShowMessageStatus(status)
+
+    const history = ctx.allowInactiveFork
+        ? { forkCurrent: true, forkAtMessage: true, rewindToMessage: false }
+        : ctx.metadata?.capabilities?.conversationHistory
+    const hasNativePoint = typeof localId === 'string'
+        && localId.length > 0
+        && ctx.metadata?.conversationHistoryPoints?.[localId] === true
+    const isLatestBoundary = ctx.isLatestCompletedBoundary?.(messageId) === true
+    const forkEnabled = !ctx.disabled || ctx.allowInactiveFork === true
+    // A user-only finished turn can be the latest completed boundary while
+    // another turn runs. Branch before that user turn, never from the live tail.
+    const runningCodex = threadIsRunning && ctx.metadata?.flavor === 'codex'
+    const showCurrentFork = Boolean(
+        history?.forkCurrent
+        && isLatestBoundary
+        && !runningCodex
+        && forkEnabled
+        && ctx.onForkConversation
+    )
+    const showHistoricalFork = Boolean(
+        history?.forkAtMessage
+        && hasNativePoint
+        && (!isLatestBoundary || runningCodex)
+        && forkEnabled
+        && ctx.onForkConversation
+    )
+    const showFork = showCurrentFork || showHistoricalFork
+    const showRewind = Boolean(
+        history?.rewindToMessage
+        && hasNativePoint
+        && !ctx.disabled
+        && ctx.onRewindConversation
+    )
 
     if (isCliOutput) {
         return (
@@ -94,6 +129,23 @@ export function HappyUserMessage() {
                     </span>
                 ) : null}
             </div>
+            <MessageActions
+                align="end"
+                copyText={hasText ? text : undefined}
+                messageElementId={elementId}
+                showFork={showFork}
+                allowForkWhileRunning={showHistoricalFork && ctx.metadata?.flavor === 'codex'}
+                showRewind={showRewind}
+                historyActionPending={ctx.historyActionPending}
+                onFork={showCurrentFork
+                    ? () => ctx.onForkConversation!()
+                    : showHistoricalFork && localId
+                        ? () => ctx.onForkConversation!(localId)
+                        : undefined}
+                onRewind={showRewind && localId
+                    ? () => ctx.onRewindConversation!(localId)
+                    : undefined}
+            />
         </MessagePrimitive.Root>
     )
 }

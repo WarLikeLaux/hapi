@@ -1,0 +1,207 @@
+{
+    "description": "A successful latest page establishes the read receipt; live readable rows advance it independently of position sequence.",
+    "expectedState": {
+        "epoch": 0,
+        "hasMore": false,
+        "messages": [
+            {
+                "createdAt": 6000,
+                "id": "u-1",
+                "invokedAt": 6000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 1
+            },
+            {
+                "createdAt": 7000,
+                "id": "a-1",
+                "invokedAt": 7000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 2
+            },
+            {
+                "createdAt": 8000,
+                "id": "u-2",
+                "invokedAt": 8000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 3
+            },
+            {
+                "createdAt": 9000,
+                "id": "a-2",
+                "invokedAt": 9000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 4
+            },
+            {
+                "contentRevision": 5,
+                "createdAt": 10000,
+                "id": "answer",
+                "invokedAt": 10000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 10
+            },
+            {
+                "contentRevision": 6,
+                "createdAt": 12000,
+                "id": "next",
+                "invokedAt": 12000,
+                "localId": null,
+                "optimistic": false,
+                "queued": false,
+                "seq": 12
+            }
+        ],
+        "newestCursor": {
+            "at": 10000,
+            "seq": 10
+        },
+        "olderCursor": null,
+        "readThroughRevision": 6,
+        "viewMode": "tail"
+    },
+    "fixtureVersion": 1,
+    "name": "read-receipt-latest-and-live-output",
+    "ops": [
+        {
+            "expectedRequests": [
+                {
+                    "limit": 200
+                }
+            ],
+            "op": "sync-tail",
+            "responses": [
+                {
+                    "messages": [
+                        {
+                            "content": {
+                                "content": {
+                                    "text": "u-1",
+                                    "type": "text"
+                                },
+                                "role": "user"
+                            },
+                            "createdAt": 6000,
+                            "id": "u-1",
+                            "invokedAt": 6000,
+                            "localId": null,
+                            "seq": 1
+                        },
+                        {
+                            "content": {
+                                "content": {
+                                    "data": {
+                                        "message": "a-1",
+                                        "type": "message"
+                                    },
+                                    "type": "codex"
+                                },
+                                "role": "agent"
+                            },
+                            "createdAt": 7000,
+                            "id": "a-1",
+                            "invokedAt": 7000,
+                            "localId": null,
+                            "seq": 2
+                        },
+                        {
+                            "content": {
+                                "content": {
+                                    "text": "u-2",
+                                    "type": "text"
+                                },
+                                "role": "user"
+                            },
+                            "createdAt": 8000,
+                            "id": "u-2",
+                            "invokedAt": 8000,
+                            "localId": null,
+                            "seq": 3
+                        },
+                        {
+                            "content": {
+                                "content": {
+                                    "data": {
+                                        "message": "a-2",
+                                        "type": "message"
+                                    },
+                                    "type": "codex"
+                                },
+                                "role": "agent"
+                            },
+                            "createdAt": 9000,
+                            "id": "a-2",
+                            "invokedAt": 9000,
+                            "localId": null,
+                            "seq": 4
+                        },
+                        {
+                            "content": {
+                                "content": {
+                                    "data": {
+                                        "message": "answer",
+                                        "type": "message"
+                                    },
+                                    "type": "codex"
+                                },
+                                "role": "agent"
+                            },
+                            "contentRevision": 5,
+                            "createdAt": 10000,
+                            "id": "answer",
+                            "invokedAt": 10000,
+                            "localId": null,
+                            "seq": 10
+                        }
+                    ],
+                    "page": {
+                        "direction": "latest",
+                        "epoch": 0,
+                        "hasMore": false,
+                        "limit": 200,
+                        "nextAfterAt": null,
+                        "nextAfterSeq": null,
+                        "nextBeforeAt": null,
+                        "nextBeforeSeq": null,
+                        "readThroughRevision": 5,
+                        "reset": false,
+                        "snapshotHeadAt": 10000,
+                        "snapshotHeadSeq": 10
+                    }
+                }
+            ]
+        },
+        {
+            "messages": [
+                {
+                    "content": {
+                        "content": {
+                            "data": {
+                                "message": "next",
+                                "type": "message"
+                            },
+                            "type": "codex"
+                        },
+                        "role": "agent"
+                    },
+                    "contentRevision": 6,
+                    "createdAt": 12000,
+                    "id": "next",
+                    "invokedAt": 12000,
+                    "localId": null,
+                    "seq": 12
+                }
+            ],
+            "op": "sse-messages"
+        }
+    ]
+}

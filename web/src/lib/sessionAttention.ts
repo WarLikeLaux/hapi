@@ -16,12 +16,20 @@ export function getSessionUnreadActivityAt(summary: SessionSummary): number {
         : summary.updatedAt
 }
 
+function hasManualUnreadMarker(value: number | null | undefined): value is number {
+    return typeof value === 'number' && Number.isFinite(value)
+}
+
 /** True when the session has activity newer than the operator's last-seen watermark. */
 export function sessionIsUnread(
     summary: SessionSummary,
-    options: { lastSeenAt: number }
+    options: { lastSeenAt: number; manualUnreadAt?: number | null }
 ): boolean {
-    return !summary.metadata?.muted && getSessionUnreadActivityAt(summary) > options.lastSeenAt
+    const manualUnread = options.manualUnreadAt === undefined
+        ? summary.readState?.manualUnread === true
+        : hasManualUnreadMarker(options.manualUnreadAt)
+    return !summary.metadata?.muted && (manualUnread
+        || (summary.contentRevision ?? 0) > Math.max(options.lastSeenAt, summary.readState?.readRevision ?? 0))
 }
 
 export function classifySessionAttention(
@@ -29,7 +37,7 @@ export function classifySessionAttention(
     options: { selected: boolean; lastSeenAt: number; manualUnreadAt?: number | null }
 ): SessionAttention | null {
     if (summary.metadata?.muted) return null
-    const pendingRequestKinds = Array.isArray(summary.pendingRequestKinds)
+    const pendingRequestKinds = summary.active && Array.isArray(summary.pendingRequestKinds)
         ? summary.pendingRequestKinds
         : []
     if (pendingRequestKinds.includes('input')) {
@@ -38,13 +46,11 @@ export function classifySessionAttention(
             : { kind: 'input' }
     }
 
-    if (options.selected) {
-        return options.manualUnreadAt === getSessionUnreadActivityAt(summary)
-            ? { kind: 'unread' }
-            : null
-    }
-
-    if (summary.thinking) {
+    const manualUnread = options.manualUnreadAt === undefined
+        ? summary.readState?.manualUnread === true
+        : hasManualUnreadMarker(options.manualUnreadAt)
+    if (options.selected) return manualUnread ? { kind: 'unread' } : null
+    if (summary.active && summary.thinking && !manualUnread) {
         return null
     }
 
@@ -56,7 +62,10 @@ export function classifySessionAttention(
         return { kind: 'background' }
     }
 
-    if (sessionIsUnread(summary, { lastSeenAt: options.lastSeenAt })) {
+    if (sessionIsUnread(summary, {
+        lastSeenAt: options.lastSeenAt,
+        manualUnreadAt: options.manualUnreadAt
+    })) {
         return { kind: 'unread' }
     }
 

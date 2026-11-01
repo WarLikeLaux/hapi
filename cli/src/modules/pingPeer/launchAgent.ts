@@ -2,14 +2,14 @@ import type { z } from 'zod'
 import {
     AgentAvailabilityResponseSchema,
     CREATABLE_AGENT_FLAVORS,
-    getLaunchPermissionModesForFlavor,
+    getPermissionModesForFlavor,
     resolveHapiYoloPermissionMode,
     type AgentAvailabilityEntry,
     type Machine,
     type MachineListDirectoryResponse,
     type SpawnSessionRequest,
 } from '@hapi/protocol'
-import { connectPeerHub, pingPeer } from './pingPeer'
+import { assertPeerToolsEnabled, connectPeerHub, pingPeer } from './pingPeer'
 import { launchAgentSchema, launchOptionsSchema, type LaunchAgentArgs } from './launchAgentTools'
 
 type ProjectSession = {
@@ -75,6 +75,7 @@ export function createAgentLauncher(callerSessionId: string) {
     const requests = new Map<string, LaunchRequest>()
 
     async function listOptions(args: z.infer<typeof launchOptionsSchema> = {}): Promise<LaunchOptions> {
+        assertPeerToolsEnabled()
         const hub = await connectPeerHub()
         const [{ machines }, { sessions }] = await Promise.all([
             hub.get<{ machines: Machine[] }>('/machines'),
@@ -123,7 +124,7 @@ export function createAgentLauncher(callerSessionId: string) {
             }
             const exists = await hub.post<{ exists: Record<string, boolean> }>(`/machines/${encodeURIComponent(machine.id)}/paths/exists`, { paths: [directory] })
             if (!exists.exists[directory]) throw new Error(`Project directory does not exist or is outside workspace roots: ${directory}`)
-            if (args.permissionMode && !getLaunchPermissionModesForFlavor(agent).includes(args.permissionMode)) throw new Error(`Permission mode '${args.permissionMode}' is unsupported for ${agent}`)
+            if (args.permissionMode && !getPermissionModesForFlavor(agent).includes(args.permissionMode)) throw new Error(`Permission mode '${args.permissionMode}' is unsupported for ${agent}`)
             if (args.effort && !['claude', 'grok', 'pi', 'agy', 'codex', 'opencode'].includes(agent)) throw new Error(`Agent '${agent}' does not support a separate effort override; choose its native model variant instead`)
             if (args.groupId) await hub.get(`/groups/${encodeURIComponent(args.groupId)}`)
             const payload: SpawnSessionRequest = {
@@ -158,6 +159,7 @@ export function createAgentLauncher(callerSessionId: string) {
     }
 
     async function launch(input: LaunchAgentArgs): Promise<LaunchResult> {
+        assertPeerToolsEnabled()
         const args = launchAgentSchema.parse(input)
         const signature = JSON.stringify({ ...args, agent: args.agent ?? 'codex' })
         let request = requests.get(args.requestId)

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import { CreateSessionGroupSchema, type SessionGroup } from '@hapi/protocol'
-import { connectPeerHub } from './pingPeer'
+import { assertPeerToolsEnabled, connectPeerHub } from './pingPeer'
 
 export const groupInfoSchema = z.object({
     groupId: z.string().min(1).optional().describe('Exact group ID; omit to read this session’s current group'),
@@ -10,6 +10,7 @@ export const GROUP_INFO_DESCRIPTION = 'Read a HAPI group of equal, independent c
 export const GROUP_LIST_DESCRIPTION = 'List user-created chat groups in this hub namespace, with IDs, names, tab order and pins. Use get_group for live chat states and inspect_peer for a chat’s context. Use create_group to create a named group; these tools do not reorganize existing groups.'
 
 export async function readGroup(callerSessionId: string, args: z.infer<typeof groupInfoSchema>) {
+    assertPeerToolsEnabled()
     const hub = await connectPeerHub()
     let id = args.groupId
     if (!id) {
@@ -21,6 +22,7 @@ export async function readGroup(callerSessionId: string, args: z.infer<typeof gr
 }
 
 export async function listGroups() {
+    assertPeerToolsEnabled()
     return await (await connectPeerHub()).get('/groups')
 }
 
@@ -31,6 +33,7 @@ export const GROUP_CREATE_DESCRIPTION = 'Create an empty named HAPI chat group i
 
 export async function createGroup(callerSessionId: string, args: z.infer<typeof createGroupSchema>) {
     const input = createGroupSchema.parse(args)
+    assertPeerToolsEnabled()
     const hub = await connectPeerHub()
     const { group } = await hub.post<{ group: SessionGroup }>('/groups', {
         name: input.name,

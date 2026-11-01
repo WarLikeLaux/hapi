@@ -8,8 +8,7 @@ import { useState } from 'react'
 import type { SessionGroup } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
-import { getSessionLastSeenAt, markSessionUnread } from '@/lib/sessionLastSeen'
-import { useSelectedSessionSeen } from '@/hooks/useSelectedSessionSeen'
+import { configureSessionReadState, getSessionLastSeenAt, markSessionSeen, markSessionUnread } from '@/lib/sessionLastSeen'
 import { SessionGroupWorkspace } from './SessionGroups'
 
 function render(ui: ReactElement) {
@@ -21,6 +20,7 @@ const group: SessionGroup = { id: 'group', name: 'HAPI', closed: false, parked: 
     members: [{ sessionId: 'first', pinned: true }, { sessionId: 'worker', pinned: false }] }
 const chats = (thinking: boolean, extra: Partial<SessionSummary> = {}): SessionSummary[] => ['first', 'worker'].map(id => ({
     id, active: true, thinking: id === 'worker' && thinking, lastAgentMessageAt: 2000, updatedAt: 2000,
+    contentRevision: extra.contentRevision ?? 2000,
     metadata: { path: '/work', name: id, flavor: 'codex' }, metadataVersion: 1, agentStateVersion: 1,
     activeAt: 1, todosUpdatedAt: 0, todoProgress: null, pendingRequestsCount: 0, pendingRequestKinds: [], pendingRequests: [],
     backgroundTaskCount: 0, futureScheduledMessageCount: 0, nextScheduledAt: null, model: null, effort: null,
@@ -28,20 +28,21 @@ const chats = (thinking: boolean, extra: Partial<SessionSummary> = {}): SessionS
 }))
 function Workspace({ sessions, workspaceGroup = group }: { sessions: SessionSummary[]; workspaceGroup?: SessionGroup }) {
     const [selected, select] = useState('first')
-    useSelectedSessionSeen(selected, sessions.find(s => s.id === selected)?.lastAgentMessageAt)
     return <I18nProvider><SessionGroupWorkspace group={workspaceGroup} groups={[workspaceGroup]} sessions={sessions} selectedSessionId={selected}
         onSelect={select} onBack={vi.fn()} onNew={vi.fn()} onUpdate={vi.fn()} pending={false} /></I18nProvider>
 }
 const worker = () => screen.getByRole('tab', { name: /^worker/ })
 beforeEach(() => {
     localStorage.clear()
-    localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ first: 2000, worker: 1000 }))
+    configureSessionReadState('group-test', async () => { throw new Error('offline') })()
+    markSessionSeen('first', 2000)
+    markSessionSeen('worker', 1000)
     Element.prototype.scrollIntoView = vi.fn()
 })
 afterEach(cleanup)
 
 describe('group tab attention', () => {
-    it('preserves unread history across work, completion and page reopening until the tab is opened', () => {
+    it('preserves unread history across work, completion and tab selection until a transcript read arrives', () => {
         const view = render(<Workspace sessions={chats(true)} />)
         expect(within(worker()).queryByLabelText('New activity')).toBeNull()
         expect(getSessionLastSeenAt('worker')).toBe(1000)
@@ -54,6 +55,9 @@ describe('group tab attention', () => {
         render(<Workspace sessions={chats(false)} />)
         expect(within(worker()).getAllByLabelText('New activity').length).toBeGreaterThan(0)
         fireEvent.click(worker())
+        expect(getSessionLastSeenAt('worker')).toBe(1000)
+        // The group consumes read state; the rendered transcript owns the receipt.
+        act(() => markSessionSeen('worker', 2000))
         expect(getSessionLastSeenAt('worker')).toBe(2000)
         expect(within(worker()).queryByLabelText('New activity')).toBeNull()
     })
@@ -61,10 +65,11 @@ describe('group tab attention', () => {
     it('keeps an open tab read through work and completion, while preserving an explicit mark unread', () => {
         const view = render(<Workspace sessions={chats(true)} />)
         fireEvent.click(worker())
-        view.rerender(<Workspace sessions={chats(false, { lastAgentMessageAt: 3000 })} />)
+        view.rerender(<Workspace sessions={chats(false, { lastAgentMessageAt: 3000, contentRevision: 3000 })} />)
+        act(() => markSessionSeen('worker', 3000))
         expect(getSessionLastSeenAt('worker')).toBe(3000)
         expect(within(worker()).queryByLabelText('New activity')).toBeNull()
-        act(() => markSessionUnread('worker', 3000))
+        act(() => markSessionUnread('worker'))
         expect(within(worker()).getAllByLabelText('New activity').length).toBeGreaterThan(0)
     })
 

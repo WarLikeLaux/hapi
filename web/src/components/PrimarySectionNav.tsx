@@ -11,7 +11,7 @@ import {
 import { queryKeys } from '@/lib/query-keys'
 import {
     getUnreadSessionCount,
-    initializeSessionLastSeen,
+    observeSessionReadStates,
     useSessionLastSeenVersion,
 } from '@/lib/sessionLastSeen'
 import { useTranslation } from '@/lib/use-translation'
@@ -73,7 +73,7 @@ export function PrimarySectionNav() {
         if (sessionsLoading || sessionsError) {
             return
         }
-        initializeSessionLastSeen(baseUrl, visibleSessions)
+        observeSessionReadStates(visibleSessions)
         setInitializedHub(baseUrl)
     }, [baseUrl, sessionsError, sessionsLoading, visibleSessions])
 

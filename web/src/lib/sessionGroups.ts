@@ -9,7 +9,7 @@ export function presentSessionGroup(
     group: SessionGroup,
     sessions: ReadonlyMap<string, SessionSummary>,
     lastSeenAt: (id: string) => number,
-    manualUnreadAt: (id: string) => number | null,
+    manualUnreadAt: (id: string, readState?: SessionSummary['readState']) => number | null,
 ) {
     const chats = group.members.flatMap(member => {
         const chat = sessions.get(member.sessionId)
@@ -18,7 +18,7 @@ export function presentSessionGroup(
     const questions = chats.filter(chat => chat.pendingRequestKinds?.includes('input') || (chat.pendingAsyncQuestionsCount ?? 0) > 0).length
     const permissions = chats.filter(chat => chat.pendingRequestKinds?.includes('permission')).length
     const unread = chats.filter(chat => classifySessionAttention(chat, {
-        selected: false, lastSeenAt: lastSeenAt(chat.id), manualUnreadAt: manualUnreadAt(chat.id),
+        selected: false, lastSeenAt: lastSeenAt(chat.id), manualUnreadAt: manualUnreadAt(chat.id, chat.readState),
     })?.kind === 'unread').length
     const working = chats.filter(isWorkingSession).length
     const live = chats.filter(chat => chat.active)

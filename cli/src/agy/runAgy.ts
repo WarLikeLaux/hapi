@@ -16,6 +16,9 @@ import type { SessionEffort, SessionModel } from '@/api/types';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { getHappyCliCommand } from '@/utils/spawnHappyCLI';
 import { ensureAgyHapiMcpConfig, ensureAgyHapiTitlePermission } from './utils/agyHapiMcpConfig';
+import { splitAgyModelSelection } from '@hapi/protocol';
+import { listAgyModels } from '@/modules/common/agyModels';
+import { normalizeAgyModelSelection } from './utils/agyModelSelection';
 
 export async function runAgy(opts: {
     startedBy?: 'runner' | 'terminal';
@@ -59,7 +62,7 @@ export async function runAgy(opts: {
             tag: `__hapi_agy_${randomUUID()}`,
             agentState: initialState,
             model: initialModel ?? undefined,
-            effort: opts.effort ?? undefined,
+            effort: opts.effort,
             reservedSessionId: opts.reservedSessionId
         });
     const { api, session } = bootstrap;
@@ -98,7 +101,7 @@ export async function runAgy(opts: {
 
     let currentPermissionMode: PermissionMode = opts.permissionMode ?? 'request-review';
     let sessionModel: SessionModel = initialModel;
-    let sessionEffort: SessionEffort | undefined = opts.effort ?? undefined;
+    let sessionEffort: SessionEffort = opts.effort ?? null;
 
     const sessionWrapperRef: { current: any | null } = { current: null };
 
@@ -117,6 +120,18 @@ export async function runAgy(opts: {
     let crashed = false;
 
     try {
+        // Bootstrap must report to the runner before a potentially slow catalog
+        // probe. ApiSessionClient buffers early messages until onUserMessage is
+        // registered below, after the launch selection has been normalized.
+        const initialized = (async () => {
+            const catalog = splitAgyModelSelection(initialModel).model
+                ? await listAgyModels()
+                : undefined;
+            const selection = normalizeAgyModelSelection(initialModel, opts.effort, catalog?.availableModels ?? []);
+            sessionModel = selection.model;
+            sessionEffort = selection.effort;
+        })();
+
         const syncSessionMode = () => {
             const sessionInstance = sessionWrapperRef.current;
             if (!sessionInstance) return;
@@ -126,22 +141,6 @@ export async function runAgy(opts: {
             sessionInstance.pushKeepAlive();
             logger.debug(`[agy] Synced session config: permissionMode=${currentPermissionMode}, model=${sessionModel ?? '(default)'}`);
         };
-
-        session.onUserMessage((message, localId) => {
-            const formattedText = formatMessageWithAttachments(message.content.text, message.content.attachments);
-            // The hidden HAPI title-check block is prepended centrally in
-            // ApiSession.enqueueUserMessage when the MCP change_title tool is
-            // exposed for this flavor; no per-flavor injection is needed here.
-            // Snapshot the spawn config at ENQUEUE time: a prompt queued while the
-            // session runs on model A must not run on B if the user switches the
-            // live session model before dequeue.
-            const mode: AgyMode = {
-                permissionMode: currentPermissionMode,
-                model: sessionModel,
-                effort: sessionEffort,
-            };
-            messageQueue.push(formattedText, mode, localId);
-        });
 
         session.onCancelQueuedMessage((localId) => {
             // A batch held in the driver's retry backoff is outside MessageQueue2;
@@ -160,15 +159,46 @@ export async function runAgy(opts: {
             rpcHandlerManager: session.rpcHandlerManager,
             flavor: 'agy',
             modelMode: 'nullable',
+            effortMode: 'nullable',
             onApply: async (config) => {
+                // A config request received during startup must apply after the
+                // initial selection, rather than be overwritten when probing ends.
+                await initialized;
+                let selection;
+                if (config.model !== undefined || config.effort !== undefined) {
+                    const models = await listAgyModels();
+                    const model = config.model === undefined ? sessionModel : config.model;
+                    const effort = config.effort !== undefined
+                        ? config.effort
+                        : config.model !== undefined && splitAgyModelSelection(model).effort
+                            ? undefined
+                            : sessionEffort;
+                    selection = normalizeAgyModelSelection(model, effort, models.availableModels ?? []);
+                }
                 if (config.permissionMode !== undefined) {
                     currentPermissionMode = config.permissionMode;
                 }
-                if (config.model !== undefined) {
-                    sessionModel = config.model;
+                if (selection) {
+                    sessionModel = selection.model;
+                    sessionEffort = selection.effort;
                 }
+                return selection;
             },
             onAfterApply: syncSessionMode
+        });
+
+        await initialized;
+
+        session.onUserMessage((message, localId) => {
+            const formattedText = formatMessageWithAttachments(message.content.text, message.content.attachments);
+            // Snapshot config when buffered/new messages enter the queue, so a
+            // later model or effort switch cannot change an already queued turn.
+            const mode: AgyMode = {
+                permissionMode: currentPermissionMode,
+                model: sessionModel,
+                effort: sessionEffort,
+            };
+            messageQueue.push(formattedText, mode, localId);
         });
 
         await agyLoop({

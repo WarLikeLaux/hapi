@@ -34,7 +34,7 @@ export function GroupIcon({ pin = false, className }: { pin?: boolean; className
 function ChatStatus({ session, selected = false }: { session: SessionSummary; selected?: boolean }) {
     useSessionLastSeenVersion()
     const { t } = useTranslation()
-    let attention = classifySessionAttention(session, { selected, lastSeenAt: getSessionLastSeenAt(session.id), manualUnreadAt: getSessionManualUnreadAt(session.id) })
+    let attention = classifySessionAttention(session, { selected, lastSeenAt: getSessionLastSeenAt(session.id), manualUnreadAt: getSessionManualUnreadAt(session.id, session.readState) })
     const permission = session.pendingRequestKinds?.includes('permission')
     if (permission && !attention && !session.thinking) attention = { kind: 'permission' }
     const question = attention?.kind === 'input' || attention?.kind === 'async-input'

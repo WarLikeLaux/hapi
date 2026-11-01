@@ -17,9 +17,11 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { z } from 'zod';
+import { PeerDeliveryModeSchema } from '@/modules/pingPeer/deliveryMode';
 import { DISPLAY_IMAGE_PROMPT_CURSOR, DISPLAY_MEDIA_PROMPT_CURSOR, DISPLAY_VIDEO_PROMPT_CURSOR } from '@/modules/common/displayImagePrompt';
 import {
   INSPECT_PEER_TOOL_DESCRIPTION,
+  PEER_DELIVERY_MODE_DESCRIPTION,
   PING_PEER_TOOL_DESCRIPTION,
   SESSION_ID_PREFIX_PARAM_DESCRIPTION,
 } from '@hapi/protocol/sessionCitation';
@@ -27,6 +29,7 @@ import { buildSessionTitleMcpInstructions } from '@/modules/common/sessionTitleP
 import { launchAgentSchema, launchOptionsSchema, LAUNCH_AGENT_DESCRIPTION, LAUNCH_OPTIONS_DESCRIPTION } from '@/modules/pingPeer/launchAgentTools';
 import { closeSessionSchema, CLOSE_SESSION_DESCRIPTION } from '@/modules/common/closeSessionTool';
 import { usageSchema, USAGE_DESCRIPTION } from '@/modules/usage';
+import { isPeerToolsDisabled, PEER_TOOL_NAMES } from '@/modules/common/peerTools';
 
 const DEFAULT_TOOL_NAMES = ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer', 'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent', 'get_usage', 'close_session'];
 
@@ -41,6 +44,11 @@ function parseArgs(argv: string[]): { url: string | null; toolNames: Set<string>
     } else if (a === '--tools' && i + 1 < argv.length) {
       toolNames = new Set(argv[i + 1].split(',').map((name) => name.trim()).filter(Boolean));
       i++;
+    } else if (a === '--hapi-session-id' && i + 1 < argv.length) {
+      // Orphan-reap stamp only (#2003); consume so the value is not left as a stray argv token.
+      i++;
+    } else if (a.startsWith('--hapi-session-id=')) {
+      // `--hapi-session-id=<uuid>` form — nothing further to consume.
     }
   }
   return { url, toolNames };
@@ -50,6 +58,13 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
   try {
     // Resolve target HTTP MCP URL
     const { url: urlFromArgs, toolNames } = parseArgs(argv);
+
+    // HAPI_DISABLE_PEER_TOOLS=1: drop peer tools even when explicitly listed,
+    // so a wrapped agent cannot re-enable them via a stale --tools value.
+    if (isPeerToolsDisabled()) {
+      for (const name of PEER_TOOL_NAMES) toolNames.delete(name);
+    }
+
     const baseUrl = urlFromArgs || process.env.HAPI_HTTP_MCP_URL || '';
 
     if (!baseUrl) {
@@ -233,6 +248,7 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
       sessionIdPrefix: z.string().trim().min(1).describe(SESSION_ID_PREFIX_PARAM_DESCRIPTION),
       message: z.string().min(1).describe('Message text to deliver to the target session'),
       requestId: z.string().trim().min(1).max(128).optional().describe('Unique message request ID. Reuse on retries to prevent duplicate delivery'),
+      deliveryMode: PeerDeliveryModeSchema.optional().describe(PEER_DELIVERY_MODE_DESCRIPTION),
     });
 
     if (toolNames.has('ping_peer')) {

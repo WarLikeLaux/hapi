@@ -68,6 +68,31 @@ Or with Homebrew:
 brew install tiann/tap/hapi
 ```
 
+### Upgrades that still run an older version
+
+The `@twsxtd/hapi` package is a launcher. Its platform binary (for example,
+`@twsxtd/hapi-darwin-arm64`) is an optional dependency pinned to the same version.
+If a mirror has the new launcher but not the matching platform package, the
+package manager can finish upgrading the launcher while skipping the binary.
+A previous binary may remain installed. Older launchers can silently run it;
+launchers with version validation instead report a version mismatch.
+
+Retry against the official registry using your existing package manager. For Bun:
+
+```bash
+bun remove -g @twsxtd/hapi && bun add -g @twsxtd/hapi@latest --registry=https://registry.npmjs.org
+hapi --version
+```
+
+Removing the launcher first clears its dependency resolution; `--force` alone
+can leave a previously skipped platform package out of Bun's lockfile. This does
+not remove your HAPI settings or sessions. To stay on a specific release, replace
+`latest` with that version. For npm, use
+`npm install -g @twsxtd/hapi@latest --registry=https://registry.npmjs.org`.
+If the command still reports an old version, check for another HAPI installation
+earlier on `PATH`. Restart an already-running hub or runner after upgrading;
+installing a new binary does not replace running processes.
+
 ## Other install options
 
 <details>
@@ -93,7 +118,7 @@ sudo mv ./hapi /usr/local/bin/
 <details>
 <summary>Build from source</summary>
 
-Requires Bun 1.4.0.
+Requires Bun 1.4.4.
 
 ```bash
 git clone https://github.com/tiann/hapi.git
@@ -190,6 +215,7 @@ On first run, HAPI:
 | `HAPI_EXPERIMENTAL` | - | - | CLI: enable experimental features (`true`/`1`/`yes`) |
 | `ELEVENLABS_API_KEY` | - | Settings / env | ElevenLabs API key for voice + dictation |
 | `ELEVENLABS_AGENT_ID` | Auto-created | - | Custom ElevenLabs agent ID |
+| `ELEVENLABS_MAX_DURATION_SECONDS` | `1800` | - | Max length of one ElevenLabs voice conversation (60-7200) |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | - | Settings / env | Gemini Live voice assistant |
 | `DASHSCOPE_API_KEY` / `QWEN_API_KEY` | - | Settings / env | Qwen Realtime voice assistant |
 | `VOICE_BACKEND` | Auto-detected | - | Default assistant backend: `elevenlabs`, `gemini-live`, or `qwen-realtime` |
@@ -318,6 +344,14 @@ hapi runner start
 ```
 
 Session CLI may export an **explicit** non-default `HAPI_API_URL` (from env or settings) into child env so shell helpers hit the same remote hub. It does **not** mirror `CLI_API_TOKEN` into wrapped agents (settings/prompt-backed secrets stay out of agent env; a fresh `hapi` re-reads `~/.hapi/settings.json`, and systemd/env tokens already inherit). Prefer MCP `list_peers` inside a session. Web terminal PTYs still strip hub secrets. If `--list` fails with an auth/URL error, the message points at `hapi auth login` and the configured hub URL.
+
+##### Disabling peer tools on a runner
+
+Set `HAPI_DISABLE_PEER_TOOLS=1` (also `true`/`yes`) in the runner environment to disable HAPI's peer-session tools for wrapped agents. The session MCP server omits `list_peers`, `inspect_peer` and `ping_peer` from registration and allowed-tool lists. Agent prompts keep the reminder that `/sessions/<id>` is a hub path. CLI peer commands reject calls with a `disabled` error before making network requests.
+
+In this fork, the switch also disables the group and agent-launch tools: `create_group`, `list_groups`, `get_group`, `list_launch_options` and `launch_agent`.
+
+Scope the variable to the runner through its systemd unit, launchd plist or guard script. Interactive terminals use their own environment.
 
 Additional runner commands:
 

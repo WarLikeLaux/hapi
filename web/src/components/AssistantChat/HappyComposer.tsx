@@ -15,6 +15,7 @@ import {
     type KeyboardEvent as ReactKeyboardEvent,
     type MutableRefObject,
     type SyntheticEvent as ReactSyntheticEvent,
+    Fragment,
     useCallback,
     useEffect,
     useImperativeHandle,
@@ -25,6 +26,7 @@ import {
 import { useNarrowViewport } from '@/hooks/useNarrowViewport'
 import { shouldInvokeComposerDictateShortcut } from '@/lib/composerDictateShortcut'
 import { isRichComposerMentionsEnabled, resolveComposerPlaceholderKey } from '@/lib/composerSegments'
+import { dictationDirectSendEligible, sendVoiceMessage } from '@/lib/dictationSend'
 import type { SessionMentionResolveResult } from '@/components/AssistantChat/RichComposerInput'
 import {
     RichComposerInput,
@@ -33,7 +35,7 @@ import {
 import { useFue } from '@/lib/use-fue'
 import { FueCallout, FueDot } from '@/components/Fue'
 import type { AgentState, CodexCollaborationMode, PermissionMode, MinimaxModelSummary, PiModelSummary } from '@/types/api'
-import type { Suggestion } from '@/hooks/useActiveSuggestions'
+import type { SuggestionHandler, Suggestion } from '@/hooks/useActiveSuggestions'
 import type { ConversationStatus } from '@/realtime/types'
 import { useActiveWord } from '@/hooks/useActiveWord'
 import { useActiveSuggestions } from '@/hooks/useActiveSuggestions'
@@ -54,7 +56,11 @@ import { StatusBar } from '@/components/AssistantChat/StatusBar'
 import { isSessionFastMode } from '@/lib/sessionFastMode'
 import { modelChipText } from '@/lib/modelChipLabel'
 import { OPENCODE_HARDCODED_LABEL } from '@/components/NewSession/hardcodedModels'
-import { ComposerButtons } from '@/components/AssistantChat/ComposerButtons'
+import {
+    ComposerButtons,
+    UnifiedButton,
+    isComposerPrimaryFillHeight,
+} from '@/components/AssistantChat/ComposerButtons'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { SortableComposerAttachments } from '@/components/AssistantChat/SortableComposerAttachments'
 import { ComposerParkingContext } from '@/components/AssistantChat/composerParkingContext'
@@ -70,7 +76,7 @@ import { groupModelsByProvider } from './piModelGroups'
 import type { ApiClient } from '@/api/client'
 import { useVoiceInputPreferences } from '@/hooks/useVoiceInputPreferences'
 import { useDictation } from '@/hooks/useDictation'
-import type { ComposerSendIntent } from '@/lib/messageDelivery'
+import { resolveMessageDeliveryMode, type ComposerSendIntent } from '@/lib/messageDelivery'
 import type { MessageDeliveryMode } from '@hapi/protocol'
 import { moveAttachmentId, orderItemsById, reconcileAttachmentOrder, type AttachmentDropPosition } from '@/lib/attachmentOrder'
 
@@ -81,9 +87,11 @@ export interface TextInputState {
 
 export function getComposerEscapeAction(input: {
     hasSuggestions: boolean
+    showSettings?: boolean
     threadIsRunning: boolean
     isExpanded: boolean
-}): 'clearSuggestions' | 'abort' | 'collapse' | null {
+}): 'dismissSettings' | 'clearSuggestions' | 'abort' | 'collapse' | null {
+    if (input.showSettings) return 'dismissSettings'
     if (input.hasSuggestions) return 'clearSuggestions'
     if (input.threadIsRunning) return 'abort'
     if (input.isExpanded) return 'collapse'
@@ -312,9 +320,8 @@ export function HappyComposer(props: {
     /** Model for the context-window heuristic; see StatusBar.contextModel. */
     contextModel?: string | null
     controlledByUser?: boolean
-    concurrentClients?: boolean
     agentFlavor?: string | null
-    availableModelOptions?: Array<{ value: string | null; label: string }>
+    availableModelOptions?: Array<{ value: string | null; label: string; group?: string }>
     /** Full Pi model data with thinkingLevelMap for provider grouping + thinking level filtering */
     piModels?: PiModelSummary[]
     /** Pi: provider-qualified selected model from metadata (survives reload;
@@ -356,13 +363,30 @@ export function HappyComposer(props: {
     onTerminal?: () => void
     terminalUnsupported?: boolean
     autocompletePrefixes?: string[]
-    autocompleteSuggestions?: (query: string) => Promise<Suggestion[]>
+    autocompleteSuggestions?: SuggestionHandler
     // Voice assistant props
     voiceStatus?: ConversationStatus
     voiceMicMuted?: boolean
     onVoiceToggle?: () => void
     onVoiceMicToggle?: () => void
     voiceTranscriptionApi?: ApiClient
+    /**
+     * Resolves the target session for a voice dictation direct-send (same
+     * contract as `useSendMessage`'s `resolveSessionId`): an inactive
+     * session must be resumed before the message POST, otherwise the hub
+     * rejects it with 409 `session_inactive`. Captured at send time and
+     * applied after transcription completes, so the send survives
+     * navigation while the recording is being processed. When provided,
+     * direct voice sends are allowed on inactive sessions (they resume
+     * first instead of being downgraded to a plain stop).
+     */
+    resolveSessionIdForVoice?: (sessionId: string) => Promise<{ sessionId: string; resumed: boolean }>
+    /**
+     * Called when the voice direct-send resumed an inactive session and
+     * the message was delivered to the resumed session id, so the caller
+     * can navigate/seed the live session (mirrors `onSessionResolved`).
+     */
+    onVoiceSessionResolved?: (sessionId: string) => void
     // Schedule props (lifted from internal state when provided)
     pendingSchedule?: PendingSchedule | null
     onSchedule?: (pending: PendingSchedule) => void
@@ -436,7 +460,6 @@ export function HappyComposer(props: {
         contextWindow,
         contextModel,
         controlledByUser = false,
-        concurrentClients = false,
         agentFlavor,
         availableModelOptions,
         piModels,
@@ -523,7 +546,12 @@ export function HappyComposer(props: {
         provider: voiceInput.provider,
         mode: voiceInput.transcriptionMode,
         getCurrentText: getCurrentComposerText,
-        onTextChange: setComposerText
+        onTextChange: setComposerText,
+        sendMessage: async (sessionId: string, text: string, deliveryMode?: MessageDeliveryMode) => {
+            if (props.voiceTranscriptionApi) {
+                await sendVoiceMessage(props.voiceTranscriptionApi, sessionId, text, deliveryMode)
+            }
+        }
     }), [
         props.voiceTranscriptionApi,
         voiceInput.provider,
@@ -534,8 +562,13 @@ export function HappyComposer(props: {
     const dictation = useDictation(dictationConfig)
     const dictationActive = voiceInput.voiceMode === 'dictation'
     const effectiveVoiceStatus = dictationActive ? dictation.status : voiceStatus
+    const handleDictationToggle = useCallback(async () => {
+        await dictation.toggle()
+    }, [dictation])
+
+
     const effectiveVoiceToggle = dictationActive
-        ? (dictation.supported ? dictation.toggle : undefined)
+        ? (dictation.supported ? handleDictationToggle : undefined)
         : onVoiceToggle
     const previousVoiceModeRef = useRef(voiceInput.voiceMode)
     useEffect(() => {
@@ -591,7 +624,6 @@ export function HappyComposer(props: {
     const isControlled = onScheduleProp !== undefined
     const pendingSchedule = isControlled ? (pendingScheduleProp ?? null) : pendingScheduleLocal
     const setPendingSchedule = isControlled ? onScheduleProp : setPendingScheduleLocal
-
     useEffect(() => {
         const acceptance = props.sendAcceptance
         if (!acceptance || acceptance === lastSendAcceptanceRef.current) return
@@ -707,6 +739,20 @@ export function HappyComposer(props: {
     const hasAnyAttachments = hasAttachments || hasHiddenAttachments
     const blocksScheduling =
         hasAttachments || hasHiddenAttachments || hiddenAttachmentStatePending
+    // Mirrors handleSend's dictation branch (see dictationDirectSendEligible):
+    // the dictation Send button must only appear when clicking it will actually
+    // run the session-bound stopAndSend path. With attachments (visible or
+    // hidden persisted) / a pending schedule / scratchlist mode handleSend
+    // falls back to dictation.toggle() (stop + transcribe), so a visible
+    // "Send" control would be misleading.
+    const dictationCanDirectSend = dictationActive
+        && dictationDirectSendEligible({
+            active,
+            resolveSessionIdAvailable: props.resolveSessionIdForVoice !== undefined,
+            blocksScheduling,
+            pendingSchedule,
+            scratchlistMode: props.scratchlistMode ?? false,
+        })
     const canSend = (hasText || hasAnyAttachments) && attachmentsReady && !controlsDisabled
 
     useEffect(() => {
@@ -1041,8 +1087,8 @@ export function HappyComposer(props: {
     }, [switchDisabled, onSwitchToRemote, haptic])
 
     const permissionModeOptions = useMemo(
-        () => getPermissionModeOptionsForFlavor(agentFlavor).filter(option => !concurrentClients || option.mode !== 'safe-yolo'),
-        [agentFlavor, concurrentClients]
+        () => getPermissionModeOptionsForFlavor(agentFlavor),
+        [agentFlavor]
     )
     const collaborationModeOptions = useMemo(
         () => agentFlavor === 'codex' ? getCodexCollaborationModeOptions() : [],
@@ -1065,7 +1111,9 @@ export function HappyComposer(props: {
             }
             // The no-pick option launches GLM 5.3 Flash, so it is named after
             // it instead of a blind "Default".
-            const glmOptions = options.map((option) => (option.value === null || option.value === 'glm-5.3-flash'
+            const aliases = getModelOptionsForFlavor('claude', model)
+            const brandedOptions = [...options, ...aliases.filter(alias => !options.some(option => option.value === alias.value))]
+            const glmOptions = brandedOptions.map((option) => (option.value === null || option.value === 'glm-5.3-flash'
                 ? { ...option, label: CLAUDE_GLM_DEFAULT_MODEL_LABEL }
                 : option.value === CLAUDE_GLM_MODEL_ID
                     ? { ...option, label: CLAUDE_GLM_MODEL_LABEL }
@@ -1161,7 +1209,7 @@ export function HappyComposer(props: {
     const claudeEffortOptions = useMemo(
         () => agentFlavor === 'pi'
             ? getPiThinkingLevelOptions(effort, selectedPiModel?.thinkingLevelMap)
-            : agentFlavor === 'grok' && availableEffortOptions && availableEffortOptions.length > 0
+            : (agentFlavor === 'grok' || agentFlavor === 'agy') && availableEffortOptions && availableEffortOptions.length > 0
                 ? [
                     { value: null, label: 'Default' },
                     ...availableEffortOptions.map((option) => ({
@@ -1169,7 +1217,7 @@ export function HappyComposer(props: {
                         label: option.name ?? option.value
                     }))
                 ]
-            : getClaudeComposerEffortOptions(effort),
+            : getClaudeComposerEffortOptions(effort, availableEffortOptions?.map((option) => option.value)),
         [agentFlavor, effort, selectedPiModel, availableEffortOptions]
     )
     const permissionModes = useMemo(
@@ -1204,6 +1252,42 @@ export function HappyComposer(props: {
     }, [pendingSendIntentRef])
 
     const handleSend = useCallback(async (intent: ComposerSendIntent = 'default') => {
+        if (dictationActive && (dictation.status === 'connected' || dictation.status === 'connecting')) {
+            const canDirectSend = dictation.status === 'connected'
+                && dictationDirectSendEligible({
+                    active,
+                    resolveSessionIdAvailable: props.resolveSessionIdForVoice !== undefined,
+                    blocksScheduling,
+                    pendingSchedule,
+                    scratchlistMode: props.scratchlistMode ?? false,
+                })
+                && intent === 'default'
+            if (canDirectSend) {
+                richInputRef.current?.flushSerializedText()
+                const targetSessionId = props.sessionId ?? ''
+                const initialText = api.composer().getState().text
+                const deliveryMode = resolveMessageDeliveryMode({
+                    agentFlavor: props.agentFlavor,
+                    isSessionThinking: props.thinking ?? false,
+                    intent: 'default'
+                })
+                api.composer().setText('')
+                if (targetSessionId && dictation.stopAndSend) {
+                    await dictation.stopAndSend(targetSessionId, initialText, deliveryMode, {
+                        // Inactive sessions cannot accept a message POST until they
+                        // are resumed (hub returns 409 `session_inactive`), so the
+                        // voice send runs the same resume step as the text pipeline.
+                        resolveSessionId: props.resolveSessionIdForVoice,
+                        onSessionResolved: props.onVoiceSessionResolved,
+                    })
+                } else {
+                    await dictation.toggle()
+                }
+            } else {
+                await dictation.toggle()
+            }
+            return
+        }
         // SessionChat preloads the ref only when restoring a rejected send:
         // queue retries remain queue, while an ordinary fresh send always
         // starts from the explicit/default argument. Capture it before the
@@ -1302,6 +1386,7 @@ export function HappyComposer(props: {
         api,
         attachments,
         canSend,
+        blocksScheduling,
         draftHydration.hasStoredAttachments,
         hasAttachments,
         hasText,
@@ -1315,11 +1400,38 @@ export function HappyComposer(props: {
         attachmentOrderRef,
         pendingSendIntentRef,
         resetPendingSendIntent,
+        dictationActive,
+        dictation.status,
+        dictation.toggle,
+        dictation.stopAndSend,
+        props.sessionId,
+        props.agentFlavor,
+        props.thinking,
+        active,
+        props.resolveSessionIdForVoice,
+        props.onVoiceSessionResolved,
     ])
 
     const flushAndSend = useCallback((intent: ComposerSendIntent = 'default') => {
         void handleSend(intent)
     }, [handleSend])
+
+    const clearCursorDrillDown = useCallback(() => {
+        setCursorDrillDownBase(null)
+        setCursorDrillDownDefaultVariant(null)
+    }, [])
+
+    const dismissSettings = useCallback(() => {
+        clearCursorDrillDown()
+        setShowSettings(false)
+        setSettingsSection(null)
+    }, [clearCursorDrillDown])
+
+    const dismissSettingsWithFocus = useCallback(() => {
+        const trigger = settingsButtonRef.current
+        dismissSettings()
+        trigger?.focus({ preventScroll: true })
+    }, [dismissSettings, settingsSection])
 
     const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLTextAreaElement | HTMLDivElement>) => {
         const key = e.key
@@ -1404,13 +1516,17 @@ export function HappyComposer(props: {
                 return
             }
             const action = getComposerEscapeAction({
+                showSettings,
                 hasSuggestions: suggestions.length > 0,
                 threadIsRunning,
                 isExpanded,
             })
             if (action) {
                 e.preventDefault()
-                if (action === 'clearSuggestions') clearSuggestions()
+                if (action === 'dismissSettings') {
+                    e.stopPropagation()
+                    dismissSettingsWithFocus()
+                } else if (action === 'clearSuggestions') clearSuggestions()
                 else if (action === 'abort') handleAbort()
                 else handleExpandedToggle()
                 return
@@ -1444,6 +1560,8 @@ export function HappyComposer(props: {
         richMentionsEnabled,
         richComposerFueStatus,
         dismissRichComposerFue,
+        showSettings,
+        dismissSettingsWithFocus,
         flushAndSend,
         isExpanded,
         handleExpandedToggle,
@@ -1492,14 +1610,13 @@ export function HappyComposer(props: {
 
     const handlePaste = useCallback(async (e: ReactClipboardEvent<HTMLTextAreaElement | HTMLDivElement>) => {
         const files = Array.from(e.clipboardData?.files || [])
-        const imageFiles = files.filter(file => file.type.startsWith('image/'))
 
-        if (imageFiles.length === 0) return
+        if (files.length === 0) return
 
         // The backend rejects scheduledAt + attachments (per-CLI upload dir is
         // torn down before a mature emit could read the files). The button-based
         // attachment flow is disabled by ComposerButtons.hasAttachments, but the
-        // paste path bypasses that — guard here so a pasted image while a
+        // paste path bypasses that — guard here so a pasted file while a
         // schedule is active cannot produce a submission the hub will reject.
         if (pendingSchedule != null) {
             e.preventDefault()
@@ -1509,11 +1626,11 @@ export function HappyComposer(props: {
         e.preventDefault()
 
         try {
-            for (const file of imageFiles) {
+            for (const file of files) {
                 await api.composer().addAttachment(file)
             }
         } catch (error) {
-            console.error('Error adding pasted image:', error)
+            console.error('Error adding pasted file:', error)
         }
     }, [api, pendingSchedule])
 
@@ -1538,17 +1655,6 @@ export function HappyComposer(props: {
         setSettingsSection(section)
         setShowSettings(true)
     }, [haptic, showSettings, settingsSection])
-
-    const clearCursorDrillDown = useCallback(() => {
-        setCursorDrillDownBase(null)
-        setCursorDrillDownDefaultVariant(null)
-    }, [])
-
-    const dismissSettings = useCallback(() => {
-        clearCursorDrillDown()
-        setShowSettings(false)
-        setSettingsSection(null)
-    }, [clearCursorDrillDown])
 
     const handleModelChange = useCallback((nextModel: { provider: string; modelId: string } | string | null) => {
         if (!onModelChange || configurationControlsDisabled) return
@@ -1609,9 +1715,21 @@ export function HappyComposer(props: {
             dismissSettings()
         }
 
+        const handleEscape = (event: KeyboardEvent) => {
+            // Child inputs and dialogs handle Escape first. The first-use
+            // callout also keeps priority over settings and running turns.
+            if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || richComposerFueStatus === 'engaging') return
+            if (document.querySelector('[role="dialog"]')) return
+            event.preventDefault()
+            dismissSettingsWithFocus()
+        }
         document.addEventListener('pointerdown', handlePointerDown, true)
-        return () => document.removeEventListener('pointerdown', handlePointerDown, true)
-    }, [dismissSettings, showSettings])
+        window.addEventListener('keydown', handleEscape)
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown, true)
+            window.removeEventListener('keydown', handleEscape)
+        }
+    }, [dismissSettings, dismissSettingsWithFocus, showSettings, richComposerFueStatus])
 
     const handleSubmit = useCallback((event?: ReactFormEvent<HTMLFormElement>) => {
         event?.preventDefault()
@@ -1695,7 +1813,7 @@ export function HappyComposer(props: {
         && (!selectedPiModel || selectedPiModel.reasoning === false)
     // A GLM-wired claude has no effort levels at all (the create form hides
     // the field too), so neither the sheet section nor the value button renders.
-    const showEffortSettings = Boolean(onEffortChange && supportsEffort(agentFlavor) && !piEffortUnavailable && !isGlmBrandedClaude)
+    const showEffortSettings = Boolean(onEffortChange && supportsEffort(agentFlavor) && !piEffortUnavailable && !isGlmBrandedClaude && !(agentFlavor === 'claude' && availableEffortOptions?.length === 0) && (agentFlavor !== 'agy' || availableEffortOptions?.length))
     const showFastModeSettings = Boolean(onServiceTierChange)
     const showModelAreaSettings = showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings
     const showOtherSettings = showFastModeSettings || showCollaborationSettings || showCopilotAgentModeSettings
@@ -1712,6 +1830,13 @@ export function HappyComposer(props: {
     const showAbortButton = true
     const voiceEnabled = Boolean(effectiveVoiceToggle)
     const routesToScratchlist = (props.scratchlistMode ?? false) && pendingSchedule == null
+    const primaryFillHeight = isComposerPrimaryFillHeight({
+        canSend,
+        voiceEnabled,
+        voiceStatus: effectiveVoiceStatus,
+        routesToScratchlist,
+        expanded: isExpanded,
+    })
 
     const invokeDictateHotkey = useCallback(() => {
         if (!shouldInvokeComposerDictateShortcut({
@@ -1784,7 +1909,8 @@ export function HappyComposer(props: {
         if (isNarrowViewport) return undefined
         if (!onEffortChange || !supportsEffort(agentFlavor)) return undefined
         // GLM-wired claude has no effort levels — the button must not render.
-        if (isGlmBrandedClaude) return undefined
+        if (isGlmBrandedClaude || (agentFlavor === 'claude' && availableEffortOptions?.length === 0)) return undefined
+        if (agentFlavor === 'agy' && !availableEffortOptions?.length) return undefined
         // Pi: without a resolved catalog entry there is no capability map to
         // derive levels from; hide the button until the selected model is known.
         if (agentFlavor === 'pi') {
@@ -1798,7 +1924,7 @@ export function HappyComposer(props: {
         }
         const option = claudeEffortOptions.find((candidate) => candidate.value === effort)
         return option?.label ?? (effort ? effort : undefined)
-    }, [isNarrowViewport, onEffortChange, agentFlavor, isGlmBrandedClaude, selectedPiModel, effort, claudeEffortOptions])
+    }, [isNarrowViewport, onEffortChange, agentFlavor, isGlmBrandedClaude, selectedPiModel, effort, claudeEffortOptions, availableEffortOptions])
     // Codex/OpenCode have no launch-effort capability; their reasoning effort
     // is surfaced inline on the model pill label instead.
     const reasoningEffortValueLabel = useMemo(() => {
@@ -1904,13 +2030,20 @@ export function HappyComposer(props: {
                                             })}
                                         </div>
                                     ))
-                                    : modelOptions.map((option) => {
+                                    : modelOptions.map((option, index) => {
                                         const isSelected = selectedModelBase !== undefined
                                             ? selectedModelBase === option.value
                                             : model === option.value
+                                        const startsGroup = option.group !== undefined
+                                            && option.group !== modelOptions[index - 1]?.group
                                         return (
+                                        <Fragment key={option.value ?? 'auto'}>
+                                        {startsGroup ? (
+                                            <div className="px-3 pt-2 pb-0.5 text-xs font-medium text-[var(--app-hint)]">
+                                                {option.group}
+                                            </div>
+                                        ) : null}
                                         <button
-                                            key={option.value ?? 'auto'}
                                             type="button"
                                             disabled={modelEffortControlsDisabled}
                                             className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
@@ -1942,6 +2075,7 @@ export function HappyComposer(props: {
                                                 {option.label}
                                             </span>
                                         </button>
+                                        </Fragment>
                                         )
                                     })}
                             </div>
@@ -2215,7 +2349,6 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
-                        
                     </FloatingOverlay>
                 </div>
             )
@@ -2373,152 +2506,182 @@ export function HappyComposer(props: {
                     ) : null}
 
                     <div
-                        className={`overflow-hidden rounded-[20px] bg-[var(--app-secondary-bg)] ${
-                            isExpanded ? 'flex min-h-0 flex-1 flex-col' : ''
+                        className={`flex overflow-hidden rounded-[20px] bg-[var(--app-secondary-bg)] ${
+                            isExpanded ? 'min-h-0 flex-1' : ''
                         } ${
                             sendError ? 'ring-1 ring-red-500' : ''
                         }`}
+                        data-testid="composer-card"
                     >
-                        {attachments.length > 0 ? (
-                            <div className={`flex flex-wrap gap-2 px-4 pt-3 ${
-                                isExpanded ? 'max-h-[35%] shrink-0 overflow-y-auto' : ''
-                            }`}>
-                                <SortableComposerAttachments
-                                    attachments={attachments}
-                                    orderedAttachmentIds={orderedAttachmentIds}
-                                    disabled={controlsDisabled}
-                                    onReorder={handleAttachmentReorder}
-                                />
-                            </div>
-                        ) : null}
-
-                        <div className={`flex px-4 py-3 ${
-                            isExpanded ? 'min-h-0 flex-1 items-stretch' : 'items-center'
+                        <div className={`flex min-w-0 flex-1 flex-col ${
+                            isExpanded ? 'min-h-0' : ''
                         }`}>
-                            {richMentionsEnabled ? (
-                                <div
-                                    ref={richComposerFueAnchorRef}
-                                    className="relative flex min-w-0 flex-1"
-                                    data-testid="rich-composer-fue-anchor"
-                                >
-                                    <RichComposerInput
-                                        ref={richInputRef}
-                                        value={composerText}
-                                        autoFocus={!controlsDisabled && !isTouch}
-                                        placeholder={t(resolveComposerPlaceholderKey({
-                                            richMentionsEnabled: true,
-                                            showContinueHint,
-                                        }))}
+                            {attachments.length > 0 ? (
+                                <div className={`flex flex-wrap gap-2 px-4 pt-3 ${
+                                    isExpanded ? 'max-h-[35%] shrink-0 overflow-y-auto' : ''
+                                }`}>
+                                    <SortableComposerAttachments
+                                        attachments={attachments}
+                                        orderedAttachmentIds={orderedAttachmentIds}
                                         disabled={controlsDisabled}
-                                        onValueChange={handleRichValueChange}
-                                        onMirrorChange={handleRichMirrorChange}
+                                        onReorder={handleAttachmentReorder}
+                                    />
+                                </div>
+                            ) : null}
+
+                            <div className={`flex px-4 py-3 ${
+                                isExpanded ? 'min-h-0 flex-1 items-stretch' : 'items-center'
+                            }`}>
+                                {richMentionsEnabled ? (
+                                    <div
+                                        ref={richComposerFueAnchorRef}
+                                        className="relative flex min-w-0 flex-1"
+                                        data-testid="rich-composer-fue-anchor"
+                                    >
+                                        <RichComposerInput
+                                            ref={richInputRef}
+                                            value={composerText}
+                                            autoFocus={!controlsDisabled && !isTouch}
+                                            placeholder={t(resolveComposerPlaceholderKey({
+                                                richMentionsEnabled: true,
+                                                showContinueHint,
+                                            }))}
+                                            disabled={controlsDisabled}
+                                            onValueChange={handleRichValueChange}
+                                            onMirrorChange={handleRichMirrorChange}
+                                            onKeyDown={handleKeyDown}
+                                            onPaste={handlePaste}
+                                            onFocus={() => engageRichComposerFue()}
+                                            resolveSessionMentionTooltip={resolveSessionMentionTooltip}
+                                            onEdit={handleRichEdit}
+                                            className={editorClassName}
+                                        />
+                                        {richComposerFueStatus !== 'acknowledged' ? (
+                                            <FueDot
+                                                pulsing={richComposerFueStatus === 'unseen'}
+                                                ariaLabel={t('fue.newFeatureDot')}
+                                            />
+                                        ) : null}
+                                    </div>
+                                ) : isExpanded ? (
+                                    <ComposerPrimitive.Input
+                                        asChild
+                                        ref={textareaRef}
+                                        autoFocus={!controlsDisabled && !isTouch}
+                                        submitOnEnter={false}
+                                        cancelOnEscape={false}
+                                        onChange={handleChange}
+                                        onSelect={handleSelect}
                                         onKeyDown={handleKeyDown}
                                         onPaste={handlePaste}
-                                        onFocus={() => engageRichComposerFue()}
-                                        resolveSessionMentionTooltip={resolveSessionMentionTooltip}
-                                        onEdit={handleRichEdit}
-                                        className={editorClassName}
-                                    />
-                                    {richComposerFueStatus !== 'acknowledged' ? (
-                                        <FueDot
-                                            pulsing={richComposerFueStatus === 'unseen'}
-                                            ariaLabel={t('fue.newFeatureDot')}
+                                    >
+                                        <textarea
+                                            placeholder={t(resolveComposerPlaceholderKey({
+                                                richMentionsEnabled: false,
+                                                showContinueHint,
+                                            }))}
+                                            disabled={controlsDisabled}
+                                            className="h-full min-h-0 flex-1 resize-none overflow-y-auto bg-transparent text-base leading-snug text-[var(--app-fg)] placeholder-[var(--app-hint)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                                         />
-                                    ) : null}
-                                </div>
-                            ) : isExpanded ? (
-                                <ComposerPrimitive.Input
-                                    asChild
-                                    ref={textareaRef}
-                                    autoFocus={!controlsDisabled && !isTouch}
-                                    submitOnEnter={false}
-                                    cancelOnEscape={false}
-                                    onChange={handleChange}
-                                    onSelect={handleSelect}
-                                    onKeyDown={handleKeyDown}
-                                    onPaste={handlePaste}
-                                >
-                                    <textarea
+                                    </ComposerPrimitive.Input>
+                                ) : (
+                                    <ComposerPrimitive.Input
+                                        ref={textareaRef}
+                                        autoFocus={!controlsDisabled && !isTouch}
                                         placeholder={t(resolveComposerPlaceholderKey({
                                             richMentionsEnabled: false,
                                             showContinueHint,
                                         }))}
                                         disabled={controlsDisabled}
-                                        className="h-full min-h-0 flex-1 resize-none overflow-y-auto bg-transparent text-base leading-snug text-[var(--app-fg)] placeholder-[var(--app-hint)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                                        maxRows={5}
+                                        submitOnEnter={false}
+                                        cancelOnEscape={false}
+                                        onChange={handleChange}
+                                        onSelect={handleSelect}
+                                        onKeyDown={handleKeyDown}
+                                        onPaste={handlePaste}
+                                        className="flex-1 resize-none bg-transparent text-base leading-snug text-[var(--app-fg)] placeholder-[var(--app-hint)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                                     />
-                                </ComposerPrimitive.Input>
-                            ) : (
-                                <ComposerPrimitive.Input
-                                    ref={textareaRef}
-                                    autoFocus={!controlsDisabled && !isTouch}
-                                    placeholder={t(resolveComposerPlaceholderKey({
-                                        richMentionsEnabled: false,
-                                        showContinueHint,
-                                    }))}
-                                    disabled={controlsDisabled}
-                                    maxRows={5}
-                                    submitOnEnter={false}
-                                    cancelOnEscape={false}
-                                    onChange={handleChange}
-                                    onSelect={handleSelect}
-                                    onKeyDown={handleKeyDown}
-                                    onPaste={handlePaste}
-                                    className="flex-1 resize-none bg-transparent text-base leading-snug text-[var(--app-fg)] placeholder-[var(--app-hint)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                                )}
+                            </div>
+                            {richMentionsEnabled && richComposerFueStatus === 'engaging' ? (
+                                <FueCallout
+                                    title={t('richComposer.fueTitle')}
+                                    body={t('richComposer.fueBody')}
+                                    onDismiss={dismissRichComposerFue}
+                                    dismissLabel={t('fue.gotIt')}
+                                    closeAriaLabel={t('fue.closeAriaLabel')}
+                                    anchorRef={richComposerFueAnchorRef}
+                                    width={288}
                                 />
-                            )}
-                        </div>
-                        {richMentionsEnabled && richComposerFueStatus === 'engaging' ? (
-                            <FueCallout
-                                title={t('richComposer.fueTitle')}
-                                body={t('richComposer.fueBody')}
-                                onDismiss={dismissRichComposerFue}
-                                dismissLabel={t('fue.gotIt')}
-                                closeAriaLabel={t('fue.closeAriaLabel')}
-                                anchorRef={richComposerFueAnchorRef}
-                                width={288}
-                            />
-                        ) : null}
+                            ) : null}
 
-                        <ComposerButtons
-                            isTouch={isTouch}
-                            canSend={canSend}
-                            controlsDisabled={controlsDisabled}
-                            showSettingsButton={showSettingsButton}
-                            settingsButtonRef={settingsButtonRef}
-                            settingsDisabled={modelEffortControlsDisabled}
-                            onSettingsToggle={handleGearToggle}
-                            expanded={isExpanded}
-                            onExpandedToggle={handleExpandedToggle}
-                            showTerminalButton={showTerminalButton}
-                            terminalDisabled={terminalDisabled}
-                            terminalLabel={terminalLabel}
-                            onTerminal={onTerminal ?? (() => {})}
-                            showAbortButton={showAbortButton}
-                            abortDisabled={abortDisabled}
-                            isAborting={isAborting}
-                            onAbort={handleAbort}
-                            showSwitchButton={showSwitchButton}
-                            switchDisabled={switchDisabled}
-                            isSwitching={isSwitching}
-                            onSwitch={handleSwitch}
-                            voiceEnabled={voiceEnabled}
-                            dictationEnabled={dictationActive}
-                            voiceStatus={effectiveVoiceStatus}
-                            voiceMicMuted={dictationActive ? false : voiceMicMuted}
-                            onVoiceToggle={effectiveVoiceToggle ?? (() => {})}
-                            onVoiceMicToggle={dictationActive ? undefined : onVoiceMicToggle}
-                            onSend={handleSend}
-                            pendingSchedule={pendingSchedule}
-                            onSchedule={handleUserSchedule}
-                            onClearSchedule={onUserClearSchedule}
-                            hasAttachments={blocksScheduling}
-                            modelValueLabel={modelPillLabel}
-                            modelWireId={model}
-                            agentFlavor={agentFlavor}
-                            scratchlistMode={props.scratchlistMode}
-                            scratchlistCount={props.scratchlistCount}
-                            onScratchlistToggle={props.onScratchlistToggle}
-                        />
+                            <ComposerButtons
+                                isTouch={isTouch}
+                                canSend={canSend}
+                                controlsDisabled={controlsDisabled}
+                                showSettingsButton={showSettingsButton}
+                                settingsButtonRef={settingsButtonRef}
+                                settingsDisabled={modelEffortControlsDisabled}
+                                onSettingsToggle={handleGearToggle}
+                                expanded={isExpanded}
+                                onExpandedToggle={handleExpandedToggle}
+                                showTerminalButton={showTerminalButton}
+                                terminalDisabled={terminalDisabled}
+                                terminalLabel={terminalLabel}
+                                onTerminal={onTerminal ?? (() => {})}
+                                showAbortButton={showAbortButton}
+                                abortDisabled={abortDisabled}
+                                isAborting={isAborting}
+                                onAbort={handleAbort}
+                                showSwitchButton={showSwitchButton}
+                                switchDisabled={switchDisabled}
+                                isSwitching={isSwitching}
+                                onSwitch={handleSwitch}
+                                voiceEnabled={voiceEnabled}
+                                dictationEnabled={dictationActive}
+                                dictationCanDirectSend={dictationCanDirectSend}
+                                voiceStatus={effectiveVoiceStatus}
+                                voiceMicMuted={dictationActive ? false : voiceMicMuted}
+                                onVoiceToggle={effectiveVoiceToggle ?? (() => {})}
+                                onVoiceMicToggle={dictationActive ? undefined : onVoiceMicToggle}
+                                onSend={handleSend}
+                                pendingSchedule={pendingSchedule}
+                                onSchedule={handleUserSchedule}
+                                onClearSchedule={onUserClearSchedule}
+                                hasAttachments={blocksScheduling}
+                                modelValueLabel={modelPillLabel}
+                                modelWireId={model}
+                                agentFlavor={agentFlavor}
+                                scratchlistMode={props.scratchlistMode}
+                                scratchlistCount={props.scratchlistCount}
+                                onScratchlistToggle={props.onScratchlistToggle}
+                                omitPrimaryButton
+                            />
+                        </div>
+                        {/* Collapsed card: fill-height primary (empty → voice; draft → Send). Expanded: compact. */}
+                        <div
+                            className={
+                                primaryFillHeight
+                                    ? 'flex shrink-0 self-stretch items-stretch'
+                                    : 'flex shrink-0 items-end self-stretch py-3 pr-3'
+                            }
+                        >
+                            <UnifiedButton
+                                isTouch={isTouch}
+                                canSend={canSend}
+                                voiceStatus={effectiveVoiceStatus}
+                                voiceEnabled={voiceEnabled}
+                                dictationEnabled={dictationActive}
+                                dictationCanDirectSend={dictationCanDirectSend}
+                                controlsDisabled={controlsDisabled}
+                                onSend={handleSend}
+                                onVoiceToggle={effectiveVoiceToggle ?? (() => {})}
+                                voiceLabel={dictationActive ? t('composer.dictate') : undefined}
+                                fillHeight={primaryFillHeight}
+                                routesToScratchlist={routesToScratchlist}
+                            />
+                        </div>
                     </div>
                 </ComposerPrimitive.Root>
             </div>

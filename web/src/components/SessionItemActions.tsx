@@ -1,5 +1,5 @@
 import { isSessionBusy } from '@hapi/protocol'
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
 import type { SessionSummary } from '@/types/api'
 import type { SessionContextId } from '@/lib/sessionContexts'
@@ -15,11 +15,12 @@ import { transferComposerDraftThenNavigate } from '@/lib/composer-draft-transfer
 import { formatReopenError } from '@/lib/reopenError'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { markSessionUnread } from '@/lib/sessionLastSeen'
-import { getSessionUnreadActivityAt } from '@/lib/sessionAttention'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
+import { ArchiveSessionDialog } from '@/components/ArchiveSessionDialog'
+import { DeleteSessionDialog } from '@/components/DeleteSessionDialog'
 
 type TriggerHandlers = ReturnType<typeof useLongPress>
 
@@ -32,6 +33,7 @@ export function SessionItemActions(props: {
     titleSuggestionAvailable?: boolean
     currentContext?: SessionContextId
     onSetContext?: (context: SessionContextId | null) => void
+    onOpenOverlayChange?: (held: boolean) => void
     children: (handlers: TriggerHandlers) => ReactNode
 }) {
     const { session: s, api, onSelect, titleSuggestionAvailable = false } = props
@@ -47,6 +49,12 @@ export function SessionItemActions(props: {
     const [parkOpen, setParkOpen] = useState(false)
     const [restartOpen, setRestartOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
+    const overlayOpen = menuOpen || renameOpen || exportOpen || archiveOpen || parkOpen || restartOpen || deleteOpen
+    useEffect(() => {
+        if (!overlayOpen) return
+        props.onOpenOverlayChange?.(true)
+        return () => props.onOpenOverlayChange?.(false)
+    }, [overlayOpen, props.onOpenOverlayChange])
     const {
         status: cursorChatStoreStatus,
         isApplicable: cursorChatStoreApplicable,
@@ -187,7 +195,7 @@ export function SessionItemActions(props: {
             onSetPinMode={(mode) => void handleSetPinMode(mode)}
             onRename={() => setRenameOpen(true)}
             onExport={() => setExportOpen(true)}
-            onMarkUnread={() => markSessionUnread(s.id, getSessionUnreadActivityAt(s))}
+            onMarkUnread={() => markSessionUnread(s.id, s.readState)}
             onRestart={cursorReopenDisabledReason ? undefined : () => setRestartOpen(true)}
             parkDisabledReason={isSessionBusy(s) ? t('session.park.busy') : undefined}
             onPark={s.active && !cursorReopenDisabledReason ? () => setParkOpen(true) : undefined}
@@ -235,17 +243,14 @@ export function SessionItemActions(props: {
         ) : null}
 
         {archiveOpen ? (
-            <ConfirmDialog
+            <ArchiveSessionDialog
                 isOpen={true}
                 onClose={() => setArchiveOpen(false)}
-                title={t('dialog.archive.title')}
-                description={t('dialog.archive.description', { name: sessionName })}
-                confirmLabel={t('dialog.archive.confirm')}
-                confirmingLabel={t('dialog.archive.confirming')}
+                sessionId={s.id}
+                sessionName={sessionName}
+                active={s.active}
                 onConfirm={archiveSession}
                 isPending={isPending}
-                destructive
-                centerTitle
             />
         ) : null}
 
@@ -278,17 +283,13 @@ export function SessionItemActions(props: {
         ) : null}
 
         {deleteOpen ? (
-            <ConfirmDialog
+            <DeleteSessionDialog
                 isOpen={true}
+                sessionId={s.id}
                 onClose={() => setDeleteOpen(false)}
-                title={t('dialog.delete.title')}
                 description={t('dialog.delete.description', { name: sessionName })}
-                confirmLabel={t('dialog.delete.confirm')}
-                confirmingLabel={t('dialog.delete.confirming')}
                 onConfirm={() => deleteSession(s.active)}
                 isPending={isPending}
-                destructive
-                centerTitle
             />
         ) : null}
     </>

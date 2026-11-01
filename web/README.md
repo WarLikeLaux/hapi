@@ -24,7 +24,7 @@ React Mini App / PWA for monitoring and controlling hapi sessions.
 - When opened in a normal browser, you can log in with `CLI_API_TOKEN:<namespace>` (or `CLI_API_TOKEN` for the default namespace).
 - The login screen includes a top-right hub picker; if unset, the app uses the same origin it was loaded from.
 - Live updates come from the hub via SSE.
-- Session `@` suggestions require conversation content, including untitled conversations. Names and directory labels affect display/search, not eligibility; empty stubs stay excluded.
+- Session `@` suggestions require conversation content, including untitled conversations. Names and directory labels affect display/search, not eligibility; empty stubs stay excluded. See the [session list behavior guide](../docs/guide/session-list.md) for search and picker rules.
 
 ## Routes
 
@@ -60,13 +60,20 @@ See `src/router.tsx` for route definitions.
 - Todo progress display.
 - Pending permission request count.
 - Agent name and model display.
+- Metadata and message search with relevance ranking, wildcard matching, and date/machine filters.
+- Working sessions follow user input. Active and Recent follow agent activity, while project and global pins, context tabs, chat groups and muted sessions retain the fork behavior.
+- Machine/project grouping, pinned and in-progress sections, and configurable collapsed previews.
+
+### Session title protection
+
+A manual rename protects the title with `metadata.nameLock: 'user'`. Agents can pin a role title through `change_title({title, pin: true})`, which stores `nameLock: 'agent'`. Automatic updates, native history and sparse metadata writes preserve protected names. Repeating the same pinned title is safe. Users can rename a protected session through HAPI, and their new title stays protected across restarts and resume.
 
 ### Chat interface (`src/components/SessionChat.tsx`)
 
 - Message thread with infinite scroll.
 - Composer for sending messages.
 - Permission mode and model selection for supported agents.
-  Cursor Auto uses CLI Auto for new/resumed sessions configured with Auto. When ACP does not advertise a literal Auto option, the session picker warns that switching back from a concrete model requires a restart; HAPI does not automatically restart an active session.
+  Cursor Auto uses CLI Auto for new/resumed sessions configured with Auto. Switching a live session to Auto when ACP does not advertise a literal Auto option relaunches the Cursor ACP process in place under `--model auto` while preserving the hub session id.
 - Session abort and handoff controls.
 - Codex **Continue planning** hides the current proposal's action menu locally
   and focuses the composer without sending a message or replacing its draft.
@@ -108,7 +115,7 @@ See `src/router.tsx` for route definitions.
 Modular session creation:
 
 - Machine selector
-- Directory input with recent paths
+- Directory input with recent paths. The path tail is revealed after loading or selecting a path and after leaving the editor. Unfocused inputs support horizontal touch scrolling; focused inputs retain native editing and text selection.
 - Agent type selector
 - Model selector
 - Per-agent permission, effort, and collaboration controls when supported

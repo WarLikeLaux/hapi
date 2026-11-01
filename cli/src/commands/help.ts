@@ -26,6 +26,8 @@ Commands:
   hapi inspect-peer <id>     Read another session's metadata and messages
   hapi get usage             Read collected session token usage (--json)
   hapi archive-peer <id>     Stop and archive an idle peer session
+  hapi set-mode <id> <mode>  Change a session's permission mode
+  hapi usage [--json]        When agents were working, across machines
   hapi mcp                   Start the MCP stdio bridge
 
 Options:

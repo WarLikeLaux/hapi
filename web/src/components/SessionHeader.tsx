@@ -4,7 +4,7 @@ import { useIsMutating, useQueryClient } from '@tanstack/react-query'
 import type { Session } from '@/types/api'
 import type { ApiClient } from '@/api/client'
 import { isTelegramApp } from '@/hooks/useTelegram'
-import { sessionModelMutationKey, useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { sessionArchiveMutationKey, sessionModelMutationKey, useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { useSessionContextFilter } from '@/hooks/useSessionContextFilter'
 import { useSessionContextHubSync } from '@/hooks/useSessionContextHubSync'
@@ -13,6 +13,8 @@ import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ArchiveSessionDialog } from '@/components/ArchiveSessionDialog'
+import { DeleteSessionDialog } from '@/components/DeleteSessionDialog'
 import { useScratchlistCount } from '@/lib/use-scratchlist-count'
 import { formatReopenError } from '@/lib/reopenError'
 import { formatReasoningLabel, getReasoningEffortForFlavor } from '@/lib/codexStatusLabels'
@@ -26,6 +28,7 @@ import { getProjectLabelHue } from '@/components/SessionRowSummary'
 import { basename } from '@/utils/path'
 import { isSessionFastMode } from '@/lib/sessionFastMode'
 import { getSessionTitle } from '@/lib/sessionTitle'
+import { getSessionProjectLabel, getSessionProjectPath } from '@/lib/sessionProjectLabel'
 import { useToast } from '@/lib/toast-context'
 import { queryKeys } from '@/lib/query-keys'
 import { markCodexSessionsImported } from '@/lib/codexImportedSessions'
@@ -215,6 +218,7 @@ export function SessionHeader(props: {
         observer.observe(buttonsEl)
         return () => observer.disconnect()
     }, [title])
+    const projectPath = getSessionProjectPath(session.metadata)
     const worktreeBranch = session.metadata?.worktree?.branch?.trim() || null
     const { preferences: headerMetadata } = useSessionHeaderMetadata()
     const gitBranchScope = `${session.metadata?.machineId ?? session.id}:${session.metadata?.path ?? session.id}`
@@ -282,6 +286,8 @@ export function SessionHeader(props: {
         : null
     const showMobileModel = headerMetadata.model && modelChip !== null
     const mobileSecondary = selectMobileSessionHeaderSecondary({
+        project: headerMetadata.project && projectLabel !== null,
+        model: headerMetadata.model && modelLabel !== null,
         reasoning: headerMetadata.reasoning && reasoningLabel !== null,
         branch: headerMetadata.branch && gitBranch !== null,
         machine: headerMetadata.machine && machineLabel !== null,
@@ -321,11 +327,13 @@ export function SessionHeader(props: {
     const hubContextSync = useSessionContextHubSync()
     const { setSessionContextOverride, contextOptions } = useSessionContextFilter(hubContextSync)
 
-    const { archiveSession, parkSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, setPinMode, deleteSession, isPending } = useSessionActions(
+    const { archiveSession, parkSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, setPinMode, deleteSession, isPending: isActionPending } = useSessionActions(
         api,
         session.id,
         session.metadata?.flavor ?? null
     )
+    const isArchiving = useIsMutating({ mutationKey: sessionArchiveMutationKey(session.id), exact: true }) > 0
+    const isPending = isActionPending || isArchiving
     const [reopenError, setReopenError] = useState<string | null>(null)
 
     const handleSetPinMode = async (mode: 'none' | 'project' | 'global') => {
@@ -724,7 +732,7 @@ export function SessionHeader(props: {
                 onRegenerateTitle={api && session.active && agentFlavor === 'codex' && !isRegeneratingTitle
                     ? () => void handleRegenerateTitle()
                     : undefined}
-                onMarkUnread={() => markSessionUnread(session.id, session.lastAgentMessageAt ?? 0)}
+                onMarkUnread={() => markSessionUnread(session.id, session.readState)}
                 onSetPinMode={api ? (mode) => void handleSetPinMode(mode) : undefined}
                 onExport={() => setExportOpen(true)}
                 onSyncCodex={api && codexSessionId && !session.active ? handleSyncCodex : undefined}
@@ -782,17 +790,14 @@ export function SessionHeader(props: {
                 api={api}
             />
 
-            <ConfirmDialog
+            <ArchiveSessionDialog
                 isOpen={archiveOpen}
                 onClose={() => setArchiveOpen(false)}
-                title={t('dialog.archive.title')}
-                description={t('dialog.archive.description', { name: title })}
-                confirmLabel={t('dialog.archive.confirm')}
-                confirmingLabel={t('dialog.archive.confirming')}
+                sessionId={session.id}
+                sessionName={title}
+                active={session.active}
                 onConfirm={archiveSession}
                 isPending={isPending}
-                destructive
-                centerTitle
             />
 
             <ConfirmDialog
@@ -819,10 +824,10 @@ export function SessionHeader(props: {
                 centerTitle
             />
 
-            <ConfirmDialog
+            <DeleteSessionDialog
                 isOpen={deleteOpen}
+                sessionId={session.id}
                 onClose={() => setDeleteOpen(false)}
-                title={t('dialog.delete.title')}
                 description={
                     scratchlistCount > 0
                         ? `${t('dialog.delete.description', { name: title })} ${t(
@@ -833,12 +838,8 @@ export function SessionHeader(props: {
                         )}`
                         : t('dialog.delete.description', { name: title })
                 }
-                confirmLabel={t('dialog.delete.confirm')}
-                confirmingLabel={t('dialog.delete.confirming')}
                 onConfirm={handleDelete}
                 isPending={isPending}
-                destructive
-                centerTitle
             />
         </>
     )

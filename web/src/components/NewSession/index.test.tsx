@@ -3,7 +3,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
-import type { Machine, PiModelSummary } from '@/types/api'
+import type { ClaudeModelSummary, Machine, PiModelSummary } from '@/types/api'
 import { setClaudeGlmBranded } from '@/lib/claudeGlmBranding'
 import { ImagePreviewProvider } from '@/components/ImagePreview'
 import { saveNewSessionFormDraft } from './newSessionFormDraft'
@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
     codexModelsError: null as string | null,
     agyModelsLoading: false,
     agyModels: [{ modelId: 'gemini-3.6-flash-low', name: 'Gemini 3.6 Flash (Low)' }],
+    dshModels: [] as Array<{ modelId: string; name?: string }>,
+    dshModelsLoading: false,
     directoryExists: undefined as boolean | undefined,
     copilotModels: [] as Array<{ modelId: string; name?: string }>,
     copilotModelsLoading: false,
@@ -58,6 +60,7 @@ const mocks = vi.hoisted(() => ({
     piModelsLoading: false,
     piModelsError: null as string | null,
     piCurrentModelId: null as string | null,
+    claudeModels: [] as ClaudeModelSummary[],
     nextModelValue: 'gpt-5.6-terra',
     refetchSessions: vi.fn(),
     addToast: vi.fn(),
@@ -123,8 +126,9 @@ vi.mock('@/hooks/useMachinePathsExists', () => ({
     })
 }))
 vi.mock('@/hooks/queries/useAgentAvailability', () => ({
-    useAgentAvailability: () => ({
-        agents: mocks.availableAgents,
+    // Mirror the real hook: no machineId → query disabled → empty agents, not loading.
+    useAgentAvailability: (args: { machineId: string | null }) => ({
+        agents: args.machineId ? mocks.availableAgents : [],
         isLoading: false,
         error: null,
         upgradeRequired: false,
@@ -195,6 +199,33 @@ vi.mock('@/hooks/queries/useAgyModels', () => ({
         availableModels: mocks.agyModels,
         currentModelId: null,
         isLoading: mocks.agyModelsLoading,
+        error: null,
+        refetch: vi.fn()
+    })
+}))
+vi.mock('@/hooks/queries/useClaudeModels', () => ({
+    useClaudeModels: () => ({ availableModels: mocks.claudeModels })
+}))
+vi.mock('@/hooks/queries/useDshModels', () => ({
+    useDshModelsForMachine: () => ({
+        availableModels: mocks.dshModels,
+        currentModelId: null,
+        isLoading: mocks.dshModelsLoading,
+        error: null
+    }),
+    useDshModelsForSession: () => ({
+        availableModels: mocks.dshModels,
+        currentModelId: null,
+        isLoading: mocks.dshModelsLoading,
+        error: null
+    })
+}))
+vi.mock('@/hooks/queries/useCursorModelsForMachine', () => ({
+    useCursorModelsForMachine: () => ({
+        availableModels: [],
+        cliModelSkus: [],
+        currentModelId: null,
+        isLoading: false,
         error: null,
         refetch: vi.fn()
     })
@@ -345,11 +376,15 @@ vi.mock('./AgyModelSelector', () => ({
     )
 }))
 vi.mock('./EffortField', () => ({
-    EffortField: (props: { agent: string; effort: string; reasoningEffort: string; codexOptions?: Array<{ value: string; label: string }>; opencodeOptions?: Array<{ value: string; label: string }>; opencodeVariantOptions?: string[] | null; onReasoningEffortChange: (v: string) => void }) => (
+    EffortField: (props: { agent: string; effort: string; reasoningEffort: string; agyOptions?: Array<{ value: string; label: string }>; onEffortChange: (v: string) => void; codexOptions?: Array<{ value: string; label: string }>; opencodeOptions?: Array<{ value: string; label: string }>; opencodeVariantOptions?: string[] | null; onReasoningEffortChange: (v: string) => void }) => (
         props.agent === 'codex' ? <div role="group" aria-label="newSession.effort">
             {props.codexOptions?.map((option) => <button key={option.value} type="button" aria-pressed={props.reasoningEffort === option.value} onClick={() => props.onReasoningEffortChange(option.value)}>{option.label}</button>)}
         </div> : <>
             <div data-testid="launch-effort">{props.effort}</div>
+            {props.agyOptions?.length ? <select data-testid="agy-effort-options" value={props.effort} onChange={(event) => props.onEffortChange(event.target.value)}>
+                <option value="auto">Default</option>
+                {props.agyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select> : null}
             <div data-testid="opencode-variants">{props.opencodeVariantOptions?.join(',') ?? 'static'}</div>
             {props.agent === 'opencode' ? <div role="group" aria-label="newSession.effort">
                 {props.opencodeOptions?.map(option => <button key={option.value} type="button" aria-pressed={props.reasoningEffort === option.value} onClick={() => props.onReasoningEffortChange(option.value)}>{option.label}</button>)}
@@ -389,6 +424,7 @@ vi.mock('./ActionButtons', () => ({
 
 import { NewSession } from './index'
 import { SessionComposer } from './SessionComposer'
+import { OPENCODE_HARDCODED_MODEL_ID } from './hardcodedModels'
 
 const machine = { id: 'machine-1' } as Machine
 const api = {
@@ -451,6 +487,9 @@ describe('NewSession launch preferences', () => {
         mocks.piModels = []
         mocks.piModelsLoading = false
         mocks.piModelsError = null
+        mocks.dshModels = []
+        mocks.dshModelsLoading = false
+        mocks.claudeModels = []
         mocks.nextModelValue = 'gpt-5.6-terra'
         mocks.refetchSessions.mockReset()
         mocks.refetchSessions.mockResolvedValue(undefined)
@@ -1065,6 +1104,36 @@ describe('NewSession launch preferences', () => {
 
         await waitFor(() => expect(screen.getByDisplayValue('all')).toBeChecked())
         expect(screen.queryByDisplayValue('claude')).not.toBeInTheDocument()
+    })
+
+    it('does not claim Agents are missing when no machine is connected', () => {
+        render(
+            <NewSession
+                api={api}
+                machines={[]}
+                onSuccess={mocks.onSuccess}
+                onCancel={() => {}}
+            />
+        )
+
+        expect(screen.queryByText('newSession.noAvailableAgents')).not.toBeInTheDocument()
+    })
+
+    it('claims Agents are missing only after inspecting a connected machine', () => {
+        mocks.availableAgents.splice(0, mocks.availableAgents.length)
+
+        render(
+            <NewSession
+                api={api}
+                machines={[machine]}
+                initialMachineId="machine-1"
+                initialDirectory="C:\\repo"
+                onSuccess={mocks.onSuccess}
+                onCancel={() => {}}
+            />
+        )
+
+        expect(screen.getByText('newSession.noAvailableAgents')).toBeInTheDocument()
     })
 
     it('refuses a directory rejected by workspace-root validation', async () => {
@@ -2303,6 +2372,56 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1', true))
         expect(mocks.checkPathsExists).toHaveBeenCalledTimes(1)
         expect(mocks.spawnSession).toHaveBeenCalledTimes(1)
+    })
+
+    it('uses the live Claude catalog and hides effort for a model with no effort levels', async () => {
+        setClaudeGlmBranded(false)
+        mocks.claudeModels = [
+            { value: 'default', effortLevels: ['high'] },
+            { value: 'haiku', displayName: 'Native Haiku', effortLevels: [] }
+        ]
+        mocks.nextModelValue = 'haiku'
+        render(<NewSession initialAgent="claude" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByTestId('model-options')).toHaveTextContent('Native Haiku'))
+        fireEvent.click(screen.getByTestId('model'))
+        await waitFor(() => expect(screen.queryByTestId('launch-effort')).toBeNull())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'claude', model: 'haiku', effort: undefined })))
+    })
+
+    it('launches the opaque model selected from the machine DSH catalog', async () => {
+        const model = '["provider","native-model"]'
+        mocks.dshModels = [{ modelId: model, name: 'Native DSH model' }]
+        mocks.nextModelValue = model
+        render(<NewSession initialAgent="dsh" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByTestId('model-options')).toHaveTextContent('Native DSH model'))
+        fireEvent.click(screen.getByTestId('model'))
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'dsh', model })))
+    })
+
+    it('imports OpenCode history with launch settings and attaches the reopened session to the requested group', async () => {
+        const opencodeApi = {
+            ...api,
+            getOpencodeSessions: vi.fn().mockResolvedValue({ success: true, machineId: 'machine-1', sessions: [{
+                id: 'native-opencode', title: 'Native OpenCode history', cwd: 'C:\repo', file: 'opencode.db', modifiedAt: 1_000, lastUserMessage: 'Continue the task'
+            }] }),
+            importOpencodeSessions: vi.fn().mockResolvedValue({ success: true, results: [{ opencodeSessionId: 'native-opencode', hapiSessionId: 'imported', action: 'created' }] }),
+            reopenSession: vi.fn().mockResolvedValue({ sessionId: 'canonical-opencode' }),
+            addGroupChat: vi.fn().mockResolvedValue(undefined)
+        }
+        render(<NewSession initialAgent="opencode" groupId="requested-group" api={opencodeApi as unknown as ApiClient} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        fireEvent.click(screen.getByRole('button', { name: 'opencodeSync.inline.choose' }))
+        fireEvent.click(await screen.findByRole('checkbox', { name: /Native OpenCode history/ }))
+        fireEvent.click(screen.getByRole('button', { name: 'opencodeSync.confirm' }))
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(opencodeApi.importOpencodeSessions).toHaveBeenCalledWith(expect.objectContaining({
+            sessionIds: ['native-opencode'], cwd: 'C:\repo', machineId: 'machine-1', model: OPENCODE_HARDCODED_MODEL_ID
+        })))
+        expect(opencodeApi.addGroupChat).toHaveBeenCalledWith('requested-group', 'canonical-opencode')
+        expect(mocks.onSuccess).toHaveBeenCalledWith('canonical-opencode', true)
+        expect(mocks.spawnSession).not.toHaveBeenCalled()
     })
 
     it('imports the selected Pi history and resumes the canonical HAPI session', async () => {

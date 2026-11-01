@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import type { Session, SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { createSessionsRoutes } from './sessions'
+import { RpcTargetMissingError } from '../../sync/rpcGateway'
 
 function createSession(overrides?: Partial<Session>): Session {
     const baseMetadata = {
@@ -76,6 +77,7 @@ function createApp(session: Session, opts?: {
     dismissCodexAsyncQuestion?: SyncEngine['dismissCodexAsyncQuestion']
     rewindConversation?: SyncEngine['rewindConversation']
     suggestSessionTitle?: SyncEngine['suggestSessionTitle']
+    renameSession?: SyncEngine['renameSession']
     updateSessionSummary?: SyncEngine['updateSessionSummary']
     setSessionPinned?: (sessionId: string, pinned: boolean) => void
     setSessionPinMode?: (sessionId: string, mode: 'none' | 'project' | 'global') => void
@@ -193,6 +195,7 @@ function createApp(session: Session, opts?: {
         dismissCodexAsyncQuestion: opts?.dismissCodexAsyncQuestion,
         rewindConversation: opts?.rewindConversation ?? (async () => ({ type: 'success' })),
         suggestSessionTitle: opts?.suggestSessionTitle ?? (async () => 'Generated title'),
+        renameSession: opts?.renameSession ?? (async () => {}),
         updateSessionSummary: opts?.updateSessionSummary ?? (async () => {}),
     } as Partial<SyncEngine>
 
@@ -415,6 +418,24 @@ describe('sessions routes', () => {
         expect(await response.json()).toEqual({
             success: true,
             models: [{ id: 'gpt-5.5', displayName: 'GPT-5.5', isDefault: true }]
+        })
+    })
+
+    it('returns a stable code when the Codex session model RPC target is absent', async () => {
+        const session = createSession()
+        const { app } = createApp(session, {
+            listCodexModelsForSession: async () => {
+                throw new RpcTargetMissingError('session-1:listCodexModels', 'handler-not-registered')
+            }
+        })
+
+        const response = await app.request('/api/sessions/session-1/codex-models')
+
+        expect(response.status).toBe(503)
+        expect(await response.json()).toEqual({
+            success: false,
+            error: 'RPC handler not registered: session-1:listCodexModels',
+            code: 'rpc_target_missing'
         })
     })
 
@@ -795,6 +816,70 @@ describe('sessions routes', () => {
         ])
     })
 
+    it('applies a Claude model and the effort it keeps in one session config change', async () => {
+        const session = createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'claude' }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'haiku', effort: null })
+        })
+
+        expect(response.status).toBe(200)
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { model: 'haiku', effort: null }]
+        ])
+    })
+
+    it.each(['high', null])('applies an Antigravity model and effort %s atomically', async (effort) => {
+        const { app, applySessionConfigCalls } = createApp(createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'agy' }
+        }))
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'gemini-4-argon', effort })
+        })
+
+        expect(response.status).toBe(200)
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { model: 'gemini-4-argon', effort }]
+        ])
+    })
+
+    it('rejects an effort sent with a model change for Pi, which applies the two separately', async () => {
+        const session = createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'pi' }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'gpt-5.6-sol', effort: null })
+        })
+
+        expect(response.status).toBe(400)
+        expect(applySessionConfigCalls).toEqual([])
+    })
+
+    it('rejects an effort sent with a model change for a flavor without effort', async () => {
+        const { app, applySessionConfigCalls } = createApp(createSession())
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'gpt-5.5', effort: 'high' })
+        })
+
+        expect(response.status).toBe(400)
+        expect(applySessionConfigCalls).toEqual([])
+    })
+
     it('rejects model changes for local Codex sessions', async () => {
         const session = createSession({
             agentState: {
@@ -962,6 +1047,22 @@ describe('sessions routes', () => {
             error: 'Effort selection is not supported for this session type'
         })
         expect(applySessionConfigCalls).toEqual([])
+    })
+
+    it('applies effort changes for Antigravity sessions', async () => {
+        const { app, applySessionConfigCalls } = createApp(createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'agy' }
+        }))
+        const response = await app.request('/api/sessions/session-1/effort', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ effort: 'high' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { effort: 'high' }]
+        ])
     })
 
     it('applies effort changes for Claude sessions', async () => {
@@ -1194,6 +1295,24 @@ describe('sessions routes', () => {
         expect(applySessionConfigCalls).toEqual([
             ['session-1', { permissionMode: 'plan' }]
         ])
+    })
+
+    it('rejects Safe Yolo for Codex', async () => {
+        const session = createSession({
+            active: false,
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'codex' }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/permission-mode', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ mode: 'safe-yolo' })
+        })
+
+        expect(response.status).toBe(400)
+        expect(await response.json()).toEqual({ error: 'Invalid permission mode for session flavor' })
+        expect(applySessionConfigCalls).toEqual([])
     })
 
     it('applies permission mode changes for inactive sessions', async () => {
@@ -1694,6 +1813,22 @@ describe('sessions routes', () => {
         })
     })
 
+    it('dispatches an archived source fork to the engine without requiring an active CLI', async () => {
+        const source = createSession({ active: false, metadata: { path: '/work', host: 'test', flavor: 'codex', lifecycleState: 'archived' } })
+        const calls: unknown[][] = []
+        const { app } = createApp(source, { forkConversation: async (...args) => {
+            calls.push(args)
+            return { type: 'success', sessionId: 'new-child' }
+        } })
+        const response = await app.request('/api/sessions/session-1/fork', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageLocalId: 'boundary' })
+        })
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ sessionId: 'new-child' })
+        expect(calls[0]?.[0]).toBe('session-1')
+        expect(calls[0]?.[2]).toBe('boundary')
+    })
+
     it('forks via POST /sessions/:id/fork and returns the child session id', async () => {
         const calls: Array<{ sessionId: string; namespace: string; messageLocalId?: string }> = []
         const session = createSession({
@@ -1793,9 +1928,9 @@ describe('sessions routes', () => {
 
     it('honors optional limit on GET /sessions after sort', async () => {
         const sessions = [
-            createSession({ id: 'older-active', active: true, updatedAt: 10 }),
-            createSession({ id: 'newer-active', active: true, updatedAt: 20 }),
-            createSession({ id: 'inactive', active: false, updatedAt: 30 })
+            createSession({ id: 'older-active', active: true, updatedAt: 99, lastUserMessageAt: 10 }),
+            createSession({ id: 'newer-active', active: true, updatedAt: 20, lastUserMessageAt: 20 }),
+            createSession({ id: 'inactive', active: false, updatedAt: 30, lastUserMessageAt: 30 })
         ]
         const scheduledIds: string[][] = []
         const engine = {
@@ -1818,8 +1953,8 @@ describe('sessions routes', () => {
         const limited = await app.request('/api/sessions?limit=2')
         expect(limited.status).toBe(200)
         const limitedBody = await limited.json() as { sessions: Array<{ id: string }> }
-        expect(limitedBody.sessions.map((s) => s.id)).toEqual(['newer-active', 'older-active'])
-        expect(scheduledIds.at(-1)).toEqual(['newer-active', 'older-active'])
+        expect(limitedBody.sessions.map((s) => s.id)).toEqual(['inactive', 'newer-active'])
+        expect(scheduledIds.at(-1)).toEqual(['inactive', 'newer-active'])
 
         const unlimited = await app.request('/api/sessions')
         expect(unlimited.status).toBe(200)

@@ -40,7 +40,8 @@ describe('protected titles across session continuation', () => {
     it('retains the original protected session if transferring its metadata fails', async () => {
         const store = new Store(':memory:')
         const cache = new SessionCache(store, createPublisher([]))
-        const original = cache.getOrCreateSession('original', { path: '/tmp', host: 'localhost', name: 'Координатор', nameLock: 'user' }, null, 'default')
+        const original = cache.getOrCreateSession('original', { path: '/tmp', host: 'localhost' }, null, 'default')
+        await cache.renameSession(original.id, 'Координатор')
         const resumed = cache.getOrCreateSession('resumed', { path: '/tmp', host: 'localhost', name: 'Automatic' }, null, 'default')
         // The real store reports write failures instead of throwing (for example,
         // after a SQLite write error). The merge must not delete the only title copy.
@@ -60,8 +61,23 @@ describe('protected titles across session continuation', () => {
         it(`keeps title ownership when merging ${oldLock} into ${newLock ?? 'automatic'}`, async () => {
             const store = new Store(':memory:')
             const cache = new SessionCache(store, createPublisher([]))
-            const oldSession = cache.getOrCreateSession('old', { path: '/tmp', host: 'localhost', name: 'Original', nameLock: oldLock }, null, 'default')
-            const resumed = cache.getOrCreateSession('resumed', { path: '/tmp', host: 'localhost', name: 'Resumed', nameLock: newLock }, null, 'default')
+            const oldSession = cache.getOrCreateSession('old', { path: '/tmp', host: 'localhost', name: 'Original' }, null, 'default')
+            const resumed = cache.getOrCreateSession('resumed', { path: '/tmp', host: 'localhost', name: 'Resumed' }, null, 'default')
+            for (const [session, name, lock] of [
+                [oldSession, 'Original', oldLock], [resumed, 'Resumed', newLock]
+            ] as const) {
+                if (lock === 'user') {
+                    await cache.renameSession(session.id, name)
+                } else if (lock === 'agent') {
+                    const current = store.sessions.getSession(session.id)!
+                    const result = store.sessions.updateSessionMetadata(
+                        session.id, { ...current.metadata!, name }, current.metadataVersion, 'default',
+                        { titleOperation: 'pin' }
+                    )
+                    expect(result.result).toBe('success')
+                    cache.refreshSession(session.id)
+                }
+            }
             await cache.mergeSessions(oldSession.id, resumed.id, 'default')
             const current = store.sessions.getSession(resumed.id)!
             expect(current.metadata).toMatchObject({ name: expectedName, nameLock: expectedLock })

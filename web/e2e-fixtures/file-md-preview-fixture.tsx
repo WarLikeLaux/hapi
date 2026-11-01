@@ -6,7 +6,11 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Outlet, createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
+import type { ApiClient } from '../src/api/client'
 import '../src/index.css'
+import { AppContextProvider } from '../src/lib/app-context'
 import { I18nProvider } from '../src/lib/i18n-context'
 import { MarkdownRenderer } from '../src/components/MarkdownRenderer'
 import {
@@ -19,6 +23,12 @@ import { scrollFileLineToCenter } from '../src/lib/fileLineScroll'
 
 const SAMPLE_MARKDOWN = `# Teams and channels
 
+[Related note](error-notes.md)
+
+[Session reference](/sessions/session-42)
+
+![Page 001](images/page-001.png)
+
 | Channel | Purpose |
 | --- | --- |
 | general | Day-to-day coordination |
@@ -30,6 +40,28 @@ export const ok = true
 
 > Preview uses the same markdown pipeline as chat.
 `
+
+const ONE_PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+
+const FILE_PREVIEW_API = {
+    readSessionFile: async (_sessionId: string, path: string, _maxBytes?: number) => ({
+        success: true,
+        content: path === 'notes/images/page-001.png' ? ONE_PIXEL_PNG : '',
+        size: path === 'notes/images/page-001.png' ? 68 : 0,
+    }),
+    listSessionDirectory: async (_sessionId: string, path?: string) => ({
+        success: true,
+        entries: path === 'notes/images'
+            ? [{ name: 'page-001.png', type: 'file' as const, size: 68 }]
+            : [],
+    }),
+} as unknown as ApiClient
+
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: { retry: false },
+    },
+})
 
 function FileMarkdownPreviewFixture() {
     const { t } = useTranslation()
@@ -70,7 +102,13 @@ function FileMarkdownPreviewFixture() {
                 </pre>
             ) : (
                 <div data-testid="markdown-preview-view" className="markdown-content">
-                    <MarkdownRenderer content={SAMPLE_MARKDOWN} standalone />
+                    <MarkdownRenderer
+                        content={SAMPLE_MARKDOWN}
+                        standalone
+                        sessionId="session-1"
+                        filePath="notes/notes-01.md"
+                        workspacePath="/workspace"
+                    />
                 </div>
             )}
         </div>
@@ -115,14 +153,47 @@ function FileLineScrollFixture() {
     )
 }
 
+function FileTargetRoute() {
+    return <div data-testid="file-target-route">Opened sibling Markdown file</div>
+}
+
+function SessionTargetRoute() {
+    return <div data-testid="session-target-route">Opened session reference</div>
+}
+
+const rootRoute = createRootRoute({ component: Outlet })
+const fixtureRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/',
+    component: FileMarkdownPreviewFixture,
+})
+const fileTargetRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/sessions/$sessionId/file',
+    component: FileTargetRoute,
+})
+const sessionTargetRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/sessions/$sessionId',
+    component: SessionTargetRoute,
+})
+const router = createRouter({
+    routeTree: rootRoute.addChildren([fixtureRoute, fileTargetRoute, sessionTargetRoute]),
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+})
+
 const rootEl = document.getElementById('root')
 if (rootEl) {
     ReactDOM.createRoot(rootEl).render(
         <React.StrictMode>
-            <I18nProvider>
-                <FileMarkdownPreviewFixture />
-                <FileLineScrollFixture />
-            </I18nProvider>
+            <QueryClientProvider client={queryClient}>
+                <AppContextProvider value={{ api: FILE_PREVIEW_API, token: 'fixture-token', baseUrl: window.location.origin }}>
+                    <I18nProvider>
+                        <RouterProvider router={router} />
+                        <FileLineScrollFixture />
+                    </I18nProvider>
+                </AppContextProvider>
+            </QueryClientProvider>
         </React.StrictMode>
     )
 }

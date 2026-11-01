@@ -13,6 +13,7 @@ import { constantTimeEquals } from '../../utils/crypto'
 import { parseAccessToken } from '../../utils/accessToken'
 import type { Machine, Session, SyncEngine } from '../../sync/syncEngine'
 import { SessionIdentityConflictError, SessionNotAdoptableError } from '../../store/sessions'
+import { preserveHubOwnedSessionMetadata } from '../../utils/sessionMetadata'
 
 const bearerSchema = z.string().regex(/^Bearer\s+(.+)$/i)
 
@@ -103,6 +104,10 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
             return c.json({ error: 'Invalid body' }, 400)
         }
 
+        // Adoption merges omitted fields against the live reservation in SQLite.
+        // Ignore CLI-supplied copies rather than trusting a stale bootstrap blob.
+        const cliMetadata = preserveHubOwnedSessionMetadata(parsed.data.metadata, null)
+
         const namespace = c.get('namespace')
         const machineInput = parsed.data.machine
         if (machineInput) {
@@ -123,7 +128,7 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
                 ? engine.adoptPreallocatedSession(
                     parsed.data.id,
                     parsed.data.tag,
-                    parsed.data.metadata,
+                    cliMetadata,
                     parsed.data.agentState ?? null,
                     namespace,
                     parsed.data.model,
@@ -132,7 +137,7 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
                 )
                 : engine.getOrCreateSession(
                     parsed.data.tag,
-                    parsed.data.metadata,
+                    cliMetadata,
                     parsed.data.agentState ?? null,
                     namespace,
                     parsed.data.model,

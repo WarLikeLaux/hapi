@@ -1102,6 +1102,7 @@
             "at": 7000,
             "seq": 7
         },
+        "readThroughRevision": 0,
         "viewMode": "tail"
     },
     "fixtureVersion": 1,

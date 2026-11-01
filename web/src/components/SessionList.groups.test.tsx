@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '@/api/client'
 import type { SessionGroup } from '@hapi/protocol'
 import type { ExternalConversation } from '@hapi/protocol/messengers'
@@ -8,7 +8,7 @@ import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
 import { AppContextTestProvider } from '@/test/app-context'
 import { ToastProvider } from '@/lib/toast-context'
-import { markSessionSeen } from '@/lib/sessionLastSeen'
+import { configureSessionReadState, markSessionSeen } from '@/lib/sessionLastSeen'
 import { SessionList } from './SessionList'
 
 vi.mock('@tanstack/react-router', async (importOriginal) => ({
@@ -17,10 +17,12 @@ vi.mock('@tanstack/react-router', async (importOriginal) => ({
     useParams: () => ({}),
 }))
 
+beforeEach(() => { configureSessionReadState('group-list-test', async () => { throw new Error('offline') })() })
+
 afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks() })
 
 function chat(id: string, overrides: Partial<SessionSummary> = {}): SessionSummary {
-    return { id, active: true, thinking: true, activeAt: 1000, updatedAt: 2000, lastAgentMessageAt: 2000,
+    return { id, active: true, thinking: true, activeAt: 1000, updatedAt: 2000, lastAgentMessageAt: 2000, contentRevision: overrides.contentRevision ?? overrides.lastAgentMessageAt ?? 2000,
         metadata: { path: '/work', name: id, flavor: 'codex' }, metadataVersion: 1, agentStateVersion: 1,
         todosUpdatedAt: 0, todoProgress: null, pendingRequestsCount: 0, pendingRequestKinds: [], pendingRequests: [],
         backgroundTaskCount: 0, futureScheduledMessageCount: 0, nextScheduledAt: null, model: null, effort: null, ...overrides }
@@ -98,7 +100,7 @@ describe('group placement and agent icons', () => {
             lastUserMessageAt: now - hour, lastAgentMessageAt: now - hour }),
             chat('Old', { thinking, active, metadata: metadata('Old'),
                 lastUserMessageAt: now - 4 * hour, lastAgentMessageAt: now - 4 * hour })]
-        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ grouped: now, Recent: now, Old: now }))
+        seedReads({ grouped: now, Recent: now, Old: now })
         const update = mount([grouped], standalone)
         if (!active) update([grouped], standalone, { id: 'hapi', name: 'HAPI', closed: true, parked: false,
             version: 2, updatedAt: now, members: [{ sessionId: grouped.id, pinned: false }] })
@@ -154,7 +156,7 @@ describe('group placement and agent icons', () => {
         localStorage.setItem('hapi-pin-in-progress-sessions', String(pinInProgress))
         const idle = chat('standalone-idle', { active: false, thinking: false,
             metadata: { path: '/work', name: 'Idle chat', lifecycleState: 'parked' } })
-        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ 'standalone-idle': 2000 }))
+        seedReads({ 'standalone-idle': 2000 })
         mount([chat('worker'), chat('question', { thinking: false, pendingRequestKinds: ['input'] })], [idle], true)
         expect(screen.queryByRole('region', { name: 'Working sessions' })).toBeNull()
         expect(screen.queryByRole('region', { name: 'Active sessions' })).toBeNull()
@@ -179,7 +181,7 @@ describe('group placement and agent icons', () => {
     })
 
     it('keeps Working before Active for groups and standalone sessions', () => {
-        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ worker: 2000 }))
+        seedReads({ worker: 2000 })
         mount([chat('worker')], [chat('needs-reading', { thinking: false })])
         expect(screen.getAllByRole('region').map(region => region.getAttribute('aria-label')))
             .toEqual(['Working sessions', 'Active sessions'])
@@ -212,7 +214,7 @@ describe('group placement and agent icons', () => {
     it('keeps groups and standalone chats Active after the last working agent finishes', () => {
         const grouped = chat('grouped-worker', { metadata: { path: '/work', name: 'Grouped worker', lifecycleState: 'running', flavor: 'codex' } })
         const standalone = chat('standalone', { thinking: false, metadata: { path: '/work', name: 'Standalone chat', lifecycleState: 'running', flavor: 'codex' } })
-        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ 'grouped-worker': 2000, standalone: 2000 }))
+        seedReads({ 'grouped-worker': 2000, standalone: 2000 })
         const update = mount([grouped], [standalone])
         expect(groupIn('Working sessions')).toBeVisible()
         const assertReady = () => {
@@ -237,7 +239,7 @@ describe('group placement and agent icons', () => {
         const idle = chat('idle', { thinking: false, active: false,
             metadata: { path: '/work', name: 'Idle chat', lifecycleState, flavor: 'codex' } })
         const ready = chat('ready', { thinking: false, metadata: { path: '/work', name: 'Ready chat', lifecycleState: 'running', flavor: 'codex' } })
-        localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ idle: 2000, ready: 2000, 'standalone-idle': 2000 }))
+        seedReads({ idle: 2000, ready: 2000, 'standalone-idle': 2000 })
         const standaloneIdle = { ...idle, id: 'standalone-idle' }
         const update = mount([idle, ready], [standaloneIdle])
         expect(groupIn('Active sessions')).toBeVisible()
@@ -263,7 +265,7 @@ describe('group placement and agent icons', () => {
 
 
 it('keeps a bulk-action failure visible when session updates move the row into another section', async () => {
-    localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({ working: 2000, quiet: 2000 }))
+    seedReads({ working: 2000, quiet: 2000 })
     const working = chat('working')
     const quiet = chat('quiet', { thinking: false })
     const group: SessionGroup = { id: 'hapi', name: 'HAPI', parked: false, closed: false, version: 1, updatedAt: 1000,
@@ -287,3 +289,7 @@ it('keeps a bulk-action failure visible when session updates move the row into a
     await act(async () => finish({ group: partiallyClosed, failures: [{ sessionId: quiet.id, message: 'Runner offline' }] }))
     await waitFor(() => expect(screen.getByRole('dialog')).toHaveTextContent('quiet: Runner offline'))
 })
+
+function seedReads(values: Record<string, number>) {
+    for (const [id, revision] of Object.entries(values)) markSessionSeen(id, revision)
+}

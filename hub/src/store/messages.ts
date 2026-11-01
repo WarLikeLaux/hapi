@@ -1,11 +1,12 @@
 import type { Database } from 'bun:sqlite'
 import { prepareCached } from './statementCache'
 import { recordMessageUsage } from './recordMessageUsage'
+import { recordUserMessage } from './sessionUserActivity'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
 
-import { getLiveReasoningStreamId } from '@hapi/protocol/messages'
+import { hasUnreadMessageContent, getLiveReasoningStreamId } from '@hapi/protocol/messages'
 
 import type { StoredMessage } from './types'
 import { decodeMessageContent, encodeMessageContent, truncateOversizedMessageContent } from './contentCodec'
@@ -17,6 +18,7 @@ import {
 } from './messageSearch'
 
 type DbMessageRow = {
+    content_revision: number
     id: string
     session_id: string
     // TEXT (plaintext JSON, legacy rows) or BLOB (zstd-compressed JSON) — see contentCodec.ts
@@ -85,6 +87,7 @@ export function addImportedMessage(
             local_id: localId,
             invoked_at: stampedAt
         })
+        recordUserMessage(db, sessionId, content, stampedAt)
         if (previousHead && stampedAt < previousHead.at) bumpMessageEpoch(db, sessionId)
         const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
         if (!row) throw new Error('Failed to create imported message')
@@ -98,6 +101,7 @@ function toStoredMessage(row: DbMessageRow): StoredMessage {
     return {
         id: row.id,
         sessionId: row.session_id,
+        ...(row.content_revision > 0 ? { contentRevision: row.content_revision } : {}),
         content: decodeMessageContent(row.content),
         createdAt: row.created_at,
         seq: row.seq,
@@ -185,6 +189,11 @@ export function addMessageWithStatus(
             scheduled_at: scheduledAt ?? null
         })
 
+        if (hasUnreadMessageContent(content)) {
+            prepareCached(db, 'UPDATE sessions SET content_revision = content_revision + 1 WHERE id = ?').run(sessionId)
+            prepareCached(db, 'UPDATE messages SET content_revision = (SELECT content_revision FROM sessions WHERE id = ?) WHERE id = ?').run(sessionId, id)
+        }
+        recordUserMessage(db, sessionId, content, stampedAt)
         const positionAt = invokedAt ?? stampedAt
         if (previousHead && positionAt < previousHead.at) bumpMessageEpoch(db, sessionId)
         const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
@@ -273,6 +282,7 @@ export function copyMessageToSession(
     if (!row) {
         throw new Error('Failed to copy message into target session')
     }
+    recordUserMessage(db, sessionId, message.content, createdAt)
 
     // Copies preserve the source display timestamp, so a new high-seq row can
     // still land behind a Web client's cached composite tail cursor. Mark the
@@ -334,6 +344,7 @@ export function copyMessagesToSession(
                 delivery_state: message.deliveryState ?? 'queued'
             })
             recordMessageUsage(db, { ...message, id, sessionId, createdAt, localId, invokedAt, seq: nextSeq }, getMessageEpoch(db, sessionId))
+            recordUserMessage(db, sessionId, message.content, createdAt)
             nextSeq += 1
         }
 
@@ -767,6 +778,14 @@ export function getMaxSeq(db: Database, sessionId: string): number {
     return row?.maxSeq ?? 0
 }
 
+/** Lowest seq still stored for the session (null when the session is empty). */
+export function getMinSeq(db: Database, sessionId: string): number | null {
+    const row = db.prepare(
+        'SELECT MIN(seq) AS minSeq FROM messages WHERE session_id = ?'
+    ).get(sessionId) as { minSeq: number | null } | undefined
+    return row?.minSeq ?? null
+}
+
 export type CancelQueuedMessageResult =
     | { status: 'cancelled'; localId: string | null }
     | { status: 'invoked'; message: StoredMessage }
@@ -1019,12 +1038,12 @@ export function moveUninvokedScheduledMessages(
     if (fromSessionId === toSessionId) return 0
 
     const rows = prepareCached(db, `
-        SELECT id FROM messages
+        SELECT id, content, created_at FROM messages
         WHERE session_id = ?
           AND scheduled_at IS NOT NULL
           AND invoked_at IS NULL
         ORDER BY seq ASC
-    `).all(fromSessionId) as Array<{ id: string }>
+    `).all(fromSessionId) as Array<{ id: string; content: string | Uint8Array; created_at: number }>
     if (rows.length === 0) return 0
 
     try {
@@ -1034,6 +1053,7 @@ export function moveUninvokedScheduledMessages(
         for (const row of rows) {
             nextSeq += 1
             update.run(toSessionId, nextSeq, row.id)
+            recordUserMessage(db, toSessionId, decodeMessageContent(row.content), row.created_at)
         }
         bumpMessageEpoch(db, fromSessionId)
         bumpMessageEpoch(db, toSessionId)
@@ -1066,7 +1086,7 @@ export function moveUninvokedMessages(db: Database, fromSessionId: string, toSes
               )
         `).run(fromSessionId, toSessionId).changes
         const rows = prepareCached(db, `
-            SELECT id, session_id FROM messages
+            SELECT id, session_id, content, created_at FROM messages
             WHERE session_id IN (?, ?) AND invoked_at IS NULL
             -- created_at is millisecond-granularity; rowid is the durable
             -- cross-session insertion order for ties within this database.
@@ -1074,7 +1094,7 @@ export function moveUninvokedMessages(db: Database, fromSessionId: string, toSes
                      rowid ASC,
                      seq ASC,
                      id ASC
-        `).all(fromSessionId, toSessionId) as Array<{ id: string; session_id: string }>
+        `).all(fromSessionId, toSessionId) as Array<{ id: string; session_id: string; content: string | Uint8Array; created_at: number }>
         const moved = rows.filter((row) => row.session_id === fromSessionId).length
         if (discarded === 0 && moved === 0) return 0
         const invokedMax = prepareCached(db, `
@@ -1083,7 +1103,10 @@ export function moveUninvokedMessages(db: Database, fromSessionId: string, toSes
         `).get(toSessionId) as { maxSeq: number }
         let nextSeq = invokedMax.maxSeq
         const update = prepareCached(db, 'UPDATE messages SET session_id = ?, seq = ? WHERE id = ?')
-        for (const row of rows) update.run(toSessionId, ++nextSeq, row.id)
+        for (const row of rows) {
+            update.run(toSessionId, ++nextSeq, row.id)
+            recordUserMessage(db, toSessionId, decodeMessageContent(row.content), row.created_at)
+        }
         bumpMessageEpoch(db, fromSessionId)
         bumpMessageEpoch(db, toSessionId)
         return discarded + moved
@@ -1134,11 +1157,36 @@ export function mergeSessionMessages(
             ).run(fromSessionId, ...localIds)
         }
 
+        // Revisions belong to a session, unlike stable message IDs. Translate
+        // only unread source outputs above the destination head; already-read
+        // history is a baseline and must not light up the destination.
+        const source = prepareCached(db, 'SELECT content_revision, read_revision, manual_unread FROM sessions WHERE id = ?')
+            .get(fromSessionId) as { content_revision: number; read_revision: number; manual_unread: number }
+        const target = prepareCached(db, 'SELECT content_revision FROM sessions WHERE id = ?')
+            .get(toSessionId) as { content_revision: number }
+        prepareCached(db, `UPDATE messages SET content_revision = CASE WHEN content_revision > ?
+            THEN ? + content_revision - ? ELSE 0 END WHERE session_id = ?`)
+            .run(source.read_revision, target.content_revision, source.read_revision, fromSessionId)
+        const additional = Math.max(0, source.content_revision - source.read_revision)
+        prepareCached(db, `UPDATE sessions SET content_revision = content_revision + ?,
+            manual_unread = MAX(manual_unread, ?),
+            read_state_version = read_state_version + CASE WHEN manual_unread < ? THEN 1 ELSE 0 END WHERE id = ?`)
+            .run(additional, source.manual_unread, source.manual_unread, toSessionId)
         const result = prepareCached(db,
             'UPDATE messages SET session_id = ? WHERE session_id = ?'
         ).run(toSessionId, fromSessionId)
+        // History moves can keep the source session alive. Retire its old
+        // unread state as well, so a second merge cannot count it again.
+        prepareCached(db, `UPDATE sessions SET read_revision = content_revision, manual_unread = 0,
+            read_state_version = read_state_version + 1 WHERE id = ?
+            AND (read_revision < content_revision OR manual_unread = 1)`).run(fromSessionId)
 
         if (result.changes > 0) {
+            prepareCached(db, `
+                UPDATE sessions SET last_user_message_at = MAX(COALESCE(last_user_message_at, 0),
+                    (SELECT last_user_message_at FROM sessions WHERE id = ?))
+                WHERE id = ? AND (SELECT last_user_message_at FROM sessions WHERE id = ?) IS NOT NULL
+            `).run(fromSessionId, toSessionId, fromSessionId)
             bumpMessageEpoch(db, fromSessionId)
             bumpMessageEpoch(db, toSessionId)
         }
@@ -1211,9 +1259,16 @@ export function truncateMessagesFromLocalId(
                 rowLocalId,
                 invokedAt
             )
+            recordUserMessage(db, sessionId, message.content, createdAt)
             inserted += 1
         }
 
+        // If rewind removed all unread output, retire that activity without
+        // reusing its revision numbers. Explicit manual-unread survives.
+        prepareCached(db, `UPDATE sessions SET read_revision = content_revision, read_state_version = read_state_version + 1
+            WHERE id = ? AND read_revision < content_revision AND NOT EXISTS (
+                SELECT 1 FROM messages WHERE session_id = sessions.id AND content_revision > sessions.read_revision
+            )`).run(sessionId)
         const epoch = bumpMessageEpoch(db, sessionId)
         return { deleted: deleted.changes, inserted, epoch }
     })()

@@ -5,6 +5,7 @@ import {
     resolveSessionContext,
     type SessionContextId,
 } from './sessionContexts'
+import { markSessionSeen } from './sessionLastSeen'
 import type { SessionSummary } from '@/types/api'
 
 function makeTestSession(overrides: Partial<SessionSummary> = {}): SessionSummary {
@@ -14,6 +15,7 @@ function makeTestSession(overrides: Partial<SessionSummary> = {}): SessionSummar
         thinking: false,
         activeAt: Date.now(),
         updatedAt: Date.now(),
+        contentRevision: overrides.contentRevision ?? overrides.updatedAt ?? 1,
         metadataVersion: 0,
         agentStateVersion: 0,
         todosUpdatedAt: 0,
@@ -162,10 +164,8 @@ describe('sessionContexts', () => {
         })
 
         it('does not count working sessions as unread', () => {
-            localStorage.setItem('hapi.sessionLastSeen.v1', JSON.stringify({
-                'work-working': 100,
-                'work-idle': 100,
-            }))
+            markSessionSeen('work-working', 100)
+            markSessionSeen('work-idle', 100)
 
             const workWorking = makeTestSession({
                 id: 'work-working',

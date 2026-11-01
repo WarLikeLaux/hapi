@@ -18,6 +18,8 @@ import type {
     MachinesResponse,
     MessageSearchResponse,
     MessagesResponse,
+    OpencodeImportSessionsResponse,
+    OpencodeLocalSessionsResponse,
     PermissionMode,
     PiImportSessionsResponse,
     PiLocalSessionsResponse,
@@ -43,6 +45,7 @@ import type {
     CursorChatStoreStatus,
     CursorModelsResponse,
     DeleteUploadResponse,
+    DshModelsResponse,
     FileReadResponse,
     GitCommandResponse,
     GitStatusResponse,
@@ -60,6 +63,7 @@ import type {
     OpencodeModelVariantsResponse,
     OpencodeReasoningEffortResponse,
     PiModelsResponse,
+    ClaudeModelsResponse,
     QueuedStateResponse,
     ReopenSessionResponse,
     SqliteStorageUsageResponse,
@@ -72,7 +76,8 @@ import type {
     UploadFileResponse,
     WorkspaceTurnDiffResponse
 } from '@hapi/protocol/apiTypes'
-import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
+import { fetchThroughAuthProxy } from '@/api/authProxy'
+import type { SessionReadState, SessionReadStateRequest, AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { QuotasResponse } from '@hapi/protocol/quotas'
 import type { CancelMessageResponse, InterruptQueuedMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
@@ -148,6 +153,12 @@ export interface TranscriptionCredentialStatus {
         geminiLive: MaskedCredentialStatus
         qwenRealtime: MaskedCredentialStatus
     }
+    /** Optional: older hub versions won't send this. */
+    elevenLabsMaxDurationSeconds?: {
+        value: number
+        source: ProviderCredentialSource
+        editable: boolean
+    }
 }
 
 export interface TranscriptionCredentialsUpdate {
@@ -162,6 +173,8 @@ export interface TranscriptionCredentialsUpdate {
     }
     geminiLive?: string | null
     qwenRealtime?: string | null
+    /** null resets to the hub default (1800s) */
+    elevenLabsMaxDurationSeconds?: number | null
 }
 
 type ApiClientOptions = {
@@ -243,7 +256,7 @@ export class ApiClient {
             headers.set('content-type', 'application/json')
         }
 
-        const res = await fetch(this.buildUrl(path), {
+        const res = await fetchThroughAuthProxy(this.buildUrl(path), {
             ...init,
             headers
         })
@@ -274,7 +287,7 @@ export class ApiClient {
     }
 
     async authenticate(auth: { initData: string } | { accessToken: string }): Promise<AuthResponse> {
-        const res = await fetch(this.buildUrl('/api/auth'), {
+        const res = await fetchThroughAuthProxy(this.buildUrl('/api/auth'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(auth)
@@ -291,7 +304,7 @@ export class ApiClient {
     }
 
     async bind(auth: { initData: string; accessToken: string }): Promise<AuthResponse> {
-        const res = await fetch(this.buildUrl('/api/bind'), {
+        const res = await fetchThroughAuthProxy(this.buildUrl('/api/bind'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(auth)
@@ -325,6 +338,21 @@ export class ApiClient {
 
     async addGroupChat(groupId: string, sessionId: string): Promise<void> {
         await this.request(`/api/groups/${encodeURIComponent(groupId)}/members`, { method: 'POST', body: JSON.stringify({ sessionId }) })
+    }
+
+    getReadStateScope(): string | null {
+        try {
+            const token = this.getToken?.() ?? this.token
+            const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as { ns?: unknown }
+            if (typeof payload.ns !== 'string') return null
+            return JSON.stringify([this.baseUrl ?? window.location.origin, payload.ns])
+        } catch { return null }
+    }
+
+    async updateSessionReadState(sessionId: string, state: SessionReadStateRequest): Promise<{ readState: SessionReadState }> {
+        return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/read-state`, {
+            method: 'PUT', body: JSON.stringify(state)
+        })
     }
 
     async getSessions(): Promise<SessionsResponse> {
@@ -661,6 +689,21 @@ export class ApiClient {
         })
     }
 
+    async getOpencodeSessions(cwd?: string | null, machineId?: string | null): Promise<OpencodeLocalSessionsResponse> {
+        const params = new URLSearchParams()
+        if (cwd?.trim()) params.set('cwd', cwd.trim())
+        if (machineId?.trim()) params.set('machineId', machineId.trim())
+        const query = params.size ? `?${params.toString()}` : ''
+        return await this.request<OpencodeLocalSessionsResponse>(`/api/opencode/sessions${query}`)
+    }
+
+    async importOpencodeSessions(payload: { sessionIds: string[]; cwd?: string | null; machineId?: string | null; model?: string | null; modelReasoningEffort?: string | null; permissionMode?: PermissionMode }): Promise<OpencodeImportSessionsResponse> {
+        return await this.request<OpencodeImportSessionsResponse>('/api/opencode/import-sessions', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+    }
+
     async archiveCodexSession(sessionId: string, machineId?: string | null): Promise<CodexArchiveSessionResponse> {
         return await this.request<CodexArchiveSessionResponse>('/api/codex/archive-session', {
             method: 'POST',
@@ -851,7 +894,7 @@ export class ApiClient {
         return await this.request<GitCommandResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/git-diff-file?${params.toString()}`)
     }
 
-    async searchSessionFiles(sessionId: string, query: string, limit?: number): Promise<FileSearchResponse> {
+    async searchSessionFiles(sessionId: string, query: string, limit?: number, signal?: AbortSignal): Promise<FileSearchResponse> {
         const params = new URLSearchParams()
         if (query) {
             params.set('query', query)
@@ -860,7 +903,7 @@ export class ApiClient {
             params.set('limit', `${limit}`)
         }
         const qs = params.toString()
-        return await this.request<FileSearchResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/files${qs ? `?${qs}` : ''}`)
+        return await this.request<FileSearchResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/files${qs ? `?${qs}` : ''}`, { signal })
     }
 
     async getGeneratedImageBlob(sessionId: string, imageId: string, attempt: number = 0, overrideToken?: string | null): Promise<Blob> {
@@ -873,11 +916,11 @@ export class ApiClient {
             headers.set('authorization', `Bearer ${authToken}`)
         }
         const url = this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-images/${encodeURIComponent(imageId)}`)
-        let res = await fetch(url, { headers })
+        let res = await fetchThroughAuthProxy(url, { headers })
         // Hub returns ETag + immutable Cache-Control (#927). Default fetch cache stores 200
         // responses so remounts avoid RPC; on 304 the body is empty — read from cache.
         if (res.status === 304) {
-            res = await fetch(url, { headers, cache: 'force-cache' })
+            res = await fetchThroughAuthProxy(url, { headers, cache: 'force-cache' })
         }
         if (res.status === 401 && attempt === 0 && this.onUnauthorized) {
             const refreshed = await this.onUnauthorized()
@@ -892,9 +935,10 @@ export class ApiClient {
         return await res.blob()
     }
 
-    async readSessionFile(sessionId: string, path: string): Promise<FileReadResponse> {
+    async readSessionFile(sessionId: string, path: string, maxBytes?: number): Promise<FileReadResponse> {
         const params = new URLSearchParams()
         params.set('path', path)
+        if (maxBytes !== undefined) params.set('maxBytes', String(maxBytes))
         return await this.request<FileReadResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/file?${params.toString()}`)
     }
 
@@ -1116,7 +1160,7 @@ export class ApiClient {
             if (authToken) {
                 headers.set('authorization', `Bearer ${authToken}`)
             }
-            return fetch(this.buildUrl(path), { method: 'POST', headers, body: JSON.stringify(body) })
+            return fetchThroughAuthProxy(this.buildUrl(path), { method: 'POST', headers, body: JSON.stringify(body) })
         }
 
         let res = await tryOnce(null)
@@ -1164,10 +1208,14 @@ export class ApiClient {
         })
     }
 
-    async setModel(sessionId: string, model: { provider: string; modelId: string } | string | null): Promise<void> {
+    async setModel(
+        sessionId: string,
+        model: { provider: string; modelId: string } | string | null,
+        options?: { effort: string | null }
+    ): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/model`, {
             method: 'POST',
-            body: JSON.stringify({ model })
+            body: JSON.stringify(options ? { model, effort: options.effort } : { model })
         })
     }
 
@@ -1401,6 +1449,18 @@ export class ApiClient {
         )
     }
 
+    async getMachineClaudeModels(machineId: string): Promise<ClaudeModelsResponse> {
+        return await this.request<ClaudeModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/claude-models`
+        )
+    }
+
+    async getMachineDshModels(machineId: string): Promise<DshModelsResponse> {
+        return await this.request<DshModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/dsh-models`
+        )
+    }
+
     async getMachinePiModels(machineId: string): Promise<PiModelsResponse> {
         return await this.request<PiModelsResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/pi-models`
@@ -1490,6 +1550,12 @@ export class ApiClient {
     async getSessionMinimaxModels(sessionId: string): Promise<MinimaxModelsResponse> {
         return await this.request<MinimaxModelsResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/minimax-models`
+        )
+    }
+
+    async getSessionDshModels(sessionId: string): Promise<DshModelsResponse> {
+        return await this.request<DshModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/dsh-models`
         )
     }
 
@@ -1613,7 +1679,7 @@ export class ApiClient {
         if (authToken) {
             headers.set('authorization', `Bearer ${authToken}`)
         }
-        const response = await fetch(
+        const response = await fetchThroughAuthProxy(
             this.buildUrl(
                 `/api/sessions/${encodeURIComponent(sessionId)}/scratchlist/attachments/${encodeURIComponent(attachmentId)}`
             ),

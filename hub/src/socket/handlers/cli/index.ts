@@ -1,4 +1,4 @@
-import type { CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
+import type { BackgroundTask, CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
 import type { QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
 import type { Store, StoredMachine, StoredSession } from '../../../store'
 import type { RpcRegistry } from '../../rpcRegistry'
@@ -52,6 +52,7 @@ export type CliHandlersDeps = {
     onMachineAlive?: (payload: MachineAlivePayload) => void
     onQuotaUpdate?: (machineId: string, report: { capturedAt: number; quotas: QuotaWindow[]; unavailable: QuotaUnavailable[] }) => void
     onWebappEvent?: (event: SyncEvent) => void
+    onBackgroundTasks?: (sessionId: string, tasks: BackgroundTask[]) => void
     onBackgroundTaskDelta?: (sessionId: string, delta: { started: number; completed: number }) => void
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
     onAgentProgress?: (sessionId: string, at: number) => void
@@ -88,7 +89,7 @@ const SESSION_ACCESS_CACHE_TTL_MS = 1_000
 const SESSION_ACCESS_CACHE_MAX_SESSIONS = 64
 
 export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlersDeps): void {
-    const { io, store, rpcRegistry, terminalRegistry, onSessionAlive, onSessionReady, onSessionBusy, onSessionIdle, onSessionEnd, onMachineAlive, onQuotaUpdate, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onAgentProgress, onSweepImmediateQueued, onMessagesConsumed } = deps
+    const { io, store, rpcRegistry, terminalRegistry, onSessionAlive, onSessionReady, onSessionBusy, onSessionIdle, onSessionEnd, onMachineAlive, onQuotaUpdate, onWebappEvent, onBackgroundTasks, onBackgroundTaskDelta, onSessionActivity, onAgentProgress, onSweepImmediateQueued, onMessagesConsumed } = deps
     const terminalNamespace = io.of('/terminal')
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
 
@@ -184,6 +185,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
         onSessionIdle,
         onSessionEnd,
         onWebappEvent,
+        onBackgroundTasks,
         onBackgroundTaskDelta,
         onSessionActivity,
         onAgentProgress,

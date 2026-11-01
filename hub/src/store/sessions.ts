@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import type { StoredSession, VersionedUpdateResult } from './types'
 import { safeJsonParse } from './json'
 import { updateVersionedField } from './versionedUpdates'
+import { HUB_OWNED_SESSION_METADATA_KEYS } from '../utils/sessionMetadata'
 
 // Carry-forward fields that the hub preserves across any metadata
 // replacement when the incoming write omits them.
@@ -138,6 +139,7 @@ export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
     merged = carryForwardIfMissing(prior, next, merged, SIMPLE_RESUME_TOKENS)
     merged = carryForwardIfMissing(prior, next, merged, DURABLE_LIFECYCLE_FIELDS)
     merged = carryForwardIfMissing(prior, next, merged, ['muted'])
+    merged = carryForwardIfMissing(prior, next, merged, HUB_OWNED_SESSION_METADATA_KEYS)
     merged = preserveCursorProtocolPair(prior, next, merged)
     // A stale or sparse CLI metadata replacement must not undo hub read state.
     if (typeof prior.readThrough === 'number' && Number.isFinite(prior.readThrough)) {
@@ -174,6 +176,10 @@ function preserveSessionTitle(prior: unknown, next: unknown, operation?: 'user' 
 }
 
 type DbSessionRow = {
+    content_revision: number
+    read_revision: number
+    read_state_version: number
+    manual_unread: number
     id: string
     tag: string | null
     namespace: string
@@ -209,6 +215,8 @@ function toStoredSession(row: DbSessionRow): StoredSession {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         lastUserMessageAt: row.last_user_message_at,
+        contentRevision: row.content_revision,
+        readState: { readRevision: row.read_revision, version: row.read_state_version, manualUnread: row.manual_unread === 1 },
         pinned: row.pinned === 1,
         globalPinned: row.global_pinned === 1,
         metadata: safeJsonParse(row.metadata),
@@ -264,7 +272,7 @@ export function getOrCreateSession(
         }
     }
 
-    const metadataJson = JSON.stringify(metadata)
+    const metadataJson = JSON.stringify(preserveSessionTitle(null, metadata))
     const agentStateJson = agentState === null || agentState === undefined ? null : JSON.stringify(agentState)
 
     prepareCached(db, `
@@ -405,10 +413,7 @@ export function adoptPreallocatedSession(
         }
 
         const now = Date.now()
-        const adoptedMetadata = isPlainObject(existing.metadata) && isPlainObject(metadata)
-            ? carryForwardIfMissing(existing.metadata, metadata, null, ['muted']) ?? metadata
-            : metadata
-        const metadataJson = JSON.stringify(preserveSessionTitle(existing.metadata, adoptedMetadata))
+        const metadataJson = JSON.stringify(preserveSessionTitle(existing.metadata, mergeSessionMetadata(existing.metadata, metadata)))
         const agentStateJson = agentState === null || agentState === undefined ? null : JSON.stringify(agentState)
         const stubTag = machineSpawnPreallocTag(id)
 
@@ -563,6 +568,8 @@ export function updateSessionAgentState(
 ): VersionedUpdateResult<unknown | null> {
     const now = Date.now()
     const normalized = agentState ?? null
+    const prior = prepareCached(db, 'SELECT agent_state FROM sessions WHERE id = ? AND namespace = ?')
+        .get(id, namespace) as { agent_state: string | null } | undefined
 
     return updateVersionedField({
         db,
@@ -575,9 +582,26 @@ export function updateSessionAgentState(
         value: normalized,
         encode: (value) => (value === null ? null : JSON.stringify(value)),
         decode: safeJsonParse,
-        setClauses: ['updated_at = @updated_at', 'seq = seq + 1'],
-        params: { updated_at: now }
+        setClauses: [
+            'updated_at = CASE WHEN @touch_updated_at = 1 THEN @updated_at ELSE updated_at END',
+            'seq = seq + 1'
+        ],
+        params: {
+            updated_at: now,
+            touch_updated_at: hasNewAgentStateRequest(safeJsonParse(prior?.agent_state ?? null), normalized) ? 1 : 0
+        }
     })
+}
+
+// Routine agent-state snapshots (usage, controlledByUser, request
+// completion) are not session activity; only a new permission request is.
+function hasNewAgentStateRequest(prior: unknown, next: unknown): boolean {
+    const nextRequests = isPlainObject(next) ? next.requests : undefined
+    if (!isPlainObject(nextRequests)) {
+        return false
+    }
+    const priorRequests = isPlainObject(prior) && isPlainObject(prior.requests) ? prior.requests : {}
+    return Object.keys(nextRequests).some((requestId) => !Object.hasOwn(priorRequests, requestId))
 }
 
 export function setSessionTodos(

@@ -6,10 +6,12 @@ import {
     AgentAvailabilityResponseSchema,
     CursorChatStoreStatusSchema,
     ListCodexSessionsRpcResponseSchema,
+    ListOpencodeSessionsRpcResponseSchema,
     ListPiSessionsRpcResponseSchema
 } from '@hapi/protocol/apiTypes'
 import type {
     AgyModelsResponse,
+    ClaudeModelsResponse,
     AgentAvailabilityResponse,
     CodexModelSummary,
     CodexModelsResponse,
@@ -19,6 +21,7 @@ import type {
     CursorChatStoreStatus,
     DeleteUploadResponse,
     DirectoryEntry,
+    DshModelsResponse,
     FileReadResponse,
     GeneratedImageResponse,
     GitComparisonResponse,
@@ -33,6 +36,7 @@ import type {
     ListDirectoryResponse,
     ListCodexSessionsRpcResponse,
     ListPiSessionsRpcResponse,
+    ListOpencodeSessionsRpcResponse,
     ArchiveCodexSessionRpcResponse,
     OpencodeModelsResponse,
     OpencodeModelSummary,
@@ -43,7 +47,14 @@ import type {
     SlashCommandsResponse,
     WorkspaceTurnDiffResponse,
     StatFilesResponse,
-    UploadFileResponse
+    UploadFileResponse,
+    WorkspaceReadFileRequest,
+    WorkspaceListDirectoryRequest,
+    WorkspaceStatFilesRequest,
+    WorkspaceGitStatusRequest,
+    WorkspaceGitDiffNumstatRequest,
+    WorkspaceGitDiffFileRequest,
+    WorkspaceRipgrepRequest
 } from '@hapi/protocol/apiTypes'
 import type { Server } from 'socket.io'
 import type { RpcRegistry } from '../socket/rpcRegistry'
@@ -116,6 +127,7 @@ export type RpcCodexModel = CodexModelSummary
 export type RpcListCodexModelsResponse = CodexModelsResponse
 export type RpcListCodexSessionsResponse = ListCodexSessionsRpcResponse
 export type RpcListPiSessionsResponse = ListPiSessionsRpcResponse
+export type RpcListOpencodeSessionsResponse = ListOpencodeSessionsRpcResponse
 export type RpcArchiveCodexSessionResponse = ArchiveCodexSessionRpcResponse
 export type RpcCursorModel = CursorModelSummary
 export type RpcListCursorModelsResponse = CursorModelsResponse
@@ -130,7 +142,9 @@ export type RpcListMinimaxModelsResponse = MinimaxModelsResponse
 export type RpcListGrokReasoningEffortOptionsResponse = GrokReasoningEffortResponse
 export type RpcListOpencodeReasoningEffortOptionsResponse = OpencodeReasoningEffortResponse
 export type RpcListAgyModelsResponse = AgyModelsResponse
+export type RpcListDshModelsResponse = DshModelsResponse
 export type RpcListPiModelsResponse = PiModelsResponse
+export type RpcListClaudeModelsResponse = ClaudeModelsResponse
 
 export class RpcGateway {
     constructor(
@@ -427,8 +441,8 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.WorkspaceTurnDiff, options) as WorkspaceTurnDiffResponse
     }
 
-    async readSessionFile(sessionId: string, path: string): Promise<RpcReadFileResponse> {
-        return await this.sessionRpc(sessionId, RPC_METHODS.ReadFile, { path }) as RpcReadFileResponse
+    async readSessionFile(sessionId: string, path: string, options?: { maxBytes?: number }): Promise<RpcReadFileResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ReadFile, { path, ...options }) as RpcReadFileResponse
     }
 
     async readGeneratedImage(sessionId: string, imageId: string): Promise<RpcGeneratedImageResponse> {
@@ -451,8 +465,36 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.DeleteUpload, { sessionId, path }) as RpcDeleteUploadResponse
     }
 
+    async readWorkspaceFile(machineId: string, request: WorkspaceReadFileRequest): Promise<RpcReadFileResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.WorkspaceReadFile, request) as RpcReadFileResponse
+    }
+
+    async listWorkspaceDirectory(machineId: string, request: WorkspaceListDirectoryRequest): Promise<RpcListDirectoryResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.WorkspaceListDirectory, request) as RpcListDirectoryResponse
+    }
+
+    async statWorkspaceFiles(machineId: string, request: WorkspaceStatFilesRequest): Promise<RpcStatFilesResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.WorkspaceStatFiles, request) as RpcStatFilesResponse
+    }
+
+    async getWorkspaceGitStatus(machineId: string, request: WorkspaceGitStatusRequest): Promise<RpcCommandResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.WorkspaceGitStatus, request) as RpcCommandResponse
+    }
+
+    async getWorkspaceGitDiffNumstat(machineId: string, request: WorkspaceGitDiffNumstatRequest): Promise<RpcCommandResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.WorkspaceGitDiffNumstat, request) as RpcCommandResponse
+    }
+
+    async getWorkspaceGitDiffFile(machineId: string, request: WorkspaceGitDiffFileRequest): Promise<RpcCommandResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.WorkspaceGitDiffFile, request) as RpcCommandResponse
+    }
+
     async runRipgrep(sessionId: string, args: string[], cwd?: string, fileSearch?: FileSearchOptions): Promise<RpcCommandResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.Ripgrep, { args, cwd, fileSearch }) as RpcCommandResponse
+    }
+
+    async runWorkspaceRipgrep(machineId: string, request: WorkspaceRipgrepRequest): Promise<RpcCommandResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.WorkspaceRipgrep, request) as RpcCommandResponse
     }
 
     async listSlashCommands(sessionId: string, agent: string): Promise<SlashCommandsResponse> {
@@ -498,6 +540,11 @@ export class RpcGateway {
         return ListPiSessionsRpcResponseSchema.parse(result)
     }
 
+    async listOpencodeSessionsForMachine(machineId: string, cwd?: string | null, sessionIds?: string[]): Promise<RpcListOpencodeSessionsResponse> {
+        const result = await this.machineRpc(machineId, RPC_METHODS.ListOpencodeSessions, { cwd: cwd ?? null, sessionIds }, MODEL_LIST_RPC_TIMEOUT_MS)
+        return ListOpencodeSessionsRpcResponseSchema.parse(result)
+    }
+
     async archiveCodexSessionForMachine(machineId: string, sessionId: string): Promise<RpcArchiveCodexSessionResponse> {
         const result = await this.machineRpc(machineId, RPC_METHODS.ArchiveCodexSession, { sessionId }, MODEL_LIST_RPC_TIMEOUT_MS)
         return ArchiveCodexSessionRpcResponseSchema.parse(result)
@@ -525,6 +572,14 @@ export class RpcGateway {
 
     async listGrokModelsForSession(sessionId: string): Promise<RpcListGrokModelsResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ListGrokModels, {}) as RpcListGrokModelsResponse
+    }
+
+    async listDshModelsForMachine(machineId: string): Promise<RpcListDshModelsResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListDshModelsForMachine, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListDshModelsResponse
+    }
+
+    async listDshModelsForSession(sessionId: string): Promise<RpcListDshModelsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListDshModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListDshModelsResponse
     }
 
     async listGrokReasoningEffortOptionsForSession(sessionId: string): Promise<RpcListGrokReasoningEffortOptionsResponse> {
@@ -614,13 +669,20 @@ export class RpcGateway {
     async forkConversation(
         sessionId: string,
         params: { messageLocalId?: string }
-    ): Promise<import('@hapi/protocol/apiTypes').ForkConversationRpcResult> {
+    ): Promise<import('@hapi/protocol/apiTypes').ForkConversationRpcResponse> {
         return await this.sessionRpc(
             sessionId,
             RPC_METHODS.ForkConversation,
             params,
             120_000
-        ) as import('@hapi/protocol/apiTypes').ForkConversationRpcResult
+        ) as import('@hapi/protocol/apiTypes').ForkConversationRpcResponse
+    }
+
+    async forkArchivedCodex(machineId: string, request: import('@hapi/protocol/apiTypes').ForkArchivedCodexRequest): Promise<import('@hapi/protocol/apiTypes').ForkArchivedCodexResponse> {
+        const result = await this.machineRpc(machineId, RPC_METHODS.ForkArchivedCodex, request, 120_000) as Record<string, unknown>
+        if (typeof result?.error === 'string') return { error: result.error, rollbackSafe: result.rollbackSafe === true }
+        if (typeof result?.nativeSessionId !== 'string' || !result.nativeSessionId) throw new Error('Native archived fork did not return a session id')
+        return { nativeSessionId: result.nativeSessionId }
     }
 
     async clearConversation(sessionId: string): Promise<{ sessionId: string }> {
@@ -666,6 +728,10 @@ export class RpcGateway {
 
     async listPiModelsForMachine(machineId: string): Promise<RpcListPiModelsResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListPiModelsForMachine, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListPiModelsResponse
+    }
+
+    async listClaudeModelsForMachine(machineId: string): Promise<RpcListClaudeModelsResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListClaudeModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListClaudeModelsResponse
     }
 
     private async sessionRpc(

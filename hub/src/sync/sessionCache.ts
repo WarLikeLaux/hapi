@@ -1,17 +1,18 @@
+import { mergeReadState } from '@hapi/protocol'
 import { SESSION_LIFECYCLE_IDLE, SESSION_LIFECYCLE_RUNNING } from '@hapi/protocol'
 import { AgentStateSchema, MetadataSchema, SessionPatchSchema, TeamStateSchema } from '@hapi/protocol/schemas'
 import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
-import type { CodexCollaborationMode, CopilotAgentMode, PermissionMode, Session, SessionPatch } from '@hapi/protocol/types'
-import type { Store } from '../store'
+import type { BackgroundTask, CodexCollaborationMode, CopilotAgentMode, PermissionMode, Session, SessionPatch } from '@hapi/protocol/types'
+import type { SessionTurnEndReason, SessionTurnTrigger, Store } from '../store'
 import { clampAliveTime } from './aliveTime'
 import { EventPublisher } from './eventPublisher'
 import { extractTodoWriteTodosFromMessageContent, TodosSchema } from './todos'
-import { extractBackgroundTaskDelta } from './backgroundTasks'
 import { isReadySessionEventContent } from './sessionReady'
 
 
 const QUEUED_MESSAGE_THINKING_GRACE_MS = 15_000
 const READY_RECOVERY_MESSAGE_LIMIT = 2_000
+const TURN_RECOVERY_WINDOW_MS = 10 * 60_000
 // tiann/hapi#919: metadata writers (renameSession, clearSessionArchiveMetadata,
 // restoreSessionArchiveMetadata) retry on version-mismatch with a fresh cache
 // snapshot. Cap retries so genuine concurrent contention still surfaces to the
@@ -36,11 +37,39 @@ export class SessionCache {
      * so a hub restart re-derives it from the last human turn on disk.
      */
     private readonly agentProgressAtBySessionId: Map<string, number> = new Map()
+    /**
+     * Sessions whose turn the previous hub process left open. It continues if
+     * the agent reports thinking before the hub sees it idle or a new prompt
+     * arrives; see `recordTurn`.
+     */
+    private readonly interruptedTurnSessionIds: Set<string> = new Set()
+    private readonly backgroundSnapshotSessions = new Set<string>()
 
     constructor(
         private readonly store: Store,
-        private readonly publisher: EventPublisher
+        private readonly publisher: EventPublisher,
+        private readonly hooks: {
+            /** Fires after a merge deletes a session row. Dedup collisions and
+             *  resume-id rotation both land in `mergeSessionData`, so this is
+             *  the single notification point; owners keyed on the removed id
+             *  (e.g. the hub's enumeration cache) release their entries here. */
+            onSessionMergedAway?: (oldSessionId: string, newSessionId: string) => void
+        } = {}
     ) {
+    }
+
+    /**
+     * Closes turns the previous hub process left open; `thinking` starts out
+     * false here, so nothing else would. Call once at startup.
+     */
+    closeTurnsLeftOpen(now: number = Date.now()): void {
+        try {
+            for (const sessionId of this.store.turns.closeDangling(now, TURN_RECOVERY_WINDOW_MS)) {
+                this.interruptedTurnSessionIds.add(sessionId)
+            }
+        } catch (error) {
+            console.warn('[SessionCache] Failed to close turns left open', { error })
+        }
     }
 
     getSessions(): Session[] {
@@ -236,6 +265,8 @@ export class SessionCache {
             seq: stored.seq,
             createdAt: stored.createdAt,
             updatedAt: stored.updatedAt,
+            contentRevision: stored.contentRevision,
+            readState: stored.readState,
             lastUserMessageAt: stored.lastUserMessageAt ?? stored.createdAt,
             lastMessageAt: conversationActivity.lastMessageAt ?? 0,
             lastAgentMessageAt: conversationActivity.lastAgentMessageAt ?? 0,
@@ -258,6 +289,7 @@ export class SessionCache {
             thinkingAt: existing?.thinkingAt ?? 0,
             activeTurnStartedAt: existing?.activeTurnStartedAt ?? null,
             backgroundTaskCount: existing?.backgroundTaskCount ?? 0,
+            backgroundTasks: existing?.backgroundTasks ?? [],
             todos,
             teamState,
             todosUpdatedAt: stored.todosUpdatedAt ?? 0,
@@ -421,11 +453,17 @@ export class SessionCache {
         }
 
         const patch = parsed.data
+        const wasThinking = session.thinking
 
         if (patch.active !== undefined) session.active = patch.active
         if (patch.thinking !== undefined) session.thinking = patch.thinking
         if (patch.activeAt !== undefined) session.activeAt = patch.activeAt
+        if (patch.contentRevision !== undefined) session.contentRevision = Math.max(session.contentRevision ?? 0, patch.contentRevision)
+        if (patch.readState) session.readState = mergeReadState(session.readState, patch.readState)
         if (patch.updatedAt !== undefined) session.updatedAt = Math.max(session.updatedAt, patch.updatedAt)
+        if (patch.lastUserMessageAt !== undefined) {
+            session.lastUserMessageAt = Math.max(session.lastUserMessageAt ?? 0, patch.lastUserMessageAt)
+        }
         if (patch.model !== undefined) session.model = patch.model
         if (patch.modelReasoningEffort !== undefined) session.modelReasoningEffort = patch.modelReasoningEffort
         if (patch.effort !== undefined) session.effort = patch.effort
@@ -435,6 +473,7 @@ export class SessionCache {
         if (patch.permissionMode !== undefined) session.permissionMode = patch.permissionMode
         if (patch.collaborationMode !== undefined) session.collaborationMode = patch.collaborationMode
         if (patch.backgroundTaskCount !== undefined) session.backgroundTaskCount = patch.backgroundTaskCount
+        if (patch.backgroundTasks !== undefined) session.backgroundTasks = patch.backgroundTasks
         if (patch.todos !== undefined) {
             session.todos = patch.todos.value
             session.todosUpdatedAt = patch.todos.version
@@ -452,6 +491,8 @@ export class SessionCache {
             session.agentState = patch.agentState.value
             session.agentStateVersion = patch.agentState.version
         }
+        if (patch.thinking === false) this.forgetInterruptedTurn(session.id)
+        this.recordTurn(session, wasThinking, Date.now(), 'patch', 'idle')
 
         return true
     }
@@ -494,7 +535,7 @@ export class SessionCache {
             && this.store.messages.getImmediateQueuedLocalMessages(session.id).length > 0
 
         session.active = true
-        session.activeAt = Math.max(session.activeAt, t)
+        session.activeAt = Math.max(session.activeAt, hubNow)
         session.thinking = requestedThinking || preserveQueuedThinking
         session.thinkingAt = t
         if (!requestedThinking && preserveQueuedThinking && hasUnconsumedPrompt) {
@@ -505,6 +546,9 @@ export class SessionCache {
         if (requestedThinking || pendingThinkingUntil <= hubNow) {
             this.pendingThinkingUntilBySessionId.delete(session.id)
         }
+        // The agent says it's idle: whatever it does next is a new turn.
+        if (!requestedThinking) this.forgetInterruptedTurn(session.id)
+        this.recordTurn(session, wasThinking, hubNow, 'agent', 'idle')
         if (payload.permissionMode !== undefined && !this.isStaleRuntimeKeepAlive(session.id, 'permissionMode', t)) {
             session.permissionMode = payload.permissionMode
             this.persistPreferredPermissionMode(session, payload.permissionMode)
@@ -620,6 +664,7 @@ export class SessionCache {
         session.thinking = true
         session.thinkingAt = nextTime
         if (!wasThinking) session.activeTurnStartedAt = activeTurnStartedAt
+        this.recordTurn(session, wasThinking, session.activeTurnStartedAt ?? nextTime, 'hub_prompt', 'idle')
         session.updatedAt = Math.max(session.updatedAt, nextTime)
         this.pendingThinkingUntilBySessionId.set(session.id, nextTime + QUEUED_MESSAGE_THINKING_GRACE_MS)
         this.recordAgentProgress(session.id, nextTime)
@@ -638,9 +683,53 @@ export class SessionCache {
         }
     }
 
+    /**
+     * Persists a change of `thinking` as the start or end of a turn, so how
+     * long agents worked survives a hub restart. Never throws: losing a turn
+     * row must not break the keepalive path.
+     */
+    private recordTurn(
+        session: Session,
+        wasThinking: boolean,
+        at: number,
+        trigger: SessionTurnTrigger,
+        reason: SessionTurnEndReason
+    ): void {
+        if (wasThinking === session.thinking) return
+        try {
+            if (session.thinking) {
+                // Only the agent itself carrying on continues an interrupted
+                // turn; a new prompt starts a new one.
+                const resumed = trigger === 'agent'
+                    && this.interruptedTurnSessionIds.has(session.id)
+                    && this.store.turns.resumeInterrupted(session.id, at)
+                this.forgetInterruptedTurn(session.id)
+                if (!resumed) {
+                    this.store.turns.open(session.id, session.namespace, at, trigger)
+                }
+            } else {
+                this.store.turns.close(session.id, at, reason)
+            }
+        } catch (error) {
+            console.warn('[SessionCache] Failed to record turn', { sessionId: session.id, error })
+        }
+    }
+
+    /** The turn a restart interrupted can no longer continue. */
+    private forgetInterruptedTurn(sessionId: string): void {
+        if (!this.interruptedTurnSessionIds.delete(sessionId)) return
+        try {
+            this.store.turns.abandonRecovery(sessionId)
+        } catch (error) {
+            console.warn('[SessionCache] Failed to drop turn recovery', { sessionId, error })
+        }
+    }
+
     applyBackgroundTaskDelta(sessionId: string, delta: { started: number; completed: number }): void {
         const session = this.sessions.get(sessionId)
         if (!session) return
+        // The SDK snapshot owns remote counts; local transcript forwarding still uses deltas.
+        if (this.backgroundSnapshotSessions.has(sessionId) && session.agentState?.controlledByUser !== true) return
 
         const prev = session.backgroundTaskCount ?? 0
         const next = Math.max(0, prev + delta.started - delta.completed)
@@ -653,6 +742,55 @@ export class SessionCache {
             sessionId,
             data: { backgroundTaskCount: next } satisfies SessionPatch
         })
+    }
+
+    setBackgroundTasks(sessionId: string, tasks: BackgroundTask[]): void {
+        this.backgroundSnapshotSessions.add(sessionId)
+        const session = this.sessions.get(sessionId)
+        if (!session) return
+        const current = session.backgroundTasks ?? []
+        if (tasks.length === current.length && tasks.every((task, index) =>
+            task.id === current[index]?.id && task.description === current[index]?.description
+        )) return
+
+        session.backgroundTasks = tasks
+        session.backgroundTaskCount = tasks.length
+        this.recordAgentProgress(sessionId)
+        this.publisher.emit({
+            type: 'session-updated',
+            sessionId,
+            data: { backgroundTaskCount: tasks.length, backgroundTasks: tasks } satisfies SessionPatch
+        })
+    }
+
+    refreshLastUserMessageAt(sessionId: string): void {
+        const stored = this.store.sessions.getSession(sessionId)
+        if (stored?.lastUserMessageAt == null) return
+        const session = this.sessions.get(sessionId)
+        if (!session) {
+            this.refreshSession(sessionId)
+            return
+        }
+        if (stored.lastUserMessageAt <= (session.lastUserMessageAt ?? -Infinity)) return
+        session.lastUserMessageAt = stored.lastUserMessageAt
+        this.publisher.emit({
+            type: 'session-updated',
+            sessionId,
+            namespace: session.namespace,
+            data: { lastUserMessageAt: session.lastUserMessageAt } satisfies SessionPatch
+        })
+    }
+
+    syncReadState(sessionId: string): void {
+        const stored = this.store.sessions.getSession(sessionId)
+        const session = this.sessions.get(sessionId)
+        if (!stored || !session) return
+        if (session.contentRevision === stored.contentRevision
+            && session.readState?.version === stored.readState?.version) return
+        session.contentRevision = stored.contentRevision
+        session.readState = stored.readState
+        this.publisher.emit({ type: 'session-updated', sessionId, namespace: session.namespace,
+            data: { contentRevision: session.contentRevision, readState: session.readState } })
     }
 
     recordSessionActivity(sessionId: string, updatedAt: number): void {
@@ -802,24 +940,29 @@ export class SessionCache {
 
         const session = this.sessions.get(payload.sid) ?? this.refreshSession(payload.sid)
         if (!session) return
+        this.forgetInterruptedTurn(session.id)
 
         if (!session.active && !session.thinking) {
             return
         }
 
+        const wasThinking = session.thinking
         session.active = false
         this.store.sessions.setSessionActive(session.id, false, t, session.namespace)
         session.thinking = false
         session.thinkingAt = t
         session.activeTurnStartedAt = null
+        this.recordTurn(session, wasThinking, t, 'agent', 'session_end')
         session.backgroundTaskCount = 0
+        this.backgroundSnapshotSessions.delete(session.id)
+        session.backgroundTasks = []
         this.pendingThinkingUntilBySessionId.delete(session.id)
         this.idleBoundaryAtBySessionId.delete(session.id)
 
         this.publisher.emit({
             type: 'session-updated',
             sessionId: session.id,
-            data: { active: false, thinking: false, activeTurnStartedAt: null, backgroundTaskCount: 0 } satisfies SessionPatch
+            data: { active: false, thinking: false, activeTurnStartedAt: null, backgroundTaskCount: 0, backgroundTasks: [] } satisfies SessionPatch
         })
     }
 
@@ -882,14 +1025,24 @@ export class SessionCache {
 
     expireInactive(now: number = Date.now()): string[] {
         const sessionTimeoutMs = 30_000
+        // Thinking sessions get a longer offline grace: turns routinely outlive brief
+        // transport blackouts on the runner host (outbound messages are buffered and
+        // flushed on reconnect), so expiring them on the plain keepalive timeout flips
+        // sessions offline mid-turn only for them to come back the moment the socket
+        // reconnects. Bounded so a genuinely dead process still expires.
+        const thinkingSessionTimeoutMs = 300_000
         const expired: string[] = []
 
         for (const session of this.sessions.values()) {
             if (!session.active) continue
-            if (now - session.activeAt <= sessionTimeoutMs) continue
+            const timeoutMs = session.thinking ? thinkingSessionTimeoutMs : sessionTimeoutMs
+            if (now - session.activeAt <= timeoutMs) continue
+            const wasThinking = session.thinking
             session.active = false
             this.store.sessions.setSessionActive(session.id, false, now, session.namespace)
             session.thinking = false
+            // The last keepalive is the last time the agent was known to be working.
+            this.recordTurn(session, wasThinking, session.activeAt, 'agent', 'expired')
             this.pendingThinkingUntilBySessionId.delete(session.id)
             this.idleBoundaryAtBySessionId.delete(session.id)
             expired.push(session.id)
@@ -1246,6 +1399,54 @@ export class SessionCache {
     }
 
     /**
+     * Persist the first prompt as a display-only title while the session is
+     * untitled. It lives outside `summary`, so later title sources still apply.
+     */
+    updatePromptTitle(sessionId: string, text: string): boolean {
+        for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
+            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            if (!session?.metadata) return false
+
+            const metadata = session.metadata
+            if (metadata.name?.trim() || metadata.summary?.text?.trim() || metadata.promptTitle) {
+                return false
+            }
+
+            const result = this.store.sessions.updateSessionMetadata(
+                sessionId,
+                { ...metadata, promptTitle: text },
+                session.metadataVersion,
+                session.namespace,
+                { touchUpdatedAt: false }
+            )
+
+            if (result.result === 'error') return false
+            if (result.result === 'success') {
+                const parsed = MetadataSchema.safeParse(result.value)
+                if (!parsed.success) {
+                    this.refreshSession(sessionId)
+                    return true
+                }
+                // A metadata-only patch: this runs while a prompt is being
+                // accepted, so a full snapshot would race the thinking patch.
+                session.metadata = parsed.data
+                session.metadataVersion = result.version
+                this.publisher.emit({
+                    type: 'session-updated',
+                    sessionId,
+                    namespace: session.namespace,
+                    data: { metadata: { version: result.version, value: parsed.data } } satisfies SessionPatch
+                })
+                return true
+            }
+
+            this.refreshSession(sessionId)
+        }
+
+        return false
+    }
+
+    /**
      * Clear archive-related metadata on an archived session so it can be resumed.
      * - Removes `lifecycleState`, `archivedBy`, `archiveReason`, and stamps
      *   `lifecycleStateSince` so subsequent CLI lifecycle writes still win on time.
@@ -1471,6 +1672,8 @@ export class SessionCache {
             }
         }
         const movedMessages = this.store.messages.mergeSessionMessages(oldSessionId, newSessionId)
+        this.syncReadState(newSessionId)
+        if (!options.deleteOldSession) this.syncReadState(oldSessionId)
         // mergeSessions deletes the source. mergeSessionHistory keeps it alive
         // with the original socket, so its notify chain must stay on that id.
         if (options.deleteOldSession) {
@@ -1673,6 +1876,8 @@ export class SessionCache {
             if (this.store.groups.transferSession(namespace, oldSessionId, newSessionId)) {
                 this.publisher.emit({ type: 'groups-updated', namespace })
             }
+            // Deleting the row cascades to its turns; they're the new row's history now.
+            this.store.turns.transferSession(oldSessionId, newSessionId)
             const deleted = this.store.sessions.deleteSession(oldSessionId, namespace)
             if (!deleted) {
                 throw new Error('Failed to delete old session during merge')
@@ -1691,6 +1896,7 @@ export class SessionCache {
                 this.recordAgentProgress(newSessionId, oldProgressAt)
             }
             this.agentProgressAtBySessionId.delete(oldSessionId)
+            this.hooks.onSessionMergedAway?.(oldSessionId, newSessionId)
         } else {
             this.refreshSession(oldSessionId)
         }
@@ -1724,6 +1930,11 @@ export class SessionCache {
             changed = true
         } else if (typeof oldObj.name === 'string' && typeof newObj.name !== 'string' && !newProtected) {
             merged.name = oldObj.name
+            changed = true
+        }
+
+        if (typeof oldObj.promptTitle === 'string' && typeof newObj.promptTitle !== 'string') {
+            merged.promptTitle = oldObj.promptTitle
             changed = true
         }
 
@@ -1871,12 +2082,15 @@ export class SessionCache {
     private extractAgentSessionId(
         metadata: NonNullable<Session['metadata']>
     ): { field: 'codexSessionId' | 'claudeSessionId' | 'geminiSessionId' | 'opencodeSessionId' | 'grokSessionId' | 'cursorSessionId' | 'piSessionId' | 'agySessionId' | 'copilotSessionId'; value: string; dedupeKey: string; machineId?: string } | null {
-        const scoped = (field: 'codexSessionId' | 'claudeSessionId' | 'geminiSessionId' | 'opencodeSessionId' | 'grokSessionId' | 'cursorSessionId' | 'piSessionId' | 'agySessionId' | 'copilotSessionId', value: string) => ({
-            field,
-            value,
-            dedupeKey: field === 'piSessionId' ? `${field}:${metadata.machineId ?? 'unscoped'}:${value}` : `${field}:${value}`,
-            ...(field === 'piSessionId' && metadata.machineId ? { machineId: metadata.machineId } : {})
-        })
+        const scoped = (field: 'codexSessionId' | 'claudeSessionId' | 'geminiSessionId' | 'opencodeSessionId' | 'grokSessionId' | 'cursorSessionId' | 'piSessionId' | 'agySessionId' | 'copilotSessionId', value: string) => {
+            const machineScoped = field === 'piSessionId' || field === 'opencodeSessionId'
+            return {
+                field,
+                value,
+                dedupeKey: machineScoped ? `${field}:${metadata.machineId ?? 'unscoped'}:${value}` : `${field}:${value}`,
+                ...(machineScoped && metadata.machineId ? { machineId: metadata.machineId } : {})
+            }
+        }
         if (metadata.codexSessionId) return scoped('codexSessionId', metadata.codexSessionId)
         if (metadata.claudeSessionId) return scoped('claudeSessionId', metadata.claudeSessionId)
         if (metadata.geminiSessionId) return scoped('geminiSessionId', metadata.geminiSessionId)
@@ -1913,8 +2127,9 @@ export class SessionCache {
 
                 const currentSession = this.sessions.get(sessionId)
                 const candidates: { id: string; session: Session }[] = []
+                const machineScoped = agentId.field === 'piSessionId' || agentId.field === 'opencodeSessionId'
                 if (currentSession?.metadata && currentSession.metadata[agentId.field] === agentId.value) {
-                    if (agentId.field !== 'piSessionId' || currentSession.metadata.machineId === agentId.machineId) {
+                    if (!machineScoped || currentSession.metadata.machineId === agentId.machineId) {
                         candidates.push({ id: sessionId, session: currentSession })
                     }
                 }
@@ -1923,7 +2138,7 @@ export class SessionCache {
                     if (existing.namespace !== session.namespace) continue
                     if (!existing.metadata) continue
                     if (existing.metadata[agentId.field] !== agentId.value) continue
-                    if (agentId.field === 'piSessionId' && existing.metadata.machineId !== agentId.machineId) continue
+                    if (machineScoped && existing.metadata.machineId !== agentId.machineId) continue
                     candidates.push({ id: existingId, session: existing })
                 }
 

@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { normalizeDecryptedMessage } from '@/chat/normalize'
+import { reduceChatBlocks } from '@/chat/reducer'
+import type { NormalizedMessage } from '@/chat/types'
+import { aggregateResponseGroups } from '@/lib/assistant-runtime'
+import { buildVisibleChatBlocks } from '@/chat/toolGroups'
 import type { ApiClient } from '@/api/client'
 import type { DecryptedMessage, MessagesResponse } from '@/types/api'
 import {
@@ -280,6 +285,29 @@ afterEach(() => {
     vi.restoreAllMocks()
 })
 
+function makeToolMessages(count: number, firstSeq: number): DecryptedMessage[] {
+    return Array.from({ length: count }, (_, index) => {
+        const seq = firstSeq + index
+        const callId = `call-${Math.floor(index / 2)}`
+        return {
+            id: `tool-${seq}`,
+            seq,
+            localId: null,
+            content: {
+                role: 'agent',
+                content: {
+                    type: 'codex',
+                    data: index % 2 === 0
+                        ? { type: 'tool-call', callId, name: 'Read', input: { file_path: `/f${index}` } }
+                        : { type: 'tool-call-result', callId, output: 'ok' }
+                }
+            },
+            createdAt: seq * 1_000,
+            invokedAt: seq * 1_000
+        } as DecryptedMessage
+    })
+}
+
 describe('message tail synchronization', () => {
     it('cold sync fetches full pages and extends backwards until the initial exchanges are visible', async () => {
         const id = sessionId('cold-initial-page')
@@ -540,6 +568,8 @@ describe('message tail synchronization', () => {
         const id = sessionId('invalidation-preserves-window')
         const current = makeAgentMessage({ id: 'current', seq: 10, at: 10_000 })
         const latest = makeAgentMessage({ id: 'latest', seq: 20, at: 20_000 })
+        current.contentRevision = 1
+        latest.contentRevision = 3
         const response = deferred<MessagesResponse>()
         const getMessages = vi.fn()
             .mockResolvedValueOnce(latestResponse([current], { epoch: 1 }))
@@ -548,8 +578,10 @@ describe('message tail synchronization', () => {
 
         await syncTailMessages(api, id)
         invalidateMessageWindow(id)
+        ingestIncomingMessages(id, [{ ...current, id: 'interim', seq: 15, createdAt: 15_000, contentRevision: 2 }])
+        expect(getMessageWindowState(id).readThroughRevision).toBe(1)
 
-        expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['current'])
+        expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['current', 'interim'])
         expect(getMessageWindowState(id).isSyncingTail).toBe(true)
 
         const syncing = syncTailMessages(api, id)
@@ -561,6 +593,7 @@ describe('message tail synchronization', () => {
 
         expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['latest'])
         expect(getMessageWindowState(id).isSyncingTail).toBe(false)
+        expect(getMessageWindowState(id).readThroughRevision).toBe(3)
     })
 
     it('renders a persisted window immediately, then catches it up incrementally on re-entry', async () => {
@@ -608,6 +641,37 @@ describe('message tail synchronization', () => {
         // cached rows drop out and stay reachable through older pagination.
         expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['latest'])
         expect('pending' in getMessageWindowState(id)).toBe(false)
+    })
+
+    it('retains Codex round duration through persisted re-entry and a user-free latest tail', async () => {
+        const id = sessionId('codex-round-duration')
+        const tail: DecryptedMessage[] = [
+            { type: 'message', message: 'completed answer' },
+            { type: 'token_count', flavor: 'codex', model: 'gpt-5.4',
+                info: { last_token_usage: { input_tokens: 100, output_tokens: 10 } } },
+            { type: 'turn_duration', flavor: 'codex', durationMs: 39_426 }
+        ].map((data, index) => ({ id: `round-${index}`, seq: 40 + index, localId: null,
+            createdAt: 40_000 + index, content: { role: 'agent', content: { type: 'codex', data: { ...data, turn_id: 'round' } } } }))
+        sessionStorage.setItem(`hapi:message-window:v3:${id}`, JSON.stringify({
+            messages: tail, hasMore: true, oldestPositionAt: 40_000, oldestPositionSeq: 40,
+            newestPositionAt: 40_002, newestPositionSeq: 42, epoch: 3
+        }))
+        const assertDuration = () => {
+            const messages = getMessageWindowState(id).messages
+            expect(messages.map(message => message.id)).toEqual(['round-0', 'round-1', 'round-2'])
+            const normalized = messages.map(normalizeDecryptedMessage).filter((message): message is NormalizedMessage => message !== null)
+            const { blocks } = reduceChatBlocks(normalized, null)
+            const visible = buildVisibleChatBlocks(blocks, { hasMoreMessages: true })
+            expect(aggregateResponseGroups(visible).get('round-0:0')?.roundSummary).toMatchObject({
+                durationMs: 39_426, numTurns: 1, usage: { input_tokens: 100, output_tokens: 10 }
+            })
+        }
+        assertDuration()
+        activateMessageWindow(id)
+        const getMessages = vi.fn(async () => afterResponse([], { epoch: 3, nextAfterAt: 40_002, nextAfterSeq: 42, snapshotHeadAt: 40_002, snapshotHeadSeq: 42 }))
+        await syncTailMessages(createApi(getMessages), id)
+        expect(getMessages).toHaveBeenCalledWith(id, expect.objectContaining({ afterSeq: 42, epoch: 3, limit: 200 }))
+        assertDuration()
     })
 
     it('preserves queued rows while replacing stale server rows on re-entry', async () => {
@@ -1911,6 +1975,45 @@ describe('history view and older pagination', () => {
         expect(kept.some((message) => message.id === 'root')).toBe(true)
         expect(kept.some((message) => message.id === 'run-800')).toBe(true)
         expect(kept.some((message) => message.id === 'run-0')).toBe(false)
+    })
+
+    it('keeps the Agent tool call whose sidechain rows survive the trim', async () => {
+        const id = sessionId('subagent-parent')
+        const claudeOutput = (msgId: string, seq: number, data: Record<string, unknown>) => ({
+            id: msgId,
+            seq,
+            localId: null,
+            content: { role: 'agent', content: { type: 'output', data } },
+            createdAt: seq,
+            invokedAt: seq
+        } as DecryptedMessage)
+        const parent = claudeOutput('agent-call', 1, {
+            type: 'assistant',
+            uuid: 'agent-call',
+            message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_agent', name: 'Agent', input: { prompt: 'work' } }] }
+        })
+        const history = Array.from({ length: TAIL_UNIT_BUDGET + 10 }, (_, index) => {
+            const props = { id: `turn-${index}`, seq: index + 2, at: index + 2 }
+            return index % 2 === 0 ? makeUserMessage({ id: props.id, seq: props.seq, createdAt: props.at, invokedAt: props.at }) : makeAgentMessage(props)
+        })
+        const sidechain = claudeOutput('side-late', history.length + 2, {
+            type: 'assistant', uuid: 'side-late', isSidechain: true, parentToolUseId: 'toolu_agent',
+            message: { role: 'assistant', content: [{ type: 'text', text: 'late subagent update' }] }
+        })
+        ingestIncomingMessages(id, [parent, ...history, sidechain])
+        const state = getMessageWindowState(id)
+        expect(state.messages[0]?.id).toBe('agent-call')
+        expect(state.messages.some(message => message.id === sidechain.id)).toBe(true)
+        const firstContiguous = state.messages[1]!
+        expect(firstContiguous.seq).toBeGreaterThan(2)
+
+        setMessageViewMode(id, 'history')
+        const getMessages = vi.fn().mockResolvedValue(beforeResponse([parent, history[0]!], {
+            nextBeforeAt: null, nextBeforeSeq: null
+        }))
+        await fetchOlderMessages(createApi(getMessages), id)
+        expect(getMessages.mock.calls[0]?.[1]).toMatchObject({ beforeSeq: firstContiguous.seq })
+        expect(getMessageWindowState(id).messages.some(message => message.id === history[0]!.id)).toBe(true)
     })
 })
 

@@ -29,7 +29,7 @@ Source: `hub/src/web/routes/groups.ts`. Shared shapes: `shared/src/sessionGroups
 
 `SessionGroup` contains `id`, `name`, `version`, `updatedAt` and ordered `members`. Pinned members appear first, preserving user order within each section. Each chat belongs to at most one group. Updating members moves incoming chats out of their previous groups and detaches omitted chats into standalone sessions without changing their metadata or history. The move and affected group versions update in one transaction. A stale `version` returns `409`, invalid input returns `400`, and unavailable or foreign groups/members return `404`. An inaccessible session on the current-group lookup follows ordinary session access errors.
 
-A namespaced `groups-updated` SSE event invalidates the group list, including after rename, reordering, pinning or moving a chat. After a reconnect gap, fetch groups again. Chat attention and unread state continue to use ordinary per-session updates and read watermarks. Selecting a tab marks only that chat read.
+A namespaced `groups-updated` SSE event invalidates the group list, including after rename, reordering, pinning or moving a chat. After a reconnect gap, fetch groups again. Chat attention and unread state use ordinary per-session updates and shared read revisions. Selecting a tab alone does not acknowledge reading: only that chat's visible, rendered latest tail can advance its read state.
 
 `POST /api/machines/:id/spawn` accepts optional `groupId`. The hub validates group access before dispatch and binds the preallocated chat before starting the runner. An ambiguous spawn keeps the existing stub and its membership under the ordinary spawn lifecycle.
 
@@ -50,9 +50,23 @@ Source: `hub/src/web/routes/sessions.ts`; shapes `SessionSchema` (`shared/src/sc
 | Method & path | Request | Response |
 |---|---|---|
 | `GET /api/sessions` | Query: `limit?` (1–500), `order?=updatedAt` | `{sessions: (SessionSummary & {futureScheduledMessageCount, nextScheduledAt})[]}` |
+| `PUT /api/sessions/:id/read-state` | `{type: "read", readRevision, expectedVersion}` or `{type: "unread", expectedVersion}` | `{status, contentRevision, readState}`; see [Read state](./read-state.md) |
 | `GET /api/sessions/:id` | — | `{session: Session}` (full record incl. `metadata`, `agentState`, `todos`, versions) |
 
-Default list order: globalPinned → pinned → active → pending-request count → `updatedAt` desc; `order=updatedAt` gives pure recency. List badges come from `SessionSummary.pendingRequestsCount` (authoritative total) and `pendingRequests` (capped at 5, oldest-first) — do not derive counts from `pendingRequests.length`.
+Default list order is `globalPinned` → `pinned` →
+`lastUserMessageAt ?? createdAt` descending, then `createdAt` descending and
+`id` ascending. `lastUserMessageAt` is persisted on Session and SessionSummary, with a creation-time fallback before the first user input. Genuine input advances it using the original timestamp. Historical import paths explicitly preserve the transcript timeline.
+Agent output, prompt echoes, delivery acknowledgements, liveness and pending
+request counts do not change the default order. User-message deletion does
+not rewind the timestamp.
+`order=updatedAt` explicitly requests pure activity recency (e.g. peer discovery).
+`updatedAt` retains its activity/date-filter semantics; `activeAt`
+remains transport keep-alive state. The Web session list may
+apply client-side grouping and search ranking after receiving this response;
+`GET /api/sessions` itself has no text-search parameter. List badges come from
+`SessionSummary.pendingRequestsCount` (authoritative total) and
+`pendingRequests` (capped at 5, oldest-first) — do not derive counts from
+`pendingRequests.length`.
 
 ### Sessions — lifecycle
 
@@ -74,7 +88,7 @@ Source: `hub/src/web/routes/sessions.ts`; request schemas in `shared/src/apiType
 | `GET /api/sessions/:id/slash-commands` | — | `SlashCommandsResponse` `{success, commands?, error?}` |
 | `GET /api/sessions/:id/skills` | — | `SkillsResponse`-shaped `{success, ...}` |
 
-`close_session` requests archive with `markRead: true` after its final messages have been acknowledged. After a successful archive, the hub persists `metadata.readThrough` (epoch ms) and publishes it in session details, list summaries and versioned metadata SSE updates. Clients apply each newer watermark to local read state once, including after reconnect, and clear manual unread markers covered by it. Later messages can become unread, and a later manual “mark unread” action remains effective. Archive without `markRead: true` leaves read state unchanged. History and reopen remain available.
+`close_session` requests archive with `markRead: true` after its final messages have been acknowledged. After a successful archive, the hub marks the current content revision read, clears the current manual-unread choice and broadcasts the shared state. It also retains `metadata.readThrough` (epoch ms) for legacy-state migration and rollback. Later output can become unread, and a later manual “mark unread” action remains effective. Archive without `markRead: true` leaves read state unchanged. History and reopen remain available.
 
 ::: warning resume / reopen may return a different sessionId
 Both endpoints return the id of the session that now carries the conversation — which **may differ from the id you called them on** (fresh spawn under a new id; the old row is superseded). Clients must migrate composer drafts and replace navigation to the returned id. Reference: `web/src/routes/sessions/followSupersedingSession.ts`; the durable link also appears as `metadata.supersededBySessionId` on the old session.
@@ -123,8 +137,8 @@ Source: `hub/src/web/routes/sessions.ts`; flavor gates in `shared/src/modes.ts` 
 | Method & path | Request | Applies to |
 |---|---|---|
 | `POST /api/sessions/:id/permission-mode` | `{mode: PermissionMode}` | All flavors except `pi` and `dsh` (per-flavor allowed sets in `modes.ts`) |
-| `POST /api/sessions/:id/model` | `{model: string \| {provider, modelId} \| null}` | Flavors with `supportsModelChange` (not `dsh`); remote-only for codex/cursor/grok |
-| `POST /api/sessions/:id/effort` | `{effort: string \| null}` | claude, grok, pi (`supportsEffort`) |
+| `POST /api/sessions/:id/model` | `{model: string \| {provider, modelId} \| null, effort?: string \| null}` | Flavors with `supportsModelChange` (not `dsh`); remote-only for codex/cursor/grok. Only claude and agy accept `effort` with a model change. |
+| `POST /api/sessions/:id/effort` | `{effort: string \| null}` | agy, claude, grok, pi (`supportsEffort`) |
 | `POST /api/sessions/:id/model-reasoning-effort` | `{modelReasoningEffort: string \| null}` | codex, opencode (remote-only) |
 | `POST /api/sessions/:id/service-tier` | `{serviceTier: 'fast' \| 'standard'}` | codex (remote-only) |
 | `POST /api/sessions/:id/collaboration-mode` | `{mode: 'default' \| 'plan'}` | codex (remote-only) |
@@ -135,8 +149,6 @@ Source: `hub/src/web/routes/sessions.ts`; flavor gates in `shared/src/modes.ts` 
 ownership mode. `/switch` returns HTTP 409 with
 `code: 'control_mode_not_applicable'`; do not offer takeover. The remote-only
 Codex configuration restrictions above do not apply to these sessions.
-Shared Codex rejects `safe-yolo` even though it remains in the historical
-Codex permission-mode schema; do not offer it for concurrent sessions.
 
 Shared `/clear` has no global `supersededBySessionId` change; clients other than
 the caller stay on the original thread. Fork may return an already-bound shared
@@ -284,6 +296,14 @@ Source: `hub/src/web/routes/usage.ts`, `hub/src/web/routes/storage.ts`. Both `40
 | `GET /api/usage/summary` | Query: `range=7d\|30d\|all` (default 7d), `timeZone` (IANA, validated), optional exact `sessionId` (404 if missing or outside namespace) | `UsageSummaryResponse` `{range, totals, daily[], byAgent[], byModel[], updatedAt}` |
 | `GET /api/storage/sqlite` | — | `{path, databaseBytes, walBytes, shmBytes, totalBytes}` |
 
+### Agent activity
+
+Source: `hub/src/web/routes/activity.ts`. Scoped to the caller's namespace (not owner-only).
+
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/activity` | Query: `since`, `until` (epoch ms; default the 24 h before `until`, which defaults to now; at most 31 days; else `400`) | `AgentActivityResponse` `{since, until, generatedAt, sessions[]}`. Each session: `{id, flavor, agentSessionId, machineId, host, machineName, path, title, turns[], waits[]}`. A turn is `{start, end, endReason, startedBy}` with `end: null` while the agent is still working; turns are persisted when `thinking` flips, so they survive hub restarts. Waits are permission prompts and questions raised during the turns, `{start, end, kind: 'permission'\|'input', tool}`, with `end: null` while still pending. |
+
 ### Devices (Android / iOS push)
 
 Source: `hub/src/web/routes/devices.ts`; full push contract in [`native-companion-contract.md`](../native-companion-contract.md).
@@ -341,3 +361,14 @@ internal and must never be used by clients.
 | Cursor maintenance | `/api/sessions/:id/migrate-to-acp`, `/cursor-chat-store` | Desktop store migration |
 | Session export | `GET /api/sessions/:id/export` | Whole-session export through the web; separate from Android's full-text reader file export |
 | **CLI plane** | `/cli/*` (`hub/src/web/routes/cli.ts`) | **Forbidden for clients** — internal CLI↔hub surface; authenticates with the raw access token instead of a JWT and bypasses the client middleware. Never call it from a client, and never send the access token as a bearer anywhere except `POST /api/auth`'s JSON body |
+
+### Session title protection
+
+`metadata.nameLock` records title ownership as `'user'` or `'agent'`. A manual rename through the user PATCH route establishes user ownership. MCP `change_title` can pin an agent title with `pin: true`. Ordinary agent metadata writes cannot establish, clear or replace ownership. Protected names survive sparse updates, history replay, imports and restarts. A user can rename a protected session through HAPI, and the new name remains protected.
+
+`metadata.promptTitle` is an optional, Hub-owned provisional title: the first
+non-command user prompt, with whitespace collapsed and capped at 80 characters.
+The Hub sets it once, only while the session has neither `name` nor `summary`;
+agent metadata writes cannot set or clear it. Clients display titles in the
+order `name`, `summary`, `promptTitle`, then the path fallback. Because
+`promptTitle` is separate from `summary`, it never blocks generated or native titles.

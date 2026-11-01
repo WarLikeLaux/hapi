@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { isPermissionModeAllowedForFlavor } from '@hapi/protocol'
 import { ApiError, type ApiClient } from '@/api/client'
@@ -8,6 +9,7 @@ import { clearMessageWindow } from '@/lib/message-window-store'
 import { isKnownFlavor } from '@hapi/protocol'
 
 export const sessionModelMutationKey = (sessionId: string) => ['session-model', sessionId] as const
+export const sessionArchiveMutationKey = (sessionId: string | null) => ['session-archive', sessionId] as const
 
 export function useSessionActions(
     api: ApiClient | null,
@@ -24,7 +26,7 @@ export function useSessionActions(
     setPermissionMode: (mode: PermissionMode) => Promise<void>
     setCollaborationMode: (mode: CodexCollaborationMode) => Promise<void>
     setCopilotAgentMode: (mode: CopilotAgentMode) => Promise<void>
-    setModel: (model: { provider: string; modelId: string } | string | null) => Promise<void>
+    setModel: (model: { provider: string; modelId: string } | string | null, options?: { effort: string | null }) => Promise<void>
     setModelReasoningEffort: (modelReasoningEffort: string | null) => Promise<void>
     setEffort: (effort: string | null) => Promise<void>
     setServiceTier: (serviceTier: string | null) => Promise<void>
@@ -90,6 +92,7 @@ export function useSessionActions(
     })
 
     const archiveMutation = useMutation({
+        mutationKey: sessionArchiveMutationKey(sessionId),
         mutationFn: async () => {
             if (!api || !sessionId) {
                 throw new Error('Session unavailable')
@@ -205,17 +208,26 @@ export function useSessionActions(
 
     const modelMutation = useMutation({
         mutationKey: sessionModelMutationKey(sessionId ?? ''),
-        mutationFn: async (model: { provider: string; modelId: string } | string | null) => {
+        mutationFn: async (args: {
+            model: { provider: string; modelId: string } | string | null
+            options?: { effort: string | null }
+        }) => {
             if (!api || !sessionId) {
                 throw new Error('Session unavailable')
             }
-            await api.setModel(sessionId, model)
+            await api.setModel(sessionId, args.model, args.options)
         },
         onSuccess: async () => {
             await invalidateSession()
             await invalidateCursorModels()
         },
     })
+
+    const setModel = useCallback(
+        (model: { provider: string; modelId: string } | string | null, options?: { effort: string | null }) =>
+            modelMutation.mutateAsync({ model, options }),
+        [modelMutation.mutateAsync]
+    )
 
     const modelReasoningEffortMutation = useMutation({
         mutationFn: async (modelReasoningEffort: string | null) => {
@@ -332,13 +344,13 @@ export function useSessionActions(
         setPermissionMode: permissionMutation.mutateAsync,
         setCollaborationMode: collaborationMutation.mutateAsync,
         setCopilotAgentMode: copilotAgentModeMutation.mutateAsync,
-        setModel: modelMutation.mutateAsync,
+        setModel,
         setModelReasoningEffort: modelReasoningEffortMutation.mutateAsync,
         setEffort: effortMutation.mutateAsync,
         setServiceTier: serviceTierMutation.mutateAsync,
-        renameSession: renameMutation.mutateAsync,
+        renameSession: (name: string) => renameMutation.mutateAsync(name),
         suggestSessionTitle: titleSuggestionMutation.mutateAsync,
-        updateSessionSummary: summaryMutation.mutateAsync,
+        updateSessionSummary: (text: string) => summaryMutation.mutateAsync(text),
         setPinMode: pinMutation.mutateAsync,
         deleteSession: (archiveFirst = false) => deleteMutation.mutateAsync(archiveFirst),
         isPending: abortMutation.isPending

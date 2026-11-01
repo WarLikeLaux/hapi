@@ -27,11 +27,13 @@ import { createProjectPreferenceRoutes } from './routes/projectPreferences'
 import { createQuotasRoutes } from './routes/quotas'
 import { createStorageRoutes } from './routes/storage'
 import { createUsageRoutes } from './routes/usage'
+import { createActivityRoutes } from './routes/activity'
 import { createGitRoutes } from './routes/git'
 import { createCliRoutes } from './routes/cli'
 import { createCodexDesktopRoutes } from './routes/codexDesktop'
 import { createEditorRoutes } from './routes/editor'
 import { createPiSessionRoutes } from './routes/piSessions'
+import { createOpencodeSessionRoutes } from './routes/opencodeSessions'
 import { createPushRoutes } from './routes/push'
 import { createDevicesRoutes } from './routes/devices'
 import { createVoiceRoutes } from './routes/voice'
@@ -311,6 +313,7 @@ function createWebApp(options: {
     app.route('/api', createStorageRoutes(configuration.dbPath))
     app.route('/api', createHubSettingsRoutes(configuration.dataDir))
     app.route('/api', createUsageRoutes(options.store))
+    app.route('/api', createActivityRoutes(options.store))
     app.route('/api', createGitRoutes(options.getSyncEngine, { dataDir: configuration.dataDir }))
     // 中文注释：这里提供两类 Codex 辅助能力：扫描本地 transcript 以导入到 Hapi，以及按需重启 Codex Desktop 客户端。
     app.route('/api', createCodexDesktopRoutes({
@@ -318,6 +321,10 @@ function createWebApp(options: {
         getSyncEngine: options.getSyncEngine
     }))
     app.route('/api', createPiSessionRoutes({
+        store: options.store,
+        getSyncEngine: options.getSyncEngine
+    }))
+    app.route('/api', createOpencodeSessionRoutes({
         store: options.store,
         getSyncEngine: options.getSyncEngine
     }))

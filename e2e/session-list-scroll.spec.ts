@@ -53,7 +53,7 @@ for (const nativeAnchoring of [true, false]) {
             expect(Math.abs((await row.boundingBox())!.y - before)).toBeLessThan(2)
         })
 
-        test('preserves the viewport when a project automatically collapses after unpinning', async ({ page }) => {
+        test('preserves the viewport when a project above the selected session loses its pin', async ({ page }) => {
             await page.goto('/e2e-fixtures/session-list-scroll-fixture.html?mixed')
             const row = page.getByRole('button', { name: /^Session 20 / })
             await row.waitFor()

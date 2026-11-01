@@ -115,6 +115,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     const ctx = useHappyChatContext()
     const { t } = useTranslation()
     const [objectUrl, setObjectUrl] = useState<string | null>(null)
+    const [fileSize, setFileSize] = useState<number | undefined>(undefined)
     const [error, setError] = useState<string | null>(null)
     const [imageStyle, setImageStyle] = useState<CSSProperties | undefined>(undefined)
     const [loadMedia, setLoadMedia] = useState(false)
@@ -159,6 +160,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
         }
         setObjectUrl(null)
         setMarkdownContent(null)
+        setFileSize(undefined)
         setImageStyle(undefined)
         setError(null)
 
@@ -179,6 +181,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                 objectUrlRef.current = nextObjectUrl
                 setObjectUrl(nextObjectUrl)
                 setMarkdownContent(nextMarkdownContent)
+                setFileSize(blob.size)
                 if (isImage) {
                     setImageStyle(undefined)
                     const probe = new Image()
@@ -205,7 +208,11 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     }
 
     return (
-        <div className="max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3">
+        <div
+            data-hapi-generated-media-id={props.block.imageId}
+            data-hapi-generated-media-file-name={props.block.fileName}
+            data-hapi-generated-media-loaded={isFile && objectUrl ? 'true' : undefined}
+            className="max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3">
             <div className="mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-[var(--app-hint)]">
                 <span className="min-w-0 truncate">{mediaHeader}</span>
                 {inlineMarkdown !== null ? (
@@ -290,6 +297,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                         download={isHtml ? undefined : props.block.fileName}
                         target={isHtml ? '_blank' : undefined}
                         rel={isHtml ? 'noopener noreferrer' : undefined}
+                        data-hapi-generated-media-download={isHtml ? undefined : 'true'}
                         className="flex items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-4 py-3 text-sm font-medium text-[var(--app-fg)]"
                     >
                         <FileIcon fileName={props.block.fileName} size={24} />
@@ -299,7 +307,9 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                     <div className="flex min-h-32 min-w-[12rem] items-center justify-center rounded-xl bg-[var(--app-subtle-bg)]">
                         <ImagePreview
                             src={objectUrl}
-                            label={mediaLabel}
+                            fileName={props.block.fileName}
+                            label={props.block.fileName}
+                            fileSize={fileSize}
                             buttonClassName="block max-h-[min(28rem,60vh)] max-w-full cursor-zoom-in rounded-xl text-left"
                             imageClassName="max-h-[min(28rem,60vh)] max-w-full rounded-xl object-contain"
                             imageStyle={imageStyle}
@@ -314,6 +324,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                 <button
                     type="button"
                     onClick={() => setLoadMedia(true)}
+                    data-hapi-generated-media-download={isFile ? 'true' : undefined}
                     className="flex h-48 w-72 max-w-full items-center justify-center rounded-xl border border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-sm font-medium text-[var(--app-fg)]"
                 >
                     {isVideo ? 'Load video' : isAudio ? 'Load audio' : 'Prepare download'}

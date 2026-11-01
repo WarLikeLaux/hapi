@@ -104,8 +104,9 @@ for request/response shapes and error semantics, and `src/web/routes/` for all e
 
 ### Sessions (`src/web/routes/sessions.ts`)
 
-- `GET /api/sessions` - List all sessions. Each summary includes `hasConversationContent`, derived from stored conversation messages (not titles or lifecycle events); full session SSE updates carry changes to this flag.
+- `GET /api/sessions` - List all sessions. The default order is global-pinned, project-pinned, then `lastUserMessageAt ?? createdAt` descending (creation time and ID break ties); `?order=updatedAt` requests pure recency. Each summary includes `hasConversationContent`, derived from stored conversation messages (not titles or lifecycle events); full session SSE updates carry changes to this flag. See the [client contract](../docs/api/client-contract/rest.md) for the wire-level ordering rules.
 - `GET /api/sessions/:id` - Get session details.
+- `PUT /api/sessions/:id/read-state` - Share read receipts and manual unread choices across Web/PWA devices in the same namespace; see the [read-state contract](../docs/api/client-contract/read-state.md).
 - `POST /api/sessions/:id/abort` - Abort session.
 - `POST /api/sessions/:id/switch` - Hand off session control to the web.
 - `POST /api/sessions/:id/resume` - Resume inactive session.
@@ -153,6 +154,10 @@ for request/response shapes and error semantics, and `src/web/routes/` for all e
 - `GET /api/usage/summary` - Get cache-aware token usage for the owner namespace (`range=7d|30d|all`).
 - `GET /api/usage/popular-models` - Rank executor/model pairs by distinct chats used in the last seven days, within the authenticated namespace. Reads the persisted SQLite usage index, updated when messages arrive. Empty chats are excluded; Standard/Fast variants share one model count. Legacy or rewritten history is indexed in background batches, then reused across hub restarts. No agent/model requests or daily cache files are needed.
 
+### Activity (`src/web/routes/activity.ts`)
+
+- `GET /api/activity` - When agents in the caller's namespace were working (`since`/`until` epoch ms, default last 24 h, max 31 days): each session's turns from the `session_turns` table, plus the permission prompts and questions it waited on. Used by `hapi usage`.
+
 ### Storage (`src/web/routes/storage.ts`)
 
 - `GET /api/storage/sqlite` - SQLite database/WAL/SHM sizes for the owner namespace.
@@ -173,6 +178,10 @@ for request/response shapes and error semantics, and `src/web/routes/` for all e
   the editor mailbox (`~/.local/share/code-local/hapi-open/requests/`, overridable via
   `HAPI_EDITOR_MAILBOX_DIR`). Returns `{ "opened": true }` once an editor window claims
   it, or `404 { "code": "no-window" }` when no window holds the project.
+For inactive sessions, including archived sessions, these read-only file and Git operations fall back to
+the matching online Runner when it advertises `workspace-file-access`. The
+Runner reads the current workspace under its configured roots; HAPI does not
+copy or snapshot files during archive.
 
 ### Events (`src/web/routes/events.ts`)
 

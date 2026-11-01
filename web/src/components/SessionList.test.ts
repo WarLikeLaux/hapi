@@ -5,10 +5,9 @@ import { isNewEmptySession } from '@/lib/freshSidebarChats'
 import {
     deduplicateSessionsByAgentId,
     expandSelectedSessionCollapseOverrides,
+    groupSessionsByDirectory,
     filterActiveSessionsOnly,
-    filterUnreadSessionsOnly,
     UNKNOWN_MACHINE_ID,
-    bucketRunningSessions,
     getSessionTimeRange,
     getNextSessionVisibleCount,
     getPullRefreshIndicatorRotation,
@@ -450,6 +449,7 @@ describe('getVisibleSessionPreview', () => {
     it('keeps selected and pending sessions inside the collapsed preview without promoting them', () => {
         const sessions = Array.from({ length: 6 }, (_, index) => makeSession({
             id: `s-${index + 1}`,
+            active: index === 4,
             pendingRequestsCount: index === 4 ? 1 : 0,
             metadata: { path: '/work/hapi' },
             updatedAt: 100 - index
@@ -461,6 +461,20 @@ describe('getVisibleSessionPreview', () => {
         })
 
         expect(preview.map(session => session.id)).toEqual(['s-4', 's-5', 's-6'])
+    })
+
+    it('requires active pending rows while ignoring stale requests in archived sessions', () => {
+        const sessions = Array.from({ length: 6 }, (_, index) => makeSession({
+            id: `s-${index + 1}`,
+            active: index < 3,
+            pendingRequestsCount: index < 3 || index >= 4 ? 1 : 0,
+            metadata: { path: '/work/hapi' },
+            updatedAt: 100 - index
+        }))
+
+        const preview = getVisibleSessionPreview(sessions, { limit: 3 })
+
+        expect(preview.map(session => session.id)).toEqual(['s-1', 's-2', 's-3'])
     })
 
     it('does not exceed the limit just because many sessions are active', () => {
@@ -665,62 +679,6 @@ describe('user-authored session ordering', () => {
     })
 })
 
-describe('filterUnreadSessionsOnly', () => {
-    const lastSeen = (id: string): number => {
-        if (id === 'unread') return 1000
-        return 10_000
-    }
-
-    it('keeps only sessions newer than lastSeen; drops seen and selected-only quiet rows stay when selected', () => {
-        const sessions = [
-            makeSession({ id: 'unread', updatedAt: 5000, metadata: { path: '/p' } }),
-            makeSession({ id: 'seen', updatedAt: 1000, metadata: { path: '/p' } }),
-            makeSession({
-                id: 'permission-but-seen',
-                pendingRequestKinds: ['permission'],
-                pendingRequestsCount: 1,
-                updatedAt: 1000,
-                metadata: { path: '/p' },
-            }),
-        ]
-        expect(filterUnreadSessionsOnly(sessions, null, lastSeen).map(s => s.id))
-            .toEqual(['unread'])
-    })
-
-    it('keeps the selected session visible even when it would otherwise filter out', () => {
-        const sessions = [
-            makeSession({ id: 'unread', updatedAt: 5000, metadata: { path: '/p' } }),
-            makeSession({ id: 'selected-quiet', updatedAt: 1000, metadata: { path: '/p' } }),
-        ]
-        expect(filterUnreadSessionsOnly(sessions, 'selected-quiet', lastSeen).map(s => s.id))
-            .toEqual(['unread', 'selected-quiet'])
-    })
-
-    it('composes with machine filter as empty intersection (unread after machine scope stays selected)', () => {
-        // Mirrors SessionList pipeline: unread on visibleSessions, then machine filter.
-        // Machine B selected + only machine A unread → empty list, not "all unread".
-        const sessions = [
-            makeSession({
-                id: 'unread-a',
-                updatedAt: 5000,
-                metadata: { path: '/a', machineId: 'machine-a' },
-            }),
-            makeSession({
-                id: 'seen-b',
-                updatedAt: 1000,
-                metadata: { path: '/b', machineId: 'machine-b' },
-            }),
-        ]
-        const lastSeenById = (id: string) => (id === 'unread-a' ? 0 : 10_000)
-        const unreadFiltered = filterUnreadSessionsOnly(sessions, null, lastSeenById)
-        const machineB = unreadFiltered.filter(
-            session => (session.metadata?.machineId ?? UNKNOWN_MACHINE_ID) === 'machine-b'
-        )
-        expect(unreadFiltered.map(s => s.id)).toEqual(['unread-a'])
-        expect(machineB).toEqual([])
-    })
-})
-
 describe('getNextSessionVisibleCount', () => {
     it('reveals one batch of step size per call', () => {
         expect(getNextSessionVisibleCount(8, 8, 20)).toBe(16)
@@ -792,56 +750,5 @@ describe('getPullRefreshIndicatorRotation', () => {
     it('turns the pull indicator upward once refresh is ready', () => {
         expect(getPullRefreshIndicatorRotation('pulling')).toBe(0)
         expect(getPullRefreshIndicatorRotation('ready')).toBe(180)
-    })
-})
-
-describe('bucketRunningSessions', () => {
-    // tiann/hapi#1820: a keepalive-only session stays `active` (its socket is
-    // genuinely up) but must not read as a ready session in the list.
-    const idle = makeSession({
-        id: 'idle-1',
-        active: true,
-        updatedAt: 10,
-        metadata: { path: '/p', host: 'h', lifecycleState: 'idle' } as SessionSummary['metadata']
-    })
-    const quiet = makeSession({
-        id: 'quiet-1',
-        active: true,
-        updatedAt: 20,
-        metadata: { path: '/p', host: 'h', lifecycleState: 'running' } as SessionSummary['metadata']
-    })
-
-    it('treats legacy idle sessions as active', () => {
-        const buckets = bucketRunningSessions([idle, quiet], true)
-
-        expect(buckets.idle).toHaveLength(0)
-        expect(buckets.active.map((s) => s.id)).toEqual(['quiet-1', 'idle-1'])
-        // Exactly one bucket each — the row must not be duplicated.
-        expect(buckets.working).toHaveLength(0)
-        expect(buckets.pending).toHaveLength(0)
-    })
-
-    it('moves a session out of idle once it is working again', () => {
-        const woken = { ...idle, thinking: true }
-        const buckets = bucketRunningSessions([woken, quiet], true)
-
-        expect(buckets.idle).toHaveLength(0)
-        expect(buckets.working.map((s) => s.id)).toEqual(['idle-1'])
-    })
-
-    it('keeps real work ahead of the idle mark', () => {
-        // An idle-marked session that picked up a background task or a pending
-        // request belongs in its work bucket, not in idle.
-        expect(bucketRunningSessions([{ ...idle, backgroundTaskCount: 1 }], true).working).toHaveLength(1)
-        expect(bucketRunningSessions([{ ...idle, pendingRequestsCount: 1 }], true).pending).toHaveLength(1)
-    })
-
-    it('ignores disconnected and pinned sessions', () => {
-        const buckets = bucketRunningSessions([
-            { ...idle, active: false },
-            { ...idle, id: 'idle-pinned', pinned: true }
-        ], true)
-
-        expect(buckets.idle).toHaveLength(0)
     })
 })

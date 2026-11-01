@@ -17,6 +17,7 @@ import { usePlatform } from '@/hooks/usePlatform'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
 import { CodeIcon, CopyIcon, GitLabIcon } from '@/components/icons'
 import { SESSION_CONTEXTS, type SessionContextId } from '@/lib/sessionContexts'
+import { buildSessionWindowPath } from '@/lib/sessionNavigation'
 
 type SessionActionMenuProps = {
     isOpen: boolean
@@ -199,9 +200,29 @@ function NoContextIcon(props: { className?: string }) {
     )
 }
 
+function OpenWindowIcon(props: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={props.className}
+        >
+            <rect x="3" y="7" width="13" height="13" rx="2" />
+            <rect x="8" y="3" width="13" height="13" rx="2" fill="var(--app-bg)" />
+        </svg>
+    )
+}
+
 export function SessionActionMenu(props: SessionActionMenuProps) {
     const { t } = useTranslation()
-    const { haptic } = usePlatform()
+    const { haptic, isTelegram } = usePlatform()
     const {
         isOpen,
         onClose,
@@ -639,6 +660,20 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         <ContinueInFolderIcon className="text-[var(--app-hint)]" />
                         {t('session.action.continueInFolder')}
                     </button>
+                ) : null}
+
+                {!isTelegram ? (
+                    <a
+                        href={buildSessionWindowPath(sessionId)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        role="menuitem"
+                        className={`${baseItemClassName} hidden split:flex hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={onClose}
+                    >
+                        <OpenWindowIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.openSeparateWindow')}
+                    </a>
                 ) : null}
 
                 {!sessionActive && onMarkUnread ? (

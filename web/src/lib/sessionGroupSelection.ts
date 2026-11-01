@@ -28,7 +28,7 @@ export function getGroupEntrySession(scope: string, group: SessionGroup, session
     const unread = members.find(({ session }) => classifySessionAttention(session, {
         selected: false,
         lastSeenAt: getSessionLastSeenAt(session.id),
-        manualUnreadAt: getSessionManualUnreadAt(session.id),
+        manualUnreadAt: getSessionManualUnreadAt(session.id, session.readState),
     })?.kind === 'unread')
     if (unread) return unread.sessionId
 

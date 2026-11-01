@@ -23,6 +23,7 @@ export type OlderLoadOutcome =
     }
 
 export type MessageWindowState = {
+    readThroughRevision?: number
     sessionId: string
     messages: DecryptedMessage[]
     hasMore: boolean
@@ -408,7 +409,7 @@ function cachedCharacterSize(messages: DecryptedMessage[]): number {
 }
 
 function compactCachedTail(previous: InternalState): InternalState {
-    let { kept } = trimToUnitBudget(previous.messages, CACHE_UNIT_BUDGET, 'append')
+    let { kept, oldest: oldestKept } = trimToUnitBudget(previous.messages, CACHE_UNIT_BUDGET, 'append')
     let partialCoverage = previous.requiresLatestReset
     if (cachedCharacterSize(kept) > CACHE_CHARACTER_BUDGET) {
         // The final text stays complete. Intermediate tool/stream records can
@@ -418,13 +419,13 @@ function compactCachedTail(previous: InternalState): InternalState {
         partialCoverage ||= compacted.length !== kept.length
         kept = compacted
         for (let units = CACHE_UNIT_BUDGET - 1; units >= 2 && cachedCharacterSize(kept) > CACHE_CHARACTER_BUDGET; units--) {
-            kept = trimToUnitBudget(kept, units, 'append').kept
+            ;({ kept, oldest: oldestKept } = trimToUnitBudget(kept, units, 'append'))
         }
         // The latest prompt and complete answer may exceed the soft budget.
         // Prefer instant access to that answer over truncating its text.
     }
     const dropped = kept.length !== previous.messages.length
-    const oldest = dropped ? derivePosition(kept, 'oldest') : readPosition(previous.oldestPositionAt, previous.oldestPositionSeq)
+    const oldest = dropped ? oldestKept : readPosition(previous.oldestPositionAt, previous.oldestPositionSeq)
     return buildState(previous, {
         messages: kept,
         viewMode: 'tail',
@@ -513,6 +514,7 @@ function getNewestCursor(state: InternalState): MessagePosition | null {
 function buildState(
     previous: InternalState,
     updates: Partial<Pick<InternalState,
+        | 'readThroughRevision'
         | 'messages'
         | 'hasMore'
         | 'epoch'
@@ -649,11 +651,37 @@ function countConversationUnits(messages: DecryptedMessage[]): number {
  * mode) or oldest (prepend mode) `maxUnits` units survive; queued messages are
  * always kept and codex agent-run cards keep their own record budget.
  */
+/** Pick the dropped Agent/Task tool calls that spawned sidechain rows still in
+ *  the window. The tracer can only attach sidechain rows to their parent card,
+ *  so trimming the parent away hides every row of a long subagent run and can
+ *  leave the tail showing a single message. */
+function findDroppedSubagentParents(
+    kept: DecryptedMessage[],
+    dropped: DecryptedMessage[]
+): DecryptedMessage[] {
+    if (dropped.length === 0) return []
+    const parentToolUseIds = new Set<string>()
+    for (const message of kept) {
+        const normalized = normalizeDecryptedMessage(message)
+        if (normalized?.isSidechain && normalized.parentToolUseId) {
+            parentToolUseIds.add(normalized.parentToolUseId)
+        }
+    }
+    if (parentToolUseIds.size === 0) return []
+    return dropped.filter((message) => {
+        const normalized = normalizeDecryptedMessage(message)
+        return normalized?.role === 'agent' && normalized.content.some((content) => (
+            content.type === 'tool-call' && parentToolUseIds.has(content.id)
+        ))
+    })
+}
+
+
 function trimToUnitBudget(
     incoming: DecryptedMessage[],
     maxUnits: number,
     mode: 'append' | 'prepend'
-): { kept: DecryptedMessage[]; dropped: DecryptedMessage[] } {
+): { kept: DecryptedMessage[]; dropped: DecryptedMessage[]; oldest: MessagePosition | null } {
     const messages = dropSupersededReasoningSnapshots(incoming)
     const queued = messages.filter(isQueuedForInvocation)
     const queuedIds = new Set(queued.map((message) => message.id))
@@ -665,9 +693,14 @@ function trimToUnitBudget(
         ? { kept: regular.slice(cutoffIndex), dropped: regular.slice(0, cutoffIndex) }
         : { kept: regular.slice(0, cutoffIndex), dropped: regular.slice(cutoffIndex) }
     const agentRunTrim = sliceForTrim(agentRuns, AGENT_RUN_WINDOW_SIZE, mode)
+    const window = mergeMessages([...regularTrim.kept, ...agentRunTrim.kept], queued)
+    const parents = findDroppedSubagentParents(window, regularTrim.dropped)
+    const parentIds = new Set(parents.map(message => message.id))
     return {
-        kept: mergeMessages([...regularTrim.kept, ...agentRunTrim.kept], queued),
-        dropped: [...regularTrim.dropped, ...agentRunTrim.dropped]
+        kept: parents.length > 0 ? mergeMessages(window, parents) : window,
+        dropped: [...regularTrim.dropped.filter(message => !parentIds.has(message.id)), ...agentRunTrim.dropped],
+        // Parent context can sit before a gap; paginate from the contiguous window.
+        oldest: derivePosition(window, 'oldest')
     }
 }
 
@@ -836,7 +869,7 @@ function mergeIntoWindow(
     const budgetUnits = options.budgetUnits
         ?? (previous.viewMode === 'history' ? HISTORY_UNIT_BUDGET : TAIL_UNIT_BUDGET)
     const merged = mergeMessages(previous.messages, retainedIncoming)
-    const { kept, dropped } = trimToUnitBudget(merged, budgetUnits, mode)
+    const { kept, dropped, oldest: oldestKept } = trimToUnitBudget(merged, budgetUnits, mode)
     let next = buildState(previous, {
         messages: kept,
         ...(options.advanceTailRevision
@@ -847,7 +880,7 @@ function mergeIntoWindow(
         return next
     }
     if (mode === 'append') {
-        const oldest = derivePosition(kept, 'oldest')
+        const oldest = oldestKept
         return buildState(next, {
             hasMore: true,
             oldestPositionAt: oldest?.at ?? next.oldestPositionAt,
@@ -906,19 +939,21 @@ function applyLatestResponse(
     const incoming = mergeMessages(authoritative, concurrentServerRows)
     const budgetUnits = options.budgetUnits ?? TAIL_UNIT_BUDGET
     const trimMode = options.trimMode ?? 'append'
-    const { kept, dropped } = trimToUnitBudget(incoming, budgetUnits, trimMode)
+    const { kept, dropped, oldest: oldestKept } = trimToUnitBudget(incoming, budgetUnits, trimMode)
     const bumpTailRevision = options.bumpTailRevision ?? true
     const snapshotHead = pagePosition(response.page.snapshotHeadAt, response.page.snapshotHeadSeq)
         ?? derivePosition(response.messages, 'newest')
     const responseOldest = pagePosition(response.page.nextBeforeAt, response.page.nextBeforeSeq)
     const previousOldest = readPosition(previous.oldestPositionAt, previous.oldestPositionSeq)
     const oldest = dropped.length > 0
-        ? derivePosition(kept, 'oldest')
+        ? oldestKept
         : options.replaceServerRows
             ? responseOldest
             : responseOldest ?? previousOldest
     const next = buildState(previous, {
         messages: kept,
+        readThroughRevision: Math.max(previous.readThroughRevision ?? 0, response.page.readThroughRevision ?? 0,
+            ...kept.map(message => message.contentRevision ?? 0)),
         hasMore: response.page.hasMore || (!options.replaceServerRows && previous.hasMore) || dropped.length > 0,
         epoch: response.page.epoch,
         oldestPositionAt: oldest?.at ?? null,
@@ -1064,6 +1099,8 @@ async function runTailSync(api: ApiClient, sessionId: string): Promise<void> {
                     ? (comparePosition(nextAfter, currentNewest) >= 0 ? nextAfter : currentNewest)
                     : nextAfter ?? currentNewest
                 return buildState(merged, {
+                    readThroughRevision: Math.max(merged.readThroughRevision ?? 0, response.page.readThroughRevision ?? 0,
+                        ...merged.messages.map(message => message.contentRevision ?? 0)),
                     epoch: response.page.epoch,
                     newestPositionAt: newest?.at ?? null,
                     newestPositionSeq: newest?.seq ?? null,
@@ -1237,10 +1274,10 @@ function enterTailMode(previous: InternalState): InternalState {
     if (previous.viewMode === 'history' && previous.requiresLatestReset && tail) {
         previous = restoreCachedTail(previous, tail)
     }
-    const { kept, dropped } = trimToUnitBudget(previous.messages, TAIL_UNIT_BUDGET, 'append')
+    const { kept, dropped, oldest: oldestKept } = trimToUnitBudget(previous.messages, TAIL_UNIT_BUDGET, 'append')
     const forceLatest = previous.requiresLatestReset
     const oldest = dropped.length > 0
-        ? derivePosition(kept, 'oldest')
+        ? oldestKept
         : readPosition(previous.oldestPositionAt, previous.oldestPositionSeq)
     return buildState(previous, {
         messages: kept,
@@ -1485,9 +1522,14 @@ export function ingestIncomingMessages(sessionId: string, incoming: DecryptedMes
         })))
     }
     // Live events can arrive after a missed interval or ahead of a REST page. Display them immediately, but only REST can certify a covered cursor.
-    updateState(sessionId, (previous) => mergeIntoWindow(previous, incoming, {
-        advanceTailRevision: true
-    }))
+    updateState(sessionId, (previous) => {
+        const merged = mergeIntoWindow(previous, incoming, { advanceTailRevision: true })
+        if (merged.epoch === null || merged.requiresLatestReset) return merged
+        return buildState(merged, {
+            readThroughRevision: merged.readThroughRevision === undefined ? undefined
+                : Math.max(merged.readThroughRevision, ...incoming.map(message => message.contentRevision ?? 0))
+        })
+    })
 }
 
 export function getMessageWindowState(sessionId: string): MessageWindowState {
@@ -1589,7 +1631,7 @@ export function seedMessageWindowFromSession(fromSessionId: string, toSessionId:
     const source = getState(fromSessionId)
     const target = getState(toSessionId)
     const seeded = buildState(createState(toSessionId), {
-        messages: [...source.messages],
+        messages: source.messages.map(message => ({ ...message, contentRevision: undefined })),
         hasMore: source.hasMore,
         tailRevision: source.tailRevision,
         oldestPositionAt: source.oldestPositionAt,

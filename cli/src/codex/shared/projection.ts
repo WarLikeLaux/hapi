@@ -1,3 +1,4 @@
+import { CodexRoundDuration } from '../utils/roundDuration';
 import { createHash } from 'node:crypto';
 import type { ApiSessionClient } from '@/api/apiSession';
 import { applySessionDisplayRename, normalizeSessionDisplayTitle } from '@/agent/sessionDisplayRename';
@@ -6,6 +7,7 @@ import { AppServerEventConverter } from '../utils/appServerEventConverter';
 import { record, string } from './gateway';
 import { codexPlanProposalId } from './plan';
 import { asyncQuestionForItem, asyncQuestionAnswerId, asyncQuestionAnswerDisplay, parseAsyncQuestionAnswer } from './asyncQuestions';
+import { CodexCompactionSummaryLookup } from '../utils/codexCompactionSummary';
 
 export function inputText(input: unknown): string {
     if (!Array.isArray(input)) return '';
@@ -40,6 +42,7 @@ function metadataHasDisplayTitle(metadata: { name?: string; summary?: { text: st
 /** Canonical V2 stream only. Stable message IDs also deduplicate snapshot replay at the hub. */
 export class SharedCodexProjection {
     private converter = new AppServerEventConverter();
+    private readonly roundDuration = new CodexRoundDuration();
     private readonly emitted = new Set<string>();
     private readonly turns = new Map<string, string>();
     private readonly turnModels = new Map<string, string>();
@@ -56,9 +59,13 @@ export class SharedCodexProjection {
     private turnStaleAsyncQuestionIds = new Set<string>();
     private pendingAsyncQuestionIds = new Set<string>();
     private asyncQuestionsInitialized = false;
+    private readonly compactionSummaries: CodexCompactionSummaryLookup;
+    private summaryThread: unknown;
     constructor(private readonly session: ApiSessionClient, readonly threadId: string,
         private readonly committed: (id: string, invokedAt?: number) => Promise<void>, private readonly parentThreadId?: string,
-        private readonly acceptedAsyncAnswer: (questionId: string) => Record<string, { answers: string[] }> | undefined = () => undefined) {
+        private readonly acceptedAsyncAnswer: (questionId: string) => Record<string, { answers: string[] }> | undefined = () => undefined,
+        private readonly readSummaryThread?: () => Promise<unknown>) {
+        this.compactionSummaries = new CodexCompactionSummaryLookup(threadId);
         if (!parentThreadId) for (const [id, turn] of Object.entries(session.getMetadata()?.conversationHistoryTurns ?? {})) this.turns.set(id, turn);
     }
 
@@ -131,7 +138,7 @@ export class SharedCodexProjection {
         }, options) }, request.title, { pin: request.pin });
     }
 
-    async notification(method: string, params: unknown, modelAtReceipt?: string): Promise<void> {
+    async notification(method: string, params: unknown, modelAtReceipt?: string, receivedAt = Date.now()): Promise<void> {
         const p = record(params);
         const item = record(p.item);
         if (!this.parentThreadId && p.threadId === this.threadId && string(item.id)) {
@@ -163,13 +170,25 @@ export class SharedCodexProjection {
             }
         }
         await this.project(method, params, modelAtReceipt);
+        if (p.threadId === this.threadId && !this.parentThreadId) {
+            const turn = record(p.turn);
+            const turnId = string(turn.id);
+            if (method === 'turn/started') this.roundDuration.start(turnId, receivedAt);
+            if (method === 'turn/completed') {
+                const duration = this.roundDuration.finish(turnId, receivedAt, turn.status === 'completed');
+                if (duration) this.send(duration, `duration:${turnId}`);
+            }
+        }
     }
 
-    private async project(method: string, params: unknown, modelAtReceipt?: string, publish = true): Promise<void> {
+    private async project(method: string, params: unknown, modelAtReceipt?: string, publish = true, fromHistory = false): Promise<void> {
         if (method.startsWith('codex/event/')) return;
         const p = record(params);
         const item = record(p.item);
         const turnId = string(p.turnId) ?? string(record(p.turn).id);
+        const send = (body: Record<string, unknown>, key: string, publishMessage = publish) => this.send({
+            ...body, ...(turnId ? { turn_id: turnId } : {})
+        }, key, publishMessage);
         // Settings may already describe the next turn by the time queued
         // notifications are projected. Never attribute usage to that model.
         if (turnId && method === 'turn/started' && modelAtReceipt && !this.turnModels.has(turnId)) {
@@ -199,7 +218,7 @@ export class SharedCodexProjection {
             }
         }
         if (this.parentThreadId && (method === 'turn/started' || method === 'turn/completed')) {
-            this.send({ type: 'agent-run-update', agentId: this.threadId, cardId: `codex-agent:${this.threadId}`,
+            send({ type: 'agent-run-update', agentId: this.threadId, cardId: `codex-agent:${this.threadId}`,
                 status: method === 'turn/started' ? 'running' : record(p.turn).status === 'completed' ? 'completed' : 'failed'
             }, `lifecycle:${turnId}:${method}`, publish);
         }
@@ -231,37 +250,67 @@ export class SharedCodexProjection {
         for (const event of events) {
             const callId = string(event.call_id);
             const key = `${turnId ?? 'thread'}:${itemId ?? callId ?? createHash('sha256').update(JSON.stringify(event)).digest('hex')}:${event.type}`;
-            if (event.type === 'agent_message') this.send({ type: 'message', message: event.message }, key, publish);
-            else if (event.type === 'agent_reasoning') this.send({ type: 'reasoning', message: event.text }, key, publish);
+            if (event.type === 'agent_message') send({ type: 'message', message: event.message }, key);
+            else if (event.type === 'agent_reasoning') send({ type: 'reasoning', message: event.text }, key);
             else if (event.type === 'exec_command_begin' && callId) {
-                this.send({ type: 'tool-call', name: 'CodexBash', callId, input: event }, key, publish);
+                send({ type: 'tool-call', name: 'CodexBash', callId, input: event }, key);
             } else if (event.type === 'exec_command_end' && callId) {
-                this.send({ type: 'tool-call-result', callId, output: { ...event, stdout: event.output } }, key, publish);
+                const failed = ['failed', 'cancelled', 'canceled', 'declined', 'interrupted'].includes(String(event.status))
+                    || (typeof event.exit_code === 'number' && event.exit_code !== 0)
+                    || Boolean(event.error);
+                send({ type: 'tool-call-result', callId, output: { ...event, stdout: event.output }, is_error: failed }, key);
             } else if (event.type === 'patch_apply_begin' && callId) {
-                this.send({ type: 'tool-call', name: 'CodexPatch', callId, input: { changes: event.changes, auto_approved: event.auto_approved } }, key, publish);
+                send({ type: 'tool-call', name: 'CodexPatch', callId, input: { changes: event.changes, auto_approved: event.auto_approved } }, key);
             } else if (event.type === 'patch_apply_end' && callId) {
-                this.send({ type: 'tool-call-result', callId, output: { stdout: event.stdout, stderr: event.stderr, success: event.success } }, key, publish);
+                send({ type: 'tool-call-result', callId, output: { stdout: event.stdout, stderr: event.stderr, success: event.success } }, key);
             } else if (event.type === 'mcp_tool_call_begin' && callId) {
                 const invocation = record(event.invocation);
-                this.send({ type: 'tool-call', name: `mcp__${invocation.server}__${invocation.tool}`, callId, input: invocation.arguments ?? {} }, key, publish);
+                send({ type: 'tool-call', name: `mcp__${invocation.server}__${invocation.tool}`, callId, input: invocation.arguments ?? {} }, key);
             } else if (event.type === 'mcp_tool_call_end' && callId) {
                 const result = record(event.result);
-                this.send({ type: 'tool-call-result', callId, output: result.Ok ?? result.Err ?? event.result, is_error: 'Err' in result }, key, publish);
+                send({ type: 'tool-call-result', callId, output: result.Ok ?? result.Err ?? event.result, is_error: 'Err' in result }, key);
             } else if (event.type === 'codex_tool_call_begin' && callId) {
-                this.send({ type: 'tool-call', name: event.name, callId, input: event.input ?? event.arguments }, key, publish);
+                send({ type: 'tool-call', name: event.name, callId, input: event.input ?? event.arguments }, key);
             } else if (event.type === 'codex_tool_call_end' && callId) {
-                this.send({ type: 'tool-call-result', callId, output: event.output, is_error: event.is_error }, key, publish);
-            } else if (event.type === 'token_count' || event.type === 'context_compacted' || event.type.startsWith('thread_goal_')) {
+                send({ type: 'tool-call-result', callId, output: event.output, is_error: event.is_error }, key);
+            } else if (event.type === 'compaction_started') {
+                // History replay re-projects every completed item's start;
+                // a finished compaction must not announce a live status.
+                if (fromHistory) continue;
+                if (this.parentThreadId) {
+                    send({ type: 'compaction_started', statusText: '📦 Compaction started' }, key);
+                } else {
+                    // Status UI listens on session events; an agent message
+                    // would render as a normal assistant bubble instead.
+                    // Dedup is in-memory only (this.emitted set).
+                    if (this.emitted.has(key)) continue;
+                    this.emitted.add(key);
+                    this.session.sendSessionEvent({ type: 'message', message: '📦 Compaction started' });
+                }
+            } else if (event.type === 'context_compacted') {
+                if (!fromHistory && this.readSummaryThread) {
+                    try { this.summaryThread = await this.readSummaryThread(); } catch { this.summaryThread = undefined; }
+                }
+                const compact = turnId && itemId ? await this.compactionSummaries.find(this.summaryThread, turnId, itemId, fromHistory ? { attempts: 1 } : undefined) : null;
+                if (compact) {
+                    // A distinct durable ID can enrich a previously stored boundary.
+                    // Clients fold it back into that exact compaction's original position.
+                    send({ type: 'compact-summary', ...compact, summary: compact.summary ?? '', compactionId: `codex:${this.threadId}:${key}` }, `${key}:summary`);
+                } else {
+                    send({ ...event, flavor: 'codex', scope: { role: 'parent', threadId: this.threadId }, scope_role: 'parent', thread_id: this.threadId }, key);
+                }
+            } else if (event.type === 'token_count' || event.type.startsWith('thread_goal_')) {
                 const model = event.type === 'token_count' && turnId ? this.turnModels.get(turnId) : undefined;
-                this.send({ ...event, ...(model ? { model } : {}), flavor: 'codex', scope: { role: 'parent', threadId: this.threadId }, scope_role: 'parent', thread_id: this.threadId }, key, publish);
+                send({ ...event, ...(model ? { model } : {}), flavor: 'codex', scope: { role: 'parent', threadId: this.threadId }, scope_role: 'parent', thread_id: this.threadId }, key);
             } else if (event.type === 'proposed_plan' && turnId && itemId) {
                 const planId = codexPlanProposalId(this.threadId, turnId, itemId);
-                this.send({ type: 'tool-call', name: 'ExitPlanMode', callId: planId, input: { plan: event.plan } }, key, publish);
+                send({ type: 'tool-call', name: 'ExitPlanMode', callId: planId, input: { plan: event.plan } }, key);
                 // A proposal is durable content, not a native approval request.
-                this.send({ type: 'tool-call-result', callId: planId, output: null }, `${key}:result`, publish);
+                send({ type: 'tool-call-result', callId: planId, output: null }, `${key}:result`);
             } else if (event.type === 'plan_update') {
-                this.send({ type: 'tool-call', name: 'update_plan', callId: 'codex-plan-state', input: { plan: event.plan, source: 'codex' } }, key, publish);
-                this.send({ type: 'tool-call-result', callId: 'codex-plan-state', output: { plan: event.plan, source: 'codex', status: 'updated' } }, `${key}:result`, publish);
+                const callId = turnId ? `codex-plan-state:${turnId}` : 'codex-plan-state';
+                send({ type: 'tool-call', name: 'update_plan', callId, input: { plan: event.plan, source: 'codex' } }, key);
+                send({ type: 'tool-call-result', callId, output: { plan: event.plan, source: 'codex', status: 'updated' } }, `${key}:result`);
             } else if (event.type === 'generated_image' && typeof event.saved_path === 'string') {
                 if (!publish) this.emitted.add(key);
                 else {
@@ -269,14 +318,14 @@ export class SharedCodexProjection {
                     if (image) this.send({ type: 'generated-image', imageId: image.id, fileName: image.fileName, mimeType: image.mimeType }, key);
                 }
             } else if (event.type === 'task_failed') {
-                this.send({ type: 'message', message: `Codex error: ${event.error ?? event.message ?? 'Turn failed'}` }, key, publish);
+                send({ type: 'message', message: `Codex error: ${event.error ?? event.message ?? 'Turn failed'}` }, key);
             }
         }
         if (item.type === 'collabAgentToolCall') {
             const states = record(item.agentsStates);
             for (const [agentId, state] of Object.entries(states)) {
                 const status = string(record(state).status) ?? 'running';
-                this.send({ type: 'agent-run-update', agentId, cardId: `codex-agent:${agentId}`,
+                send({ type: 'agent-run-update', agentId, cardId: `codex-agent:${agentId}`,
                     status: status === 'completed' ? 'completed' : status === 'errored' ? 'failed' : 'running',
                     summary: record(state).message, input: item, scope: { role: 'child', threadId: agentId, parentThreadId: this.threadId }, scope_role: 'child', thread_id: agentId
                 }, `agent:${agentId}:${itemId}:${method}:${JSON.stringify(state)}`, publish);
@@ -285,6 +334,7 @@ export class SharedCodexProjection {
     }
 
     async history(thread: unknown, publish = true): Promise<void> {
+        if (record(thread).id === this.threadId) this.summaryThread = thread;
         const turns = record(thread).turns;
         if (!Array.isArray(turns)) return;
         if (!this.parentThreadId) {
@@ -344,7 +394,7 @@ export class SharedCodexProjection {
                 if (!this.parentThreadId && string(record(item).id) && pendingTitle && !this.completedTitles.has(titleKey)) {
                     this.pendingTitles.set(titleKey, pendingTitle);
                 }
-                await this.project('item/started', params, undefined, publish);
+                await this.project('item/started', params, undefined, publish, true);
                 // Active snapshots can contain partial assistant text. Do not
                 // settle it under the final stable id and suppress completion.
                 if (turn.status !== 'inProgress' || record(item).status === 'completed' || record(item).type === 'userMessage'
@@ -357,7 +407,7 @@ export class SharedCodexProjection {
                         }
                         this.pendingTitles.delete(titleKey);
                     }
-                    await this.project('item/completed', params, undefined, publish);
+                    await this.project('item/completed', params, undefined, publish, true);
                 }
             }
         }
