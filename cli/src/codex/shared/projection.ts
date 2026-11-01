@@ -46,6 +46,7 @@ export class SharedCodexProjection {
     private readonly emitted = new Set<string>();
     private readonly turns = new Map<string, string>();
     private readonly turnModels = new Map<string, string>();
+    private readonly turnServiceTiers = new Map<string, string>();
     // Unlike transcript emission, title side effects survive reset/replay.
     private readonly pendingTitles = new Map<string, RequestedTitle>();
     private readonly completedTitles = new Set<string>();
@@ -138,7 +139,7 @@ export class SharedCodexProjection {
         }, options) }, request.title, { pin: request.pin });
     }
 
-    async notification(method: string, params: unknown, modelAtReceipt?: string, receivedAt = Date.now()): Promise<void> {
+    async notification(method: string, params: unknown, modelAtReceipt?: string, receivedAt = Date.now(), tierAtReceipt?: string): Promise<void> {
         const p = record(params);
         const item = record(p.item);
         if (!this.parentThreadId && p.threadId === this.threadId && string(item.id)) {
@@ -169,7 +170,7 @@ export class SharedCodexProjection {
                 }
             }
         }
-        await this.project(method, params, modelAtReceipt);
+        await this.project(method, params, modelAtReceipt, true, false, tierAtReceipt);
         if (p.threadId === this.threadId && !this.parentThreadId) {
             const turn = record(p.turn);
             const turnId = string(turn.id);
@@ -181,7 +182,7 @@ export class SharedCodexProjection {
         }
     }
 
-    private async project(method: string, params: unknown, modelAtReceipt?: string, publish = true, fromHistory = false): Promise<void> {
+    private async project(method: string, params: unknown, modelAtReceipt?: string, publish = true, fromHistory = false, tierAtReceipt?: string): Promise<void> {
         if (method.startsWith('codex/event/')) return;
         const p = record(params);
         const item = record(p.item);
@@ -193,6 +194,9 @@ export class SharedCodexProjection {
         // notifications are projected. Never attribute usage to that model.
         if (turnId && method === 'turn/started' && modelAtReceipt && !this.turnModels.has(turnId)) {
             this.turnModels.set(turnId, modelAtReceipt);
+        }
+        if (turnId && method === 'turn/started' && tierAtReceipt && !this.turnServiceTiers.has(turnId)) {
+            this.turnServiceTiers.set(turnId, tierAtReceipt);
         }
         if (turnId && method === 'model/rerouted' && string(p.toModel)) {
             this.turnModels.set(turnId, string(p.toModel)!);
@@ -301,7 +305,8 @@ export class SharedCodexProjection {
                 }
             } else if (event.type === 'token_count' || event.type.startsWith('thread_goal_')) {
                 const model = event.type === 'token_count' && turnId ? this.turnModels.get(turnId) : undefined;
-                send({ ...event, ...(model ? { model } : {}), flavor: 'codex', scope: { role: 'parent', threadId: this.threadId }, scope_role: 'parent', thread_id: this.threadId }, key);
+                const serviceTier = event.type === 'token_count' && turnId ? this.turnServiceTiers.get(turnId) : undefined;
+                send({ ...event, ...(model ? { model } : {}), ...(serviceTier ? { service_tier: serviceTier } : {}), flavor: 'codex', scope: { role: 'parent', threadId: this.threadId }, scope_role: 'parent', thread_id: this.threadId }, key);
             } else if (event.type === 'proposed_plan' && turnId && itemId) {
                 const planId = codexPlanProposalId(this.threadId, turnId, itemId);
                 send({ type: 'tool-call', name: 'ExitPlanMode', callId: planId, input: { plan: event.plan } }, key);

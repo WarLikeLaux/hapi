@@ -9,6 +9,7 @@ import type { PermissionModeTone } from '@hapi/protocol'
 import * as Popover from '@radix-ui/react-popover'
 import { useEffect, useMemo, useState } from 'react'
 import type { TurnMetrics } from '@/chat/turnMetrics'
+import { formatCodexCredits } from '@/chat/codexCredits'
 import type { AgentState, CodexCollaborationMode, PermissionMode } from '@/types/api'
 import type { ConversationStatus } from '@/realtime/types'
 import { getContextBudgetTokens } from '@/chat/modelConfig'
@@ -255,6 +256,7 @@ export function StatusBar(props: {
     const duration = props.thinking && props.turnMetrics
         ? Math.max(0, now - props.turnMetrics.startedAt)
         : props.turnMetrics?.durationMs
+    const creditLabel = props.turnMetrics?.credits !== undefined ? `${formatCodexCredits(props.turnMetrics.credits * 100)} credits` : null
     const durationSeconds = duration === undefined ? null : Math.floor(duration / 1000)
     const durationLabel = durationSeconds === null ? null : durationSeconds >= 3600
         ? `${Math.floor(durationSeconds / 3600)}h ${Math.floor((durationSeconds % 3600) / 60)}m`
@@ -268,12 +270,12 @@ export function StatusBar(props: {
                     />
                     {showMetrics ? (
                         <span data-testid="turn-metrics" className={`inline-flex items-center gap-2 whitespace-nowrap text-xs leading-4 tabular-nums ${connectionStatus.color}`}
-                            aria-label={[connectionStatus.text, durationLabel, props.turnMetrics?.tokens !== undefined ? `${formatTokenCount(props.turnMetrics.tokens)} tokens` : null].filter(Boolean).join(' ')}>
-                            {!durationLabel && props.turnMetrics?.tokens === undefined ? <span>{connectionStatus.text}</span> : null}
+                            aria-label={[connectionStatus.text, durationLabel, creditLabel ? `${creditLabel} (allowance equivalent)` : null].filter(Boolean).join(' ')}>
+                            {!durationLabel && !creditLabel ? <span>{connectionStatus.text}</span> : null}
                             {durationLabel ? <span>{durationLabel}</span> : null}
-                            {props.turnMetrics?.tokens !== undefined ? <>
+                            {creditLabel ? <>
                                 {durationLabel ? <span aria-hidden="true" className="h-3 w-px bg-[var(--app-border)]" /> : null}
-                                <span>{formatTokenCount(props.turnMetrics.tokens)} tokens</span>
+                                <span title="Estimated allowance equivalent multiplied by 100; not credits charged">{creditLabel}</span>
                             </> : null}
                         </span>
                     ) : <span className={`whitespace-nowrap text-xs ${displayedStatus.color}`}>{displayedStatus.text}</span>}
