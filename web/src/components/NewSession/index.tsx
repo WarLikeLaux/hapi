@@ -63,6 +63,7 @@ import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
 import { ModelChoices, modelChoiceLabel, type ModelChoice } from './ModelChoices'
 import { ChoiceLabel } from './ChoiceLabel'
+import { EffortChips } from './EffortChips'
 import { useNarrowViewport } from '@/hooks/useNarrowViewport'
 import { OpencodeImportActions } from './OpencodeImportActions'
 import { OpencodeSessionImportDialog } from '@/components/OpencodeSessionImportDialog'
@@ -778,7 +779,7 @@ export function NewSession(props: {
     const agyModelsState = useAgyModels({
         api: props.api,
         machineId,
-        enabled: agent === 'agy' && Boolean(machineId)
+        enabled: availableAgents.includes('agy') && Boolean(machineId)
     })
     const agyGroups = useMemo(() => {
         const groups = new Map<string, { value: string; label: string; variants: Array<{ id: string; effort: string }> }>()
@@ -2363,7 +2364,8 @@ export function NewSession(props: {
                     onClear={() => setSelectedPiImportSessionId(null)}
                 />
             ) : null}
-            {!props.editor && agent === 'opencode' ? (
+            {/* Fork: keep OpenCode import plumbing dormant while its entry point is hidden. */}
+            {false && !props.editor && agent === 'opencode' ? (
                 <OpencodeImportActions
                     selectedSession={selectedOpencodeImportSession}
                     isLoading={isLoadingOpencodeImportSessions}
@@ -2415,14 +2417,11 @@ export function NewSession(props: {
                 onModelChange={setModel}
             /> : null}
             {agent === 'codex' && codexModelsState.error ? <p role="alert" className="px-3 py-2 text-sm text-red-600">{t('newSession.model.loadFailed')}: {codexModelsState.error}</p> : null}
-            <div className={showCodexFastMode || cursorSpeedOptions ? 'divide-y divide-[var(--app-divider)] lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:divide-x lg:divide-y-0' : ''}>
-            {!modelPreferences.loading && agent === 'agy' && agyGroup?.variants.length ? <section className="flex min-w-0 flex-wrap items-center gap-2 p-2 sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.effort')}>
+            <div className={showCodexFastMode || cursorSpeedOptions ? 'flex flex-col divide-y divide-[var(--app-divider)] lg:flex-row lg:flex-wrap lg:divide-y-0' : ''}>
+            {!modelPreferences.loading && agent === 'agy' && agyGroup?.variants.length ? <section className="flex min-w-0 items-center gap-2 p-2 sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.effort')}>
                 <ChoiceLabel kind="effort" />
-                {agyGroup.variants.map(variant => <button key={variant.id} type="button" aria-pressed={agyWire === variant.id}
-                    onClick={() => { agyModelPickedByUserRef.current = true; setAgySelectedModel(variant.id) }}
-                    className={`rounded-full border px-2.5 py-1 text-xs ${agyWire === variant.id ? 'border-[var(--app-link)] bg-[var(--app-link)] text-[var(--app-bg)]' : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)]'}`}>
-                    {formatCodexReasoningEffortLabel(variant.effort)}
-                </button>)}
+                <EffortChips options={agyGroup.variants.map(variant => ({ value: variant.id, label: formatCodexReasoningEffortLabel(variant.effort) }))}
+                    value={agyWire} disabled={isFormDisabled} onChange={value => { agyModelPickedByUserRef.current = true; setAgySelectedModel(value) }} />
             </section> : null}
             {showPiLaunchConfig && !(agent === 'claude' && (claudeGlmBranded || claudeEffortLevels?.length === 0)) ? (
                 <EffortField

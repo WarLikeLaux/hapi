@@ -2,7 +2,7 @@ import { useTranslation } from '@/lib/use-translation'
 
 export function ChoiceLabel({ kind }: { kind: 'agent' | 'model' | 'effort' | 'speed' }) {
     const { t } = useTranslation()
-    return <span aria-hidden="true" className="hidden w-[72px] shrink-0 items-center justify-start gap-1.5 self-stretch border-r border-[var(--app-divider)] pr-2 text-xs font-medium text-[var(--app-hint)] sm:flex">
+    return <span aria-hidden="true" className="flex w-[72px] shrink-0 items-center gap-1.5 self-stretch border-r border-[var(--app-divider)] pr-2 text-xs font-medium text-[var(--app-hint)]">
         <svg aria-hidden="true" className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
             {kind === 'agent' ? <>
                 <rect x="4" y="7" width="16" height="13" rx="3" />

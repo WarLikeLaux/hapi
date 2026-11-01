@@ -17,7 +17,7 @@ export function FastModeSelector(props: {
     }
 
     return (
-        <section className="flex min-w-0 flex-col p-2 sm:flex-row sm:items-center sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.speed')}>
+        <section className="flex min-w-0 items-center gap-2 p-2 sm:gap-3 sm:p-3 lg:border-l lg:border-[var(--app-divider)]" role="group" aria-label={t('newSession.speed')}>
             <ChoiceLabel kind="speed" />
             <div className="flex min-w-0 flex-1 flex-wrap gap-2 sm:gap-3">
                 {(['standard', 'fast'] as const).map((value) => (
