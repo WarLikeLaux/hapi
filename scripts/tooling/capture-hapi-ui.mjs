@@ -7,7 +7,9 @@ Usage:
   bun scripts/tooling/capture-hapi-ui.mjs --url <loopback-url> --out </absolute/path.png> --expect <selector>
 
 Options:
-  --width <pixels> --height <pixels>  Viewport (default: 390 x 844, minimum: 200)
+  --profile <phone|desktop>         Measured device viewport and pixel ratio (default: phone)
+  --width <pixels> --height <pixels>  Custom viewport (minimum: 200)
+  --theme <telegram|native>         Recorded Telegram/dark theme (default) or clean browser
   --absent <selector>               Wait until the unwanted UI is hidden
   --help                            Show this help without launching a browser
 
@@ -32,8 +34,8 @@ try {
     if (args.length === 1 && args[0] === '--help') {
         console.log(help)
     } else {
-        const options = { steps: [] }
-        const singles = new Set(['--url', '--out', '--expect', '--absent', '--width', '--height'])
+        const options = { steps: [], theme: 'telegram', colorScheme: 'dark' }
+        const singles = new Set(['--url', '--out', '--expect', '--absent', '--width', '--height', '--profile', '--theme'])
         const actions = new Set(['--dismiss', '--click', '--fill', '--press', '--hover', '--scroll', '--wait'])
         const seen = new Set()
         for (let i = 0; i < args.length; i++) {
@@ -55,6 +57,20 @@ try {
             }
         }
         if (!options.url || !options.out || !options.expect) throw new Error('Required: --url, --out, --expect. Use --help.')
+        const profiles = {
+            phone: { width: 361, height: 738, deviceScaleFactor: 3.5 },
+            desktop: { width: 1872, height: 928, deviceScaleFactor: 2 },
+        }
+        if (!options.profile && options.width === undefined && options.height === undefined) options.profile = 'phone'
+        if (options.profile) {
+            if (!Object.hasOwn(profiles, options.profile)) throw new Error('Profile must be phone or desktop')
+            const profile = profiles[options.profile]
+            options.width ??= profile.width
+            options.height ??= profile.height
+            options.deviceScaleFactor = profile.deviceScaleFactor
+            delete options.profile
+        }
+        if (options.theme === 'native') delete options.colorScheme
         console.log(JSON.stringify(await captureHapiUi(options)))
     }
 } catch (error) {

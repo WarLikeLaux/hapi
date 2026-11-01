@@ -7,6 +7,7 @@ import { installHapiAuth, readCliAccessToken } from '../../web/e2e/helpers/hapi-
 // Shared by the CLI and captures needing custom Playwright interactions or API fixtures.
 export async function captureHapiUi({
     url, out, expect, absent, width = 390, height = 844,
+    deviceScaleFactor = 1, colorScheme, theme,
     steps = [], prepare, interact,
 }) {
     const pageUrl = new URL(url)
@@ -22,14 +23,29 @@ export async function captureHapiUi({
         throw new Error('Viewport width and height must be integers of at least 200')
     }
 
+    if (!Number.isFinite(deviceScaleFactor) || deviceScaleFactor <= 0) {
+        throw new Error('Device scale factor must be a positive number')
+    }
+    if (theme !== undefined && theme !== 'telegram' && theme !== 'native') {
+        throw new Error('Theme must be telegram or native')
+    }
+
     const accessToken = readCliAccessToken()
     const browser = await chromium.launch({ headless: true })
     try {
-        const page = await browser.newPage({ viewport: { width, height } })
+        const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor, ...(colorScheme ? { colorScheme } : {}) })
         page.setDefaultTimeout(15_000)
         // Authenticate through Vite's /api proxy, preserving its origin.
         await page.addInitScript(() => localStorage.removeItem('hapi_hub_url'))
         await installHapiAuth(page, pageUrl.origin, accessToken)
+        if (theme === 'telegram') {
+            await page.addInitScript((origin) => {
+                if (location.origin !== origin || sessionStorage.getItem('hapi-capture-theme-seeded')) return
+                localStorage.setItem('hapi-color-theme', 'telegram')
+                localStorage.removeItem('hapi-appearance')
+                sessionStorage.setItem('hapi-capture-theme-seeded', '1')
+            }, pageUrl.origin)
+        }
         if (prepare) await prepare(page)
         const response = await page.goto(pageUrl.href, { waitUntil: 'domcontentloaded', timeout: 30_000 })
         if (!response?.ok()) throw new Error(`Preview page returned HTTP ${response?.status() ?? 'unknown'}`)
