@@ -73,11 +73,12 @@ let mediaToggle: (() => Promise<void>) | null = null
 let mediaActive = false
 let mediaCommands: Promise<void> = Promise.resolve()
 
-function setMediaActive(active: boolean): void {
-    if (!mediaToggle || mediaActive === active) return
+function setMediaActive(active: boolean): Promise<void> {
+    if (!mediaToggle || mediaActive === active) return mediaCommands
     mediaActive = active
     const toggle = mediaToggle
     mediaCommands = mediaCommands.then(toggle).catch(() => {})
+    return mediaCommands
 }
 // Guards against a slow blob download of an old request landing after the
 // user has already started something else.
@@ -95,7 +96,7 @@ function ensureAudio(): HTMLAudioElement {
     audio.preload = 'auto'
     audio.style.display = 'none'
     document.body.append(audio)
-    audio.addEventListener('play', () => { setMediaActive(true); setState({ status: 'playing' }) })
+    audio.addEventListener('play', () => setState({ status: 'playing' }))
     audio.addEventListener('timeupdate', () => {
         if (audio) setState({ currentTime: audio.currentTime })
     })
@@ -106,7 +107,6 @@ function ensureAudio(): HTMLAudioElement {
     // as user-visible while playback was actually running.
     audio.addEventListener('pause', () => {
         if (state.status === 'playing') {
-            if (!audio?.ended) setMediaActive(false)
             setState({ status: 'paused' })
         }
     })
@@ -179,6 +179,10 @@ async function playIndex(index: number): Promise<void> {
         duration: item.duration ?? 0
     })
     try {
+        if (mediaToggle && !mediaActive) {
+            await setMediaActive(true)
+            if (token !== playToken) return
+        }
         const url = item.src ?? URL.createObjectURL(await fetchBlob(item))
         if (token !== playToken) {
             // Superseded while downloading; nothing adopted this URL yet.
@@ -208,7 +212,6 @@ async function playIndex(index: number): Promise<void> {
                 // can retry it through the API client's deduplication.
             })
         }
-        setMediaActive(true)
         await element.play()
         if (token === playToken) setState({ status: 'playing' })
     } catch {
@@ -272,10 +275,18 @@ export function toggleVoicePlayback(): void {
     }
     if (element.paused) {
         pauseOtherDomAudio(element)
-        setMediaActive(true)
-        void element.play().catch(() => { setMediaActive(false); setState({ status: 'failed' }) })
+        const resume = () => {
+            void element.play().catch(() => { void setMediaActive(false); setState({ status: 'failed' }) })
+        }
+        if (mediaToggle && !mediaActive) {
+            const token = playToken
+            void setMediaActive(true).then(() => { if (token === playToken) resume() })
+        } else {
+            resume()
+        }
     } else {
         element.pause()
+        void setMediaActive(false)
     }
 }
 
