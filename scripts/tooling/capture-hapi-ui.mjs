@@ -7,8 +7,8 @@ Usage:
   bun scripts/tooling/capture-hapi-ui.mjs --url <loopback-url> --out </absolute/path.png> --expect <selector>
 
 Options:
-  --profile <phone|desktop>         Measured device viewport and pixel ratio
-  --width <pixels> --height <pixels>  Override viewport (default: 390 x 844, minimum: 200)
+  --profile <phone|desktop>         Measured device viewport and pixel ratio (default: phone)
+  --width <pixels> --height <pixels>  Custom viewport (minimum: 200)
   --theme <telegram|native>         Recorded Telegram/dark theme (default) or clean browser
   --absent <selector>               Wait until the unwanted UI is hidden
   --help                            Show this help without launching a browser
@@ -61,6 +61,7 @@ try {
             phone: { width: 361, height: 738, deviceScaleFactor: 3.5 },
             desktop: { width: 1872, height: 928, deviceScaleFactor: 2 },
         }
+        if (!options.profile && options.width === undefined && options.height === undefined) options.profile = 'phone'
         if (options.profile) {
             if (!Object.hasOwn(profiles, options.profile)) throw new Error('Profile must be phone or desktop')
             const profile = profiles[options.profile]

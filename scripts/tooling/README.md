@@ -24,6 +24,7 @@ bun scripts/tooling/capture-hapi-ui.mjs --help
 # A session menu. Replace <id> with a real HAPI session UUID.
 bun scripts/tooling/capture-hapi-ui.mjs \
   --url 'http://127.0.0.1:5174/sessions/<id>' \
+  --profile phone \
   --click 'button[title="More actions"]' \
   --expect '[role="menuitem"]:has-text("Delete")' \
   --out /tmp/hapi-session-menu.png
@@ -37,18 +38,18 @@ bun scripts/tooling/capture-hapi-ui.mjs \
 # Create Session on a desktop viewport.
 bun scripts/tooling/capture-hapi-ui.mjs \
   --url http://127.0.0.1:5174/sessions/new \
-  --width 1280 --height 720 \
+  --profile desktop \
   --expect 'text=Directory' \
   --out /tmp/hapi-new-session.png
 ```
 
-For representative captures, use `--profile phone` for the measured OnePlus 13R PWA viewport (361 × 738 CSS px, device scale factor 3.5) and `--profile desktop` for the measured desktop window (1872 × 928 CSS px, scale factor 2). These measurements reflect the reported window at the time of capture, not the physical screen resolution. `--width` and `--height` can override a profile for another scenario. The profile does not emulate a browser user agent, touch, or PWA installation.
+For visual review, capture both measured profiles where the changed state applies. Use `--profile phone` for the measured OnePlus 13R PWA viewport (361 × 738 CSS px, device scale factor 3.5) and `--profile desktop` for the measured desktop window (1872 × 928 CSS px, scale factor 2). These measurements reflect the reported window at the time of capture, not the physical screen resolution. `--width` and `--height` can override a profile for another scenario. The profile does not emulate a browser user agent, touch, or PWA installation.
 
 The CLI starts a fresh browser with the user's reported Telegram color preset, system appearance, and dark system color scheme. These are recorded settings, not live synchronization with the user's browser: update them if the user changes their preferences, including any custom colors. `--theme native` uses a clean browser with its own default scheme for scenarios that need it. The custom `captureHapiUi` API keeps its existing clean defaults; it accepts `theme: 'telegram'`, `colorScheme: 'dark'`, and `deviceScaleFactor` when a custom scenario needs these settings. Scenario-specific `prepare` scripts must control their own theme and should not combine conflicting initializers.
 
 Actions run in argument order. Repeat `--click` for multiple menus. `--fill '<selector>' '<text>'` fills an input, `--press '<selector>' 'Enter'` presses a key, `--hover '<selector>'` reveals hover controls, `--scroll '<selector>'` brings an intermediate element into view, and `--wait '<selector>'` waits for intermediate content. `--dismiss '<selector>'` clicks an optional overlay if it appears within two seconds. These actions can change live hub data, so use read-only navigation or an authorized interaction.
 
-`--expect` is the final assertion after all actions. Choose a specific changed control, message, or menu item. The helper scrolls to its first match and requires the entire element to fit in the viewport, including clipping by nested scrollers. Large containers need a narrower selector or larger `--width` / `--height`. `--absent '<selector>'` waits for unwanted UI to become hidden. Defaults are 390 × 844. The output must be an absolute `.png` path. Parent directories are created automatically. Success prints JSON with the URL, PNG path, viewport, and byte count. Failures exit nonzero.
+`--expect` is the final assertion after all actions. Choose a specific changed control, message, or menu item. The helper scrolls to its first match and requires the entire element to fit in the viewport, including clipping by nested scrollers. Large containers need a narrower selector or larger `--width` / `--height`. `--absent '<selector>'` waits for unwanted UI to become hidden. Without a profile or custom dimensions, the CLI defaults to the phone profile. Custom dimensions without a profile use a scale factor of 1; unspecified dimensions use 390 × 844. The output must be an absolute `.png` path. Parent directories are created automatically. Success prints JSON with the URL, PNG path, viewport, and byte count. Failures exit nonzero.
 
 After every capture, open the actual saved PNG with an image-reading tool and compare it with the user's requested change. Confirm the correct page, changed element, relevant data, and intended state, with enough surrounding context and no clipping or obstructing overlays. A successful command, selector assertion, or `display_image` call does not count as visual inspection. If the screenshot shows the wrong content or does not demonstrate the change, correct the preview, interactions, selector, or framing and retake it before claiming completion. If you cannot read images, explicitly report that visual verification is blocked.
 
