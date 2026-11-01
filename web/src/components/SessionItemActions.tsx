@@ -49,7 +49,9 @@ export function SessionItemActions(props: {
     const [parkOpen, setParkOpen] = useState(false)
     const [restartOpen, setRestartOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
-    const overlayOpen = menuOpen || renameOpen || exportOpen || archiveOpen || parkOpen || restartOpen || deleteOpen
+    const [forkOpen, setForkOpen] = useState(false)
+    const [forkPending, setForkPending] = useState(false)
+    const overlayOpen = menuOpen || renameOpen || exportOpen || archiveOpen || parkOpen || restartOpen || deleteOpen || forkOpen
     useEffect(() => {
         if (!overlayOpen) return
         props.onOpenOverlayChange?.(true)
@@ -140,6 +142,12 @@ export function SessionItemActions(props: {
         threshold: 500
     })
 
+    const supportsCurrentFork = s.active && s.metadata?.flavor === 'codex'
+        && s.metadata?.conversationHistory?.forkCurrent === true
+    const supportsArchivedFork = !s.active && s.metadata?.flavor === 'codex'
+        && s.metadata?.lifecycleState === 'archived'
+        && Boolean(s.metadata.agentSessionId && s.metadata.machineId)
+    const forkDisabledReason = supportsCurrentFork && s.thinking ? t('session.action.forkRunning') : undefined
     const sessionName = getSessionTitle(s)
     const closeMenu = () => {
         setMenuOpen(false)
@@ -196,6 +204,8 @@ export function SessionItemActions(props: {
             onRename={() => setRenameOpen(true)}
             onExport={() => setExportOpen(true)}
             onMarkUnread={() => markSessionUnread(s.id, s.readState)}
+            onForkSession={api && ((supportsCurrentFork && !s.thinking) || supportsArchivedFork) ? () => setForkOpen(true) : undefined}
+            forkDisabledReason={forkDisabledReason}
             onRestart={cursorReopenDisabledReason ? undefined : () => setRestartOpen(true)}
             parkDisabledReason={isSessionBusy(s) ? t('session.park.busy') : undefined}
             onPark={s.active && !cursorReopenDisabledReason ? () => setParkOpen(true) : undefined}
@@ -206,6 +216,28 @@ export function SessionItemActions(props: {
             onDelete={() => setDeleteOpen(true)}
             anchorPoint={menuAnchorPoint}
         />
+
+        {forkOpen ? (
+            <ConfirmDialog
+                isOpen={true}
+                onClose={() => { if (!forkPending) setForkOpen(false) }}
+                title={t('dialog.sessionFork.title')}
+                description={t('dialog.sessionFork.description')}
+                confirmLabel={t('dialog.sessionFork.confirm')}
+                confirmingLabel={t('dialog.sessionFork.confirming')}
+                isPending={forkPending}
+                destructive
+                centerTitle
+                onConfirm={async () => {
+                    if (!api) return
+                    setForkPending(true)
+                    try {
+                        const result = await api.forkConversation(s.id)
+                        onSelect(result.sessionId)
+                    } finally { setForkPending(false) }
+                }}
+            />
+        ) : null}
 
         {reopenError ? (
             <ConfirmDialog

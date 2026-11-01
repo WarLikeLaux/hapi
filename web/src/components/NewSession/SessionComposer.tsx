@@ -11,6 +11,10 @@ import { resolveInitialImages, type InitialImageDraft } from './initialImageDraf
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
+import gojoLaptop from '@/assets/illustrations/gojo-launch-laptop.webp'
+import gojoDesktop from '@/assets/illustrations/gojo-launch-desktop.webp'
+import gojoLaptopMobile from '@/assets/illustrations/gojo-launch-laptop-mobile.webp'
+import gojoDesktopMobile from '@/assets/illustrations/gojo-launch-desktop-mobile.webp'
 import { useSessionGroups } from '@/hooks/queries/useSessionGroups'
 import { useSessions } from '@/hooks/queries/useSessions'
 import { useLastUsedMachine } from '@/hooks/useLastUsedMachine'
@@ -45,6 +49,8 @@ function serializeComposition(composition: Composition): string {
         draft: card.draft ? { ...card.draft, initialImages: undefined } : undefined,
     })) })
 }
+const launchIllustrations = [{ desktop: gojoLaptop, mobile: gojoLaptopMobile }, { desktop: gojoDesktop, mobile: gojoDesktopMobile }] as const
+
 const control = 'min-h-10 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm font-normal text-[var(--app-fg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50'
 const action = 'min-h-10 rounded-md px-3 py-2 text-sm hover:bg-[var(--app-secondary-bg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50'
 function newCard(): Card { return { id: crypto.randomUUID(), prompt: '' } }
@@ -109,6 +115,7 @@ function BatchComposer(props: Props & {
     onSingleChat: (seed: { draft?: NewSessionFormDraft; directory: string; groupId?: string; groupName?: string }) => void
 }) {
     const { t } = useTranslation()
+    const [launchIllustration] = useState(() => launchIllustrations[Math.floor(Math.random() * launchIllustrations.length)])
     const [readingImages, setReadingImages] = useState<string[]>([])
     const client = useQueryClient()
     const groups = useSessionGroups(props.api)
@@ -289,7 +296,27 @@ function BatchComposer(props: Props & {
             groupName: groups.groups.find(group => group.id === composition.placement)?.name,
         })
     }
+    const singleLaunching = composition.cards.length === 1
+        && (Boolean(launchImmediately.current && !prepared[composition.cards[0].id]) || preparing || Boolean(busy[composition.cards[0].id]))
+        && !error && missingDirectories.length === 0
+    const launchAgent = composition.cards[0]?.draft?.agent
     return <div ref={rootRef} className="w-full">
+        {singleLaunching ? <div role="status" aria-live="polite" className="relative isolate flex min-h-[calc(100dvh-3.5rem)] items-end justify-center overflow-hidden bg-[#101820] px-5 pb-12 pt-20 text-center sm:pb-16">
+            <picture aria-hidden="true" className="absolute inset-0 -z-20">
+                <source media="(max-width: 639px)" srcSet={launchIllustration.mobile} />
+                <img src={launchIllustration.desktop} alt="" className="h-full w-full object-cover object-center sm:object-right motion-safe:animate-[launch-breathe_12s_ease-in-out_infinite]" />
+            </picture>
+            <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-t from-black/95 via-black/20 to-black/10" />
+            <div className="max-w-full">
+                <h2 className="flex items-center justify-center gap-2 text-base font-semibold text-white">
+                    {launchAgent ? <AgentFlavorIcon flavor={launchAgent} className="h-5 w-5" /> : null}
+                    {t('batch.startingTitle')}
+                </h2>
+                <p className="mt-2 text-sm text-white/85">{t('batch.startingDetail')}</p>
+                <p className="mt-3 max-w-full truncate text-xs text-white/70" title={composition.directory}>{composition.directory}</p>
+            </div>
+        </div> : null}
+        <div hidden={singleLaunching}>
         <ConfirmDialog isOpen={removingCardId !== null} onClose={() => setRemovingCardId(null)}
             title={t('batch.removeTitle')} description={t('batch.removeDescription')}
             confirmLabel={t('batch.remove')} confirmingLabel={t('batch.remove')}
@@ -436,6 +463,7 @@ function BatchComposer(props: Props & {
                     <Button variant="secondary" className="max-sm:px-3" disabled={preparing} onClick={() => { singleCompleted.current = true; props.onCancel() }}>{t('button.cancel')}</Button>
                     <Button className="max-sm:px-3" disabled={!canStart || groups.query.isPending || groups.query.isError}
                         onClick={() => void start()}>{preparing ? t('batch.launching') : composition.cards.length === 1 ? t('batch.launchOne') : t('batch.launchCount', { count: composition.cards.length })}</Button></>}
+        </div>
         </div>
     </div>
 }

@@ -147,7 +147,7 @@ export function NewSession(props: {
     initialMachineId?: string
     continueFromSession?: Session
 }) {
-    const { haptic } = usePlatform()
+    const { haptic, isTouch } = usePlatform()
     const { t } = useTranslation()
     const { addToast } = useToast()
     const { spawnSession, isPending, error: spawnError } = useSpawnSession(props.api)
@@ -2493,7 +2493,8 @@ export function NewSession(props: {
             {!projectManagerOpen && !modelManagerOpen && props.onStartChat && !props.editor && !continueFrom && !selectedCodexImportSession && !selectedPiImportSession ? <div className="px-3 py-3">
                 <InitialPrompt label={t('newSession.initialPrompt')} value={initialPrompt} onChange={setInitialPrompt}
                     images={initialImages} onImagesChange={setInitialImages} onReadingChange={setReadingImages}
-                    agent={agent} disabled={isFormDisabled} placeholder={t('batch.promptPlaceholder')} />
+                    agent={agent} disabled={isFormDisabled} placeholder={t('batch.promptPlaceholder')}
+                    onSubmit={!isTouch ? () => { if (canCreate) void handleCreate() } : undefined} />
             </div> : null}
             {(error ?? spawnError) ? (
                 <div className="px-3 py-2 text-sm text-red-600">

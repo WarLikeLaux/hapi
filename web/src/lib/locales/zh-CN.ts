@@ -1,4 +1,6 @@
 export default {
+  'batch.startingTitle': '正在启动聊天',
+  'batch.startingDetail': '正在连接智能体…',
   'newSession.imageUnavailable': '图片不可用。请移除后重新粘贴。',
   'newSession.imagesReading': '正在读取图片…',
   'newSession.imagesHint': '粘贴或添加图片（PNG、JPEG、WebP 或 GIF，总计 50 MB）。部分代理接收文件路径；图片读取取决于代理和模型。',
@@ -531,6 +533,8 @@ export default {
   'newSession.continue.loading': '正在加载源会话…',
   'newSession.continue.notFound': '无法加载源会话。',
   'newSession.continue.sendFailed.title': '会话已创建，但上下文未发送',
+  'session.action.fork': '分叉会话',
+  'session.action.forkRunning': '当前轮次完成后才能分叉此会话。',
 
   // Dialogs
   'dialog.uri.title': '打开此链接？',
@@ -564,6 +568,10 @@ export default {
   'dialog.archive.error': '尚未确认会话已停止',
 
   'dialog.reopen.errorTitle': '无法重新打开会话',
+  'dialog.sessionFork.title': '分叉会话',
+  'dialog.sessionFork.description': '从最新完成进度创建新会话？当前会话不会被修改。',
+  'dialog.sessionFork.confirm': '确定',
+  'dialog.sessionFork.confirming': '分叉中…',
   'dialog.reopen.dismiss': '关闭',
 
   'dialog.delete.title': '删除会话',

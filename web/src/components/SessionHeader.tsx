@@ -6,9 +6,6 @@ import type { ApiClient } from '@/api/client'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { sessionArchiveMutationKey, sessionModelMutationKey, useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
-import { useSessionContextFilter } from '@/hooks/useSessionContextFilter'
-import { useSessionContextHubSync } from '@/hooks/useSessionContextHubSync'
-import { resolveSessionContext } from '@/lib/sessionContexts'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -324,8 +321,6 @@ export function SessionHeader(props: {
     const [isSyncingCodex, setIsSyncingCodex] = useState(false)
     const [isSyncingPi, setIsSyncingPi] = useState(false)
     const [isRegeneratingTitle, setIsRegeneratingTitle] = useState(false)
-    const hubContextSync = useSessionContextHubSync()
-    const { setSessionContextOverride, contextOptions } = useSessionContextFilter(hubContextSync)
 
     const { archiveSession, parkSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, setPinMode, deleteSession, isPending: isActionPending } = useSessionActions(
         api,
@@ -726,8 +721,6 @@ export function SessionHeader(props: {
                 sessionLifecycleState={session.metadata?.lifecycleState}
                 sessionPinned={Boolean(session.pinned)}
                 sessionGlobalPinned={Boolean(session.globalPinned)}
-                currentContext={resolveSessionContext(session, contextOptions)}
-                onSetContext={(ctx) => setSessionContextOverride(session.id, ctx)}
                 onRename={() => setRenameOpen(true)}
                 onRegenerateTitle={api && session.active && agentFlavor === 'codex' && !isRegeneratingTitle
                     ? () => void handleRegenerateTitle()

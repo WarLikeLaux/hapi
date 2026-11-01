@@ -129,6 +129,24 @@ function preserveCursorProtocolPair(
     return merged
 }
 
+function preserveForkSummary(
+    prior: Record<string, unknown>,
+    next: Record<string, unknown>,
+    merged: Record<string, unknown> | null
+): Record<string, unknown> | null {
+    // A fork's provisional title is Hub-generated. CLI bootstrap writes are
+    // sparse and historically drop it, leaving the child titled by its path.
+    // Explicit `summary: null` or a replacement summary still wins.
+    if (next.summary !== undefined) return merged
+    const summary = prior.summary
+    if (!isPlainObject(summary) || typeof summary.text !== 'string' || !summary.text.startsWith('Fork: ')) {
+        return merged
+    }
+    const result = merged ?? { ...next }
+    result.summary = summary
+    return result
+}
+
 export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
     if (!isPlainObject(prior) || !isPlainObject(next)) {
         return next
@@ -140,6 +158,7 @@ export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
     merged = carryForwardIfMissing(prior, next, merged, DURABLE_LIFECYCLE_FIELDS)
     merged = carryForwardIfMissing(prior, next, merged, ['muted'])
     merged = carryForwardIfMissing(prior, next, merged, HUB_OWNED_SESSION_METADATA_KEYS)
+    merged = preserveForkSummary(prior, next, merged)
     merged = preserveCursorProtocolPair(prior, next, merged)
     // A stale or sparse CLI metadata replacement must not undo hub read state.
     if (typeof prior.readThrough === 'number' && Number.isFinite(prior.readThrough)) {

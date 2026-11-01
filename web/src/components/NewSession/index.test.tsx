@@ -673,6 +673,34 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ muted: true })))
     })
 
+    it('shows the single-chat launch state until the request fails, then exposes recovery', async () => {
+        let finish!: (result: { state: 'failed'; message: string }) => void
+        const launch = vi.fn(() => new Promise<{ state: 'failed'; message: string }>(resolve => { finish = resolve }))
+        await renderComposer(launch)
+        fireEvent.change(screen.getByRole('textbox', { name: 'newSession.initialPrompt' }), { target: { value: 'Inspect this project' } })
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(launch).toHaveBeenCalledTimes(1))
+        expect(screen.getByRole('status')).toHaveTextContent('batch.startingTitle')
+        finish({ state: 'failed', message: 'Runner unavailable' })
+        await screen.findByText('Runner unavailable')
+        expect(screen.getByRole('button', { name: 'batch.retryChat' })).toBeEnabled()
+    })
+
+    it('starts the chat from the initial prompt on Enter and leaves modified or composing Enter alone', async () => {
+        const launch = vi.fn().mockResolvedValue({ state: 'succeeded', sessionId: 'enter-chat' })
+        await renderComposer(launch)
+        const prompt = screen.getByRole('textbox', { name: 'newSession.initialPrompt' })
+        fireEvent.change(prompt, { target: { value: 'Inspect this project' } })
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.keyDown(prompt, { key: 'Enter', shiftKey: true })
+        fireEvent.keyDown(prompt, { key: 'Enter', isComposing: true })
+        expect(launch).not.toHaveBeenCalled()
+        fireEvent.keyDown(prompt, { key: 'Enter' })
+        await waitFor(() => expect(launch).toHaveBeenCalledTimes(1))
+        expect(launch.mock.calls[0][1]).toMatchObject({ initialPrompt: 'Inspect this project' })
+    })
+
     it('keeps ordinary creation on the original form until another chat is requested', async () => {
         const launch = vi.fn()
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'ordinary-chat' })

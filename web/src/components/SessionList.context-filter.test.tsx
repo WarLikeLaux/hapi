@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
@@ -97,53 +97,19 @@ const testSessions: SessionSummary[] = [
     }),
 ]
 
-describe('SessionList Context Filtering', () => {
+describe('SessionList without context tabs', () => {
     beforeEach(() => {
         localStorage.clear()
     })
 
-    it('renders the context tab bar and all sessions in All tab', () => {
+    it('shows all sessions even when a previous context selection is stored', () => {
+        localStorage.setItem('hapi-active-session-context', 'work')
         renderSessionList(testSessions)
 
-        const tabs = screen.getAllByRole('tab')
-        expect(tabs).toHaveLength(4)
-
-        // All 3 sessions should be in document
+        expect(screen.queryByRole('tablist', { name: /session contexts/i })).toBeNull()
         expect(screen.getByText('Fixing backend issue')).toBeInTheDocument()
         expect(screen.getByText('Optimize rendering')).toBeInTheDocument()
         expect(screen.getByText('Movie recommendation')).toBeInTheDocument()
-    })
-
-    it('filters sessions when clicking Work tab', () => {
-        renderSessionList(testSessions)
-
-        const tabs = screen.getAllByRole('tab')
-        fireEvent.click(tabs[1]) // Work
-
-        expect(screen.getByText('Fixing backend issue')).toBeInTheDocument()
-        expect(screen.queryByText('Optimize rendering')).toBeNull()
-        expect(screen.queryByText('Movie recommendation')).toBeNull()
-    })
-
-    it('filters sessions when clicking Lab tab', () => {
-        renderSessionList(testSessions)
-
-        const tabs = screen.getAllByRole('tab')
-        fireEvent.click(tabs[2]) // Lab
-
-        expect(screen.queryByText('Fixing backend issue')).toBeNull()
-        expect(screen.getByText('Optimize rendering')).toBeInTheDocument()
-        expect(screen.queryByText('Movie recommendation')).toBeNull()
-    })
-
-    it('filters sessions when clicking Chill tab', () => {
-        renderSessionList(testSessions)
-
-        const tabs = screen.getAllByRole('tab')
-        fireEvent.click(tabs[3]) // Chill
-
-        expect(screen.queryByText('Fixing backend issue')).toBeNull()
-        expect(screen.queryByText('Optimize rendering')).toBeNull()
-        expect(screen.getByText('Movie recommendation')).toBeInTheDocument()
+        expect(localStorage.getItem('hapi-active-session-context')).toBe('work')
     })
 })
