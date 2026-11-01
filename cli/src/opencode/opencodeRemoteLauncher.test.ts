@@ -22,6 +22,7 @@ const harness = vi.hoisted(() => ({
     // polluting the events list other assertions compare exactly.
     thoughtLevelLookups: [] as number[],
     stderrHandler: null as null | ((error: { type: string; message: string; raw: string }) => void),
+    softSteerCompletion: null as Promise<string | null> | null,
     hangPrompt: false,
     resolvePrompt: null as null | (() => void),
     // The message callback backend.prompt() receives, so tests can emit
@@ -138,6 +139,7 @@ vi.mock('./utils/opencodeBackend', () => ({
             }
             harness.events.push('prompt:end');
         }),
+        beginSoftSteerPrompt: vi.fn(() => ({ dispatched: Promise.resolve(), completed: harness.softSteerCompletion! })),
         isPromptRequestInFlight: vi.fn(() =>
             harness.events.lastIndexOf('prompt:start') > harness.events.lastIndexOf('prompt:end')
         ),
@@ -424,6 +426,8 @@ function createSessionStub(
             claudeSessionMessages.push(message);
         },
         sendUserMessage(_text: string) {},
+        setSteerDeliveryState: vi.fn(async () => true),
+        emitSteerIndeterminate: vi.fn(),
         sendSessionEvent(event: { type: string; [key: string]: unknown }) {
             sessionEvents.push(event);
         },
@@ -542,6 +546,32 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         for (const name of ['createOpencodeBackend', 'detectOpencodeFlavorVersion', 'discoverOpencodeV2RestPort', 'listLoopbackListeners']) {
             backendModuleFns[name]?.mockClear();
         }
+    });
+
+    it('positions an accepted steer at dispatch even when its response completes later', async () => {
+        let finishSteer!: (reason: string | null) => void;
+        harness.softSteerCompletion = new Promise((resolve) => { finishSteer = resolve; });
+        harness.hangPrompt = true;
+        const { session, rpcHandlers, emitMessagesConsumedCalls } = createSessionStub(
+            [{ message: 'first', mode: createModeWithEffort(undefined, null), localId: 'first' }],
+            { keepOpen: true }
+        );
+        const run = opencodeRemoteLauncher(session as never);
+        await vi.waitFor(() => expect(harness.resolvePrompt).not.toBeNull());
+        session.queue.push('steer', createModeWithEffort(undefined, null), 'steer');
+        const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+        await expect(rpcHandlers.get('steer-queued-message')!({ localId: 'steer' })).resolves.toEqual({ steered: true });
+        expect(emitMessagesConsumedCalls.some(call => call.localIds.includes('steer'))).toBe(false);
+        now.mockReturnValue(5000);
+        finishSteer(null);
+        await vi.waitFor(() => expect(emitMessagesConsumedCalls).toContainEqual({
+            localIds: ['steer'], options: { steered: true, invokedAt: 1000 }
+        }));
+        now.mockRestore();
+        harness.softSteerCompletion = null;
+        harness.resolvePrompt!();
+        session.queue.close();
+        await run;
     });
 
     it('reaches /clear only after the earlier prompt settles, without starting another OpenCode turn', async () => {

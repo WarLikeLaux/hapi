@@ -544,6 +544,8 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                     session.client.emitSteerIndeterminate([localId]);
                     return { steered: false, error: 'Steer cancelled' };
                 }
+                // Completion can arrive after the response; retain the dispatch time for timeline ordering.
+                const invokedAt = Date.now();
                 let steer: { dispatched: Promise<void>; completed: Promise<string | null> };
                 try {
                     steer = backend.beginSoftSteerPrompt(acpSessionId, [{
@@ -593,7 +595,7 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                 void steer.completed.then(() => {
                     if (session.queue.commitReservation(taken)) {
                         this.messageBuffer.addMessage(taken.item.message, 'user');
-                        session.client.emitMessagesConsumed([localId], { steered: true });
+                        session.client.emitMessagesConsumed([localId], { steered: true, invokedAt });
                     }
                 }, (error) => {
                     if (isAcpIndeterminateError(error)) {
