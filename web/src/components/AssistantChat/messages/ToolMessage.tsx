@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { ToolCallMessagePartProps } from '@assistant-ui/react'
 import type { ChatBlock } from '@/chat/types'
 import type { GeneratedImageBlock, ToolCallBlock } from '@/chat/types'
@@ -20,7 +20,7 @@ import { ImagePreview } from '@/components/ImagePreview'
 import { FileIcon } from '@/components/FileIcon'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useTranslation } from '@/lib/use-translation'
-import { inlineMediaLabelKey, isInlineAudioMimeType, isInlineImageMimeType, isInlineVideoMimeType } from '@/lib/generatedInlineMedia'
+import { imageDisplayCaption, inlineMediaLabelKey, isInlineAudioMimeType, isInlineImageMimeType, isInlineVideoMimeType } from '@/lib/generatedInlineMedia'
 
 function isToolCallBlock(value: unknown): value is ToolCallBlock {
     if (!isObject(value)) return false
@@ -58,6 +58,7 @@ function isGeneratedImageBlock(value: unknown): value is GeneratedImageBlock {
 const MIN_INLINE_IMAGE_DIMENSION = 64
 /** Markdown up to this size renders directly in the chat card instead of behind a preview button. */
 const INLINE_MARKDOWN_MAX_CHARS = 10_000
+export const ImageSequenceContext = createContext(false)
 
 export function isHtmlFileName(fileName: string): boolean {
     return /\.html?$/i.test(fileName)
@@ -113,6 +114,7 @@ export function computeTinyImageScale(width: number, height: number): number {
 /** Exported for generated-media fetch and renderer tests. */
 export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     const ctx = useHappyChatContext()
+    const inSequence = useContext(ImageSequenceContext)
     const { t } = useTranslation()
     const [objectUrl, setObjectUrl] = useState<string | null>(null)
     const [fileSize, setFileSize] = useState<number | undefined>(undefined)
@@ -212,9 +214,10 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
             data-hapi-generated-media-id={props.block.imageId}
             data-hapi-generated-media-file-name={props.block.fileName}
             data-hapi-generated-media-loaded={isFile && objectUrl ? 'true' : undefined}
-            className="max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3">
-            <div className="mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-[var(--app-hint)]">
+            className={inSequence ? 'min-w-0' : 'max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3'}>
+            <div className={inSequence && isImage ? 'sr-only' : 'mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-[var(--app-hint)]'}>
                 <span className="min-w-0 truncate">{mediaHeader}</span>
+                {isImage && !inSequence ? <span className="min-w-0 truncate">{imageDisplayCaption(props.block.fileName)}</span> : null}
                 {inlineMarkdown !== null ? (
                     <span className="ml-auto flex shrink-0 items-center gap-0.5">
                         <button
@@ -304,14 +307,14 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                         <span className="min-w-0 truncate">{isHtml ? 'Open' : 'Download'} {props.block.fileName}</span>
                     </a>
                 ) : (
-                    <div className="flex min-h-32 min-w-[12rem] items-center justify-center rounded-xl bg-[var(--app-subtle-bg)]">
+                    <div className={inSequence ? 'flex w-full items-center justify-center' : 'flex min-h-32 min-w-[12rem] items-center justify-center rounded-xl bg-[var(--app-subtle-bg)]'}>
                         <ImagePreview
                             src={objectUrl}
                             fileName={props.block.fileName}
                             label={props.block.fileName}
                             fileSize={fileSize}
-                            buttonClassName="block max-h-[min(28rem,60vh)] max-w-full cursor-zoom-in rounded-xl text-left"
-                            imageClassName="max-h-[min(28rem,60vh)] max-w-full rounded-xl object-contain"
+                            buttonClassName={inSequence ? 'block w-full min-w-0 cursor-zoom-in rounded-xl text-left' : 'block max-h-[min(28rem,60vh)] max-w-full cursor-zoom-in rounded-xl text-left'}
+                            imageClassName={inSequence ? 'max-h-56 w-full rounded-xl object-contain sm:max-h-80' : 'max-h-[min(28rem,60vh)] max-w-full rounded-xl object-contain'}
                             imageStyle={imageStyle}
                         />
                     </div>

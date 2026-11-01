@@ -1,11 +1,11 @@
 import { MessageImageGallery } from '@/components/ImagePreview'
-import { useEffect, useMemo, useState, type PropsWithChildren } from 'react'
+import { Children, useEffect, useMemo, useState, type PropsWithChildren } from 'react'
 import {
     MessagePrimitive, useAuiState, getExternalStoreMessages,
     type DataMessagePartProps, type TextMessagePart, type TextMessagePartProps, type ThreadMessageLike, type ThreadAssistantMessagePart
 } from '@assistant-ui/react'
 import { Reasoning, ReasoningGroup } from '@/components/assistant-ui/reasoning'
-import { HappyToolMessage } from '@/components/AssistantChat/messages/ToolMessage'
+import { HappyToolMessage, ImageSequenceContext } from '@/components/AssistantChat/messages/ToolMessage'
 import { CliOutputBlock } from '@/components/CliOutputBlock'
 import type { HappyChatMessageMetadata } from '@/lib/assistant-runtime'
 import { getAssistantCopyText } from '@/components/AssistantChat/messages/assistantCopyText'
@@ -20,6 +20,9 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
 import { hasRenderableResponsePart, partitionCompletedResponseParts, shouldCompactResponse } from './responseDisplay'
 import { ResponseChanges } from './ResponseChanges'
+import { imageDisplayCaption, isInlineImageMimeType } from '@/lib/generatedInlineMedia'
+import type { GeneratedImageBlock } from '@/chat/types'
+import { ArrowLeftIcon, ArrowRightIcon } from '@/components/icons'
 
 const TOOL_COMPONENTS = {
     Fallback: HappyToolMessage
@@ -38,7 +41,42 @@ function AnchoredResponseText(props: TextMessagePartProps) {
     )
 }
 
-function ResponsePartsGroup({ groupKey, children }: PropsWithChildren<{ groupKey: string | undefined }>) {
+function ImageSequence({ children, indices }: PropsWithChildren<{ indices: number[] }>) {
+    const { t } = useTranslation()
+    const parts = Children.toArray(children)
+    const [selected, setSelected] = useState(0)
+    const index = Math.min(selected, parts.length - 1)
+    const caption = useAuiState((s) => {
+        const part = s.message.content[indices[index]]
+        const artifact = part?.type === 'tool-call' ? part.artifact as GeneratedImageBlock | undefined : undefined
+        return artifact?.kind === 'generated-image' ? imageDisplayCaption(artifact.fileName) : ''
+    })
+    if (parts.length === 1) return <MessageImageGallery>{children}</MessageImageGallery>
+    return <MessageImageGallery>
+        <div role="region" tabIndex={0} aria-label={t('media.displayed.images', { count: String(parts.length) })} onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft' && index > 0) { event.preventDefault(); setSelected(index - 1) }
+            if (event.key === 'ArrowRight' && index < parts.length - 1) { event.preventDefault(); setSelected(index + 1) }
+        }} className="w-full max-w-2xl overflow-hidden rounded-2xl bg-[var(--app-tool-card-bg)] px-1 py-4 focus-visible:outline-2 focus-visible:outline-[var(--app-link)]">
+            <div className="relative flex h-56 items-center justify-center sm:h-80">
+                <ImageSequenceContext.Provider value={true}>
+                    {parts.map((part, partIndex) => {
+                        const distance = partIndex - index
+                        return <div key={partIndex} hidden={Math.abs(distance) > 1} aria-hidden={distance !== 0} inert={distance !== 0} className={cn('absolute flex max-h-full items-center justify-center overflow-hidden rounded-xl [&>div]:w-full', distance === 0 ? 'z-10 w-[46%] shadow-lg' : distance < 0 ? 'left-[8%] w-[18%] opacity-45' : 'right-[8%] w-[18%] opacity-45')}>{part}</div>
+                    })}
+                </ImageSequenceContext.Provider>
+                <button type="button" aria-label={t('media.displayed.previousImage')} disabled={index === 0} onClick={() => setSelected(index - 1)} className="absolute left-1 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--app-fg)] text-[var(--app-bg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] disabled:opacity-30"><ArrowLeftIcon className="h-5 w-5" /></button>
+                <button type="button" aria-label={t('media.displayed.nextImage')} disabled={index === parts.length - 1} onClick={() => setSelected(index + 1)} className="absolute right-1 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--app-fg)] text-[var(--app-bg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] disabled:opacity-30"><ArrowRightIcon className="h-5 w-5" /></button>
+            </div>
+            <div className="mt-3 break-words px-4 text-center text-sm font-medium text-[var(--app-fg)]" aria-live="polite" aria-atomic="true">{caption}</div>
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-1" aria-label={`${index + 1} / ${parts.length}`}>
+                {parts.map((_, dotIndex) => <button key={dotIndex} type="button" aria-label={t('media.displayed.goToImage', { number: String(dotIndex + 1) })} aria-current={dotIndex === index ? 'true' : undefined} onClick={() => setSelected(dotIndex)} className="flex h-8 w-8 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-[var(--app-link)]"><span className={cn('h-2 w-2 rounded-full', dotIndex === index ? 'bg-[var(--app-fg)]' : 'bg-[var(--app-hint)] opacity-40')} /></button>)}
+            </div>
+        </div>
+    </MessageImageGallery>
+}
+
+function ResponsePartsGroup({ groupKey, indices, children }: PropsWithChildren<{ groupKey: string | undefined; indices: number[] }>) {
+    if (groupKey === 'image-sequence') return <ImageSequence indices={indices}>{children}</ImageSequence>
     return groupKey === 'response-text'
         ? <div className="happy-assistant-bubble flex min-w-0 max-w-full flex-col gap-2">{children}</div>
         : <>{children}</>
@@ -64,11 +102,6 @@ const MESSAGE_PART_COMPONENTS = {
     tools: TOOL_COMPONENTS,
     data: RECAP_COMPONENTS,
     Group: ResponsePartsGroup,
-} as const
-
-const LIVE_WORK_COMPONENTS = {
-    ...MESSAGE_PART_COMPONENTS,
-    Text: () => null,
 } as const
 
 function DetailPartsGroup({ children }: PropsWithChildren) {
@@ -123,27 +156,19 @@ export function HappyAssistantMessage() {
     const visiblePartsGrouping = useMemo(
         () => () => {
             const visibleIndices = compactParts?.visibleIndices ?? messageParts.map((_, index) => index)
-            if (compactParts) {
-                // Preserve the order around questions: prose before and after
-                // a decision card must not be joined above that card.
-                const groups: { groupKey: string | undefined; indices: number[] }[] = []
-                for (const index of visibleIndices) {
-                    const text = messageParts[index].type === 'text'
-                    const previous = groups.at(-1)
-                    if (text && previous?.groupKey === 'response-text') previous.indices.push(index)
-                    else groups.push({ groupKey: text ? 'response-text' : undefined, indices: [index] })
-                }
-                return groups
+            const groups: { groupKey: string | undefined; indices: number[] }[] = []
+            for (const index of visibleIndices) {
+                const part = messageParts[index]
+                const artifact = part.type === 'tool-call' ? part.artifact as GeneratedImageBlock | undefined : undefined
+                const image = part.type === 'tool-call' && part.toolName === 'GeneratedImage'
+                    && artifact?.kind === 'generated-image' && isInlineImageMimeType(artifact.mimeType)
+                const key = image ? 'image-sequence' : part.type === 'text' ? 'response-text' : undefined
+                const previous = groups.at(-1)
+                if (key && previous?.groupKey?.startsWith(key) && previous.indices.at(-1) === index - 1) {
+                    previous.indices.push(index)
+                } else groups.push({ groupKey: key, indices: [index] })
             }
-            const textIndices = visibleIndices.filter((index) => messageParts[index].type === 'text')
-            // Keep streaming prose in one stable bubble, with work and media
-            // below it. Individual text parts retain their source anchors.
-            return [
-                ...(textIndices.length > 0 ? [{ groupKey: 'response-text', indices: textIndices }] : []),
-                ...(compactParts ? visibleIndices : [])
-                    .filter((index) => messageParts[index].type !== 'text')
-                    .map((index) => ({ groupKey: undefined, indices: [index] })),
-            ]
+            return groups
         },
         [compactParts, messageParts]
     )
@@ -237,7 +262,6 @@ export function HappyAssistantMessage() {
                                 groupingFunction={visiblePartsGrouping}
                                 components={MESSAGE_PART_COMPONENTS}
                             />
-                            {!compactParts ? <MessagePrimitive.Content components={LIVE_WORK_COMPONENTS} /> : null}
                         </>
                     )}
             {compactParts || workspaceChanges ? (

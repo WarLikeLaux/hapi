@@ -165,6 +165,7 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
     const [scale, setScale] = useState(1)
     const [offset, setOffset] = useState({ x: 0, y: 0 })
     const surfaceRef = useRef<HTMLDivElement>(null)
+    const closeRef = useRef<HTMLButtonElement>(null)
     const scaleRef = useRef(scale)
     const offsetRef = useRef(offset)
     const activePointersRef = useRef(new Map<number, ImagePoint>())
@@ -173,6 +174,12 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
     const backdropPressRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
 
     const stopEvent = useCallback((event: SyntheticEvent) => event.stopPropagation(), [])
+
+    useEffect(() => {
+        const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        closeRef.current?.focus()
+        return () => previous?.focus()
+    }, [])
 
     useEffect(() => {
         let disposed = false
@@ -403,8 +410,9 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
             <div className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-black/50 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)] max-sm:gap-1">
                         <button
                             type="button"
+                            ref={closeRef}
                             onClick={closeViewer}
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/10 hover:bg-white/20 max-sm:order-1"
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded bg-white/10 hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-white max-sm:order-1 sm:h-8 sm:w-8"
                             title="Close"
                         >
                             <CloseIcon className="h-4 w-4" />
@@ -455,20 +463,20 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
                                     <button
                                         type="button"
                                         onClick={() => showPreview(previewIndex - 1)}
-                                        className="flex h-8 w-8 items-center justify-center rounded bg-white/10 text-lg hover:bg-white/20 disabled:opacity-40"
+                                        className="flex h-11 w-11 items-center justify-center rounded bg-white/10 text-lg hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-40 sm:h-8 sm:w-8"
                                         disabled={previewIndex === 0}
                                         title="Previous image"
                                         aria-label="Previous image"
                                     >
                                         <ArrowLeftIcon className="h-4 w-4" />
                                     </button>
-                                    <span className="min-w-10 text-center text-xs tabular-nums text-white/70">
+                                    <span aria-live="polite" aria-atomic="true" className="min-w-10 text-center text-xs tabular-nums text-white/70">
                                         {previewIndex + 1} / {previewImages.length}
                                     </span>
                                     <button
                                         type="button"
                                         onClick={() => showPreview(previewIndex + 1)}
-                                        className="flex h-8 w-8 items-center justify-center rounded bg-white/10 text-lg hover:bg-white/20 disabled:opacity-40"
+                                        className="flex h-11 w-11 items-center justify-center rounded bg-white/10 text-lg hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-40 sm:h-8 sm:w-8"
                                         disabled={previewIndex === previewImages.length - 1}
                                         title="Next image"
                                         aria-label="Next image"

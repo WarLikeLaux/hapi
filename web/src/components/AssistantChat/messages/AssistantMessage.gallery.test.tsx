@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AssistantRuntimeProvider, ThreadPrimitive } from '@assistant-ui/react'
 import { describe, expect, it, vi } from 'vitest'
 import { normalizeDecryptedMessage } from '@/chat/normalize'
@@ -43,26 +43,46 @@ function Transcript({ rows, historyVersion = 0 }: { rows: DecryptedMessage[]; hi
 }
 
 describe('rendered assistant message gallery', () => {
+    it('keeps images separated by another message in distinct sequences', async () => {
+        const rows = [user('request'), image('first'), image('second'),
+            row('between', { type: 'message', message: 'Between images' }), image('third'), image('fourth')]
+        render(<Transcript rows={rows} />)
+        const groups = await screen.findAllByRole('region', { name: 'Images (2)' })
+        expect(within(groups[0]).getByRole('button', { name: 'first.png' })).toBeVisible()
+        expect(within(groups[0]).queryByRole('button', { name: 'second.png' })).toBeNull()
+        fireEvent.keyDown(groups[0], { key: 'ArrowRight' })
+        expect(within(groups[0]).getByRole('button', { name: 'second.png' })).toBeVisible()
+        expect(within(groups[0]).getByText('second')).toBeVisible()
+        expect(within(groups[0]).getByRole('button', { name: 'Go to image 2' })).toHaveAttribute('aria-current', 'true')
+        fireEvent.click(within(groups[0]).getByRole('button', { name: 'second.png' }))
+        expect(within(screen.getByRole('dialog')).getByText('2 / 2')).toBeVisible()
+        expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Next image' })).toBeDisabled()
+        fireEvent.keyDown(window, { key: 'Escape' })
+        fireEvent.click(screen.getByRole('button', { name: 'third.png' }))
+        expect(within(screen.getByRole('dialog')).getByText('1 / 2')).toBeVisible()
+    })
     it('joins six display-image results, preserves selection through history/live updates, and isolates the next answer', async () => {
         const { container, rerender } = render(<Transcript rows={messages} />)
         await waitFor(() => expect(container.querySelectorAll('[data-image-preview-trigger]')).toHaveLength(7))
         expect(container.querySelectorAll('[data-hapi-message-role="assistant"]')).toHaveLength(2)
-        fireEvent.click(container.querySelectorAll('[data-image-preview-trigger]')[3])
-        expect(screen.getByText('4 / 6')).toBeVisible()
+        const carousel = screen.getByRole('region', { name: 'Images (6)' })
+        for (let i = 0; i < 3; i++) fireEvent.click(within(carousel).getByRole('button', { name: 'Next image' }))
+        fireEvent.click(within(carousel).getByRole('button', { name: 'shot-4.png' }))
+        expect(within(screen.getByRole('dialog')).getByText('4 / 6')).toBeVisible()
         expect(screen.getByRole('dialog')).toHaveAccessibleName('shot-4.png')
         fireEvent.keyDown(window, { key: 'ArrowLeft' })
-        expect(screen.getByText('3 / 6')).toBeVisible()
-        fireEvent.click(screen.getByRole('button', { name: 'Next image' }))
+        expect(within(screen.getByRole('dialog')).getByText('3 / 6')).toBeVisible()
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Next image' }))
         fireEvent.click(screen.getByTitle('Zoom in'))
         expect(screen.getByTitle('Reset zoom')).toHaveTextContent('125%')
         const expanded = [user('older-request'), image('older'), user('boundary'), ...messages,
             user('new-request'), image('new')]
         rerender(<Transcript rows={expanded} historyVersion={1} />)
-        expect(screen.getByText('4 / 6')).toBeVisible()
+        expect(within(screen.getByRole('dialog')).getByText('4 / 6')).toBeVisible()
         fireEvent.keyDown(window, { key: 'ArrowRight' })
         fireEvent.keyDown(window, { key: 'ArrowRight' })
-        expect(screen.getByText('6 / 6')).toBeVisible()
-        expect(screen.getByRole('button', { name: 'Next image' })).toBeDisabled()
+        expect(within(screen.getByRole('dialog')).getByText('6 / 6')).toBeVisible()
+        expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Next image' })).toBeDisabled()
         fireEvent.keyDown(window, { key: 'ArrowRight' })
         expect(screen.getByRole('dialog')).toHaveAccessibleName('shot-6.png')
         fireEvent.keyDown(window, { key: 'Escape' })
@@ -70,12 +90,14 @@ describe('rendered assistant message gallery', () => {
         await waitFor(() => expect(container.querySelectorAll('[data-image-preview-trigger]')).toHaveLength(9))
         fireEvent.click(screen.getByRole('button', { name: 'single.png' }))
         expect(screen.getByRole('dialog')).toHaveAccessibleName('single.png')
-        expect(screen.queryByRole('button', { name: 'Next image' })).toBeNull()
+        expect(within(screen.getByRole('dialog')).queryByRole('button', { name: 'Next image' })).toBeNull()
         fireEvent.keyDown(window, { key: 'ArrowLeft' })
         expect(screen.getByRole('dialog')).toHaveAccessibleName('single.png')
         fireEvent.click(screen.getByTitle('Close'))
-        fireEvent.click(screen.getByRole('button', { name: 'shot-2.png' }))
-        expect(screen.getByText('2 / 6')).toBeVisible()
+        fireEvent.click(within(carousel).getByRole('button', { name: 'Previous image' }))
+        fireEvent.click(within(carousel).getByRole('button', { name: 'Previous image' }))
+        fireEvent.click(within(carousel).getByRole('button', { name: 'shot-2.png' }))
+        expect(within(screen.getByRole('dialog')).getByText('2 / 6')).toBeVisible()
         expect(screen.getByTitle('Reset zoom')).toHaveTextContent('100%')
     })
 })
