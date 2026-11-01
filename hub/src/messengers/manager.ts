@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import type {
@@ -1023,11 +1024,14 @@ export class MessengerManager {
                 ...event.conversation,
                 selected: existing?.selected ?? event.conversation.selected
             })
-            this.options.sseManager.broadcast({
-                type: 'external-conversation-updated',
-                namespace,
-                conversationId: event.conversation.id
-            })
+            const updated = this.options.store.messengers.getConversation(namespace, event.conversation.id)
+            if (!isDeepStrictEqual(existing, updated)) {
+                this.options.sseManager.broadcast({
+                    type: 'external-conversation-updated',
+                    namespace,
+                    conversationId: event.conversation.id
+                })
+            }
             // Real-time peer read receipts: while the chat is open, every
             // `conversation` event from the connector is an opportunity to flip
             // outgoing messages to `read` against the latest peer cursor.
@@ -1077,6 +1081,7 @@ export class MessengerManager {
             const conversation = this.options.store.messengers.listConversations(namespace)
                 .find((item) => item.provider === event.provider && item.remoteId === event.remoteId)
             if (!conversation) return
+            if (conversation.unreadCount === event.unreadCount) return
             this.options.store.messengers.setUnreadCount(namespace, conversation.id, event.unreadCount)
             this.options.sseManager.broadcast({
                 type: 'external-conversation-updated',
