@@ -149,13 +149,15 @@ describe('voicePlayback queue', () => {
         await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(2))
     })
 
-    it('waits for the external command before starting the first voice', async () => {
+    it('waits for the external command before loading and starting the first voice', async () => {
         let finish: (() => void) | undefined
         const toggle = vi.fn<() => Promise<void>>()
             .mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
             .mockResolvedValue(undefined)
-        startVoiceQueue([item('c:1:0')], 0, blobFetcher(), null, toggle)
+        const fetch = blobFetcher()
+        startVoiceQueue([item('c:1:0')], 0, fetch, null, toggle)
         await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(1))
+        expect(fetch).not.toHaveBeenCalled()
         expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
         finish!()
         await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))

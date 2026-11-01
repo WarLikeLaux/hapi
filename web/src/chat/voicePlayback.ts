@@ -179,6 +179,10 @@ async function playIndex(index: number): Promise<void> {
         duration: item.duration ?? 0
     })
     try {
+        if (mediaToggle && !mediaActive) {
+            await setMediaActive(true)
+            if (token !== playToken) return
+        }
         const url = item.src ?? URL.createObjectURL(await fetchBlob(item))
         if (token !== playToken) {
             // Superseded while downloading; nothing adopted this URL yet.
@@ -207,10 +211,6 @@ async function playIndex(index: number): Promise<void> {
                 // Receipt failure must never interrupt audio. Replaying later
                 // can retry it through the API client's deduplication.
             })
-        }
-        if (mediaToggle && !mediaActive) {
-            await setMediaActive(true)
-            if (token !== playToken) return
         }
         await element.play()
         if (token === playToken) setState({ status: 'playing' })
