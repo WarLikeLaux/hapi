@@ -6,7 +6,7 @@ import { ScheduleIcon } from '@/components/icons'
 import { ScheduleTimePicker } from './ScheduleTimePicker'
 import type { PendingSchedule } from './ScheduleTimePicker'
 import { useFue } from '@/lib/use-fue'
-import { FueCallout, FueDot } from '@/components/Fue'
+import { FueCallout } from '@/components/Fue'
 import { Children, isValidElement, useRef, useState, type ReactElement, type ReactNode, type Ref } from 'react'
 import { useComposerToolbarLayout, type ComposerToolbarItemId, type ComposerToolbarLayout } from '@/hooks/useComposerToolbarLayout'
 import { useNarrowViewport } from '@/hooks/useNarrowViewport'
@@ -428,17 +428,6 @@ export function ComposerSendButtonPreview() {
     return <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black text-white dark:bg-white dark:text-black" aria-hidden="true"><SendIcon /></span>
 }
 
-/**
- * ScratchlistToggleButton — composer affordance for toggling scratchlist mode,
- * wrapped in the generic FUE (First-User Experience) primitive so a new
- * operator sees a pulsing dot + a one-time explainer popover the first time
- * they encounter the feature; once they engage with it, the dot disappears
- * for good and the entry counter takes over.
- *
- * The FUE wiring here is the canonical example for future features: the
- * pattern is "wrap the affordance in useFue + FueDot, conditionally render
- * FueCallout while engaging". See web/src/lib/use-fue.ts for the contract.
- */
 function ScratchlistToggleButton(props: {
     scratchlistMode: boolean
     scratchlistCount: number
@@ -449,11 +438,7 @@ function ScratchlistToggleButton(props: {
     const fue = useFue('scratchlist-toggle')
     const buttonRef = useRef<HTMLButtonElement>(null)
 
-    const showFueDot = fue.status !== 'acknowledged'
-    // Counter and FUE dot are mutually exclusive (see FueDot doc comment).
-    // Onboarding signal beats inventory signal: the user can't read the
-    // counter as "you have N items" until they understand the feature.
-    const showCounter = !showFueDot && props.scratchlistCount > 0
+    const showCounter = props.scratchlistCount > 0
 
     return (
         <>
@@ -475,12 +460,6 @@ function ScratchlistToggleButton(props: {
                 }`}
             >
                 <ScratchlistToggleIcon />
-                {showFueDot ? (
-                    <FueDot
-                        pulsing={fue.status === 'unseen'}
-                        ariaLabel={t('fue.newFeatureDot')}
-                    />
-                ) : null}
                 {showCounter ? (
                     <span
                         aria-hidden="true"
@@ -540,12 +519,6 @@ function TerminalButton(props: {
                 disabled={props.disabled}
             >
                 <TerminalIcon />
-                {fue.status !== 'acknowledged' ? (
-                    <FueDot
-                        pulsing={fue.status === 'unseen'}
-                        ariaLabel={t('fue.newFeatureDot')}
-                    />
-                ) : null}
             </button>
             {fue.status === 'engaging' ? (
                 <FueCallout

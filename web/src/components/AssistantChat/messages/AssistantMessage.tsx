@@ -18,7 +18,7 @@ import { useSessionSummaryInChat } from '@/hooks/useSessionSummaryInChat'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
-import { hasRenderableResponsePart, partitionCompletedResponseParts, shouldCompactResponse } from './responseDisplay'
+import { hasRenderableResponsePart, isAgentImageInspection, partitionCompletedResponseParts, shouldCompactResponse } from './responseDisplay'
 import { ResponseChanges } from './ResponseChanges'
 import { imageDisplayCaption, isInlineImageMimeType } from '@/lib/generatedInlineMedia'
 import type { GeneratedImageBlock } from '@/chat/types'
@@ -155,7 +155,7 @@ export function HappyAssistantMessage() {
     )
     const visiblePartsGrouping = useMemo(
         () => () => {
-            const visibleIndices = compactParts?.visibleIndices ?? messageParts.map((_, index) => index)
+            const visibleIndices = compactParts?.visibleIndices ?? messageParts.flatMap((part, index) => isAgentImageInspection(part) ? [] : [index])
             const groups: { groupKey: string | undefined; indices: number[] }[] = []
             for (const index of visibleIndices) {
                 const part = messageParts[index]
@@ -164,7 +164,7 @@ export function HappyAssistantMessage() {
                     && artifact?.kind === 'generated-image' && isInlineImageMimeType(artifact.mimeType)
                 const key = image ? 'image-sequence' : part.type === 'text' ? 'response-text' : undefined
                 const previous = groups.at(-1)
-                if (key && previous?.groupKey?.startsWith(key) && previous.indices.at(-1) === index - 1) {
+                if (key && previous?.groupKey === key) {
                     previous.indices.push(index)
                 } else groups.push({ groupKey: key, indices: [index] })
             }

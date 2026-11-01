@@ -2,6 +2,7 @@ import { getExternalStoreMessages, type ThreadAssistantMessagePart, type ThreadM
 import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion'
 import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInput'
 import type { ToolCallBlock } from '@/chat/types'
+import type { GeneratedImageBlock } from '@/chat/types'
 
 export type ResponsePartPartition = {
     visibleIndices: number[]
@@ -39,8 +40,16 @@ export function shouldCompactResponse(
     return statusType === 'complete'
 }
 
+export function isAgentImageInspection(part: ThreadAssistantMessagePart): boolean {
+    if (part.type !== 'tool-call' || part.toolName !== 'GeneratedImage') return false
+    const block = part.artifact as GeneratedImageBlock | undefined
+    return block?.kind === 'generated-image'
+        && block.source?.ingress === 'tool_result'
+        && block.source.toolName === 'view_image'
+}
+
 function isResultArtifact(part: ThreadAssistantMessagePart): boolean {
-    return (part.type === 'tool-call' && part.toolName === 'GeneratedImage')
+    return (part.type === 'tool-call' && part.toolName === 'GeneratedImage' && !isAgentImageInspection(part))
         || (part.type === 'data' && part.name === 'recap')
 }
 
@@ -80,7 +89,7 @@ export function partitionCompletedResponseParts(
         }
     })
 
-    return visibleIndices.length > 0 && detailIndices.length > 0
+    return detailIndices.length > 0 && (visibleIndices.length > 0 || parts.some(isAgentImageInspection))
         ? { visibleIndices, detailIndices }
         : null
 }

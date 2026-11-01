@@ -33,7 +33,7 @@ import {
     type RichComposerInputHandle,
 } from '@/components/AssistantChat/RichComposerInput'
 import { useFue } from '@/lib/use-fue'
-import { FueCallout, FueDot } from '@/components/Fue'
+import { FueCallout } from '@/components/Fue'
 import type { AgentState, CodexCollaborationMode, PermissionMode, MinimaxModelSummary, PiModelSummary } from '@/types/api'
 import type { SuggestionHandler, Suggestion } from '@/hooks/useActiveSuggestions'
 import type { ConversationStatus } from '@/realtime/types'
@@ -2556,12 +2556,6 @@ export function HappyComposer(props: {
                                             onEdit={handleRichEdit}
                                             className={editorClassName}
                                         />
-                                        {richComposerFueStatus !== 'acknowledged' ? (
-                                            <FueDot
-                                                pulsing={richComposerFueStatus === 'unseen'}
-                                                ariaLabel={t('fue.newFeatureDot')}
-                                            />
-                                        ) : null}
                                     </div>
                                 ) : isExpanded ? (
                                     <ComposerPrimitive.Input
