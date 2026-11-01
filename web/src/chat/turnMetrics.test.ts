@@ -21,6 +21,23 @@ describe('turn metrics', () => {
         expect(getTurnMetrics([user(100), snapshot(101, 1000, 100)])?.tokens).toBeUndefined()
     })
 
+    it('keeps token and duration metrics when later events omit one of them', () => {
+        const duration: NormalizedMessage = { ...base, id: 'duration', createdAt: 202, role: 'event',
+            content: { type: 'turn-duration', durationMs: 3000 } }
+        const summary: NormalizedMessage = { ...base, id: 'summary', createdAt: 203, role: 'event',
+            content: { type: 'turn-summary', summary: { modelUsage: {} } } }
+        expect(getTurnMetrics([user(100), snapshot(101, 1000, 100), user(200),
+            snapshot(201, 1500, 150), duration, summary])).toEqual({ startedAt: 200, durationMs: 3000, tokens: 550 })
+    })
+
+    it('does not count cached Codex input twice in a summary', () => {
+        const result: NormalizedMessage = { ...base, id: 'codex-result', createdAt: 200, role: 'event', content: {
+            type: 'turn-summary', summary: { provider: 'codex', modelUsage: {},
+                usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 90 } }
+        } }
+        expect(getTurnMetrics([user(100), result])?.tokens).toBe(120)
+    })
+
     it('uses completed Claude round totals including cached input', () => {
         const result: NormalizedMessage = { ...base, id: 'result', createdAt: 200, role: 'event', content: {
             type: 'turn-summary', summary: { modelUsage: {}, durationMs: 10_000,

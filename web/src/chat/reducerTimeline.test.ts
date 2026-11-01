@@ -335,6 +335,28 @@ describe('reduceTimeline', () => {
         }
     })
 
+    it('shows all Codex requests in the round, including cached input once', () => {
+        const wire = (id: string, turn_id: string, data: Record<string, unknown>) => normalizeAgentRecord(id, null, 1000, {
+            type: 'codex', data: { ...data, turn_id }
+        })!
+        const count = (id: string, turn: string, total: number, cached: number, output: number, last: number) => wire(id, turn, {
+            type: 'token_count', flavor: 'codex', model: 'gpt-5.4', info: {
+                total_token_usage: { input_tokens: total, cached_input_tokens: cached, output_tokens: output },
+                last_token_usage: { input_tokens: last, cached_input_tokens: last - 10, output_tokens: 5 }
+            }
+        })
+        const messages = [makeUserMessage('previous'), wire('old', 'old', { type: 'message', message: 'old' }),
+            count('baseline', 'old', 1000, 900, 100, 100), makeUserMessage('next'),
+            wire('answer', 'new', { type: 'message', message: 'answer' }),
+            count('one', 'new', 1100, 980, 105, 100), count('two', 'new', 1220, 1090, 110, 120),
+            wire('duration', 'new', { type: 'turn_duration', flavor: 'codex', durationMs: 3000 })]
+        const { blocks } = reduceTimeline(messages, makeContext())
+        const answer = blocks.find(block => block.id === 'answer:0')
+        expect(answer).toMatchObject({ roundSummary: { durationMs: 3000, usage: {
+            input_tokens: 220, output_tokens: 10, cache_read_input_tokens: 190
+        } } })
+    })
+
     it('keeps the existing latest-usage model policy when a persisted duration is present', () => {
         const messages = [
             { type: 'message', message: 'answer' },
@@ -1851,7 +1873,7 @@ describe('Codex cache metadata through the chat pipeline', () => {
             const metadata = aggregateResponseGroups(visible).get('cache-answer:0')!
             expect(metadata.roundSummary?.usage?.cache_read_input_tokens).toBe(80)
             expect(buildMessageMetadataLabels(metadata)).toContain('Cached input: 80%')
-            expect(buildMessageMetadataLabels(metadata)).toContain('Tokens: 110 (100 in · 10 out)')
+            expect(buildMessageMetadataLabels(metadata)).toContain('Last request tokens: 110 (100 in · 10 out)')
         }
     })
 })

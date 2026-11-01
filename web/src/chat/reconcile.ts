@@ -67,7 +67,8 @@ function areRoundSummariesEqual(left?: RoundSummary, right?: RoundSummary): bool
     if (!left || !right) return false
     const leftModels = Object.keys(left.modelUsage)
     const rightModels = Object.keys(right.modelUsage)
-    return left.totalCostUsd === right.totalCostUsd
+    return left.usageScope === right.usageScope
+        && left.totalCostUsd === right.totalCostUsd
         && left.numTurns === right.numTurns
         && left.durationMs === right.durationMs
         && areUsageDataEqual(left.usage, right.usage)

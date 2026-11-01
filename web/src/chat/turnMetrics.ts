@@ -18,6 +18,9 @@ function totalSnapshot(message: NormalizedMessage): number | undefined {
 }
 
 function summaryTokens(summary: RoundSummary): number | undefined {
+    if (summary.provider === 'codex' && summary.usage) {
+        return summary.usage.input_tokens + summary.usage.output_tokens
+    }
     const models = Object.values(summary.modelUsage)
     if (models.length && models.every(item => item.inputTokens !== undefined && item.outputTokens !== undefined)) {
         return models.reduce((sum, item) => sum + item.inputTokens! + item.outputTokens!
@@ -46,8 +49,8 @@ export function getTurnMetrics(messages: readonly NormalizedMessage[]): TurnMetr
         if (message.isSidechain || message.role !== 'event') continue
         if (message.content.type === 'turn-summary') {
             const summary = message.content.summary as RoundSummary
-            tokens = summaryTokens(summary)
-            durationMs = summary.durationMs
+            tokens = summaryTokens(summary) ?? tokens
+            durationMs = summary.durationMs ?? durationMs
         } else if (message.content.type === 'turn-duration' && typeof message.content.durationMs === 'number') {
             durationMs = message.content.durationMs
         } else if (message.content.type === 'token-count') {

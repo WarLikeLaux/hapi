@@ -29,7 +29,7 @@ import { buildConversationOutline } from '@/chat/outline'
 import { buildVisibleChatBlocks, isToolGroupBlock, type ToolGroupBlock } from '@/chat/toolGroups'
 import { useUnseenBlockCount } from '@/hooks/useUnseenBlockCount'
 import { useCodexExplorationCollapse } from '@/hooks/useCodexExplorationCollapse'
-import { isQueuedForInvocation } from '@/lib/messages'
+import { isQueuedForInvocation, isUserMessage } from '@/lib/messages'
 import { sendVoiceMessage } from '@/lib/dictationSend'
 import { inactiveSessionCanResume } from '@/lib/sessionResume'
 import {
@@ -2310,6 +2310,9 @@ function SessionChatInner(props: SessionChatProps) {
                         backgroundTaskCount={props.session.backgroundTaskCount}
                         activity={activity}
                         turnMetrics={turnMetrics}
+                        awaitingStart={!props.session.thinking && props.messages.some(message =>
+                            isUserMessage(message) && message.invokedAt === null && message.scheduledAt == null
+                            && message.status !== 'failed' && message.deliveryState !== 'indeterminate')}
                         contextSize={reduced.latestUsage?.contextSize}
                         contextCacheRead={reduced.latestUsage?.cacheRead}
                         contextWindow={reduced.latestUsage?.contextWindow ?? piContextWindow}
