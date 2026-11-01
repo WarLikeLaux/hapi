@@ -104,7 +104,8 @@ window.__probe = {
 //   latest-tail refresh path can be tested independently from a cold window.
 // - ?holdLatest=1 — hold the latest response until `window.__probe.releaseLatest`
 //   is called, making the cached first paint observable.
-// - ?navigationShell=1 — add a pinned header/composer and outline controls.
+// - ?navigationShell=1 — add a pinned header/composer and outline controls,
+//   with user prompts separated by agent records as in a real conversation.
 // - ?navigationMedia=1 — include generated-image previews in older history.
 const fixtureParams = new URLSearchParams(window.location.search)
 const navigationShell = fixtureParams.has('navigationShell')
@@ -132,7 +133,13 @@ let beforeAttempts = 0
 const allMessages: DecryptedMessage[] = Array.from({ length: TOTAL_MESSAGES }, (_, index) => {
     const seq = index + 1
     const filtered = filteredOlder && seq <= TOTAL_MESSAGES - 200
-    const assistantContent = conversation && (seq - 1) % responseRecords !== 0
+    // Keep navigation targets inside a normal page of conversation units.
+    // Hundreds of consecutive user prompts alone exceed the fork's tail
+    // budget before the outline opens. Preserve each page's first user row.
+    const isAssistant = navigationShell
+        ? seq % 10 !== 0 && (seq - 1) % 200 !== 0
+        : conversation && (seq - 1) % responseRecords !== 0
+    const assistantContent = isAssistant
         ? { role: 'agent', content: { type: 'codex', data: {
             type: 'message', message: seq % responseRecords === 0
                 ? `Fixture response ${seq}\n\n${'A finished response with enough text to scroll through.\n\n'.repeat(18)}`

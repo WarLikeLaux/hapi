@@ -115,10 +115,17 @@ for (const isMobile of [true, false]) {
         test.use({ isMobile, hasTouch: true })
 
         test('keeps two expanded projects stable while the fallback thumb catches up with a shorter viewport', async ({ page }) => {
-            await page.addInitScript(() => localStorage.setItem('hapi-session-preview-limit', '99'))
+            await page.addInitScript(() => {
+                localStorage.setItem('hapi-session-preview-limit', '99')
+                // Exercise project panels, rather than the fork's default
+                // Active section which collects all running sessions.
+                localStorage.setItem('hapi-pin-in-progress-sessions', 'false')
+            })
             await page.goto('/e2e-fixtures/session-list-scrollbar-fixture.html?two-projects')
             const viewport = page.locator('.session-list-scrollbar-left')
             await expect(viewport).toBeVisible()
+            await page.getByTitle('/work/project-a', { exact: true }).click()
+            await page.getByTitle('/work/project-b', { exact: true }).click()
             await expect(viewport.locator('.collapsible-panel[data-open]')).toHaveCount(2)
 
             const samples = await viewport.evaluate(async (element) => {

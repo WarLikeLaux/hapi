@@ -1686,19 +1686,32 @@ export function HappyThread(props: {
 
     const handleOutlineSelect = useCallback(async (item: ConversationOutlineItem) => {
         restoredHistoryAnchorRef.current = null
+        clearInitialScrollTimers()
+        tailScrollInProgressRef.current = false
+        autoScrollEnabledRef.current = false
+        if (atBottomRef.current) {
+            atBottomRef.current = false
+            onViewModeChangeRef.current('history')
+        }
         const target = await locateOutlineTargetMessage({
             targetMessageId: item.targetMessageId,
             findTarget: (anchorId) => document.getElementById(anchorId),
             hasMoreMessages: () => hasMoreMessagesRef.current,
             loadOlderPreservingScroll: loadOlderForOutline
         })
-        if (target) {
-            target.scrollIntoView({ block: 'start', behavior: 'smooth' })
-            autoScrollEnabledRef.current = false
-        }
         props.onOutlineItemClick?.(item)
         props.onOutlineOpenChange(false)
-    }, [loadOlderForOutline, props.onOutlineItemClick, props.onOutlineOpenChange])
+        if (target) {
+            // Closing the outline restores the mobile composer and resizes
+            // the viewport. Start native smooth scrolling after that layout
+            // settles so its old tail position cannot reclaim auto-follow.
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+            if (!viewportRef.current?.contains(target)) return
+            autoScrollEnabledRef.current = false
+            atBottomRef.current = false
+            target.scrollIntoView({ block: 'start', behavior: 'smooth' })
+        }
+    }, [clearInitialScrollTimers, loadOlderForOutline, props.onOutlineItemClick, props.onOutlineOpenChange])
 
     // When the outline opens, ensure it has at least OUTLINE_USER_BATCH user
     // messages visible — otherwise the user's first prompt (which may live
