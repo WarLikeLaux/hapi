@@ -29,6 +29,24 @@ const appVersion = readAppVersion()
 const buildTime = process.env.VITE_HAPI_BUILD_TIME || new Date().toISOString()
 const buildId = process.env.VITE_HAPI_BUILD_ID || `local-${buildTime.replace(/\D/g, '').slice(0, 14)}`
 
+function buildInformation(): Plugin {
+    const body = JSON.stringify({ buildId })
+    return {
+        name: 'build-information',
+        configureServer(server) {
+            server.middlewares.use((req, res, next) => {
+                if (req.url?.split('?')[0] !== '/build-info.json') return next()
+                res.setHeader('Content-Type', 'application/json')
+                res.setHeader('Cache-Control', 'no-store')
+                res.end(body)
+            })
+        },
+        generateBundle() {
+            this.emitFile({ type: 'asset', fileName: 'build-info.json', source: body })
+        },
+    }
+}
+
 function readAppVersion(): string {
     const buildInfoPath = resolve(__dirname, '../shared/src/buildInfo.ts')
     const buildInfo = readFileSync(buildInfoPath, 'utf8')
@@ -107,6 +125,7 @@ export default defineConfig({
     plugins: [
         react(),
         spaFallback(),
+        buildInformation(),
         copyKaTeXFonts(),
         VitePWA({
             // Stay in prompt mode: waiting updates are surfaced as an in-app

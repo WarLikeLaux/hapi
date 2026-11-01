@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@/lib/i18n-context'
@@ -26,6 +26,7 @@ const { context, navigate, setAppearance, setColorTheme, setFontScale, setTermin
 
 const getHubSettings = vi.fn().mockResolvedValue({ sessionSummaryContract: false, sessionSummaryInChat: false, claudeBrandedAsGlm: false })
 const updateHubSettings = vi.fn().mockResolvedValue({ sessionSummaryContract: true, sessionSummaryInChat: false })
+afterEach(() => vi.unstubAllGlobals())
 
 vi.mock('@/hooks/useColorTheme', () => ({
     useColorTheme: () => ({ colorTheme: 'default', setColorTheme }),
@@ -367,16 +368,28 @@ describe('responsive settings pages', () => {
         expect(setCodexExplorationCollapsed).toHaveBeenCalledWith(false)
     })
 
-    it('renders About metadata on its own route page', () => {
+    it('shows the cache recovery action on About', () => {
         renderPage(<SettingsAboutPage />)
         expect(screen.queryByText('Companion')).not.toBeInTheDocument()
-        expect(screen.getByText('App Version')).toBeInTheDocument()
-        expect(screen.getByText(String(__APP_VERSION__))).toBeInTheDocument()
-        expect(screen.getByText('Build ID')).toBeInTheDocument()
-        expect(screen.getByText(String(__BUILD_ID__))).toBeInTheDocument()
-        expect(screen.getByText('Build Time')).toBeInTheDocument()
-        expect(screen.getByText('Protocol Version')).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: 'hapi.run' })).toHaveAttribute('rel', 'noopener noreferrer')
+        expect(screen.getByRole('button', { name: 'Clear cache & reload' })).toBeInTheDocument()
+    })
+
+    it('distinguishes the deployed build and offers a retry when checking fails', async () => {
+        const fetchBuild = vi.fn()
+            .mockResolvedValueOnce({ ok: true, json: async () => ({ buildId: __BUILD_ID__ }) })
+            .mockResolvedValueOnce({ ok: true, json: async () => ({ buildId: 'different-deployment' }) })
+        vi.stubGlobal('fetch', fetchBuild)
+        renderPage(<SettingsAboutPage />)
+        expect(await screen.findByText('You are using the deployed version.')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+        expect(await screen.findByRole('button', { name: 'Update app' })).toBeInTheDocument()
+    })
+
+    it('reports an unavailable deployment check instead of claiming to be current', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+        renderPage(<SettingsAboutPage />)
+        expect(await screen.findByText(/Could not check or apply the update/)).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Check again' })).toBeInTheDocument()
     })
 
     it('links common voice settings to full-page voices and advanced pages', () => {

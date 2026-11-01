@@ -154,7 +154,7 @@ function LimitsGaugeIcon(props: { className?: string }) {
 }
 
 
-function FolderOpenIcon(props: { className?: string }) {
+function AboutIcon(props: { className?: string }) {
     return (
         <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -168,7 +168,9 @@ function FolderOpenIcon(props: { className?: string }) {
             strokeLinejoin="round"
             className={props.className}
         >
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 11v5" />
+            <path d="M12 8h.01" />
         </svg>
     )
 }
@@ -381,23 +383,23 @@ function SessionsPage() {
                         onRefresh={handleRefresh}
                         isLoading={isLoading}
                         // Keep ranks: new 4, settings 6,
-                        // mark-all 7, browse 8. Higher sheds into More first (#2039).
+                        // mark-all 7, about 8. Higher sheds into More first (#2039).
                         renderHeader
                         toolbarExtras={[
-                            ...(canBrowse ? [{
-                                id: 'browse',
+                            {
+                                id: 'about',
                                 keep: 8,
                                 node: (
                                     <button
                                         type="button"
-                                        onClick={() => navigate({ to: '/browse' })}
+                                        onClick={() => navigate({ to: '/settings/about' })}
                                         className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
-                                        title={t('browse.nav')}
+                                        title={t('settings.about.title')}
                                     >
-                                        <FolderOpenIcon className="h-5 w-5" />
+                                        <AboutIcon className="h-5 w-5" />
                                     </button>
                                 )
-                            }] : []),
+                            },
                             {
                                 id: 'limits',
                                 keep: 7,
