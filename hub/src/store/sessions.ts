@@ -528,6 +528,12 @@ export function updateSessionMetadata(
             if (
                 result.result === 'success'
                 && isMachineSpawnPreallocatedStub(existing)
+                // Hub title/config writes do not prove that an agent started.
+                // Reopen bootstraps identify their actual CLI process.
+                && isPlainObject(metadata)
+                && typeof metadata.hostPid === 'number'
+                && Number.isSafeInteger(metadata.hostPid)
+                && metadata.hostPid > 0
                 // A title edit before the runner connects is not adoption.
                 && options?.titleOperation !== 'user'
                 && options?.titleOperation !== 'pin'

@@ -52,12 +52,6 @@ function createGateway() {
 }
 
 describe('RpcGateway RPC timeouts', () => {
-    it('allows Codex startup and preflight to finish before the outer RPC expires', async () => {
-        const { gateway, timeouts } = createGateway()
-        await gateway.spawnSession('machine-1', 'C:\\workspace', 'codex')
-        await gateway.spawnSession('machine-1', 'C:\\workspace', 'claude')
-        expect(timeouts).toEqual([60_000, 30_000])
-    })
     it('uses the default RPC timeout for regular machine RPCs', async () => {
         const { gateway, timeouts } = createGateway()
 
@@ -74,10 +68,10 @@ describe('RpcGateway RPC timeouts', () => {
         expect(timeouts).toEqual([120_000])
     })
 
-    it('waits for slow session startup longer than the runner webhook deadline', async () => {
+    it.each(['codex', 'claude', 'agy', 'dsh'] as const)('waits for slow %s startup longer than the runner webhook deadline', async (agent) => {
         const { gateway, timeouts } = createGateway()
 
-        await gateway.spawnSession('machine-1', '/workspace', 'codex')
+        await gateway.spawnSession('machine-1', '/workspace', agent)
 
         expect(timeouts).toEqual([130_000])
     })

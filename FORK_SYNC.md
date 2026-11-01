@@ -34,6 +34,7 @@ Upstream changes must preserve these user-visible extensions and their tests:
 - Preserve global image-viewer ownership, per-message galleries, sandboxed HTML media, editor/deep-line links and the absence of authenticated API data in the PWA service-worker cache.
 - Do not weaken tenant/Hub storage separation or expose Hub-only configuration to tenant namespaces.
 - Check namespace access before returning a coalesced resume/reopen result. Codex archived-fork and resume reservations are Hub-owned; CLI metadata must not forge or erase them through socket updates, creation or preallocated-session adoption. Treat null reconnect snapshots as sparse writes. Preserve native ownership/journals and refuse retries that cannot prove whether a fork or launcher already started.
+- Hub display-title/config writes must not resolve a pending machine launch. Metadata-based adoption of a machine-spawn stub requires a valid incoming CLI process ID; keep ambiguous launch receipts until the agent connects.
 - Append database migrations after the fork's current schema version. Upstream version numbers may already be assigned to different migrations here. Preserve the fork's user-activity and Telegram data when adding upstream tables or indexes.
 - Machine-global Claude, Codex and DSH model discovery runs from the user's home directory. Keep project configuration out of those probes. Project-scoped catalogs may use the explicitly selected workspace.
 - Do not add committed secrets or machine-specific deployment configuration.
