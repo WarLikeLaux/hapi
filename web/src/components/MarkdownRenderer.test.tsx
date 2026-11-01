@@ -29,6 +29,21 @@ describe('MarkdownRenderer', () => {
         expect(document.querySelector('.aui-md-code')).toBeTruthy()
     })
 
+    it('copies the inline code text without copying surrounding prose', async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+        render(<I18nProvider><MarkdownRenderer standalone content={'Run `npm test` now.'} /></I18nProvider>)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+        await waitFor(() => expect(writeText).toHaveBeenCalledWith('npm test'))
+        expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+    })
+
+    it('keeps inline code inside a link free of nested controls', () => {
+        render(<I18nProvider><MarkdownRenderer standalone content={'[`example`](https://example.com)'} /></I18nProvider>)
+        expect(screen.getByRole('link', { name: 'example' }).querySelector('button')).toBeNull()
+    })
+
     it.each(['markdown', 'md'])('keeps the gutter padding for %s fenced blocks', (language) => {
         const code = Array.from({ length: 123 }, (_, index) => `line ${index + 1}`).join('\n')
         render(
