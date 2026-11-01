@@ -76,7 +76,7 @@ function ImageSequence({ children, indices }: PropsWithChildren<{ indices: numbe
 }
 
 function ResponsePartsGroup({ groupKey, indices, children }: PropsWithChildren<{ groupKey: string | undefined; indices: number[] }>) {
-    if (groupKey === 'image-sequence') return <ImageSequence indices={indices}>{children}</ImageSequence>
+    if (groupKey === 'image-sequence') return <div className="happy-response-images"><ImageSequence indices={indices}>{children}</ImageSequence></div>
     return groupKey === 'response-text'
         ? <div className="happy-assistant-bubble flex min-w-0 max-w-full flex-col gap-2">{children}</div>
         : <>{children}</>
