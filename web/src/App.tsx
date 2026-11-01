@@ -38,6 +38,7 @@ import { InstallPrompt } from '@/components/InstallPrompt'
 import { OfflineBanner } from '@/components/OfflineBanner'
 import { PwaUpdateBanner, PwaUpdateBannerWithStatusOffset } from '@/components/PwaUpdateBanner'
 import { SyncingBanner } from '@/components/SyncingBanner'
+import { UnavailableScreen } from '@/components/UnavailableScreen'
 import { ReconnectingBanner } from '@/components/ReconnectingBanner'
 import { VoiceErrorBanner } from '@/components/VoiceErrorBanner'
 import { RunnerVersionSkewBanner } from '@/components/RunnerVersionSkewBanner'
@@ -75,7 +76,7 @@ function AppInner() {
     const { t } = useTranslation()
     const { serverUrl, baseUrl, setServerUrl, clearServerUrl } = useServerUrl()
     const { authSource, isLoading: isAuthSourceLoading, setAccessToken } = useAuthSource(baseUrl)
-    const { token, api, isLoading: isAuthLoading, error: authError, needsBinding, bind } = useAuth(authSource, baseUrl)
+    const { token, api, isLoading: isAuthLoading, error: authError, needsBinding, unavailable, retry, bind } = useAuth(authSource, baseUrl)
     const [titleSuggestionAvailable, setTitleSuggestionAvailable] = useState(false)
     const goBack = useAppGoBack()
     const pathname = useLocation({ select: (location) => location.pathname })
@@ -546,6 +547,10 @@ function AppInner() {
         )
     }
 
+    if (unavailable) {
+        return withPwaBanner(<UnavailableScreen onRetry={retry} />)
+    }
+
     // Authenticating (also covers the gap before useAuth effect starts)
     if (isAuthLoading || (authSource && !token && !authError)) {
         return withPwaBanner(
@@ -605,7 +610,7 @@ function AppInner() {
                     isReconnecting={showReconnectingBanner}
                 />
                 <RunnerVersionSkewBanner />
-                <div className="h-full min-h-0 flex flex-col">
+                <div className={`h-full min-h-0 flex flex-col ${showReconnectingBanner ? "pt-[calc(env(safe-area-inset-top)+2.25rem)]" : ""}`}>
                     <Outlet />
                 </div>
                 <ToastContainer />
