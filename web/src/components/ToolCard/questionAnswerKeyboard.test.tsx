@@ -102,8 +102,6 @@ describe('question answer keyboard', () => {
         const { api } = setup({ ...cases[5], input: { questions: [{ ...question, isOther: true }] } })
         const field = screen.getByRole('textbox')
         fireEvent.change(field, { target: { value: 'Details' } })
-        fireEvent.keyDown(field, { key: 'Enter' })
-        expect(api).not.toHaveBeenCalled() // Notes alone cannot answer a required choice.
         fireEvent.click(screen.getByRole('button', { name: other ? /tool.requestUserInput.otherLabel/ : /Alpha/ }))
         fireEvent.keyDown(field, { key: 'Enter' })
         await waitFor(() => expect(api).toHaveBeenCalledWith('keyboard', 'permission', {

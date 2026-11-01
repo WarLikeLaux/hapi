@@ -90,6 +90,17 @@ describe('Questions outside Show work', () => {
         }
     )
 
+    it('preserves an async question draft when the response finishes and is regrouped', async () => {
+        const question = tool('request_user_input_async')
+        const blocks = [tool('Read'), question, prose('later', 'Configuration checked.')]
+        const { rerender } = render(<Transcript blocks={blocks} running />)
+        fireEvent.click(await screen.findByRole('button', { name: /Preview/ }))
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Draft details' } })
+        rerender(<Transcript blocks={blocks} />)
+        expect(await screen.findByRole('textbox')).toHaveValue('Draft details')
+        expect(screen.getByRole('button', { name: /Preview/ })).toHaveAttribute('aria-pressed', 'true')
+    })
+
     it('retains the async question and its recorded answer without reviving the form on remount', async () => {
         const question = tool('request_user_input_async')
         const blocks = [tool('Read'), question, prose('later', 'Configuration checked.')]

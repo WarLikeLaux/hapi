@@ -138,12 +138,14 @@ describe('RequestUserInputFooter', () => {
         }))
     })
 
-    it('does not interpret a note alone as None of the above', () => {
+    it('sends a note without a selection as the other answer on Enter', async () => {
         const { approvePermission } = renderFooter()
-        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'custom' } })
-        fireEvent.click(screen.getByRole('button', { name: 'tool.submit' }))
-        expect(approvePermission).not.toHaveBeenCalled()
-        expect(screen.getByText('tool.selectOption')).toBeInTheDocument()
+        const field = screen.getByRole('textbox')
+        fireEvent.change(field, { target: { value: 'custom' } })
+        fireEvent.keyDown(field, { key: 'Enter' })
+        await waitFor(() => expect(approvePermission).toHaveBeenCalledWith('session-1', 'permission-1', {
+            answers: { choice: { answers: ['None of the above', 'user_note: custom'] } }
+        }))
     })
 
     it.each([false, undefined])('does not add other to Pi or MCP choices (%s)', (isOther) => {

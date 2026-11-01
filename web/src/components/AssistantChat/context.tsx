@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useRef, useState } from 'react'
+import type { RequestUserInputQuestionAnswer } from '@/components/ToolCard/requestUserInput'
 import type { ApiClient } from '@/api/client'
 import type { TerminalToolDisplayMode } from '@/hooks/useToolCardDisplayMode'
 import type { SessionMetadataSummary } from '@/types/api'
@@ -7,6 +8,7 @@ import type { SessionMetadataSummary } from '@/types/api'
 export type OlderHistoryLoadResult = 'loaded' | 'transient-stop' | 'terminal-stop'
 
 export type HappyChatContextValue = {
+    questionDrafts?: Map<string, { step: number; answers: Record<string, RequestUserInputQuestionAnswer> }>
     api: ApiClient
     sessionId: string
     metadata: SessionMetadataSummary | null
@@ -44,7 +46,9 @@ export function HappyChatProvider(props: { value: HappyChatContextValue; childre
         sessionId: props.value.sessionId, ids: new Set()
     })
     const ids = continued.sessionId === props.value.sessionId ? continued.ids : new Set<string>()
+    const drafts = useRef(new Map<string, { step: number; answers: Record<string, RequestUserInputQuestionAnswer> }>())
     const value: HappyChatContextValue = {
+        questionDrafts: drafts.current,
         ...props.value,
         continuedPlanIds: ids,
         onContinuePlan: props.value.onContinuePlan ? (planId) => {

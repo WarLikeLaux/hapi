@@ -22,6 +22,7 @@ import { usePlatform } from '@/hooks/usePlatform'
 import { Spinner } from '@/components/Spinner'
 import { submitQuestionAnswerOnEnter } from './questionAnswerKeyboard'
 import { useTranslation } from '@/lib/use-translation'
+import { useOptionalHappyChatContext } from '@/components/AssistantChat/context'
 
 function SelectionMark(props: { checked: boolean }) {
     const mark = props.checked ? '●' : '○'
@@ -70,22 +71,38 @@ type QuestionState = {
     userNote: string
 }
 
-export function RequestUserInputFooter(props: {
+type FooterProps = {
     api: ApiClient
     sessionId: string
     tool: ChatToolCall
     disabled: boolean
     onDone: () => void
-}) {
+}
+
+export function RequestUserInputFooter(props: FooterProps) {
+    return <RequestUserInputForm key={JSON.stringify([props.sessionId, props.tool.id])} {...props} />
+}
+
+function RequestUserInputForm(props: FooterProps) {
     const { t } = useTranslation()
     const { haptic } = usePlatform()
+    const drafts = useOptionalHappyChatContext()?.questionDrafts
+    const draftKey = JSON.stringify([props.sessionId, props.tool.id])
     const permission = props.tool.permission
     const isAsync = props.tool.name === 'request_user_input_async'
     const parsed = useMemo(() => parseRequestUserInputInput(props.tool.input), [props.tool.input])
     const questions = parsed.questions
 
-    const [step, setStep] = useState(0)
-    const [stateByQuestion, setStateByQuestion] = useState<Record<string, QuestionState>>({})
+    const [draft, setDraft] = useState(() => drafts?.get(draftKey) ?? {
+        step: 0,
+        answers: Object.fromEntries(questions.map(q => [q.id, { selected: [], userNote: q.prefill ?? '' }])) as Record<string, QuestionState>
+    })
+    const { step, answers: stateByQuestion } = draft
+    const updateDraft = (next: typeof draft) => {
+        drafts?.set(draftKey, next)
+        setDraft(next)
+    }
+    const setStep = (next: number) => updateDraft({ ...draft, step: next })
 
     const submittingRef = useRef(false)
     const [loading, setLoading] = useState(false)
@@ -94,16 +111,8 @@ export function RequestUserInputFooter(props: {
     const noteRef = useRef<HTMLTextAreaElement>(null)
 
     useEffect(() => {
-        setStep(0)
-        const initial: Record<string, QuestionState> = {}
-        for (const q of questions) {
-            initial[q.id] = { selected: [], userNote: q.prefill ?? '' }
-        }
-        setStateByQuestion(initial)
-        setLoading(false)
-        setError(null)
-        setSubmitted(false)
-    }, [props.tool.id])
+        if (isAsync ? props.tool.result != null : permission?.status !== 'pending') drafts?.delete(draftKey)
+    }, [drafts, draftKey, isAsync, permission?.status, props.tool.result])
 
     if (isAsync ? props.tool.result != null || submitted : !permission || permission.status !== 'pending') return null
     if (!isRequestUserInputToolName(props.tool.name)) return null
@@ -114,6 +123,7 @@ export function RequestUserInputFooter(props: {
         try {
             await action()
             haptic.notification(hapticType)
+            drafts?.delete(draftKey)
             props.onDone()
         } catch (e) {
             haptic.notification('error')
@@ -125,8 +135,14 @@ export function RequestUserInputFooter(props: {
     const clampedStep = Math.min(Math.max(step, 0), total - 1)
     const currentQuestion = questions[clampedStep] as RequestUserInputQuestion | undefined
 
+    const effectiveAnswers = Object.fromEntries(questions.map(question => {
+        const answer = stateByQuestion[question.id] ?? { selected: [], userNote: question.prefill ?? '' }
+        return [question.id, question.isOther && question.options.length > 0 && !question.otherRequiresText
+            && answer.selected.length === 0 && answer.userNote.trim()
+            ? { ...answer, selected: [REQUEST_USER_INPUT_OTHER] } : answer]
+    }))
     const validateQuestion = (question: RequestUserInputQuestion): boolean => {
-        return isRequestUserInputQuestionAnswered(question, stateByQuestion[question.id])
+        return isRequestUserInputQuestionAnswered(question, effectiveAnswers[question.id])
     }
 
     const submit = async () => {
@@ -143,7 +159,7 @@ export function RequestUserInputFooter(props: {
         }
 
         // Format answers for submission
-        const formattedAnswers = formatRequestUserInputAnswers(stateByQuestion, questions)
+        const formattedAnswers = formatRequestUserInputAnswers(effectiveAnswers, questions)
 
         if (parsed.url) {
             if (!isRequestUserInputUrlConfirmed(parsed, stateByQuestion)) {
@@ -176,35 +192,35 @@ export function RequestUserInputFooter(props: {
             return
         }
         setError(null)
-        setStep((s) => Math.min(s + 1, questions.length - 1))
+        setStep(Math.min(step + 1, questions.length - 1))
     }
 
     const prev = () => {
         setError(null)
-        setStep((s) => Math.max(s - 1, 0))
+        setStep(Math.max(step - 1, 0))
     }
 
     const selectOption = (question: RequestUserInputQuestion, option: RequestUserInputOption) => {
         haptic.selection()
         setError(null)
-        setStateByQuestion((prev) => ({
-            ...prev,
+        updateDraft({ ...draft, answers: {
+            ...stateByQuestion,
             [question.id]: {
-                ...prev[question.id],
-                selected: selectRequestUserInputOption(question, prev[question.id]?.selected ?? [], option)
+                ...stateByQuestion[question.id],
+                selected: selectRequestUserInputOption(question, stateByQuestion[question.id]?.selected ?? [], option)
             }
-        }))
+        } })
         if (option.isOther) noteRef.current?.focus()
     }
 
     const updateUserNote = (questionId: string, value: string) => {
-        setStateByQuestion((prev) => ({
-            ...prev,
+        updateDraft({ ...draft, answers: {
+            ...stateByQuestion,
             [questionId]: {
-                ...prev[questionId],
+                ...stateByQuestion[questionId],
                 userNote: value
             }
-        }))
+        } })
     }
 
     const currentState = currentQuestion ? stateByQuestion[currentQuestion.id] : null
