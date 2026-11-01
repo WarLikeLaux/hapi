@@ -1,7 +1,12 @@
+import { useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ExternalConversation } from '@hapi/protocol/messengers'
+import { useAppContext } from '@/lib/app-context'
+import { queryKeys } from '@/lib/query-keys'
 import { useLocation, useNavigate } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { formatRoundVideoTime } from '@/components/RoundVideoPlayer'
-import { stopVoicePlayback, toggleVoicePlayback, useVoicePlayback } from '@/chat/voicePlayback'
+import { extendVoiceQueue, stopVoicePlayback, toggleVoicePlayback, useVoicePlayback, type VoiceQueueItem } from '@/chat/voicePlayback'
 
 function PlayIcon() {
     return <svg viewBox="0 0 24 24" className="h-5 w-5 translate-x-px fill-current" aria-hidden="true"><path d="M8 5v14l11-7Z" /></svg>
@@ -25,6 +30,39 @@ function safeDecode(value: string): string {
 
 export function VoiceMiniPlayer() {
     const playback = useVoicePlayback()
+    const { api } = useAppContext()
+    const queryClient = useQueryClient()
+    const conversationId = playback.conversationId
+    const messages = useQuery({
+        queryKey: queryKeys.externalMessages(conversationId ?? ''),
+        queryFn: () => api.getExternalMessages(conversationId!, { markRead: false, refresh: false }),
+        enabled: conversationId !== null,
+        refetchOnMount: false
+    })
+    useEffect(() => {
+        if (!conversationId || !messages.data) return
+        const conversation = queryClient.getQueryData<ExternalConversation[]>(queryKeys.externalConversations)
+            ?.find((entry) => entry.id === conversationId)
+        const items: VoiceQueueItem[] = []
+        for (const message of messages.data.messages) {
+            message.media?.forEach((media, mediaIndex) => {
+                if (media.kind !== 'voice' && media.kind !== 'audio') return
+                items.push({
+                    key: `${conversationId}:${message.providerMessageId}:${mediaIndex}`,
+                    conversationId,
+                    providerMessageId: message.providerMessageId,
+                    mediaIndex,
+                    title: media.fileName ?? (media.kind === 'voice' ? 'Voice message' : 'Audio'),
+                    chatTitle: conversation?.title,
+                    duration: media.duration ?? null,
+                    onPlaybackStarted: conversation?.provider === 'telegram' && message.direction === 'incoming' && media.kind === 'voice'
+                        ? () => api.markExternalVoiceListened(conversationId, message.providerMessageId)
+                        : undefined
+                })
+            })
+        }
+        extendVoiceQueue(conversationId, items)
+    }, [api, conversationId, messages.data, queryClient])
     const navigate = useNavigate()
     const location = useLocation()
     const item = playback.index >= 0 ? playback.queue[playback.index] : undefined

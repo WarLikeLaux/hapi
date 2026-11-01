@@ -1151,7 +1151,8 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
             item.conversationId,
             item.providerMessageId,
             item.mediaIndex
-        ), src)
+        ), src, localStorage.getItem('hapi-windows-media-toggle') === 'true'
+            ? () => api.toggleWindowsMedia() : undefined)
     }, [api, voiceQueue])
     const outbox = useExternalMessageOutbox(api, conversationId, messages)
     const refreshChangedMessage = async () => {

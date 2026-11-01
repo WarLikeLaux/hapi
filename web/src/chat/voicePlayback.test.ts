@@ -131,6 +131,24 @@ describe('voicePlayback queue', () => {
         expect(fetch).toHaveBeenCalledTimes(2)
     })
 
+    it('switches external media on playback transitions, once for the whole queue', async () => {
+        const toggle = vi.fn(async () => {})
+        startVoiceQueue([item('c:1:0'), item('c:2:0')], 0, blobFetcher(), null, toggle)
+        await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
+        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(1))
+        const audio = document.querySelector('audio')!
+        fireEvent(audio, new Event('ended'))
+        await vi.waitFor(() => expect(getVoicePlaybackState().index).toBe(1))
+        await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
+        expect(toggle).toHaveBeenCalledTimes(1)
+        fireEvent(audio, new Event('pause'))
+        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(2))
+        fireEvent(audio, new Event('play'))
+        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(3))
+        fireEvent(audio, new Event('ended'))
+        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(4))
+    })
+
     it('stops and revokes everything after the last message', async () => {
         startVoiceQueue([item('c:m:0')], 0, blobFetcher())
         await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))

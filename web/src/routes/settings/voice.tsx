@@ -6,7 +6,7 @@ import { useTranslation } from '@/lib/use-translation'
 import { useAppContext } from '@/lib/app-context'
 import { VoiceRespondsControls } from '@/components/settings/VoiceAdvancedControls'
 import { TranscriptionProviderOnboard } from '@/components/settings/TranscriptionProviderOnboard'
-import { SettingsChoiceGroup, SettingsLinkRow, SettingsPageContent, SettingsSection } from '@/components/settings/SettingsPrimitives'
+import { SettingsChoiceGroup, SettingsLinkRow, SettingsPageContent, SettingsSection, SettingsSwitch } from '@/components/settings/SettingsPrimitives'
 import { SelectControl } from '@/components/ui/select-control'
 import { getNamespaceFromToken } from '@/components/settings/SettingsNav'
 import { useVoiceSettings } from './useVoiceSettings'
@@ -17,6 +17,7 @@ export default function SettingsVoicePage() {
     const navigate = useNavigate()
     const voice = useVoiceSettings()
     const [opening, setOpening] = useState<'greet' | 'brief'>(() => localStorage.getItem('hapi-voice-proactive') === 'true' ? 'brief' : 'greet')
+    const [windowsMedia, setWindowsMedia] = useState(() => localStorage.getItem('hapi-windows-media-toggle') === 'true')
     const [showCredentials, setShowCredentials] = useState(false)
     const selectedLanguage = voice.voiceLanguages.find((language) => language.code === voice.voiceLanguage)
     const selectedVoice = voice.voices.find((option) => option.id === voice.voiceId)
@@ -40,6 +41,17 @@ export default function SettingsVoicePage() {
 
     return (
         <SettingsPageContent description={t('settings.voice.description')}>
+            <SettingsSection title={t('settings.voice.windowsMedia.title')}>
+                <SettingsSwitch
+                    label={t('settings.voice.windowsMedia.label')}
+                    description={t('settings.voice.windowsMedia.description')}
+                    checked={windowsMedia}
+                    onChange={(value) => {
+                        setWindowsMedia(value)
+                        localStorage.setItem('hapi-windows-media-toggle', String(value))
+                    }}
+                />
+            </SettingsSection>
             <SettingsSection title={t('settings.voice.inputMode.title')} description={t('settings.voice.inputMode.hint')}>
                 <SettingsChoiceGroup
                     hideLabel

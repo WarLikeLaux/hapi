@@ -500,6 +500,10 @@ export class ApiClient {
         })
     }
 
+    async toggleWindowsMedia(): Promise<void> {
+        await this.request('/api/windows-media/play-pause', { method: 'POST' })
+    }
+
     markExternalVoiceListened(conversationId: string, providerMessageId: string): Promise<void> {
         const key = JSON.stringify([conversationId, providerMessageId])
         const existing = this.voiceListeningReceipts.get(key)
