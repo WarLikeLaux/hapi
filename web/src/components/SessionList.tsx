@@ -2572,12 +2572,12 @@ export function SessionList(props: {
                             // chrome, not the width of whatever icons are already
                             // showing. shrink-0 made that leftover follow the
                             // cluster and search overlapped (#2040).
-                            className="relative flex min-w-0 flex-1 flex-nowrap items-center gap-1"
+                            className="relative flex min-w-0 flex-1 flex-nowrap items-center justify-end gap-1"
                         >
                             {(() => {
                                 // Shed one control at a time, highest keep first.
-                                // Do not ml-auto a lone ⋯ across empty space, and do
-                                // not fold the whole row at a single width gate (#2039).
+                                // Keep actions at the right edge without folding the
+                                // whole row at a single width gate (#2039).
                                 const machineAndGap = toolbarChrome.machinePx > 0
                                     ? toolbarChrome.machinePx + toolbarChrome.gapPx
                                     : 0
@@ -2615,6 +2615,22 @@ export function SessionList(props: {
                                         )
                                     })
                                 }
+                                for (const extra of props.toolbarExtras ?? []) {
+                                    definedSlots.push({
+                                        id: extra.id,
+                                        keep: extra.keep,
+                                        widthPx: slotWidth(extra.id, extra.widthPx ?? TOOLBAR_ICON_PX),
+                                        node: extra.node
+                                    })
+                                }
+                                if (props.headerActions) {
+                                    definedSlots.push({
+                                        id: 'header-actions',
+                                        keep: 6,
+                                        widthPx: slotWidth('header-actions', TOOLBAR_ICON_PX),
+                                        node: props.headerActions
+                                    })
+                                }
                                 if (renderHeader) {
                                     definedSlots.push({
                                         id: 'new',
@@ -2630,22 +2646,6 @@ export function SessionList(props: {
                                                 <PlusIcon className="h-5 w-5" />
                                             </button>
                                         )
-                                    })
-                                }
-                                for (const extra of props.toolbarExtras ?? []) {
-                                    definedSlots.push({
-                                        id: extra.id,
-                                        keep: extra.keep,
-                                        widthPx: slotWidth(extra.id, extra.widthPx ?? TOOLBAR_ICON_PX),
-                                        node: extra.node
-                                    })
-                                }
-                                if (props.headerActions) {
-                                    definedSlots.push({
-                                        id: 'header-actions',
-                                        keep: 6,
-                                        widthPx: slotWidth('header-actions', TOOLBAR_ICON_PX),
-                                        node: props.headerActions
                                     })
                                 }
                                 const { visibleIds, overflowIds } = shedToolbarSlots(definedSlots, budget, {
