@@ -182,14 +182,9 @@ export class Store {
         namespace: string
     ): { sessionUserActivityAt: number; newlyConsumed: boolean } {
         return this.db.transaction(() => {
-            const acknowledgedLocalIds = new Set(localIds)
             const acknowledgedUserMessageAt = this.messages
-                .getUninvokedLocalMessages(sessionId)
-                .filter((message) => (
-                    message.localId !== null
-                    && acknowledgedLocalIds.has(message.localId)
-                    && shouldRecordSessionActivity(message.content)
-                ))
+                .getUninvokedLocalMessagesByIds(sessionId, localIds)
+                .filter((message) => shouldRecordSessionActivity(message.content))
                 .reduce((latest, message) => Math.max(latest, message.createdAt), 0)
             const changes = this.messages.markMessagesInvoked(sessionId, localIds, invokedAt)
             if (changes > 0 && acknowledgedUserMessageAt > 0) {

@@ -27,6 +27,7 @@ import {
     bumpMessageEpoch,
     getLocalMessageStates,
     getUninvokedLocalMessages,
+    getUninvokedLocalMessagesByIds,
     getMatureScheduledMessages,
     getImmediateQueuedLocalMessages,
     countFutureScheduledBySessionIds,
@@ -160,6 +161,10 @@ export class MessageStore {
 
     getLocalMessageStates(sessionId: string, localIds: string[]): LocalMessageState[] {
         return getLocalMessageStates(this.db, sessionId, localIds)
+    }
+
+    getUninvokedLocalMessagesByIds(sessionId: string, localIds: string[]): StoredMessage[] {
+        return getUninvokedLocalMessagesByIds(this.db, sessionId, localIds)
     }
 
     getUninvokedLocalMessages(sessionId: string, options?: { deliverableOnly?: boolean }): StoredMessage[] {

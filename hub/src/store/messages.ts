@@ -601,6 +601,17 @@ export function getUninvokedLocalMessages(
     return rows.map(toStoredMessage)
 }
 
+/** Look up acknowledged prompts directly via the session/local-id index. */
+export function getUninvokedLocalMessagesByIds(db: Database, sessionId: string, localIds: string[]): StoredMessage[] {
+    if (localIds.length === 0) return []
+    const placeholders = localIds.map(() => '?').join(', ')
+    const rows = prepareCached(db, `
+        SELECT * FROM messages
+        WHERE session_id = ? AND local_id IN (${placeholders}) AND invoked_at IS NULL
+    `).all(sessionId, ...localIds) as DbMessageRow[]
+    return rows.map(toStoredMessage)
+}
+
 export type LocalMessageState = {
     localId: string
     invokedAt: number | null
