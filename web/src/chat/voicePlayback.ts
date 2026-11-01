@@ -69,6 +69,16 @@ export function useVoicePlayback(): VoicePlaybackState {
 
 let audio: HTMLAudioElement | null = null
 let fetchBlob: VoiceBlobFetcher | null = null
+let mediaToggle: (() => Promise<void>) | null = null
+let mediaActive = false
+let mediaCommands: Promise<void> = Promise.resolve()
+
+function setMediaActive(active: boolean): void {
+    if (!mediaToggle || mediaActive === active) return
+    mediaActive = active
+    const toggle = mediaToggle
+    mediaCommands = mediaCommands.then(toggle).catch(() => {})
+}
 // Guards against a slow blob download of an old request landing after the
 // user has already started something else.
 let playToken = 0
@@ -85,7 +95,7 @@ function ensureAudio(): HTMLAudioElement {
     audio.preload = 'auto'
     audio.style.display = 'none'
     document.body.append(audio)
-    audio.addEventListener('play', () => setState({ status: 'playing' }))
+    audio.addEventListener('play', () => { setMediaActive(true); setState({ status: 'playing' }) })
     audio.addEventListener('timeupdate', () => {
         if (audio) setState({ currentTime: audio.currentTime })
     })
@@ -95,7 +105,10 @@ function ensureAudio(): HTMLAudioElement {
     // Natural end also fires "pause" just before "ended"; only treat a pause
     // as user-visible while playback was actually running.
     audio.addEventListener('pause', () => {
-        if (state.status === 'playing') setState({ status: 'paused' })
+        if (state.status === 'playing') {
+            if (!audio?.ended) setMediaActive(false)
+            setState({ status: 'paused' })
+        }
     })
     audio.addEventListener('ended', () => {
         void playNext()
@@ -131,6 +144,7 @@ function clearAudioSource(element: HTMLAudioElement): void {
 
 function stopInternal(): void {
     playToken += 1
+    setMediaActive(false)
     if (audio) audio.onplaying = null
     if (audio) {
         audio.pause()
@@ -194,10 +208,11 @@ async function playIndex(index: number): Promise<void> {
                 // can retry it through the API client's deduplication.
             })
         }
+        setMediaActive(true)
         await element.play()
         if (token === playToken) setState({ status: 'playing' })
     } catch {
-        if (token === playToken) setState({ status: 'failed' })
+        if (token === playToken) { setMediaActive(false); setState({ status: 'failed' }) }
     }
 }
 
@@ -219,10 +234,13 @@ export function startVoiceQueue(
     items: VoiceQueueItem[],
     index: number,
     fetcher: VoiceBlobFetcher,
-    playedSrc?: string | null
+    playedSrc?: string | null,
+    toggleMedia?: () => Promise<void>
 ): void {
     stopInternal()
     fetchBlob = fetcher
+    mediaToggle = toggleMedia ?? null
+    mediaActive = false
     setState({
         queue: items.map((item, itemIndex) => itemIndex === index && playedSrc ? { ...item, src: playedSrc } : item)
     })
@@ -254,7 +272,8 @@ export function toggleVoicePlayback(): void {
     }
     if (element.paused) {
         pauseOtherDomAudio(element)
-        void element.play().catch(() => setState({ status: 'failed' }))
+        setMediaActive(true)
+        void element.play().catch(() => { setMediaActive(false); setState({ status: 'failed' }) })
     } else {
         element.pause()
     }
