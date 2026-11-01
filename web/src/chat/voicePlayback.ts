@@ -229,6 +229,22 @@ export function startVoiceQueue(
     void playIndex(index)
 }
 
+/** Append only messages following the queue tail in the current conversation snapshot. */
+export function extendVoiceQueue(conversationId: string, items: VoiceQueueItem[]): void {
+    if (state.status === 'idle' || state.conversationId !== conversationId) return
+    const tail = state.queue[state.queue.length - 1]
+    if (!tail) return
+    const tailIndex = items.findIndex((item) => item.key === tail.key)
+    if (tailIndex < 0) return
+    const known = new Set(state.queue.map((item) => item.key))
+    const additions = items.slice(tailIndex + 1).filter((item) => {
+        if (known.has(item.key)) return false
+        known.add(item.key)
+        return true
+    })
+    if (additions.length) setState({ queue: [...state.queue, ...additions] })
+}
+
 export function toggleVoicePlayback(): void {
     const element = audio
     if (!element || state.index < 0) return
