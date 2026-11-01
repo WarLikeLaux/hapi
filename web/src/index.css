@@ -705,18 +705,22 @@ html:has(.chat-scroll-y) #root {
     color: var(--app-link);
 }
 
+/* Separate image groups from adjacent response text without adding space at the edges. */
+.happy-response-images + .happy-assistant-bubble,
+.happy-assistant-bubble + .happy-response-images {
+    margin-top: 0.75rem;
+}
+
 .happy-message-actions-first-line {
     align-self: flex-start;
     margin-top: max(0px, calc((var(--app-chat-line-height) - var(--app-message-action-size)) / 2));
 }
 
-/* Keep the next user bubble close to the compact response footer. */
-.happy-thread-messages > .happy-message:has(> .happy-response-work) + [data-hapi-message-role="user"] {
-    margin-top: -8px;
-}
-
 @media (hover: hover) and (pointer: fine) {
     .happy-message-actions {
+        height: 0;
+        margin-top: 0;
+        overflow: hidden;
         opacity: 0;
         pointer-events: none;
         transition: opacity 150ms ease;
@@ -724,6 +728,9 @@ html:has(.chat-scroll-y) #root {
 
     .happy-message:hover .happy-message-actions,
     .happy-message:focus-within .happy-message-actions {
+        height: 1.25rem;
+        margin-top: 0.25rem;
+        overflow: visible;
         opacity: 1;
         pointer-events: auto;
     }
