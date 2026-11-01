@@ -8,6 +8,30 @@ export function getExternalConversationMessageVersion(conversation: ExternalConv
     return `${conversation.lastMessageAt ?? 'none'}\0${conversation.lastMessagePreview ?? ''}\0${conversation.unreadCount}`
 }
 
+/** Combine nearby SSE updates without postponing refresh indefinitely during a stream. */
+export function useExternalConversationInvalidation(): (includeCandidates?: boolean) => void {
+    const queryClient = useQueryClient()
+    const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const candidates = useRef(false)
+
+    useEffect(() => () => {
+        if (timer.current !== null) clearTimeout(timer.current)
+    }, [])
+
+    return useCallback((includeCandidates = false) => {
+        candidates.current ||= includeCandidates
+        if (timer.current !== null) return
+        timer.current = setTimeout(() => {
+            timer.current = null
+            void queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
+            if (candidates.current) {
+                candidates.current = false
+                void queryClient.invalidateQueries({ queryKey: ['messenger-candidates'] })
+            }
+        }, 50)
+    }, [queryClient])
+}
+
 export function useExternalMessagePrefetch(
     api: ApiClient | null,
     conversations: ExternalConversation[] | undefined

@@ -14,7 +14,7 @@ import { useReconnectingState } from '@/hooks/useReconnectingState'
 import { useSyncingState } from '@/hooks/useSyncingState'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { useViewportHeight } from '@/hooks/useViewportHeight'
-import { useExternalMessageEventPrefetch } from '@/hooks/useExternalMessagePrefetch'
+import { useExternalConversationInvalidation, useExternalMessageEventPrefetch } from '@/hooks/useExternalMessagePrefetch'
 import { useVisibilityReporter } from '@/hooks/useVisibilityReporter'
 import { queryKeys } from '@/lib/query-keys'
 import { refreshAllAgyCatalogs } from '@/lib/agyCatalogAnnouncement'
@@ -171,6 +171,7 @@ function AppInner() {
     }, [goBack, pathname])
     const queryClient = useQueryClient()
     const prefetchExternalMessages = useExternalMessageEventPrefetch(api)
+    const invalidateExternalConversations = useExternalConversationInvalidation()
     const sessionMatch = matchRoute({ to: '/sessions/$sessionId' })
     const selectedSessionId = sessionMatch && sessionMatch.sessionId !== 'new' ? sessionMatch.sessionId : null
     const { isSyncing, startSync, endSync } = useSyncingState()
@@ -361,17 +362,16 @@ function AppInner() {
             return
         }
         if (event.type === 'external-conversation-updated') {
-            void queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
-            void queryClient.invalidateQueries({ queryKey: ['messenger-candidates'] })
+            invalidateExternalConversations(true)
             return
         }
         if (event.type === 'external-message-received' || event.type === 'external-message-updated') {
-            void queryClient.invalidateQueries({ queryKey: queryKeys.externalConversations })
+            invalidateExternalConversations()
             void queryClient.invalidateQueries({ queryKey: queryKeys.externalMessages(event.conversationId) })
             void queryClient.invalidateQueries({ queryKey: queryKeys.externalParticipants(event.conversationId) })
             prefetchExternalMessages(event.conversationId)
         }
-    }, [prefetchExternalMessages, queryClient])
+    }, [invalidateExternalConversations, prefetchExternalMessages, queryClient])
 
     const handleSseEvent = useCallback((event: SyncEvent) => {
         if (event.type !== 'messages-invalidated') {

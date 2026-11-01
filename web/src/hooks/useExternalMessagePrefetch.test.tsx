@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { PropsWithChildren } from 'react'
 import type { ExternalConversation } from '@hapi/protocol/messengers'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '@/api/client'
-import { useExternalMessageEventPrefetch, useExternalMessagePrefetch } from './useExternalMessagePrefetch'
+import { useExternalConversationInvalidation, useExternalMessageEventPrefetch, useExternalMessagePrefetch } from './useExternalMessagePrefetch'
+import { queryKeys } from '@/lib/query-keys'
 
 const conversation: ExternalConversation = {
     id: 'telegram:user:1',
@@ -21,6 +22,27 @@ const conversation: ExternalConversation = {
 
 describe('useExternalMessagePrefetch', () => {
     afterEach(() => vi.useRealTimers())
+
+    it('combines nearby chat events into one list refresh without losing later updates', async () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        const fetchConversations = vi.fn().mockResolvedValue([conversation])
+        const wrapper = ({ children }: PropsWithChildren) => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        )
+        const { result } = renderHook(() => {
+            useQuery({ queryKey: queryKeys.externalConversations, queryFn: fetchConversations })
+            return useExternalConversationInvalidation()
+        }, { wrapper })
+        await waitFor(() => expect(fetchConversations).toHaveBeenCalledTimes(1))
+        act(() => {
+            result.current(true)
+            result.current()
+            result.current(true)
+        })
+        await waitFor(() => expect(fetchConversations).toHaveBeenCalledTimes(2))
+        act(() => result.current())
+        await waitFor(() => expect(fetchConversations).toHaveBeenCalledTimes(3))
+    })
 
     it('refreshes only when a conversation message snapshot changes', async () => {
         const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
