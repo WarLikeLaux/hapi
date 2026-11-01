@@ -13,6 +13,27 @@ import { extractNotifySummary } from '@hapi/protocol/messages';
 type SessionClient = ApiSessionClient & { updateAgentState: Mock };
 
 describe('shared history projection', () => {
+    it('projects viewed images as inline media tied to the view_image call', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'hapi-view-image-'));
+        try {
+            const path = join(dir, 'shot.png');
+            await writeFile(path, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]));
+            const send = vi.fn();
+            const session = { getMetadata: () => ({}), sendAgentMessage: send } as unknown as ApiSessionClient;
+            const projection = new SharedCodexProjection(session, 'thread', async () => {});
+            const item = { id: 'exec-view', type: 'imageView', path };
+            await projection.notification('item/started', { threadId: 'thread', turnId: 'turn', item });
+            expect(send).not.toHaveBeenCalled();
+            await projection.notification('item/completed', { threadId: 'thread', turnId: 'turn', item });
+            expect(send).toHaveBeenCalledOnce();
+            expect(send.mock.calls[0][0]).toMatchObject({
+                type: 'generated-image', fileName: 'shot.png', mimeType: 'image/png',
+                source: { ingress: 'tool_result', flavor: 'codex', toolName: 'view_image', toolCallId: 'exec-view' }
+            });
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
+    });
     it.each([undefined, 'root'])('projects command outcomes for live output and replay (parent: %s)', async parentThreadId => {
         const send = vi.fn();
         const session = { getMetadata: () => ({}), sendAgentMessage: send, updateAgentState: vi.fn() } as unknown as ApiSessionClient;
@@ -127,6 +148,32 @@ describe('shared history projection', () => {
             }
         }
     });
+    it('keeps a preseeded fork title when inherited history replays a successful rename', async () => {
+        const summary = { text: 'Fork: Source title', updatedAt: 123 };
+        let metadata: { name?: string; summary?: typeof summary } = { summary };
+        const session = {
+            getMetadata: () => metadata,
+            updateMetadata: (fn: (value: typeof metadata) => typeof metadata) => { metadata = fn(metadata) },
+            updateAgentState: vi.fn(),
+            sendAgentMessage: vi.fn()
+        } as unknown as ApiSessionClient;
+        const projection = new SharedCodexProjection(session, 'child', async () => {});
+
+        await projection.history({
+            id: 'child',
+            turns: [{
+                id: 'turn',
+                status: 'completed',
+                items: [{
+                    id: 'rename', type: 'mcpToolCall', server: 'hapi', tool: 'change_title',
+                    status: 'completed', arguments: { title: 'Source title' }, result: { Ok: { title: 'Source title' } }
+                }]
+            }]
+        });
+
+        expect(metadata).toEqual({ summary });
+    });
+
     it('persists a live duration once and never times history snapshots', async () => {
         const send = vi.fn();
         const session = { getMetadata: () => ({}), sendAgentMessage: send, updateAgentState: vi.fn() } as unknown as ApiSessionClient;

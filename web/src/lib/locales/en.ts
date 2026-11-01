@@ -1,4 +1,6 @@
 export default {
+  'batch.startingTitle': 'Starting your chat',
+  'batch.startingDetail': 'Connecting the agent…',
   'newSession.imageUnavailable': 'Image unavailable. Remove it and paste it again.',
   'newSession.imagesReading': 'Reading image…',
   'newSession.imagesHint': 'Paste or attach images (PNG, JPEG, WebP or GIF; 50 MB total). Some agents receive file paths; image reading depends on the agent and model.',
@@ -531,6 +533,8 @@ export default {
   'newSession.continue.loading': 'Loading source session…',
   'newSession.continue.notFound': 'The source session could not be loaded.',
   'newSession.continue.sendFailed.title': 'Session created, but context was not sent',
+  'session.action.fork': 'Fork session',
+  'session.action.forkRunning': 'Wait for the current turn to finish before forking this session.',
 
   // Dialogs
   'dialog.uri.title': 'Open this link?',
@@ -562,6 +566,10 @@ export default {
   'dialog.archive.cleanupDescription': 'Session disconnected. Confirming that it stopped and its background processes ended. You can close this window.',
   'dialog.archive.error': 'Could not confirm that the session stopped',
   'dialog.reopen.errorTitle': 'Could not reopen session',
+  'dialog.sessionFork.title': 'Fork session',
+  'dialog.sessionFork.description': 'Create a new session from the latest completed point? The current session will not be changed.',
+  'dialog.sessionFork.confirm': 'Confirm',
+  'dialog.sessionFork.confirming': 'Forking…',
   'dialog.reopen.dismiss': 'Dismiss',
   'dialog.delete.title': 'Delete Session',
   'dialog.delete.description': 'Are you sure you want to delete "{name}"? This action cannot be undone.',

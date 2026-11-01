@@ -17,6 +17,7 @@ type Props = {
     agent?: string
     disabled: boolean
     placeholder: string
+    onSubmit?: () => void
 }
 
 function ImageThumbnail({ image, galleryId }: { image: InitialImageDraft; galleryId: string }) {
@@ -118,7 +119,12 @@ export function InitialPrompt(props: Props) {
             </ul> : null}
             <textarea ref={setTextInput} id={inputId} aria-label={props.label} className={`w-full resize-none bg-transparent px-4 pt-4 text-sm leading-relaxed text-[var(--app-fg)] outline-none disabled:opacity-50 ${expanded ? 'min-h-0 flex-1' : 'min-h-32'}`}
                 rows={4} maxLength={100000} value={props.value} disabled={props.disabled}
-                placeholder={props.placeholder} onChange={event => props.onChange(event.target.value)} onPaste={paste} />
+                placeholder={props.placeholder} onChange={event => props.onChange(event.target.value)} onPaste={paste}
+                onKeyDown={event => {
+                    if (!props.onSubmit || event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.nativeEvent.isComposing) return
+                    event.preventDefault()
+                    if (!event.repeat && !reading.current) props.onSubmit()
+                }} />
             <div className="flex items-center gap-2 px-2 pb-2 pt-1">
                 <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple className="hidden" onChange={event => { void addFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = '' }} />
                 <button type="button" aria-label={t('composer.attach')} title={t('composer.attach')} disabled={props.disabled || isReading} onClick={() => fileInput.current?.click()} className="flex h-9 w-9 items-center justify-center rounded-md text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] focus-visible:outline-2 focus-visible:outline-[var(--app-link)] disabled:opacity-50">

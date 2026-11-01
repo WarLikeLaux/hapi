@@ -4,7 +4,7 @@ let lastHiddenTimestamp: number | null = null
 
 const MAX_SYNC_DURATION_MS = 10_000 // Auto-clear after 10 seconds
 const BACKGROUND_THRESHOLD_MS = 30_000 // Consider "returning from background" if hidden within 30s
-const DEBOUNCE_MS = 300 // Only show banner if sync takes longer than this
+const DEBOUNCE_MS = 2_000 // Avoid flashing the banner for short syncs
 
 export function useSyncingState() {
     const [isSyncing, setIsSyncing] = useState(false)

@@ -16,8 +16,6 @@ import {
     sortSessionsBySearchRelevance,
 } from '@/lib/sessionListSearch'
 import type { SessionSearchScoreIndex } from '@/lib/sessionListSearch'
-import { getPlatform } from '@/hooks/usePlatform'
-import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { CopyIcon, CheckIcon, MarkAllReadIcon } from '@/components/icons'
 import { useNavigate, useParams } from '@tanstack/react-router'
@@ -100,14 +98,8 @@ function SessionListHeaderOverflow(props: { children: ReactNode }) {
 import { cn } from '@/lib/utils'
 import { isWorkingSession } from '@/lib/navigationBadges'
 import { useTranslation } from '@/lib/use-translation'
-import { ContextTabBar } from '@/components/ContextTabBar'
-import { useSessionContextFilter } from '@/hooks/useSessionContextFilter'
-import { useSessionContextHubSync } from '@/hooks/useSessionContextHubSync'
 import { SessionContextPicker } from '@/components/SessionContextPicker'
 import {
-    SESSION_CONTEXTS,
-    computeContextStats,
-    resolveSessionContext,
     type SessionContextId,
 } from '@/lib/sessionContexts'
 import { DEFAULT_SESSION_PREVIEW_LIMIT, useSessionPreviewLimit } from '@/hooks/useSessionPreviewLimit'
@@ -1556,7 +1548,6 @@ export function SessionList(props: {
         () => [...props.sessions.filter(session => shouldShowSessionInSidebar(session, selectedSessionId)), ...(props.groupedSessions ?? [])],
         [props.sessions, props.groupedSessions, selectedSessionId]
     )
-    const hubContextSync = useSessionContextHubSync()
 
     const messageSearchSessionTitles = useMemo(() => {
         const titles = new Map<string, string>()
@@ -1566,28 +1557,7 @@ export function SessionList(props: {
         return titles
     }, [props.sessions, props.groupedSessions])
 
-    const {
-        activeContext,
-        setActiveContext,
-        projectOverrides,
-        setProjectContextOverride,
-        sessionOverrides,
-        setSessionContextOverride,
-        workAliases,
-        contextOptions,
-    } = useSessionContextFilter(hubContextSync)
-
-    const contextStats = useMemo(
-        () => computeContextStats(sidebarSessions, contextOptions),
-        [sidebarSessions, contextOptions, lastSeenVersion]
-    )
-
-    const contextFilteredSessions = useMemo(() => {
-        if (activeContext === 'all') return sidebarSessions
-        return sidebarSessions.filter(
-            (session) => resolveSessionContext(session, contextOptions) === activeContext
-        )
-    }, [sidebarSessions, activeContext, contextOptions])
+    const contextFilteredSessions = sidebarSessions
 
     const allSessions = useMemo(
         () => showActiveSessionsOnly
@@ -1631,15 +1601,14 @@ export function SessionList(props: {
         if (!freshChatsEnabled || !externalConversations.data) {
             return EMPTY_FRESH_CHATS
         }
-        // Messenger chats have no session context and do not participate in
-        // session searches or date filters. Show them only in the All view.
-        if (activeContext !== 'all' || hasTextQuery || isFiltering) {
+        // Messenger chats do not participate in session searches or date filters.
+        if (hasTextQuery || isFiltering) {
             return EMPTY_FRESH_CHATS
         }
         // freshChatsTick re-evaluates the window every minute so read chats age out.
         void freshChatsTick
         return selectFreshSidebarConversations(externalConversations.data, freshChatsWindowMs!, Date.now())
-    }, [externalConversations.data, freshChatsEnabled, freshChatsWindowMs, freshChatsTick, activeContext, hasTextQuery, isFiltering])
+    }, [externalConversations.data, freshChatsEnabled, freshChatsWindowMs, freshChatsTick, hasTextQuery, isFiltering])
     const timeScopedSessions = useMemo(
         () => timeRange === null
             ? allSessions
@@ -1839,11 +1808,10 @@ export function SessionList(props: {
                 && !state.chats.some(session => sessionMatchesQuery(session, normalizedQuery, resolveMachineLabel(session.metadata?.machineId ?? null)))) continue
             if (timeRange && !state.chats.some(session => sessionMatchesTimeRange(session, timeRange))) continue
             if (activeMachineFilter !== null && !state.chats.some(session => session.metadata?.machineId === activeMachineFilter)) continue
-            if (activeContext !== 'all' && !state.chats.some(session => resolveSessionContext(session, contextOptions) === activeContext)) continue
             sections[state.section].push(group)
         }
         return sections
-    }, [props.sessionGroups, props.groupedSessions, lastSeenVersion, normalizedQuery, timeRange?.start, timeRange?.end, activeMachineFilter, activeContext, contextOptions, machineLabelsById])
+    }, [props.sessionGroups, props.groupedSessions, lastSeenVersion, normalizedQuery, timeRange?.start, timeRange?.end, activeMachineFilter, machineLabelsById])
     const matchingChatGroupCount = Object.values(chatGroupSections).reduce((count, groups) => count + groups.length, 0)
     const chatsHaveNoMatches = normalizedQuery.length >= 2 && searchScoreIndex?.matchedIds.size === 0 && matchingChatGroupCount === 0
     const searchResultTabOrder: ('chats' | 'messages')[] = chatsHaveNoMatches
@@ -1965,8 +1933,6 @@ export function SessionList(props: {
             machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
             activityTimeBasis={timeBasis}
             lastSeenVersion={lastSeenVersion}
-            currentContext={resolveSessionContext(s, contextOptions)}
-            onSetContext={(ctx) => setSessionContextOverride(s.id, ctx)}
         />
     )
 
@@ -2226,8 +2192,6 @@ export function SessionList(props: {
                                     showDetailedStatus={showDetailedStatus}
                                     activityTimeBasis="user"
                                     lastSeenVersion={lastSeenVersion}
-                                    currentContext={resolveSessionContext(s, contextOptions)}
-                                    onSetContext={(ctx) => setSessionContextOverride(s.id, ctx)}
                                 />
                             </div>
                         ))}
@@ -2486,29 +2450,6 @@ export function SessionList(props: {
         }
     }, [])
 
-    // Horizontal swipes switch the active context tab on touch devices, so a
-    // deliberate swipe falls through to tab navigation instead of the
-    // browser's back/forward gesture. The tab bar itself is ignored: a swipe
-    // there scrolls it natively.
-    const activeContextRef = useRef(activeContext)
-    useEffect(() => {
-        activeContextRef.current = activeContext
-    }, [activeContext])
-
-    const stepContextTab = useCallback((step: 1 | -1) => {
-        const order = SESSION_CONTEXTS.map((ctx) => ctx.id)
-        const index = order.indexOf(activeContextRef.current)
-        const next = order[index + step]
-        if (!next || next === activeContextRef.current) return
-        getPlatform().haptic.selection()
-        setActiveContext(next)
-    }, [setActiveContext])
-
-    useHorizontalSwipe(scrollContainerRef, {
-        onSwipeLeft: () => stepContextTab(1),
-        onSwipeRight: () => stepContextTab(-1),
-    }, { ignoreSelector: '[role="tablist"]' })
-
     return (
         <div className="flex min-h-0 w-full flex-1 flex-col">
             <div className="session-list-scrollbar-offset mx-auto w-full max-w-content shrink-0">
@@ -2684,12 +2625,6 @@ export function SessionList(props: {
                 </div>
             ) : null}
 
-            <ContextTabBar
-                activeContext={activeContext}
-                onSelectContext={setActiveContext}
-                stats={contextStats}
-            />
-
             {showMachineFilterBar ? (
                 <MachineFilterBar
                     machines={machineFilterItems}
@@ -2770,7 +2705,7 @@ export function SessionList(props: {
                     </div>
                 ) : null}
 
-                {showSessionSections && props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null || activeContext !== 'all') && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
+                {showSessionSections && props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null) && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
                     <div className="px-4 py-8 text-center text-sm text-[var(--app-hint)]">
                         {t('sessions.search.noResults')}
                     </div>
@@ -2821,8 +2756,6 @@ export function SessionList(props: {
                                             machineLabel={resolveMachineLabel(s.metadata?.machineId ?? null)}
                                             activityTimeBasis="user"
                                             lastSeenVersion={lastSeenVersion}
-                                            currentContext={resolveSessionContext(s, contextOptions)}
-                                            onSetContext={(ctx) => setSessionContextOverride(s.id, ctx)}
                                         />
                                     ))}
                                 </div>
@@ -2868,12 +2801,6 @@ export function SessionList(props: {
                 state={projectMenu}
                 onClose={() => setProjectMenu(null)}
                 onDelete={setProjectDeleteTarget}
-                currentContext={projectMenu && projectMenu.sessions[0] ? resolveSessionContext(projectMenu.sessions[0], contextOptions) : undefined}
-                onSetContext={(ctx) => {
-                    if (projectMenu) {
-                        setProjectContextOverride(projectMenu.directory, ctx)
-                    }
-                }}
             />
             <ConfirmDialog
                 isOpen={projectDeleteTarget !== null}

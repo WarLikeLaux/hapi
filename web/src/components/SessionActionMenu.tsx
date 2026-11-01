@@ -15,7 +15,7 @@ import { safeCopyToClipboard } from '@/lib/clipboard'
 import { buildSessionReferenceText } from '@/lib/sessionReference'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
-import { CodeIcon, CopyIcon, GitLabIcon } from '@/components/icons'
+import { CodeIcon, CopyIcon, ForkIcon, GitLabIcon } from '@/components/icons'
 import { SESSION_CONTEXTS, type SessionContextId } from '@/lib/sessionContexts'
 import { buildSessionWindowPath } from '@/lib/sessionNavigation'
 
@@ -35,6 +35,8 @@ type SessionActionMenuProps = {
     onSetContext?: (context: SessionContextId | null) => void
     onExport?: () => void
     onMarkUnread?: () => void
+    onForkSession?: () => void
+    forkDisabledReason?: string
     onSyncCodex?: () => void
     onSyncPi?: () => void
     externalReviewUrl?: string | null
@@ -239,6 +241,8 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onSetContext,
         onExport,
         onMarkUnread,
+        onForkSession,
+        forkDisabledReason,
         onSyncCodex,
         onSyncPi,
         externalReviewUrl,
@@ -400,6 +404,11 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const handleMarkUnread = () => {
         onClose()
         onMarkUnread?.()
+    }
+
+    const handleForkSession = () => {
+        onClose()
+        onForkSession?.()
     }
 
     const handleSyncCodex = () => {
@@ -660,6 +669,32 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         <ContinueInFolderIcon className="text-[var(--app-hint)]" />
                         {t('session.action.continueInFolder')}
                     </button>
+                ) : null}
+
+                {onForkSession || forkDisabledReason ? (
+                    <HoverTooltip
+                        id={`${resolvedMenuId}-fork-tooltip`}
+                        className="w-full [&>span:first-child]:w-full"
+                        align="start"
+                        revealOnParentFocusClass="group-focus-within:opacity-100 group-focus-within:visible"
+                        target={(
+                            <button
+                                type="button"
+                                role="menuitem"
+                                aria-disabled={forkDisabledReason ? true : undefined}
+                                aria-describedby={forkDisabledReason ? `${resolvedMenuId}-fork-tooltip` : undefined}
+                                className={`${baseItemClassName} ${forkDisabledReason
+                                    ? 'cursor-not-allowed opacity-50'
+                                    : 'hover:bg-[var(--app-subtle-bg)]'}`}
+                                onClick={forkDisabledReason ? undefined : handleForkSession}
+                            >
+                                <ForkIcon className="h-[18px] w-[18px] text-[var(--app-hint)]" />
+                                {t('session.action.fork')}
+                            </button>
+                        )}
+                    >
+                        {forkDisabledReason ?? t('session.action.fork')}
+                    </HoverTooltip>
                 ) : null}
 
                 {!isTelegram ? (

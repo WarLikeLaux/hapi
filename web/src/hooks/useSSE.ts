@@ -144,6 +144,9 @@ export function sameSessionSummaryMetadata(
         && current.lifecycleState === next.lifecycleState
         && current.readThrough === next.readThrough
         && current.muted === next.muted
+        && current.conversationHistory?.forkCurrent === next.conversationHistory?.forkCurrent
+        && current.conversationHistory?.forkAtMessage === next.conversationHistory?.forkAtMessage
+        && current.conversationHistory?.rewindToMessage === next.conversationHistory?.rewindToMessage
         && current.worktree?.basePath === next.worktree?.basePath
         && current.worktree?.branch === next.worktree?.branch
         && current.worktree?.name === next.worktree?.name
