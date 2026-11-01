@@ -38,6 +38,18 @@ describe('StatusBar context details popover', () => {
         const thinkingLabel = screen.getByLabelText('Работает…')
     })
 
+    it('shows a waiting status before a queued prompt starts, then shows live metrics', () => {
+        const view = (awaitingStart: boolean, thinking: boolean) => <I18nProvider>
+            <StatusBar active thinking={thinking} awaitingStart={awaitingStart} agentState={null}
+                turnMetrics={{ startedAt: Date.now(), durationMs: 3000, tokens: 100 }} />
+        </I18nProvider>
+        const { rerender } = render(view(true, false))
+        expect(screen.getByText('Ожидает запуска…')).toBeVisible()
+        expect(screen.queryByText('100 tokens')).toBeNull()
+        rerender(view(false, true))
+        expect(screen.getByText('100 tokens')).toBeVisible()
+    })
+
     it('shows live activity only while working and preserves connection and permission priority', () => {
         const view = (active: boolean, thinking: boolean, agentState: Parameters<typeof StatusBar>[0]['agentState'] = null) => (
             <I18nProvider>

@@ -315,6 +315,7 @@ export function HappyComposer(props: {
     backgroundTaskCount?: number
     activity?: AgentActivity | null
     turnMetrics?: import('@/chat/turnMetrics').TurnMetrics | null
+    awaitingStart?: boolean
     contextSize?: number
     contextCacheRead?: number
     contextWindow?: number | null
@@ -2455,6 +2456,7 @@ export function HappyComposer(props: {
                         backgroundTaskCount={backgroundTaskCount}
                         activity={props.activity}
                         turnMetrics={props.turnMetrics}
+                        awaitingStart={props.awaitingStart}
                         contextSize={contextSize}
                         contextCacheRead={contextCacheRead}
                         contextWindow={contextWindow}

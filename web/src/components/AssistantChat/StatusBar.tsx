@@ -161,6 +161,7 @@ export function StatusBar(props: {
     backgroundTaskCount?: number
     activity?: AgentActivity | null
     turnMetrics?: TurnMetrics | null
+    awaitingStart?: boolean
     contextSize?: number
     contextCacheRead?: number
     contextWindow?: number | null
@@ -194,6 +195,11 @@ export function StatusBar(props: {
         [props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount, props.activity, t]
     )
 
+    const awaitingStart = props.active && props.awaitingStart && !props.thinking
+        && Object.keys(props.agentState?.requests ?? {}).length === 0 && props.voiceStatus !== 'connecting'
+    const displayedStatus = awaitingStart
+        ? { text: 'Ожидает запуска…', color: 'text-[#007AFF]', dotColor: 'bg-[#007AFF]', isPulsing: true }
+        : connectionStatus
     const contextHeuristicModel = props.contextModel ?? props.model
     const contextWarning = useMemo(
         () => {
@@ -244,7 +250,7 @@ export function StatusBar(props: {
         ? getCopilotAgentModeLabel(displayCopilotAgentMode)
         : null
     const fastMode = isSessionFastMode(props.agentFlavor, props.serviceTier, props.model)
-    const showMetrics = props.active && Object.keys(props.agentState?.requests ?? {}).length === 0
+    const showMetrics = !awaitingStart && props.active && Object.keys(props.agentState?.requests ?? {}).length === 0
         && props.voiceStatus !== 'connecting' && (props.thinking || !(props.backgroundTaskCount ?? 0))
     const duration = props.thinking && props.turnMetrics
         ? Math.max(0, now - props.turnMetrics.startedAt)
@@ -258,18 +264,19 @@ export function StatusBar(props: {
             <div className="flex min-w-0 items-center gap-2">
                 <div className="flex shrink-0 items-center gap-1.5">
                     <span
-                        className={`h-2 w-2 rounded-full ${connectionStatus.dotColor} ${connectionStatus.isPulsing ? 'animate-pulse' : ''}`}
+                        className={`h-2 w-2 rounded-full ${displayedStatus.dotColor} ${displayedStatus.isPulsing ? 'animate-pulse' : ''}`}
                     />
                     {showMetrics ? (
                         <span data-testid="turn-metrics" className={`inline-flex items-center gap-2 whitespace-nowrap text-xs leading-4 tabular-nums ${connectionStatus.color}`}
                             aria-label={[connectionStatus.text, durationLabel, props.turnMetrics?.tokens !== undefined ? `${formatTokenCount(props.turnMetrics.tokens)} tokens` : null].filter(Boolean).join(' ')}>
+                            {!durationLabel && props.turnMetrics?.tokens === undefined ? <span>{connectionStatus.text}</span> : null}
                             {durationLabel ? <span>{durationLabel}</span> : null}
                             {props.turnMetrics?.tokens !== undefined ? <>
                                 {durationLabel ? <span aria-hidden="true" className="h-3 w-px bg-[var(--app-border)]" /> : null}
                                 <span>{formatTokenCount(props.turnMetrics.tokens)} tokens</span>
                             </> : null}
                         </span>
-                    ) : <span className={`whitespace-nowrap text-xs ${connectionStatus.color}`}>{connectionStatus.text}</span>}
+                    ) : <span className={`whitespace-nowrap text-xs ${displayedStatus.color}`}>{displayedStatus.text}</span>}
                 </div>
                 {contextUsageLabel ? (
                     <Popover.Root>

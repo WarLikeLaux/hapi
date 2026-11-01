@@ -60,7 +60,7 @@ function buildRoundSummaryLabels(summary: RoundSummary, fallbackModel?: string |
             + (usage.cache_creation_input_tokens ?? 0)
             + (usage.cache_read_input_tokens ?? 0)
         const total = input + usage.output_tokens
-        parts.push(`Tokens: ${formatCompactTokenCount(total)} (${formatCompactTokenCount(input)} in · ${formatCompactTokenCount(usage.output_tokens)} out)`)
+        parts.push(`${summary.usageScope === 'last-request' ? 'Last request tokens' : 'Tokens'}: ${formatCompactTokenCount(total)} (${formatCompactTokenCount(input)} in · ${formatCompactTokenCount(usage.output_tokens)} out)`)
 
         const economics: string[] = []
         const cached = usage.cache_read_input_tokens

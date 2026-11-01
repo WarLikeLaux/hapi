@@ -25,6 +25,7 @@ export type RoundModelUsage = {
 export type RoundSummary = {
     provider?: 'codex'
     turnId?: string
+    usageScope?: 'round' | 'last-request'
     usage?: UsageData
     modelUsage: Record<string, RoundModelUsage>
     totalCostUsd?: number

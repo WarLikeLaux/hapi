@@ -565,6 +565,9 @@ export function reduceTimeline(
         }
     }
 
+    let previousCodexTotal: { input: number; output: number; cached?: number } | undefined
+    let previousCodexTurn: string | undefined
+    const codexBaselines = new Map<string, typeof previousCodexTotal>()
     for (const msg of messages) {
         if (msg.role === 'event') {
             if (msg.content.type === 'ready') {
@@ -584,15 +587,44 @@ export function reduceTimeline(
                     && msg.usage.scope_role !== 'child'
                 ) {
                     const model = tokenCount.model ?? undefined
+                    let usage = msg.usage
+                    let usageScope: 'round' | 'last-request' = 'last-request'
+                    const info = msg.content.info
+                    const total = isObject(info) ? info.total ?? info.totalTokenUsage ?? info.total_token_usage : null
+                    if (tokenCount.turnId && isObject(total)) {
+                        const input = total.inputTokens ?? total.input_tokens
+                        const output = total.outputTokens ?? total.output_tokens
+                        const cached = total.cachedInputTokens ?? total.cached_input_tokens
+                        if (typeof input === 'number' && Number.isSafeInteger(input) && input >= 0
+                            && typeof output === 'number' && Number.isSafeInteger(output) && output >= 0) {
+                            const current = { input, output, cached: typeof cached === 'number' && Number.isSafeInteger(cached) && cached >= 0 ? cached : undefined }
+                            if (!codexBaselines.has(tokenCount.turnId)) {
+                                codexBaselines.set(tokenCount.turnId, previousCodexTurn !== tokenCount.turnId ? previousCodexTotal : undefined)
+                            }
+                            const baseline = codexBaselines.get(tokenCount.turnId)
+                            if (baseline && input >= baseline.input && output >= baseline.output) {
+                                const cache = current.cached !== undefined && baseline.cached !== undefined && current.cached >= baseline.cached
+                                    ? current.cached - baseline.cached : undefined
+                                usage = { ...usage, input_tokens: input - baseline.input, output_tokens: output - baseline.output,
+                                    cache_read_input_tokens: cache }
+                                usageScope = 'round'
+                            }
+                            if (!previousCodexTotal || (input >= previousCodexTotal.input && output >= previousCodexTotal.output)) {
+                                previousCodexTotal = current
+                                previousCodexTurn = tokenCount.turnId
+                            }
+                        }
+                    }
                     attachCodexRoundSummaryToLatestGroup(blocks, {
                         provider: 'codex',
                         turnId: tokenCount.turnId,
-                        usage: msg.usage,
+                        usage,
+                        usageScope,
                         modelUsage: model
                             ? {
                                 [model]: {
-                                    inputTokens: msg.usage.input_tokens,
-                                    outputTokens: msg.usage.output_tokens
+                                    inputTokens: usage.input_tokens,
+                                    outputTokens: usage.output_tokens
                                 }
                             }
                             : {},
