@@ -24,6 +24,24 @@ const create = (store: Store, tag = 's') => {
 }
 
 describe('persisted last user-message time', () => {
+    it('acknowledges only the requested prompts without scanning the session queue', () => {
+        const store = open()
+        const session = create(store)
+        store.messages.addMessage(session.id, user('first'), 'first', null, 100)
+        store.messages.addMessage(session.id, user('second'), 'second', null, 200)
+        const scan = spyOn(store.messages, 'getUninvokedLocalMessages')
+        try {
+            expect(store.recordMessagesConsumed(session.id, ['first'], 300, 'default').newlyConsumed).toBe(true)
+            expect(scan).toHaveBeenCalledTimes(0)
+            expect(store.messages.getLocalMessageStates(session.id, ['first', 'second'])).toEqual([
+                { localId: 'first', invokedAt: 300 },
+                { localId: 'second', invokedAt: null }
+            ])
+            expect(store.recordMessagesConsumed(session.id, ['first'], 400, 'default').newlyConsumed).toBe(false)
+        } finally {
+            scan.mockRestore()
+        }
+    })
     it('advances only for new human input, including attachment-only input', () => {
         const store = open()
         const session = create(store)

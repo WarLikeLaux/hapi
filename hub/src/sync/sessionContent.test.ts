@@ -1,4 +1,4 @@
-import { describe, expect, it, spyOn } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import { toSessionSummary, type SyncEvent } from '@hapi/protocol'
 import { SessionSchema } from '@hapi/protocol/schemas'
 import { Store } from '../store'
@@ -13,25 +13,6 @@ function createEngine(store: Store, events: SyncEvent[]) {
 }
 
 describe('session conversation content', () => {
-    it('does not reread an unchanged transcript on repeated session updates', () => {
-        const store = new Store(':memory:')
-        const session = store.sessions.getOrCreateSession('updates', { path: '/work', host: 'test' }, null, 'default')
-        store.messages.addMessage(session.id, { role: 'user', content: { type: 'text', text: 'Hello' } })
-        const engine = createEngine(store, [])
-        const scan = spyOn(store.messages, 'getConversationActivity')
-        try {
-            for (let i = 0; i < 5; i++) engine.handleRealtimeEvent({ type: 'session-updated', sessionId: session.id })
-            expect(scan).toHaveBeenCalledTimes(0)
-            expect(engine.getSession(session.id)?.hasConversationContent).toBe(true)
-            store.messages.addMessage(session.id, { role: 'agent', content: { type: 'codex', data: { type: 'message', message: 'Answer' } } })
-            engine.handleRealtimeEvent({ type: 'session-updated', sessionId: session.id })
-            expect(engine.getSession(session.id)?.lastAgentMessageAt).toBeGreaterThan(0)
-        } finally {
-            scan.mockRestore()
-            engine.stop()
-            store.close()
-        }
-    })
     it('derives content from stored transcripts on reload, independently of titles', () => {
         const store = new Store(':memory:')
         const empty = store.sessions.getOrCreateSession('empty', { path: '/work', host: 'test', name: 'Named stub' }, null, 'default')

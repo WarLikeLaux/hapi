@@ -27,6 +27,7 @@ import {
     bumpMessageEpoch,
     getLocalMessageStates,
     getUninvokedLocalMessages,
+    getUninvokedLocalMessagesByIds,
     getMatureScheduledMessages,
     getImmediateQueuedLocalMessages,
     countFutureScheduledBySessionIds,
@@ -45,7 +46,6 @@ import {
     getAllMessages,
     getMessagesAfterSeq,
     getMinSeq,
-    getMaxSeq,
     getMessageSeqById,
     truncateMessagesFromLocalId,
     type CancelQueuedMessageResult,
@@ -114,10 +114,6 @@ export class MessageStore {
         return getMinSeq(this.db, sessionId)
     }
 
-    getMaxSeq(sessionId: string): number {
-        return getMaxSeq(this.db, sessionId)
-    }
-
     getSeqById(sessionId: string, messageId: string): number | null {
         return getMessageSeqById(this.db, sessionId, messageId)
     }
@@ -165,6 +161,10 @@ export class MessageStore {
 
     getLocalMessageStates(sessionId: string, localIds: string[]): LocalMessageState[] {
         return getLocalMessageStates(this.db, sessionId, localIds)
+    }
+
+    getUninvokedLocalMessagesByIds(sessionId: string, localIds: string[]): StoredMessage[] {
+        return getUninvokedLocalMessagesByIds(this.db, sessionId, localIds)
     }
 
     getUninvokedLocalMessages(sessionId: string, options?: { deliverableOnly?: boolean }): StoredMessage[] {
