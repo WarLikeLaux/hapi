@@ -129,7 +129,8 @@ export class SharedCodexRoot {
             }
             const receivedAt = Date.now();
             const modelAtReceipt = record(params).threadId === this.threadId ? this.settings.model ?? undefined : undefined;
-            this.notifications = this.notifications.then(() => this.notification(method, params, modelAtReceipt, receivedAt)).catch(error => logger.debug('[Codex shared] projection', error));
+            const tierAtReceipt = record(params).threadId === this.threadId ? this.settings.serviceTier ?? undefined : undefined;
+            this.notifications = this.notifications.then(() => this.notification(method, params, modelAtReceipt, receivedAt, tierAtReceipt)).catch(error => logger.debug('[Codex shared] projection', error));
         });
         this.client.setTransportAbandonedHandler(() => { void this.reconnect(); });
         this.session.onUserMessage((message, localId) => {
@@ -339,7 +340,7 @@ export class SharedCodexRoot {
         for (const listener of this.settingsListeners) listener();
         this.publishPlan();
     }
-    private async notification(method: string, params: unknown, modelAtReceipt?: string, receivedAt = Date.now()): Promise<void> {
+    private async notification(method: string, params: unknown, modelAtReceipt?: string, receivedAt = Date.now(), tierAtReceipt?: string): Promise<void> {
         if (!this.threadId || this.closed) return;
         const p = record(params);
         if (method === 'thread/started') {
@@ -379,7 +380,7 @@ export class SharedCodexRoot {
         if (method === 'thread/queue/changed') {
             for (const id of await this.queue.reconcile(false)) this.dequeuedInputs.add(id);
         }
-        await this.projection.notification(method, params, modelAtReceipt, receivedAt); this.publishCompaction(); this.alive();
+        await this.projection.notification(method, params, modelAtReceipt, receivedAt, tierAtReceipt); this.publishCompaction(); this.alive();
     }
     private lazyHistory(): boolean {
         return !!this.threadId && (process.env.HAPI_CODEX_LAZY_HISTORY_IDS ?? '')

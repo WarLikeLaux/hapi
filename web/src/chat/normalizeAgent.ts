@@ -148,6 +148,7 @@ function normalizeCodexTokenUsage(value: unknown, data?: Record<string, unknown>
     return {
         input_tokens: inputTokens,
         output_tokens: outputTokens,
+        service_tier: asString(data?.service_tier ?? data?.serviceTier) ?? undefined,
         // Codex `inputTokens` already includes cached input tokens; expose cache
         // hits for display, but use `context_tokens` to avoid double-counting.
         cache_creation_input_tokens: undefined,

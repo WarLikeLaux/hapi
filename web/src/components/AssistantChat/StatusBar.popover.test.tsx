@@ -41,13 +41,21 @@ describe('StatusBar context details popover', () => {
     it('shows a waiting status before a queued prompt starts, then shows live metrics', () => {
         const view = (awaitingStart: boolean, thinking: boolean) => <I18nProvider>
             <StatusBar active thinking={thinking} awaitingStart={awaitingStart} agentState={null}
-                turnMetrics={{ startedAt: Date.now(), durationMs: 3000, tokens: 100 }} />
+                turnMetrics={{ startedAt: Date.now(), durationMs: 3000, tokens: 100, credits: 0.2 }} />
         </I18nProvider>
         const { rerender } = render(view(true, false))
         expect(screen.getByText('Ожидает запуска…')).toBeVisible()
-        expect(screen.queryByText('100 tokens')).toBeNull()
+        expect(screen.queryByText('20.00 credits')).toBeNull()
         rerender(view(false, true))
-        expect(screen.getByText('100 tokens')).toBeVisible()
+        expect(screen.getByText('20.00 credits')).toBeVisible()
+    })
+
+    it('shows the scaled credit estimate beside elapsed time without tokens', () => {
+        render(<I18nProvider><StatusBar active thinking={false} agentState={null}
+            turnMetrics={{ startedAt: 100, durationMs: 3000, tokens: 132351, credits: 0.6991375 }} /></I18nProvider>)
+        expect(screen.getByTestId('turn-metrics')).toHaveTextContent('3s')
+        expect(screen.getByTestId('turn-metrics')).not.toHaveTextContent('tokens')
+        expect(screen.getByTestId('turn-metrics')).toHaveTextContent('69.91 credits')
     })
 
     it('shows live activity only while working and preserves connection and permission priority', () => {

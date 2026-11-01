@@ -38,6 +38,22 @@ describe('turn metrics', () => {
         expect(getTurnMetrics([user(100), result])?.tokens).toBe(120)
     })
 
+    it('calculates the latest Codex round credits from complete snapshots and its actual tier', () => {
+        const count = (time: number, input: number, output: number, cached: number, tier: string | undefined, model = 'gpt-6.1-terra'): NormalizedMessage => ({
+            ...base, id: `c${time}`, createdAt: time, role: 'event', usage: { input_tokens: 1, output_tokens: 1, service_tier: tier },
+            content: { type: 'token-count', provider: 'codex', turnId: 'turn', model,
+                info: { total_token_usage: { input_tokens: input, output_tokens: output, cached_input_tokens: cached } } }
+        })
+        const before = count(101, 1000, 100, 900, 'standard')
+        const first = count(201, 43699, 233, 43268, 'fast')
+        const second = count(202, 132999, 452, 129924, 'fast')
+        const messages = [user(100), before, user(200), first, second]
+        expect(getTurnMetrics(messages)?.credits).toBeCloseTo(0.6991375)
+        expect(getTurnMetrics([user(200), first, second])?.credits).toBeUndefined()
+        expect(getTurnMetrics([user(100), before, user(200), first, { ...second, usage: { input_tokens: 1, output_tokens: 1 } }])?.credits).toBeUndefined()
+        expect(getTurnMetrics([user(100), before, user(200), first, count(202, 132999, 452, 129924, 'fast', 'gpt-6.1-sol')])?.credits).toBeUndefined()
+    })
+
     it('uses completed Claude round totals including cached input', () => {
         const result: NormalizedMessage = { ...base, id: 'result', createdAt: 200, role: 'event', content: {
             type: 'turn-summary', summary: { modelUsage: {}, durationMs: 10_000,

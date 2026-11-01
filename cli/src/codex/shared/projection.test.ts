@@ -199,11 +199,11 @@ describe('shared history projection', () => {
         const send = vi.fn();
         const session = { getMetadata: () => ({}), updateAgentState: vi.fn(), sendAgentMessage: send } as unknown as SessionClient;
         const projection = new SharedCodexProjection(session, 'thread', async () => {});
-        await projection.notification('turn/started', { threadId: 'thread', turn: { id: 'old' } }, 'model-a');
-        await projection.notification('turn/started', { threadId: 'thread', turn: { id: 'new' } }, 'model-b');
+        await projection.notification('turn/started', { threadId: 'thread', turn: { id: 'old' } }, 'model-a', 1000, 'fast');
+        await projection.notification('turn/started', { threadId: 'thread', turn: { id: 'new' } }, 'model-b', 1000, 'standard');
         projection.reset();
         // A replayed start must not rewrite the executing model either.
-        await projection.notification('turn/started', { threadId: 'thread', turn: { id: 'old' } }, 'model-b');
+        await projection.notification('turn/started', { threadId: 'thread', turn: { id: 'old' } }, 'model-b', 1000, 'standard');
         const usage = async (turnId: string) => projection.notification('thread/tokenUsage/updated', {
             threadId: 'thread', turnId, tokenUsage: { last: { inputTokens: 12, outputTokens: 3 } }
         }, 'model-b');
@@ -212,6 +212,7 @@ describe('shared history projection', () => {
         await usage('new');
         const events = send.mock.calls.map(([body]) => body).filter(body => body.type === 'token_count');
         expect(events.map(body => body.model)).toEqual(['model-a', 'model-c']);
+        expect(events.map(body => body.service_tier)).toEqual(['fast', 'standard']);
     });
     it('keeps image-only native inputs visible without embedding data URLs', () => {
         expect(inputText([{ type: 'image', url: 'data:image/png;base64,large' }])).toBe('[Image]');

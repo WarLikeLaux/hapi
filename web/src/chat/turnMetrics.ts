@@ -1,9 +1,10 @@
 import { isObject } from '@hapi/protocol'
+import { estimateCodexCredits } from './codexCredits'
 import type { NormalizedMessage, RoundSummary } from '@/chat/types'
 
-export type TurnMetrics = { startedAt: number; durationMs?: number; tokens?: number }
+export type TurnMetrics = { startedAt: number; durationMs?: number; tokens?: number; credits?: number }
 
-function totalSnapshot(message: NormalizedMessage): number | undefined {
+function totalSnapshot(message: NormalizedMessage): { input: number; output: number; cached?: number } | undefined {
     if (message.role !== 'event' || message.content.type !== 'token-count'
         || message.content.provider !== 'codex' || message.usage?.scope_role === 'child') return
     const info = message.content.info
@@ -14,7 +15,9 @@ function totalSnapshot(message: NormalizedMessage): number | undefined {
     const output = total.outputTokens ?? total.output_tokens
     if (!Number.isSafeInteger(input) || !Number.isSafeInteger(output)
         || (input as number) < 0 || (output as number) < 0) return
-    return (input as number) + (output as number)
+    const cached = total.cachedInputTokens ?? total.cached_input_tokens
+    return { input: input as number, output: output as number,
+        cached: Number.isSafeInteger(cached) && (cached as number) >= 0 ? cached as number : undefined }
 }
 
 function summaryTokens(summary: RoundSummary): number | undefined {
@@ -37,7 +40,7 @@ export function getTurnMetrics(messages: readonly NormalizedMessage[]): TurnMetr
     if (start < 0) return null
     const startedAt = messages[start].invokedAt ?? messages[start].createdAt
     if (!Number.isFinite(startedAt) || startedAt <= 0) return null
-    let baseline: number | undefined
+    let baseline: ReturnType<typeof totalSnapshot>
     for (let i = start - 1; i >= 0; i--) {
         baseline = totalSnapshot(messages[i])
         if (baseline !== undefined) break
@@ -45,6 +48,11 @@ export function getTurnMetrics(messages: readonly NormalizedMessage[]): TurnMetr
     }
     let tokens: number | undefined
     let durationMs: number | undefined
+    let credits: number | undefined
+    let pricingModel: string | undefined
+    let pricingTier: string | undefined
+    let pricingTurn: string | undefined
+    let pricingConsistent = true
     for (const message of messages.slice(start + 1)) {
         if (message.isSidechain || message.role !== 'event') continue
         if (message.content.type === 'turn-summary') {
@@ -55,8 +63,23 @@ export function getTurnMetrics(messages: readonly NormalizedMessage[]): TurnMetr
             durationMs = message.content.durationMs
         } else if (message.content.type === 'token-count') {
             const total = totalSnapshot(message)
-            if (baseline !== undefined && total !== undefined && total >= baseline) tokens = total - baseline
+            if (baseline && total && total.input >= baseline.input && total.output >= baseline.output) {
+                tokens = total.input - baseline.input + total.output - baseline.output
+                const model = typeof message.content.model === 'string' ? message.content.model : undefined
+                const tier = message.usage?.service_tier
+                const turn = typeof message.content.turnId === 'string' ? message.content.turnId : undefined
+                if (!model || !tier || !turn || (pricingModel && pricingModel !== model)
+                    || (pricingTier && pricingTier !== tier) || (pricingTurn && pricingTurn !== turn)) pricingConsistent = false
+                pricingModel = model ?? pricingModel
+                pricingTier = tier ?? pricingTier
+                pricingTurn = turn ?? pricingTurn
+                if (pricingConsistent && pricingModel && pricingTier && total.cached !== undefined && baseline.cached !== undefined
+                    && total.cached >= baseline.cached) {
+                    credits = estimateCodexCredits(pricingModel, pricingTier, total.input - baseline.input,
+                        total.cached - baseline.cached, total.output - baseline.output)
+                } else credits = undefined
+            }
         }
     }
-    return { startedAt, durationMs, tokens }
+    return { startedAt, durationMs, tokens, ...(credits !== undefined ? { credits } : {}) }
 }
