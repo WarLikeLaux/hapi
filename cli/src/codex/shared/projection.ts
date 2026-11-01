@@ -250,7 +250,7 @@ export class SharedCodexProjection {
         for (const event of events) {
             const callId = string(event.call_id);
             const key = `${turnId ?? 'thread'}:${itemId ?? callId ?? createHash('sha256').update(JSON.stringify(event)).digest('hex')}:${event.type}`;
-            if (event.type === 'agent_message') send({ type: 'message', message: event.message }, key);
+            if (event.type === 'agent_message') send({ type: 'message', message: event.message, ...(typeof event.phase === 'string' ? { phase: event.phase } : {}) }, key);
             else if (event.type === 'agent_reasoning') send({ type: 'reasoning', message: event.text }, key);
             else if (event.type === 'exec_command_begin' && callId) {
                 send({ type: 'tool-call', name: 'CodexBash', callId, input: event }, key);

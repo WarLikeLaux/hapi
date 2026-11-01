@@ -15,6 +15,7 @@ export type CodexSessionEvent = z.infer<typeof CodexSessionEventSchema>;
 export type CodexMessage = {
     type: 'message';
     message: string;
+    phase?: string;
     id: string;
 } | {
     type: 'proposed_plan';
@@ -514,6 +515,7 @@ export function convertCodexEvent(rawEvent: unknown): CodexEventProjection | nul
                 messages: [{
                     type: 'message',
                     message,
+                    ...(typeof payloadRecord.phase === 'string' ? { phase: payloadRecord.phase } : {}),
                     id: randomUUID()
                 }]
             };
@@ -543,6 +545,7 @@ export function convertCodexEvent(rawEvent: unknown): CodexEventProjection | nul
                     messages: [{
                         type: 'message',
                         message,
+                        ...(typeof item?.phase === 'string' ? { phase: item.phase } : {}),
                         id: asString(item?.id) ?? randomUUID()
                     }]
                 };
@@ -634,6 +637,7 @@ export function convertCodexEvent(rawEvent: unknown): CodexEventProjection | nul
                 messages: [{
                     type: 'message',
                     message,
+                    ...(typeof payloadRecord.phase === 'string' ? { phase: payloadRecord.phase } : {}),
                     id: asString(payloadRecord.id) ?? randomUUID()
                 }]
             };

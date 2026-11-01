@@ -69,6 +69,7 @@ describe('shared history projection', () => {
         const live = send.mock.calls.slice();
         const bodies = live.map(([body]) => parentThreadId ? body.message : body);
         expect(bodies.map(body => body.message)).toEqual(['Still working.', 'More work.', `Finished.\n${footer}`]);
+        expect(bodies.map(body => body.phase)).toEqual(['commentary', 'partial_answer', 'final_answer']);
         expect(bodies.filter(body => extractNotifySummary(body.message))).toHaveLength(1);
         projection.reset(); send.mockClear();
         await projection.history({ turns: [{ id: 'turn', status: 'completed', items }] });

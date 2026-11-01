@@ -23,12 +23,12 @@ const context = { api: {}, sessionId: session.id, metadata: null, disabled: fals
     loadOlderMessagesPreservingScroll: async () => 'terminal-stop' } as HappyChatContextValue
 const messages = codexCases.find(test => test.name === 'codex-native-recap')!.messages
 
-function Transcript({ count }: { count: number }) {
-    const normalized = messages.slice(0, count).map(normalizeDecryptedMessage)
+function Transcript({ count, entries = messages, running = false }: { count: number; entries?: typeof messages; running?: boolean }) {
+    const normalized = entries.slice(0, count).map(normalizeDecryptedMessage)
         .filter((message): message is NormalizedMessage => message !== null)
     const blocks = buildVisibleChatBlocks(reduceChatBlocks(normalized, null).blocks, { hasMoreMessages: false })
     const runtime = useHappyRuntime({ session, blocks, messagesVersion: count, historyVersion: 0,
-        isSending: false, isRunning: false, onSendMessage: vi.fn(), onAbort: vi.fn(async () => {}) })
+        isSending: false, isRunning: running, onSendMessage: vi.fn(), onAbort: vi.fn(async () => {}) })
     return (
         <I18nProvider><HappyChatProvider value={context}><AssistantRuntimeProvider runtime={runtime}>
             <ThreadPrimitive.Root><ThreadPrimitive.Messages components={{
@@ -59,5 +59,25 @@ describe('Codex recap in the answer', () => {
         const newer = screen.getByText('UI checked.').closest('[data-hapi-message-role="assistant"]')!
         expect(within(newer as HTMLElement).queryByText('recap:')).toBeNull()
         expect(screen.getByText('Checked the protocol.', { exact: false }).closest('[data-hapi-message-role="assistant"]')).not.toBe(newer)
+    })
+})
+
+
+describe('Codex commentary', () => {
+    it('folds marked progress after a final answer, but keeps it visible while running or when no final exists', async () => {
+        const entries = messages.slice(0, 3).map((entry, index) => index === 1
+            ? { ...entry, content: { role: 'agent', content: { type: 'codex', data: { type: 'message', message: 'Checking CI.', id: 'progress', phase: 'commentary' } } } }
+            : index === 2
+                ? { ...entry, content: { role: 'agent', content: { type: 'codex', data: { type: 'message', message: 'CI passed.', id: 'final', phase: 'final_answer' } } } }
+                : entry) as typeof messages
+        const { rerender } = render(<Transcript count={2} entries={entries} running />)
+        expect(await screen.findByText('Checking CI.')).toBeVisible()
+        rerender(<Transcript count={2} entries={entries} />)
+        expect(screen.getByText('Checking CI.')).toBeVisible()
+        rerender(<Transcript count={3} entries={entries} />)
+        expect(await screen.findByText('CI passed.')).toBeVisible()
+        expect(screen.queryByText('Checking CI.')).toBeNull()
+        fireEvent.click(screen.getByRole('button', { name: /Show work/ }))
+        expect(await screen.findByText('Checking CI.')).toBeVisible()
     })
 })

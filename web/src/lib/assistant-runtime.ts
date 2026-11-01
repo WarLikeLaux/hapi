@@ -45,6 +45,7 @@ export type HappyChatMessageMetadata = {
     durationMs?: number
     usage?: UsageData
     model?: string | null
+    phase?: string
     roundSummary?: RoundSummary
     review?: CodexReview
     /**
@@ -537,6 +538,7 @@ export function toThreadMessageLike(
             metadata: {
                 custom: {
                     kind: 'assistant',
+                    phase: block.phase,
                     invokedAt: block.invokedAt,
                     durationMs: block.durationMs,
                     usage: block.usage,
