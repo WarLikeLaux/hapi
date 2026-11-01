@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
@@ -107,60 +107,20 @@ describe('SessionList machine filter', () => {
         window.localStorage.clear()
     })
 
-    it('shows a compact summary row instead of filter chips on a single machine', () => {
-        renderSessionList([
-            makeSession({
+    it('omits the single-machine summary while keeping sessions visible', () => {
+        renderSessionList(
+            [makeSession({
                 id: 'session-1',
                 updatedAt: 100,
                 metadata: { path: '/work/hapi', machineId: 'machine-1', agentSessionId: 'thread-1' }
-            })
-        ])
+            })],
+            { 'machine-1': makeMachine({ id: 'machine-1', health: { collectedAt: 100, cpuPercent: 12, memoryPercent: 88 } }) }
+        )
 
-        // One machine has nothing to filter — no bar, no mobile filter menu.
+        expect(screen.queryByText('Mint')).toBeNull()
+        expect(screen.queryByText('CPU 12% · RAM 88%')).toBeNull()
         expect(screen.queryByRole('group', { name: 'Filter sessions by machine' })).toBeNull()
-        expect(screen.queryByRole('button', { name: 'Filter sessions by machine' })).toBeNull()
-        // The machine label and session count stay visible.
-        const summary = screen.getByText('Mint').parentElement!
-        expect(within(summary).getByText('(1)')).toBeTruthy()
         expect(screen.getByTitle('/work/hapi')).toBeTruthy()
-    })
-
-    it('shows machine health inline on the single-machine summary row', () => {
-        renderSessionList(
-            [
-                makeSession({
-                    id: 'session-1',
-                    updatedAt: 100,
-                    metadata: { path: '/work/hapi', machineId: 'machine-1', agentSessionId: 'thread-1' }
-                })
-            ],
-            {
-                'machine-1': makeMachine({
-                    id: 'machine-1',
-                    health: { collectedAt: 100, cpuPercent: 12, memoryPercent: 88 }
-                })
-            }
-        )
-
-        expect(screen.getByText('CPU 12% · RAM 88%')).toBeTruthy()
-    })
-
-    it('shows the summary row for a sole machine with no visible sessions', () => {
-        // Fresh install / "active only" filtering: zero session groups, but the
-        // sole machine is online and its health must stay visible.
-        renderSessionList(
-            [],
-            {
-                'machine-1': makeMachine({
-                    id: 'machine-1',
-                    health: { collectedAt: 100, cpuPercent: 12, memoryPercent: 88 }
-                })
-            }
-        )
-
-        const summary = screen.getByText('Mint').parentElement!
-        expect(within(summary).getByText('(0)')).toBeTruthy()
-        expect(screen.getByText('CPU 12% · RAM 88%')).toBeTruthy()
     })
 
     it('shows the filter bar and machine-suffixed group titles with multiple machines', () => {
