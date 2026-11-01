@@ -519,6 +519,8 @@ class CursorAcpRemoteLauncher extends RemoteLauncherBase {
                     await restoreQueuedReservation();
                     return { steered: false, error: 'Active turn changed' };
                 }
+                // Completion can arrive after the response; retain the dispatch time for timeline ordering.
+                const invokedAt = Date.now();
                 let steer: { dispatched: Promise<void>; completed: Promise<string | null> };
                 try {
                     steer = backend.beginSoftSteerPrompt(acpSessionId, [{
@@ -582,7 +584,7 @@ class CursorAcpRemoteLauncher extends RemoteLauncherBase {
                     // cancelled the reservation in between.
                     session.queue.commitReservation(taken);
                     messageBuffer.addMessage(taken.item.message, 'user');
-                    session.client.emitMessagesConsumed([localId], { steered: true });
+                    session.client.emitMessagesConsumed([localId], { steered: true, invokedAt });
                 }, (error) => {
                     if (isAcpIndeterminateError(error)) {
                         // Do not leave the reservation dispatching forever. Hold

@@ -434,7 +434,7 @@ describe('cursorAcpRemoteLauncher', () => {
         session.queue.push('soft steer', mode, 'steer');
         await expect(handlers.get(RPC_METHODS.SteerQueuedMessage)!({ localId: 'steer' }))
             .resolves.toEqual({ steered: false, error: 'Failed to soft-steer into active turn' });
-        expect(session.client.emitMessagesConsumed).not.toHaveBeenCalledWith(['steer'], { steered: true });
+        expect(session.client.emitMessagesConsumed).not.toHaveBeenCalledWith(['steer'], expect.objectContaining({ steered: true }));
 
         harness.softSteerDispatchError = null;
         harness.deferPrompt = null;
@@ -465,7 +465,7 @@ describe('cursorAcpRemoteLauncher', () => {
         // instruction — the row is restored for the next prompt (no data loss).
         rejectSoftSteer(new Error('request rejected'));
         await vi.waitFor(() => expect(session.queue.cancelByLocalId('steer')).toBe(true));
-        expect(session.client.emitMessagesConsumed).not.toHaveBeenCalledWith(['steer'], { steered: true });
+        expect(session.client.emitMessagesConsumed).not.toHaveBeenCalledWith(['steer'], expect.objectContaining({ steered: true }));
 
         harness.deferPrompt = null;
         releasePrompt();
@@ -496,7 +496,7 @@ describe('cursorAcpRemoteLauncher', () => {
         rejectSoftSteer(indeterminate);
         await vi.waitFor(() => expect(session.queue.cancelByLocalId('steer')).toBe(true));
         expect(session.client.emitSteerIndeterminate).toHaveBeenCalledWith(['steer']);
-        expect(session.client.emitMessagesConsumed).not.toHaveBeenCalledWith(['steer'], { steered: true });
+        expect(session.client.emitMessagesConsumed).not.toHaveBeenCalledWith(['steer'], expect.objectContaining({ steered: true }));
 
         harness.deferPrompt = null;
         releasePrompt();
@@ -553,7 +553,7 @@ describe('cursorAcpRemoteLauncher', () => {
         expect(session.queue.cancelByLocalId('steer')).toBe('in-flight');
         releaseDispatch();
         await expect(steerResult).resolves.toEqual({ steered: true });
-        expect(session.client.emitMessagesConsumed).toHaveBeenCalledWith(['steer'], { steered: true });
+        expect(session.client.emitMessagesConsumed).toHaveBeenCalledWith(['steer'], expect.objectContaining({ steered: true }));
 
         harness.deferPrompt = null;
         releasePrompt();
@@ -618,7 +618,7 @@ describe('cursorAcpRemoteLauncher', () => {
         await expect(steerResult).resolves.toEqual({ steered: true });
         await handlers.get(RPC_METHODS.Abort)!();
 
-        await vi.waitFor(() => expect(session.client.emitMessagesConsumed).toHaveBeenCalledWith(['steer'], { steered: true }));
+        await vi.waitFor(() => expect(session.client.emitMessagesConsumed).toHaveBeenCalledWith(['steer'], expect.objectContaining({ steered: true })));
         expect(vi.mocked(session.client.emitMessagesConsumed).mock.calls
             .filter(([ids]) => ids.includes('steer'))).toHaveLength(1);
 
@@ -653,7 +653,7 @@ describe('cursorAcpRemoteLauncher', () => {
         await abort;
 
         await vi.waitFor(() => expect(session.client.emitSteerIndeterminate).toHaveBeenCalledWith(['steer']));
-        expect(session.client.emitMessagesConsumed).not.toHaveBeenCalledWith(['steer'], { steered: true });
+        expect(session.client.emitMessagesConsumed).not.toHaveBeenCalledWith(['steer'], expect.objectContaining({ steered: true }));
 
         session.queue.close();
         await runPromise;
