@@ -221,7 +221,7 @@ function serveEmbeddedAsset(asset: EmbeddedWebAsset): Response {
     // index.html pins mobile installs to an old asset bundle however
     // aggressively the service worker checks for updates. Hashed /assets/*
     // stay immutable and cacheable; the manifest names them.
-    if (asset.path === '/sw.js' || asset.path === '/index.html' || asset.path === '/manifest.webmanifest') {
+    if (asset.path === '/sw.js' || asset.path === '/index.html' || asset.path === '/manifest.webmanifest' || asset.path === '/build-info.json') {
         headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         headers['CDN-Cache-Control'] = 'no-store'
         headers['Cloudflare-CDN-Cache-Control'] = 'no-store'
