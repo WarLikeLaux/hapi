@@ -470,8 +470,38 @@ function Pre(props: ComponentPropsWithoutRef<'pre'>) {
     )
 }
 
+const MarkdownLinkContext = createContext(false)
+
+function InlineCode(props: ComponentPropsWithoutRef<'code'>) {
+    const { copied, copy } = useCopyToClipboard()
+    const { t } = useTranslation()
+    const ref = useRef<HTMLElement>(null)
+    const containerRef = useRef<HTMLSpanElement>(null)
+    const [hovered, setHovered] = useState(false)
+    useEffect(() => {
+        if (!hovered) return
+        const onMove = (event: PointerEvent) => {
+            if (!containerRef.current?.contains(document.elementFromPoint(event.clientX, event.clientY))) setHovered(false)
+        }
+        document.addEventListener('pointermove', onMove)
+        return () => document.removeEventListener('pointermove', onMove)
+    }, [hovered])
+    return (
+        <span ref={containerRef} className="aui-inline-code-copy" data-hovered={hovered || undefined} data-copied={copied || undefined} onPointerEnter={(event) => { if (event.pointerType === 'mouse') setHovered(true) }}>
+            <code {...props} ref={ref} onClick={(event) => {
+                props.onClick?.(event)
+                if (window.matchMedia('(hover: none), (pointer: coarse)').matches && !window.getSelection()?.toString()) void copy(ref.current?.textContent ?? '')
+            }} className={cn('aui-md-code break-words rounded-md border border-[var(--app-inline-code-border)] bg-[var(--app-inline-code-bg)] px-[0.38em] py-[0.14em] font-mono text-[0.88em] text-[var(--app-inline-code-fg)]', props.className)} />
+            <button type="button" className="aui-inline-code-copy-button" aria-label={t(copied ? 'message.copied' : 'code.copy')} title={t(copied ? 'message.copied' : 'code.copy')} onClick={() => void copy(ref.current?.textContent ?? '')}>
+                {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
+            </button>
+        </span>
+    )
+}
+
 function Code(props: ComponentPropsWithoutRef<'code'>) {
     const isCodeBlock = useIsMarkdownCodeBlock()
+    const inLink = useContext(MarkdownLinkContext)
 
     if (isCodeBlock) {
         return (
@@ -482,6 +512,7 @@ function Code(props: ComponentPropsWithoutRef<'code'>) {
         )
     }
 
+    if (!inLink) return <InlineCode {...props} />
     return (
         <code
             {...props}
@@ -631,6 +662,10 @@ function InertMarkdownHref(props: { href: string; children?: ReactNode; classNam
 }
 
 function A(props: ComponentPropsWithoutRef<'a'>) {
+    return <MarkdownLinkContext.Provider value={true}><MarkdownAnchor {...props} /></MarkdownLinkContext.Provider>
+}
+
+function MarkdownAnchor(props: ComponentPropsWithoutRef<'a'>) {
     const chat = useOptionalHappyChatContext()
     // useContext must be called unconditionally before any early return so that
     // the Rules of Hooks are satisfied regardless of whether `filePath` is set.
