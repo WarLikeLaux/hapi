@@ -1,4 +1,4 @@
-import type { ThreadAssistantMessagePart } from '@assistant-ui/react'
+import { getExternalStoreMessages, type ThreadAssistantMessagePart, type ThreadMessageLike } from '@assistant-ui/react'
 import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion'
 import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInput'
 import type { ToolCallBlock } from '@/chat/types'
@@ -66,8 +66,14 @@ export function partitionCompletedResponseParts(
 ): ResponsePartPartition | null {
     const visibleIndices: number[] = []
     const detailIndices: number[] = []
+    const phases = parts.map(part => {
+        if (part.type !== 'text') return undefined
+        const source = getExternalStoreMessages<ThreadMessageLike>(part)[0]
+        return (source?.metadata?.custom as { phase?: string } | undefined)?.phase
+    })
     parts.forEach((part, index) => {
-        if (isUserFacingPart(part)) {
+        const completedCommentary = phases[index] === 'commentary' && phases.slice(index + 1).includes('final_answer')
+        if (!completedCommentary && isUserFacingPart(part)) {
             visibleIndices.push(index)
         } else {
             detailIndices.push(index)

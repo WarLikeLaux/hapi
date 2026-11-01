@@ -666,7 +666,7 @@ function convertCodexRecordToImportedMessage(record: Record<string, unknown>): C
 
         if (eventType === 'agent_message') {
             const message = asString(payload.message)
-            return message ? buildImportedAgentMessage({ type: 'message', message, id: randomUUID() }, createdAt) : null
+            return message ? buildImportedAgentMessage({ type: 'message', message, ...(typeof payload.phase === 'string' ? { phase: payload.phase } : {}), id: randomUUID() }, createdAt) : null
         }
 
         if (eventType === 'agent_reasoning') {
@@ -703,7 +703,7 @@ function convertCodexRecordToImportedMessage(record: Record<string, unknown>): C
                 return shouldIgnoreInjectedResponseUserMessage(text) ? null : buildImportedUserMessage(text, createdAt)
             }
             if (role === 'assistant') {
-                return buildImportedAgentMessage({ type: 'message', message: text, id: randomUUID() }, createdAt)
+                return buildImportedAgentMessage({ type: 'message', message: text, ...(typeof payload.phase === 'string' ? { phase: payload.phase } : {}), id: randomUUID() }, createdAt)
             }
             return null
         }

@@ -955,6 +955,7 @@ export function reduceTimeline(
                         usage: msg.usage,
                         model: msg.model,
                         text: c.text,
+                        phase: c.phase,
                         meta: msg.meta
                     }
                     blocks.push(block)

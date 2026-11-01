@@ -1017,7 +1017,7 @@ export class AppServerEventConverter {
                     const text = extractItemText(item) ?? this.agentMessageBuffers.get(itemId);
                     if (text) {
                         const message = codexAssistantText(text, item.phase);
-                        if (message) events.push(scoped({ type: 'agent_message', message }));
+                        if (message) events.push(scoped({ type: 'agent_message', message, ...(typeof item.phase === 'string' ? { phase: item.phase } : {}) }));
                         this.completedAgentMessageItems.add(itemId);
                         this.agentMessageBuffers.delete(itemId);
                     }

@@ -1105,6 +1105,7 @@ export function normalizeAgentRecord(
                 content: [{
                     type: 'text',
                     text: data.message,
+                    ...(typeof data.phase === 'string' ? { phase: data.phase } : {}),
                     uuid: messageId,
                     ...(streamId !== null ? { streamId } : {}),
                     parentUUID: null

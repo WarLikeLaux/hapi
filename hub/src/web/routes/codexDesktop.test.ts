@@ -43,6 +43,7 @@ function createTranscript(codexHome: string, sessionId: string, cwd = 'C:\\work\
             payload: {
                 type: 'message',
                 role: 'assistant',
+                phase: 'final_answer',
                 content: [{ type: 'output_text', text: 'normal assistant message' }]
             }
         }
@@ -433,6 +434,7 @@ describe('Codex Desktop import routes', () => {
                     data: {
                         type: 'message',
                         message: 'normal assistant message',
+                        phase: 'final_answer',
                         id: expect.any(String)
                     }
                 },
