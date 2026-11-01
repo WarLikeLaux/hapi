@@ -643,10 +643,10 @@ describe('ComposerButtons terminal To agent FUE', () => {
         )
     }
 
-    it('shows a pulsing FUE dot until acknowledged', () => {
+    it('does not show a new-feature indicator on the terminal button', () => {
         renderTerminalToolbar(() => {})
         const terminal = screen.getByRole('button', { name: 'Terminal' })
-        expect(within(terminal).getByRole('status', { name: 'New feature available' })).toBeInTheDocument()
+        expect(within(terminal).queryByRole('status', { name: 'New feature available' })).not.toBeInTheDocument()
     })
 
     it('opens the To agent explainer on first click without navigating', () => {

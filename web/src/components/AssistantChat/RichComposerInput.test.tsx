@@ -126,16 +126,16 @@ describe('RichComposerInput session mention pill', () => {
 
 describe('RichComposerInput responsive placeholder', () => {
     it('calculates a smaller font that fits overflowing text', () => {
-        expect(fitSingleLineFontSize(160, 320)).toBeCloseTo(7.95)
+        expect(fitSingleLineFontSize(160, 320)).toBe(14)
         expect(fitSingleLineFontSize(320, 320)).toBe(16)
         expect(fitSingleLineFontSize(640, 320)).toBe(16)
         expect(fitSingleLineFontSize(0, 320)).toBe(16)
         expect(fitSingleLineFontSize(Number.NaN, 320)).toBe(16)
         expect(fitSingleLineFontSize(384, 320, 19.2)).toBe(19.2)
-        expect(fitSingleLineFontSize(160, 320, 19.2)).toBeCloseTo(9.54)
+        expect(fitSingleLineFontSize(160, 320, 19.2)).toBeCloseTo(16.8)
     })
 
-    it('refits the complete single-line placeholder when its container width changes', () => {
+    it('keeps the placeholder readable when its container narrows', () => {
         let resizeCallback: ResizeObserverCallback | undefined
         class TestResizeObserver {
             constructor(callback: ResizeObserverCallback) {
@@ -173,9 +173,9 @@ describe('RichComposerInput responsive placeholder', () => {
 
             resizeCallback?.([], {} as ResizeObserver)
             expect(placeholder).toHaveTextContent('Type what you want the agent to do, without truncation')
-            expect(placeholder).not.toHaveClass('text-ellipsis')
+            expect(placeholder).toHaveClass('text-ellipsis')
             expect(placeholder).toHaveClass('text-base')
-            expect(placeholder.style.fontSize).toBe('9.54px')
+            expect(placeholder.style.fontSize).toBe('16.8px')
 
             availableWidth = 640
             resizeCallback?.([], {} as ResizeObserver)

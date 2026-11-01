@@ -43,6 +43,18 @@ function Transcript({ rows, historyVersion = 0 }: { rows: DecryptedMessage[]; hi
 }
 
 describe('rendered assistant message gallery', () => {
+    it('keeps agent image inspection in work while showing published images once', async () => {
+        const inspected = (id: string) => row(`inspection-${id}`, {
+            type: 'generated-image', imageId: `inspected-${id}`, fileName: `${id}.png`, mimeType: 'image/png',
+            source: { ingress: 'tool_result', flavor: 'codex', toolName: 'view_image', toolCallId: `view-${id}` },
+        })
+        const { container } = render(<Transcript rows={[user('request'), inspected('first'), inspected('second'), image('first'), image('second')]} />)
+        const carousel = await screen.findByRole('region', { name: 'Images (2)' })
+        expect(within(carousel).getByRole('button', { name: 'first.png' })).toBeVisible()
+        expect(container.querySelectorAll('[data-hapi-generated-media-id]')).toHaveLength(2)
+        fireEvent.click(screen.getByRole('button', { name: /Show work/ }))
+        expect(screen.getByRole('dialog').querySelectorAll('[data-hapi-generated-media-id]')).toHaveLength(2)
+    })
     it('keeps images separated by another message in distinct sequences', async () => {
         const rows = [user('request'), image('first'), image('second'),
             row('between', { type: 'message', message: 'Between images' }), image('third'), image('fourth')]
