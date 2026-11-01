@@ -344,7 +344,9 @@ exec /bin/ps "$@"
   it.skipIf(process.platform !== 'linux')('releases a legacy record whose PID was reused by a live nonleader thread', async () => {
     const pid = await spawnUnrelatedProcess();
     const tid = await findFixtureThread(pid);
-    expect(isProcessAlive(tid)).toBe(true);
+    // The process probe deliberately rejects nonleader threads. Signal 0
+    // independently proves this live OS thread survives runner recovery.
+    expect(() => process.kill(tid, 0)).not.toThrow();
     expect(getProcessStartMarker(tid)).toBeNull();
     const sessionId = randomUUID();
     await restartWithResumeRecords([{
@@ -356,10 +358,10 @@ exec /bin/ps "$@"
 
     expect(readResumeRecords().some(record => record.requestedSessionId === sessionId)).toBe(false);
     expect(isProcessAlive(pid)).toBe(true);
-    expect(isProcessAlive(tid)).toBe(true);
+    expect(() => process.kill(tid, 0)).not.toThrow();
     expectNoExitTombstone(sessionId, tid);
     expect(await stopRunnerSession(sessionId)).toBe('unknown');
-    expect(isProcessAlive(tid)).toBe(true);
+    expect(() => process.kill(tid, 0)).not.toThrow();
   });
 
   it.skipIf(process.platform !== 'linux')('does not adopt or terminate a session webhook naming a nonleader thread', async () => {
@@ -381,7 +383,7 @@ exec /bin/ps "$@"
     expect((await listRunnerSessions()).some(item => item.happySessionId === sessionId)).toBe(false);
     expect(readResumeRecords().some(item => item.requestedSessionId === sessionId)).toBe(false);
     expect(isProcessAlive(pid)).toBe(true);
-    expect(isProcessAlive(tid)).toBe(true);
+    expect(() => process.kill(tid, 0)).not.toThrow();
   });
 
   it.skipIf(process.platform !== 'linux')('preserves live legacy and same-boot records when restarting the runner', async () => {
@@ -618,7 +620,7 @@ if (process.argv[2] === 'runner' && process.argv[3] === 'start-sync') {
     const sessions = await listRunnerSessions();
     expect(sessions.filter(item => item.happySessionId === session.id)).toHaveLength(1);
     expect(isProcessAlive(pid)).toBe(true);
-    expect(isProcessAlive(tid)).toBe(true);
+    expect(() => process.kill(tid, 0)).not.toThrow();
   }, 40_000);
 
   it('preserves shared Codex support after a runner heartbeat', async () => {

@@ -463,7 +463,10 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
         if (record.confirmedSessionId) pidToConfirmedSessionId.set(pid, record.confirmedSessionId);
       } else if (generation === 'exited') {
         persistedResumeProcesses.delete(pid);
-        if (!alive) {
+        // isProcessAlive rejects Linux thread IDs. A live reused TID (or a
+        // new leader observed after the liveness probe) invalidates the old
+        // binding but does not prove that this HAPI session has stopped.
+        if (!alive && getProcessThreadGroupId(pid) === null) {
           rememberVerifiedExit(record.requestedSessionId);
           if (record.confirmedSessionId) rememberVerifiedExit(record.confirmedSessionId);
         }
@@ -1576,6 +1579,11 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
         const requestedSessionId = pidToRequestedSessionId.get(pid) ?? persisted?.requestedSessionId;
         const confirmedSessionId = pidToConfirmedSessionId.get(pid) ?? persisted?.confirmedSessionId;
         if (requestedSessionId !== sessionId && confirmedSessionId !== sessionId) continue;
+        const threadGroupId = getProcessThreadGroupId(pid);
+        if (threadGroupId !== null && threadGroupId !== pid) {
+          discardStaleProcess(pid);
+          continue;
+        }
         if (isProcessAlive(pid)) {
           if (!persisted) return 'still_alive';
           const generation = probeRecoveredProcessGeneration(pid, persisted);
@@ -1913,6 +1921,11 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       ]);
       for (const pid of pidsToCheck) {
         if (!isProcessAlive(pid)) {
+          // A live foreign thread is not verified session-exit evidence.
+          if (getProcessThreadGroupId(pid) !== null) {
+            discardStaleProcess(pid);
+            continue;
+          }
           logger.debug(`[RUNNER RUN] Removing stale session with PID ${pid} (process no longer exists)`);
           onChildExited(pid);
           continue;
