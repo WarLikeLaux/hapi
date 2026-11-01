@@ -131,22 +131,48 @@ describe('voicePlayback queue', () => {
         expect(fetch).toHaveBeenCalledTimes(2)
     })
 
-    it('switches external media on playback transitions, once for the whole queue', async () => {
+    it('does not echo system play and pause events back to external media', async () => {
         const toggle = vi.fn(async () => {})
         startVoiceQueue([item('c:1:0'), item('c:2:0')], 0, blobFetcher(), null, toggle)
         await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
         await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(1))
         const audio = document.querySelector('audio')!
+        fireEvent(audio, new Event('pause'))
+        fireEvent(audio, new Event('play'))
+        await new Promise(resolve => setTimeout(resolve, 20))
+        expect(toggle).toHaveBeenCalledTimes(1)
         fireEvent(audio, new Event('ended'))
         await vi.waitFor(() => expect(getVoicePlaybackState().index).toBe(1))
         await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
         expect(toggle).toHaveBeenCalledTimes(1)
-        fireEvent(audio, new Event('pause'))
-        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(2))
-        fireEvent(audio, new Event('play'))
-        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(3))
         fireEvent(audio, new Event('ended'))
-        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(4))
+        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(2))
+    })
+
+    it('waits for the external command before starting the first voice', async () => {
+        let finish: (() => void) | undefined
+        const toggle = vi.fn<() => Promise<void>>()
+            .mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+            .mockResolvedValue(undefined)
+        startVoiceQueue([item('c:1:0')], 0, blobFetcher(), null, toggle)
+        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(1))
+        expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+        finish!()
+        await vi.waitFor(() => expect(getVoicePlaybackState().status).toBe('playing'))
+    })
+
+    it('does not start a voice stopped while the media command is pending', async () => {
+        let finish: (() => void) | undefined
+        const toggle = vi.fn<() => Promise<void>>()
+            .mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+            .mockResolvedValue(undefined)
+        startVoiceQueue([item('c:1:0')], 0, blobFetcher(), null, toggle)
+        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(1))
+        stopVoicePlayback()
+        finish!()
+        await vi.waitFor(() => expect(toggle).toHaveBeenCalledTimes(2))
+        expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+        expect(getVoicePlaybackState().status).toBe('idle')
     })
 
     it('stops and revokes everything after the last message', async () => {
