@@ -566,6 +566,10 @@ export default {
 
   // Встроенные медиа
   'media.displayed.image': 'Показано изображение',
+  'media.displayed.images': 'Изображения ({count})',
+  'media.displayed.previousImage': 'Предыдущее изображение',
+  'media.displayed.nextImage': 'Следующее изображение',
+  'media.displayed.goToImage': 'Перейти к изображению {number}',
   'media.displayed.video': 'Показано видео',
   'media.displayed.audio': 'Показано аудио',
   'media.displayed.file': 'Показан файл',

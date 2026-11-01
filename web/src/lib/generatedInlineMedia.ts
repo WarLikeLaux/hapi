@@ -10,6 +10,10 @@ export function isInlineImageMimeType(mimeType: string | null | undefined): bool
     return mimeType == null || mimeType.startsWith('image/')
 }
 
+export function imageDisplayCaption(fileName: string): string {
+    return fileName.replace(/\.(?:png|jpe?g|gif|webp|avif|svg|bmp)$/i, '') || fileName
+}
+
 export type InlineMediaLabelKey =
     | 'media.displayed.video'
     | 'media.displayed.audio'

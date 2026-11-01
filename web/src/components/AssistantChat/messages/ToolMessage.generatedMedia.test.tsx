@@ -76,7 +76,7 @@ describe('GeneratedImageCard video fetch', () => {
         renderCard({ mimeType: 'image/png', locale: 'en' })
 
         expect(screen.getByText('Displayed image')).toBeInTheDocument()
-        expect(screen.queryByText(/clip.mp4/)).not.toBeInTheDocument()
+        expect(screen.getByText('clip.mp4')).toBeInTheDocument()
         expect(screen.queryByText(/Generated image/)).not.toBeInTheDocument()
     })
 
@@ -84,7 +84,7 @@ describe('GeneratedImageCard video fetch', () => {
         renderCard({ mimeType: 'image/png', locale: 'zh-CN' })
 
         expect(screen.getByText('展示图片')).toBeInTheDocument()
-        expect(screen.queryByText(/clip.mp4/)).not.toBeInTheDocument()
+        expect(screen.getByText('clip.mp4')).toBeInTheDocument()
         expect(screen.queryByText(/Generated image/)).not.toBeInTheDocument()
     })
 

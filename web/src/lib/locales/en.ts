@@ -876,6 +876,10 @@ export default {
 
   // Inline media
   'media.displayed.image': 'Displayed image',
+  'media.displayed.images': 'Images ({count})',
+  'media.displayed.previousImage': 'Previous image',
+  'media.displayed.nextImage': 'Next image',
+  'media.displayed.goToImage': 'Go to image {number}',
   'media.displayed.video': 'Displayed video',
   'media.displayed.audio': 'Displayed audio',
   'media.displayed.file': 'Displayed file',
