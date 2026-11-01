@@ -78,6 +78,7 @@ import SettingsLayout from '@/routes/settings/layout'
 import SettingsHubPage from '@/routes/settings'
 import SettingsGeneralPage from '@/routes/settings/general'
 import SettingsDisplayPage from '@/routes/settings/display'
+import SettingsDebugPage from '@/routes/settings/debug'
 import SettingsChatPage from '@/routes/settings/chat'
 import SettingsVoicePage from '@/routes/settings/voice'
 import SettingsVoiceVoicesPage from '@/routes/settings/voice-voices'
@@ -1513,6 +1514,12 @@ const settingsDisplayRoute = createRoute({
     component: SettingsDisplayPage,
 })
 
+const settingsDebugRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'debug',
+    component: SettingsDebugPage,
+})
+
 const settingsChatRoute = createRoute({
     getParentRoute: () => settingsRoute,
     path: 'chat',
@@ -1610,6 +1617,7 @@ export const routeTree = rootRoute.addChildren([
         settingsUsageRoute,
         settingsLimitsRoute,
         settingsAboutRoute,
+        settingsDebugRoute,
     ]),
     shareRoute,
 ])
