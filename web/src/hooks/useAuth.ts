@@ -54,6 +54,8 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
     isLoading: boolean
     error: string | null
     needsBinding: boolean
+    unavailable: boolean
+    retry: () => void
     bind: (accessToken: string) => Promise<void>
 } {
     const [token, setToken] = useState<string | null>(null)
@@ -61,6 +63,9 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
     const [isLoading, setIsLoading] = useState<boolean>(false)
     const [error, setError] = useState<string | null>(null)
     const [needsBinding, setNeedsBinding] = useState<boolean>(false)
+    const [unavailable, setUnavailable] = useState(false)
+    const [retryCount, setRetryCount] = useState(0)
+    const retry = useCallback(() => setRetryCount(count => count + 1), [])
     const refreshPromiseRef = useRef<Promise<string | null> | null>(null)
     const tokenRef = useRef<string | null>(null)
     const lastRefreshAttemptRef = useRef<number>(0)
@@ -118,6 +123,10 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
                     return null
                 }
                 const isExpired = expMs ? Date.now() >= expMs : false
+                if (((error instanceof ApiError && error.status >= 500) || error instanceof TypeError) && (options?.hardFail || isExpired)) {
+                    setUnavailable(true)
+                    return null
+                }
                 if (options?.hardFail || isExpired) {
                     tokenRef.current = null
                     setToken(null)
@@ -207,6 +216,8 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
                 setToken(auth.token)
                 setUser(auth.user)
                 setNeedsBinding(false)
+                setUnavailable(false)
+                setError(null)
             } catch (e) {
                 if (isCancelled) return
                 if (authSource.type === 'telegram' && isNotBoundError(e)) {
@@ -217,7 +228,13 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
                     return
                 }
                 setNeedsBinding(false)
-                setError(e instanceof Error ? e.message : 'Auth failed')
+                if ((e instanceof ApiError && e.status >= 500) || e instanceof TypeError) {
+                    setUnavailable(true)
+                    setError(null)
+                } else {
+                    setUnavailable(false)
+                    setError(e instanceof Error ? e.message : 'Auth failed')
+                }
             } finally {
                 if (!isCancelled) {
                     setIsLoading(false)
@@ -230,7 +247,13 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
         return () => {
             isCancelled = true
         }
-    }, [authSource, baseUrl])
+    }, [authSource, baseUrl, retryCount])
+
+    useEffect(() => {
+        if (!unavailable || isLoading) return
+        const timer = window.setTimeout(retry, 5000)
+        return () => window.clearTimeout(timer)
+    }, [unavailable, isLoading, retry, retryCount])
 
     useEffect(() => {
         tokenRef.current = null
@@ -240,6 +263,7 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
         setUser(null)
         setError(null)
         setNeedsBinding(false)
+        setUnavailable(false)
     }, [baseUrl])
 
     useEffect(() => {
@@ -305,5 +329,5 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
         }
     }, [authSource, refreshAuth])
 
-    return { token, user, api, isLoading, error, needsBinding, bind }
+    return { token, user, api, isLoading, error, needsBinding, unavailable, retry, bind }
 }
