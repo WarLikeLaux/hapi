@@ -1227,8 +1227,14 @@ export class SyncEngine {
 
             const current = this.sessionCache.getSessionByNamespace(candidate.id, machine.namespace)
             if (!current || !this.isColdRestoreCandidate(current, currentMachine)) continue
-
             try {
+                // Existing Antigravity history cannot be resumed without its
+                // native id. Empty sessions can still start fresh, and an
+                // interrupted PTY attempt must first run its cleanup path.
+                if (this.resolveFlavor(current) === 'agy'
+                    && !current.metadata?.agySessionId
+                    && !current.metadata?.ptyResumeAttempt
+                    && !this.canFreshSpawnNeverStartedSession(current, current.id, machine.namespace)) continue
                 const result = current.metadata?.lifecycleState === 'archived'
                     ? await this.reopenSession(candidate.id, machine.namespace)
                     : await this.resumeSession(candidate.id, machine.namespace, { freshGeneration: true })

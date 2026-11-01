@@ -54,6 +54,29 @@ async function waitForCalls(calls: string[], expected: number): Promise<void> {
 }
 
 describe('cold session auto-restore', () => {
+    it('skips sessions that have no native resume identity while restoring other sessions', async () => {
+        const engine = createEngine()
+        try {
+            addMachine(engine)
+            const unresumable = addInactiveSession(engine, 'unresumable', { flavor: 'agy', codexSessionId: undefined, lifecycleState: 'running', startedBy: 'runner' })
+            const store = (engine as unknown as { store: Store }).store
+            store.messages.addMessage(unresumable, { role: 'user', content: { type: 'text', text: 'old prompt' } })
+            const neverStarted = addInactiveSession(engine, 'never-started', { flavor: 'agy', codexSessionId: undefined, lifecycleState: 'running', startedBy: 'runner' })
+            const resumable = addInactiveSession(engine, 'resumable', { lifecycleState: 'running', startedBy: 'runner' })
+            const calls: string[] = []
+            ;(engine as unknown as { resumeSession: (id: string) => Promise<unknown> }).resumeSession = async id => {
+                calls.push(id)
+                return { type: 'success', sessionId: id }
+            }
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+            await waitForCalls(calls, 2)
+            await Bun.sleep(20)
+            expect(new Set(calls)).toEqual(new Set([resumable, neverStarted]))
+        } finally {
+            engine.stop()
+        }
+    })
+
     it('restores only inactive runner sessions that were left running', async () => {
         const engine = createEngine()
         try {

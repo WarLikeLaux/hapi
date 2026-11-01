@@ -12,6 +12,39 @@ import { MaxConnector } from './max/maxConnector'
 import type { MessengerConnector, MessengerConnectorEvent, MessengerConnectorFactory } from './types'
 
 describe('MessengerManager', () => {
+    it('broadcasts conversation changes but not repeated unchanged snapshots', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'hapi-messenger-snapshots-'))
+        const store = new Store(':memory:')
+        const events: Array<{ type?: string; conversationId?: string }> = []
+        const conversation: ExternalConversation = {
+            id: 'test:user:1', provider: 'test', remoteId: 'user:1', title: 'Friend', kind: 'direct',
+            selected: true, lastMessageAt: 1, lastMessagePreview: 'Hello', unreadCount: 0
+        }
+        let emit: ((event: MessengerConnectorEvent) => void) | undefined
+        const connector: MessengerConnector = {
+            provider: 'test', getConnection: () => ({ provider: 'test', state: 'ready', accountLabel: null, detail: null }),
+            configure: async () => {}, submitAuth: async () => {}, listConversations: async () => [],
+            loadMessages: async () => [], downloadMedia: async () => { throw new Error('unused') },
+            sendText: async () => {}, setReactions: async () => {}, sendMedia: async () => {}, stop: async () => {}
+        }
+        const manager = new MessengerManager({ dataDir, store, sseManager: { broadcast: (event: { type?: string; conversationId?: string }) => events.push(event) } as unknown as SSEManager })
+        manager.registerConnectorFactory('test', options => { emit = options.onEvent; return connector })
+        try {
+            await manager.getConnections('default')
+            emit!({ type: 'conversation', conversation })
+            events.length = 0
+            emit!({ type: 'conversation', conversation })
+            emit!({ type: 'inbox-read', provider: 'test', remoteId: 'user:1', unreadCount: 0 })
+            expect(events.filter(event => event.type === 'external-conversation-updated')).toHaveLength(0)
+            emit!({ type: 'conversation', conversation: { ...conversation, unreadCount: 2 } })
+            expect(manager.listConversations('default')[0]?.unreadCount).toBe(2)
+            expect(events.filter(event => event.type === 'external-conversation-updated')).toHaveLength(1)
+        } finally {
+            await manager.stop()
+            store.close()
+            rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
     it('keeps MAX dormant and hidden with saved credentials and selected history intact', async () => {
         const dataDir = mkdtempSync(join(tmpdir(), 'hapi-max-disabled-'))
         const store = new Store(':memory:')
