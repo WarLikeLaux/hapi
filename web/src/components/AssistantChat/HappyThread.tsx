@@ -1703,13 +1703,13 @@ export function HappyThread(props: {
         props.onOutlineOpenChange(false)
         if (target) {
             // Closing the outline restores the mobile composer and resizes
-            // the viewport. Start native smooth scrolling after that layout
-            // settles so its old tail position cannot reclaim auto-follow.
+            // the viewport. Wait for that layout before jumping; an instant
+            // scroll prevents history anchoring from interrupting the jump.
             await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
             if (!viewportRef.current?.contains(target)) return
             autoScrollEnabledRef.current = false
             atBottomRef.current = false
-            target.scrollIntoView({ block: 'start', behavior: 'smooth' })
+            target.scrollIntoView({ block: 'start', behavior: 'instant' })
         }
     }, [clearInitialScrollTimers, loadOlderForOutline, props.onOutlineItemClick, props.onOutlineOpenChange])
 
