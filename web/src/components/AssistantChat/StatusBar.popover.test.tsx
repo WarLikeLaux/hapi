@@ -9,7 +9,7 @@ describe('StatusBar context details popover', () => {
         vi.restoreAllMocks()
     })
 
-    it('uses stable ready and working labels and offsets the whole left status', () => {
+    it('preserves ready, offline, and working status labels', () => {
         localStorage.setItem('hapi-lang', 'zh-CN')
         const { rerender } = render(
             <I18nProvider>
@@ -17,11 +17,7 @@ describe('StatusBar context details popover', () => {
             </I18nProvider>
         )
 
-        const onlineLabel = screen.getByText('Готов')
-        expect(onlineLabel.className.split(' ')).not.toContain('top-px')
-        expect(onlineLabel.previousElementSibling?.className.split(' ')).not.toContain('top-px')
-        expect(onlineLabel.parentElement?.className.split(' ')).toContain('top-px')
-        expect(onlineLabel.parentElement?.className.split(' ')).toContain('sm:top-0.5')
+        const onlineLabel = screen.getByLabelText('Готов')
 
         rerender(
             <I18nProvider>
@@ -31,11 +27,7 @@ describe('StatusBar context details popover', () => {
 
         const offlineLabel = screen.getByText('offline')
         expect(offlineLabel.className.split(' ')).toContain('text-[#999]')
-        expect(offlineLabel.className.split(' ')).not.toContain('top-px')
         expect(offlineLabel.previousElementSibling?.className.split(' ')).toContain('bg-[#999]')
-        expect(offlineLabel.previousElementSibling?.className.split(' ')).not.toContain('top-px')
-        expect(offlineLabel.parentElement?.className.split(' ')).toContain('top-px')
-        expect(offlineLabel.parentElement?.className.split(' ')).toContain('sm:top-0.5')
 
         rerender(
             <I18nProvider>
@@ -43,11 +35,7 @@ describe('StatusBar context details popover', () => {
             </I18nProvider>
         )
 
-        const thinkingLabel = screen.getByText('Работает…')
-        expect(thinkingLabel.className.split(' ')).not.toContain('top-px')
-        expect(thinkingLabel.previousElementSibling?.className.split(' ')).not.toContain('top-px')
-        expect(thinkingLabel.parentElement?.className.split(' ')).toContain('top-px')
-        expect(thinkingLabel.parentElement?.className.split(' ')).toContain('sm:top-0.5')
+        const thinkingLabel = screen.getByLabelText('Работает…')
     })
 
     it('shows live activity only while working and preserves connection and permission priority', () => {
@@ -57,9 +45,9 @@ describe('StatusBar context details popover', () => {
             </I18nProvider>
         )
         const { rerender } = render(view(true, true))
-        expect(screen.getByText('Запускает тесты…')).toBeVisible()
+        expect(screen.getByLabelText('Запускает тесты…')).toBeVisible()
         rerender(view(true, false))
-        expect(screen.getByText('Готов')).toBeVisible()
+        expect(screen.getByLabelText('Готов')).toBeVisible()
         rerender(view(false, true))
         expect(screen.getByText('offline')).toBeVisible()
         rerender(view(true, true, { requests: { approval: { tool: 'Bash', arguments: {} } } }))
@@ -122,17 +110,13 @@ describe('StatusBar context details popover', () => {
             </I18nProvider>
         )
 
-        const connectionLabel = screen.getByText('Готов')
+        const connectionLabel = screen.getByLabelText('Готов')
         const leftStatusGroup = connectionLabel.parentElement?.parentElement
         const statusBar = leftStatusGroup?.parentElement
         const rightStatusGroup = statusBar?.lastElementChild
-        expect(statusBar?.className.split(' ')).toContain('items-baseline')
-        expect(leftStatusGroup?.className.split(' ')).toContain('items-baseline')
-        expect(rightStatusGroup?.className.split(' ')).toContain('items-baseline')
-        expect(connectionLabel.className.split(' ')).not.toContain('top-px')
-        expect(connectionLabel.previousElementSibling?.className.split(' ')).not.toContain('top-px')
-        expect(connectionLabel.parentElement?.className.split(' ')).toContain('top-px')
-        expect(connectionLabel.parentElement?.className.split(' ')).toContain('sm:top-0.5')
+        expect(statusBar?.className.split(' ')).toContain('items-center')
+        expect(leftStatusGroup?.className.split(' ')).toContain('items-center')
+        expect(rightStatusGroup?.className.split(' ')).toContain('items-center')
         expect(leftStatusGroup?.className.split(' ')).toContain('gap-2')
         expect(leftStatusGroup?.className.split(' ')).not.toContain('sm:gap-3')
         expect(rightStatusGroup?.className.split(' ')).toContain('gap-2')
@@ -140,14 +124,12 @@ describe('StatusBar context details popover', () => {
         const trigger = screen.getByRole('button', { name: '上下文详情' })
         expect(trigger.className.split(' ')).not.toContain('relative')
         expect(trigger.className.split(' ')).not.toContain('-top-px')
-        expect(trigger.className.split(' ')).toContain('text-[10px]')
+        expect(trigger.className.split(' ')).toContain('text-xs')
         expect(trigger.className.split(' ')).toContain('leading-4')
-        expect(trigger.className.split(' ')).toContain('text-[var(--app-hint)]')
-        expect(trigger.textContent).toBe('35% · 90k / 258k')
+        expect(trigger.className.split(' ')).toContain('text-[#34C759]')
+        expect(trigger.textContent).toBe('35% context')
         expect(trigger.className.split(' ')).toContain('hidden')
         expect(trigger.className.split(' ')).toContain('sm:inline-flex')
-        const progressTrack = trigger.querySelector('[aria-hidden="true"]')
-        expect((progressTrack?.firstElementChild as HTMLElement | null)?.style.width).toBe('35%')
 
         fireEvent.click(trigger)
 
@@ -173,7 +155,7 @@ describe('StatusBar context details popover', () => {
         )
 
         const trigger = screen.getByRole('button', { name: 'Context details' })
-        expect(trigger.textContent).toBe('35% · 90k / 258k')
+        expect(trigger.textContent).toBe('35% context')
 
         fireEvent.click(trigger)
 

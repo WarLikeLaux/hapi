@@ -97,6 +97,7 @@ import { TeamPanel } from '@/components/TeamPanel'
 import { SessionStatusPanel } from '@/components/SessionStatusPanel'
 import { buildSessionStatusData } from '@/chat/sessionStatus'
 import { getAgentActivity } from '@/lib/agentActivity'
+import { getTurnMetrics } from '@/chat/turnMetrics'
 import { usePlatform } from '@/hooks/usePlatform'
 import { getToolCardDisplayPresentation, useToolCardDisplayMode } from '@/hooks/useToolCardDisplayMode'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
@@ -1590,6 +1591,7 @@ function SessionChatInner(props: SessionChatProps) {
         () => getAgentActivity(reconciled.blocks, normalizedMessages),
         [reconciled.blocks, normalizedMessages]
     )
+    const turnMetrics = useMemo(() => getTurnMetrics(normalizedMessages), [normalizedMessages])
     const sessionStatus = useMemo(
         () => buildSessionStatusData({
             goal: reduced.latestGoal,
@@ -2307,6 +2309,7 @@ function SessionChatInner(props: SessionChatProps) {
                         agentState={props.session.agentState}
                         backgroundTaskCount={props.session.backgroundTaskCount}
                         activity={activity}
+                        turnMetrics={turnMetrics}
                         contextSize={reduced.latestUsage?.contextSize}
                         contextCacheRead={reduced.latestUsage?.cacheRead}
                         contextWindow={reduced.latestUsage?.contextWindow ?? piContextWindow}

@@ -7,7 +7,8 @@ import {
 } from '@hapi/protocol'
 import type { PermissionModeTone } from '@hapi/protocol'
 import * as Popover from '@radix-ui/react-popover'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { TurnMetrics } from '@/chat/turnMetrics'
 import type { AgentState, CodexCollaborationMode, PermissionMode } from '@/types/api'
 import type { ConversationStatus } from '@/realtime/types'
 import { getContextBudgetTokens } from '@/chat/modelConfig'
@@ -159,6 +160,7 @@ export function StatusBar(props: {
     agentState: AgentState | null | undefined
     backgroundTaskCount?: number
     activity?: AgentActivity | null
+    turnMetrics?: TurnMetrics | null
     contextSize?: number
     contextCacheRead?: number
     contextWindow?: number | null
@@ -180,6 +182,13 @@ export function StatusBar(props: {
     voiceStatus?: ConversationStatus
 }) {
     const { t } = useTranslation()
+    const [now, setNow] = useState(() => Date.now())
+    useEffect(() => {
+        if (!props.active || !props.thinking || !props.turnMetrics) return
+        setNow(Date.now())
+        const timer = window.setInterval(() => setNow(Date.now()), 1000)
+        return () => window.clearInterval(timer)
+    }, [props.active, props.thinking, props.turnMetrics?.startedAt])
     const connectionStatus = useMemo(
         () => getConnectionStatus(props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount ?? 0, props.activity, t),
         [props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount, props.activity, t]
@@ -235,16 +244,32 @@ export function StatusBar(props: {
         ? getCopilotAgentModeLabel(displayCopilotAgentMode)
         : null
     const fastMode = isSessionFastMode(props.agentFlavor, props.serviceTier, props.model)
+    const showMetrics = props.active && Object.keys(props.agentState?.requests ?? {}).length === 0
+        && props.voiceStatus !== 'connecting' && (props.thinking || !(props.backgroundTaskCount ?? 0))
+    const duration = props.thinking && props.turnMetrics
+        ? Math.max(0, now - props.turnMetrics.startedAt)
+        : props.turnMetrics?.durationMs
+    const durationSeconds = duration === undefined ? null : Math.floor(duration / 1000)
+    const durationLabel = durationSeconds === null ? null : durationSeconds >= 3600
+        ? `${Math.floor(durationSeconds / 3600)}h ${Math.floor((durationSeconds % 3600) / 60)}m`
+        : durationSeconds >= 60 ? `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s` : `${durationSeconds}s`
     return (
-        <div className="flex min-w-0 items-baseline justify-between gap-2 px-2 pb-1">
-            <div className="flex min-w-0 items-baseline gap-2">
-                <div className="relative top-px sm:top-0.5 flex shrink-0 items-center gap-1.5">
+        <div className="flex min-w-0 items-center justify-between gap-2 px-2 pb-1">
+            <div className="flex min-w-0 items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1.5">
                     <span
                         className={`h-2 w-2 rounded-full ${connectionStatus.dotColor} ${connectionStatus.isPulsing ? 'animate-pulse' : ''}`}
                     />
-                    <span className={`whitespace-nowrap text-xs ${connectionStatus.color}`}>
-                        {connectionStatus.text}
-                    </span>
+                    {showMetrics ? (
+                        <span data-testid="turn-metrics" className={`inline-flex items-center gap-2 whitespace-nowrap text-xs leading-4 tabular-nums ${connectionStatus.color}`}
+                            aria-label={[connectionStatus.text, durationLabel, props.turnMetrics?.tokens !== undefined ? `${formatTokenCount(props.turnMetrics.tokens)} tokens` : null].filter(Boolean).join(' ')}>
+                            {durationLabel ? <span>{durationLabel}</span> : null}
+                            {props.turnMetrics?.tokens !== undefined ? <>
+                                {durationLabel ? <span aria-hidden="true" className="h-3 w-px bg-[var(--app-border)]" /> : null}
+                                <span>{formatTokenCount(props.turnMetrics.tokens)} tokens</span>
+                            </> : null}
+                        </span>
+                    ) : <span className={`whitespace-nowrap text-xs ${connectionStatus.color}`}>{connectionStatus.text}</span>}
                 </div>
                 {contextUsageLabel ? (
                     <Popover.Root>
@@ -252,22 +277,10 @@ export function StatusBar(props: {
                             <button
                                 type="button"
                                 aria-label={t('misc.contextDetails')}
-                                className={`hidden min-w-0 cursor-pointer whitespace-nowrap rounded-sm bg-transparent p-0 text-[10px] leading-4 outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-link)] sm:inline-flex ${contextWarning?.color ?? 'text-[var(--app-hint)]'}`}
+                                className={`hidden min-w-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-sm bg-transparent p-0 text-xs leading-4 tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-link)] sm:inline-flex ${contextUsedPercentage !== null && contextUsedPercentage >= CONTEXT_WARNING_THRESHOLD_PERCENT ? contextWarning?.color : connectionStatus.color}`}
                             >
-                                <span className="inline-flex items-center gap-2">
-                                    {contextUsedPercentage !== null ? (
-                                        <span
-                                            aria-hidden="true"
-                                            className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-[var(--app-link-muted)]"
-                                        >
-                                            <span
-                                                className="block h-full rounded-full bg-current"
-                                                style={{ width: `${contextUsedPercentage}%` }}
-                                            />
-                                        </span>
-                                    ) : null}
-                                    <span>{contextUsageLabel}</span>
-                                </span>
+                                <span aria-hidden="true" className="h-3 w-px bg-[var(--app-border)]" />
+                                <span>{contextUsedPercentage !== null ? `${contextUsedPercentage}%` : formatTokenCount(props.contextSize!)} context</span>
                             </button>
                         </Popover.Trigger>
                         <Popover.Portal>
@@ -307,7 +320,7 @@ export function StatusBar(props: {
                 ) : null}
             </div>
 
-            <div className="flex min-w-0 shrink-0 items-baseline gap-2">
+            <div className="flex min-w-0 shrink-0 items-center gap-2">
                 {fastMode ? (
                     <span className="whitespace-nowrap text-xs text-[#34C759]">
                         Fast
