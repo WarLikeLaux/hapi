@@ -21,41 +21,35 @@ export function AgentSelector(props: {
     const { t } = useTranslation()
     const radioName = useId()
 
+    const choices: Array<AgentType | 'all'> = [
+        ...(props.onFilterChange && props.showAllAgents !== false ? ['all' as const] : []),
+        ...props.agents
+    ]
+    const choiceClass = (selected: boolean) => `inline-flex min-h-8 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--app-link)] has-[:disabled]:opacity-50 ${selected
+        ? 'border-[var(--app-link)] bg-[var(--app-link)] font-medium text-[var(--app-bg)]'
+        : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)]'}`
+    const rows = Array.from({ length: Math.ceil(choices.length / 2) }, (_, index) => choices.slice(index * 2, index * 2 + 2))
+
     return (
-        <fieldset aria-label={t('newSession.agent')} className="flex min-w-0 flex-col p-2 sm:flex-row sm:items-center sm:gap-3 sm:p-3">
+        <fieldset aria-label={t('newSession.agent')} className="flex min-w-0 items-center gap-2 p-2 sm:gap-3 sm:p-3">
             <ChoiceLabel kind="agent" />
-            <div className="flex min-w-0 flex-1 flex-wrap gap-2 sm:gap-3">
-                {props.onFilterChange && props.showAllAgents !== false ? (
-                    <label className="flex cursor-pointer items-center gap-1 sm:gap-1.5">
+            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
+                {rows.map((row, index) => <div key={index} className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:contents">
+                    {row.map(choice => choice === 'all' ? <label key="all" className={choiceClass(props.filter === 'all')}>
                         <input type="radio" name={radioName} value="all" checked={props.filter === 'all'}
                             onChange={() => props.onFilterChange?.('all')} disabled={props.isDisabled}
-                            className="accent-[var(--app-link)]" />
-                        <span className="whitespace-nowrap text-[13px] sm:text-sm">{t('newSession.allAgents')}</span>
-                    </label>
-                ) : null}
-                {props.agents.map((agentType) => (
-                    <label
-                        key={agentType}
-                        className="flex items-center gap-1 cursor-pointer sm:gap-1.5"
-                    >
-                        <input
-                            type="radio"
-                            name={radioName}
-                            value={agentType}
-                            checked={(props.filter ?? props.agent) === agentType}
-                            onClick={() => {
-                                if (props.allowClear && props.filter === agentType) props.onFilterChange?.('all')
-                            }}
-                            onChange={() => props.onFilterChange
-                                ? props.onFilterChange(agentType)
-                                : props.onAgentChange(agentType)}
-                            disabled={props.isDisabled}
-                            className="accent-[var(--app-link)]"
-                        />
-                        <AgentFlavorIcon flavor={agentType} className="h-3.5 w-3.5 shrink-0" />
-                        <span className="whitespace-nowrap text-[13px] sm:text-sm">{getFlavorLabel(agentType)}</span>
-                    </label>
-                ))}
+                            className="sr-only" />
+                        <span >{t('newSession.allAgents')}</span>
+                    </label> : <label key={choice} className={choiceClass((props.filter ?? props.agent) === choice)}>
+                        <input type="radio" name={radioName} value={choice}
+                            checked={(props.filter ?? props.agent) === choice}
+                            onClick={() => { if (props.allowClear && props.filter === choice) props.onFilterChange?.('all') }}
+                            onChange={() => props.onFilterChange ? props.onFilterChange(choice) : props.onAgentChange(choice)}
+                            disabled={props.isDisabled} className="sr-only" />
+                        <AgentFlavorIcon flavor={choice} className="h-3.5 w-3.5 shrink-0" />
+                        <span >{getFlavorLabel(choice)}</span>
+                    </label>)}
+                </div>)}
                 {props.muted !== undefined ? <span className="sm:ml-auto"><MuteControl muted={props.muted} disabled={props.isDisabled} onChange={value => props.onMutedChange?.(value)} /></span> : null}
             </div>
         </fieldset>

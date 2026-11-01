@@ -116,7 +116,7 @@ export function InitialPrompt(props: Props) {
                     </button>
                 </li>)}
             </ul> : null}
-            <textarea ref={setTextInput} id={inputId} aria-label={props.label} className={`w-full resize-none bg-transparent px-4 pt-4 text-base leading-relaxed text-[var(--app-fg)] outline-none disabled:opacity-50 ${expanded ? 'min-h-0 flex-1' : 'min-h-32'}`}
+            <textarea ref={setTextInput} id={inputId} aria-label={props.label} className={`w-full resize-none bg-transparent px-4 pt-4 text-sm leading-relaxed text-[var(--app-fg)] outline-none disabled:opacity-50 ${expanded ? 'min-h-0 flex-1' : 'min-h-32'}`}
                 rows={4} maxLength={100000} value={props.value} disabled={props.disabled}
                 placeholder={props.placeholder} onChange={event => props.onChange(event.target.value)} onPaste={paste} />
             <div className="flex items-center gap-2 px-2 pb-2 pt-1">

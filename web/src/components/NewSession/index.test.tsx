@@ -195,8 +195,8 @@ vi.mock('@/hooks/queries/useCodexModels', () => ({
     })
 }))
 vi.mock('@/hooks/queries/useAgyModels', () => ({
-    useAgyModels: () => ({
-        availableModels: mocks.agyModels,
+    useAgyModels: (args: { enabled?: boolean }) => ({
+        availableModels: args.enabled ? mocks.agyModels : [],
         currentModelId: null,
         isLoading: mocks.agyModelsLoading,
         error: null,
@@ -1513,6 +1513,13 @@ describe('NewSession launch preferences', () => {
         expect(screen.queryByRole('button', { name: 'Gemini 3.8 Flash (High)' })).not.toBeInTheDocument()
     })
 
+    it('shows an enabled Antigravity model in All agents when Codex is selected', async () => {
+        mocks.agyModels = [{ modelId: 'gemini-4-argon-high', name: 'Gemini 4 Argon (High)' }]
+        mocks.modelPreferences = [{ agent: 'agy', modelId: 'gemini-4-argon', pinned: false, alias: null, showInAll: true }]
+        render(<NewSession initialAgent="codex" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 4 Argon' })).toBeInTheDocument())
+    })
+
     it('groups Antigravity Argon variants and launches the selected effort', async () => {
         mocks.agyModels = ['low', 'medium', 'high'].map(effort => ({ modelId: `gemini-4-argon-${effort}`, name: `Gemini 4 Argon (${effort})` }))
         mocks.modelPreferences = [{ agent: 'agy', modelId: 'gemini-4-argon', pinned: true, alias: 'Argon work', reasoningEffort: 'medium' }]
@@ -2400,28 +2407,9 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'dsh', model })))
     })
 
-    it('imports OpenCode history with launch settings and attaches the reopened session to the requested group', async () => {
-        const opencodeApi = {
-            ...api,
-            getOpencodeSessions: vi.fn().mockResolvedValue({ success: true, machineId: 'machine-1', sessions: [{
-                id: 'native-opencode', title: 'Native OpenCode history', cwd: 'C:\repo', file: 'opencode.db', modifiedAt: 1_000, lastUserMessage: 'Continue the task'
-            }] }),
-            importOpencodeSessions: vi.fn().mockResolvedValue({ success: true, results: [{ opencodeSessionId: 'native-opencode', hapiSessionId: 'imported', action: 'created' }] }),
-            reopenSession: vi.fn().mockResolvedValue({ sessionId: 'canonical-opencode' }),
-            addGroupChat: vi.fn().mockResolvedValue(undefined)
-        }
-        render(<NewSession initialAgent="opencode" groupId="requested-group" api={opencodeApi as unknown as ApiClient} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
-        fireEvent.click(screen.getByRole('button', { name: 'opencodeSync.inline.choose' }))
-        fireEvent.click(await screen.findByRole('checkbox', { name: /Native OpenCode history/ }))
-        fireEvent.click(screen.getByRole('button', { name: 'opencodeSync.confirm' }))
-        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-        fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(opencodeApi.importOpencodeSessions).toHaveBeenCalledWith(expect.objectContaining({
-            sessionIds: ['native-opencode'], cwd: 'C:\repo', machineId: 'machine-1', model: OPENCODE_HARDCODED_MODEL_ID
-        })))
-        expect(opencodeApi.addGroupChat).toHaveBeenCalledWith('requested-group', 'canonical-opencode')
-        expect(mocks.onSuccess).toHaveBeenCalledWith('canonical-opencode', true)
-        expect(mocks.spawnSession).not.toHaveBeenCalled()
+    it('hides OpenCode history import on the creation form', () => {
+        render(<NewSession initialAgent="opencode" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        expect(screen.queryByRole('button', { name: 'opencodeSync.inline.choose' })).toBeNull()
     })
 
     it('imports the selected Pi history and resumes the canonical HAPI session', async () => {

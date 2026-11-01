@@ -5,6 +5,7 @@ import { SelectControl } from '@/components/ui/select-control'
 import type { AgentType, CodexReasoningEffort, LaunchEffort } from './types'
 import { CLAUDE_EFFORT_OPTIONS, GROK_EFFORT_OPTIONS } from './types'
 import { ChoiceLabel } from './ChoiceLabel'
+import { EffortChips } from './EffortChips'
 
 export type EffortFieldProps = {
     agent: AgentType
@@ -48,26 +49,9 @@ export function EffortField(props: EffortFieldProps) {
         const options = props.agent === 'codex' ? props.codexOptions : props.opencodeOptions
         if (!options?.length) return null
         return (
-            <section className="flex min-w-0 flex-col p-2 sm:flex-row sm:items-center sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.effort')}>
+            <section className="flex min-w-0 items-center gap-2 p-2 sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.effort')}>
                 <ChoiceLabel kind="effort" />
-                <div className="flex min-w-0 flex-1 flex-wrap gap-2 sm:gap-3">
-                    {options.map((option) => (
-                        <button
-                            key={option.value}
-                            type="button"
-                            aria-pressed={props.reasoningEffort === option.value}
-                            disabled={props.isDisabled}
-                            onClick={() => props.onReasoningEffortChange(option.value)}
-                            className={`rounded-full border px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] disabled:opacity-50 ${
-                                props.reasoningEffort === option.value
-                                    ? 'border-[var(--app-link)] bg-[var(--app-link)] font-medium text-[var(--app-bg)]'
-                                    : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)]'
-                            }`}
-                        >
-                            {option.label}
-                        </button>
-                    ))}
-                </div>
+                <EffortChips options={options} value={props.reasoningEffort} disabled={props.isDisabled} onChange={props.onReasoningEffortChange} />
             </section>
         )
     }
