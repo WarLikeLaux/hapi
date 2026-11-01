@@ -22,6 +22,7 @@ type RuntimeConfigKey = 'permissionMode' | 'model' | 'modelReasoningEffort' | 'e
 
 export class SessionCache {
     private readonly sessions: Map<string, Session> = new Map()
+    private readonly conversationActivityVersions = new Map<string, string>()
     private readonly lastBroadcastAtBySessionId: Map<string, number> = new Map()
     private readonly todoBackfillAttemptedSessionIds: Set<string> = new Set()
     private readonly deduplicateInProgress: Set<string> = new Set()
@@ -193,6 +194,7 @@ export class SessionCache {
         let stored = this.store.sessions.getSession(sessionId)
         if (!stored) {
             const existed = this.sessions.delete(sessionId)
+            this.conversationActivityVersions.delete(sessionId)
             this.pendingThinkingUntilBySessionId.delete(sessionId)
             this.idleBoundaryAtBySessionId.delete(sessionId)
             this.runtimeConfigUpdatedAtBySessionId.delete(sessionId)
@@ -257,7 +259,11 @@ export class SessionCache {
             return parsed.success ? parsed.data : undefined
         })()
 
-        const conversationActivity = this.store.messages.getConversationActivity(sessionId)
+        const activityVersion = this.conversationActivityVersion(sessionId, stored.contentRevision)
+        const conversationActivity = existing && this.conversationActivityVersions.get(sessionId) === activityVersion
+            ? { hasContent: existing.hasConversationContent, lastMessageAt: existing.lastMessageAt, lastAgentMessageAt: existing.lastAgentMessageAt }
+            : this.store.messages.getConversationActivity(sessionId)
+        this.conversationActivityVersions.set(sessionId, activityVersion)
         const session: Session = {
             hasConversationContent: conversationActivity.hasContent,
             id: stored.id,
@@ -312,6 +318,8 @@ export class SessionCache {
         const session = this.sessions.get(sessionId)
         if (!session) return
         const activity = this.store.messages.getConversationActivity(sessionId)
+        const stored = this.store.sessions.getSession(sessionId)
+        if (stored) this.conversationActivityVersions.set(sessionId, this.conversationActivityVersion(sessionId, stored.contentRevision))
         if (
             session.hasConversationContent !== activity.hasContent
             || session.lastMessageAt !== (activity.lastMessageAt ?? 0)
@@ -330,6 +338,10 @@ export class SessionCache {
                 }
             })
         }
+    }
+
+    private conversationActivityVersion(sessionId: string, contentRevision: number | undefined): string {
+        return `${this.store.messages.getMessageEpoch(sessionId)}:${this.store.messages.getMaxSeq(sessionId)}:${contentRevision ?? 0}`
     }
 
     recordConversationMessage(sessionId: string, content: unknown, createdAt: number): void {
@@ -1613,6 +1625,7 @@ export class SessionCache {
         }
 
         this.sessions.delete(sessionId)
+        this.conversationActivityVersions.delete(sessionId)
         this.lastBroadcastAtBySessionId.delete(sessionId)
         this.todoBackfillAttemptedSessionIds.delete(sessionId)
         this.pendingThinkingUntilBySessionId.delete(sessionId)
@@ -1884,6 +1897,7 @@ export class SessionCache {
             }
 
             const existed = this.sessions.delete(oldSessionId)
+            this.conversationActivityVersions.delete(oldSessionId)
             if (existed) {
                 this.publisher.emit({ type: 'session-removed', sessionId: oldSessionId, namespace })
             }

@@ -45,6 +45,7 @@ import {
     getAllMessages,
     getMessagesAfterSeq,
     getMinSeq,
+    getMaxSeq,
     getMessageSeqById,
     truncateMessagesFromLocalId,
     type CancelQueuedMessageResult,
@@ -111,6 +112,10 @@ export class MessageStore {
 
     getMinSeq(sessionId: string): number | null {
         return getMinSeq(this.db, sessionId)
+    }
+
+    getMaxSeq(sessionId: string): number {
+        return getMaxSeq(this.db, sessionId)
     }
 
     getSeqById(sessionId: string, messageId: string): number | null {
