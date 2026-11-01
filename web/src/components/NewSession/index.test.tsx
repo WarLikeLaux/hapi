@@ -2173,6 +2173,26 @@ describe('NewSession launch preferences', () => {
     })
 
 
+    it('launches a pinned OpenCode model selected from another agent when the default is hidden', async () => {
+        mocks.directoryExists = true
+        mocks.modelPreferences = [
+            { agent: 'opencode', modelId: 'opencode-go/gemini-4-argon', pinned: false, alias: null, hidden: true },
+            { agent: 'opencode', modelId: 'opencode-go/muse-spark-1.3-contributor', pinned: true, alias: null },
+            { agent: 'opencode', modelId: 'vclaude/claude-sonnet-5-5', pinned: true, alias: 'Sonnet 5.5' }
+        ]
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'sonnet-session' })
+        render(<NewSession initialAgent="codex" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory={'C:\\repo'} onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+        await act(async () => {})
+        fireEvent.click(screen.getByRole('button', { name: 'Sonnet 5.5' }))
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Sonnet 5.5' })).toHaveAttribute('aria-pressed', 'true'))
+        expect(screen.getByRole('button', { name: 'Muse Spark 1.3 (Medium)' })).toHaveAttribute('aria-pressed', 'false')
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            agent: 'opencode', model: 'vclaude/claude-sonnet-5-5'
+        })))
+    })
+
     it('launches DeepSeek V4.1 Flash from the quick pick even when the discovered catalog omits it', async () => {
         savePreferredAgent('opencode')
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'deepseek-session' })

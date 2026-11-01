@@ -1617,16 +1617,6 @@ export function NewSession(props: {
         }
     }
 
-    // Agent-change effects reset permissions/effort before applying the explicit
-    // pair. Otherwise those resets could silently replace a clicked model.
-    useEffect(() => {
-        const choice = pendingModelChoice.current
-        if (choice?.agent === agent) {
-            pendingModelChoice.current = null
-            applyModelChoice(choice)
-        }
-    }, [agent])
-
     const effectiveFilter = agentFilter !== 'all' && !availableAgents.includes(agentFilter) ? 'all' : agentFilter
     const quickModels: Partial<Record<AgentType, readonly { value: string; label: string }[]>> = {
         codex: CODEX_HARDCODED_OPTIONS.map(option => ({
@@ -1750,6 +1740,16 @@ export function NewSession(props: {
         const fallback = visibleModelChoices.find(choice => choice.agent === agent)
         if (fallback) applyModelChoice(fallback)
     }, [agent, displayedModel, modelPreferences.loading, modelPreferences.preferences, visibleModelChoices])
+
+    // Agent-change effects reset permissions/effort before applying the explicit
+    // pair. Otherwise those resets could silently replace a clicked model.
+    useEffect(() => {
+        const choice = pendingModelChoice.current
+        if (choice?.agent === agent) {
+            pendingModelChoice.current = null
+            applyModelChoice(choice)
+        }
+    }, [agent])
 
     const handleMachineChange = useCallback((newMachineId: string) => {
         defaultApplied.current = true
