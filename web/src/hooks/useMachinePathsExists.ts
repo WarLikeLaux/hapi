@@ -13,6 +13,7 @@ export function useMachinePathsExists(
 } {
     const [pathExistence, setPathExistence] = useState<Record<string, boolean>>({})
     const [outsideWorkspaceRoots, setOutsideWorkspaceRoots] = useState<Set<string>>(new Set())
+    const pathsKey = JSON.stringify(paths)
 
     useEffect(() => {
         setPathExistence({})
@@ -21,6 +22,7 @@ export function useMachinePathsExists(
 
     useEffect(() => {
         let cancelled = false
+        const paths = JSON.parse(pathsKey) as string[]
 
         if (!machineId || paths.length === 0) {
             setPathExistence({})
@@ -45,7 +47,7 @@ export function useMachinePathsExists(
         return () => {
             cancelled = true
         }
-    }, [api, machineId, paths])
+    }, [api, machineId, pathsKey])
 
     const checkPathsExists = useCallback(async (pathsToCheck: string[]) => {
         if (!machineId || pathsToCheck.length === 0) {
