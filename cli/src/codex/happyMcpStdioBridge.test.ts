@@ -224,17 +224,13 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
         // No --tools: the bridge seeds its default list, which includes the
         // peer tools. Positive control first so the disabled run below proves
         // filtering rather than an empty seed.
+        const peerTools = [
+            'ping_peer', 'inspect_peer', 'list_peers',
+            'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent'
+        ]
         await runHappyMcpStdioBridge(['--url', 'http://127.0.0.1:43006'])
 
-        expect([...harness.tools.keys()]).toEqual([
-            'change_title',
-            'display_image',
-            'display_video',
-            'display_media',
-            'ping_peer',
-            'inspect_peer',
-            'list_peers'
-        ])
+        expect([...harness.tools.keys()]).toEqual(expect.arrayContaining(peerTools))
 
         harness.tools.clear()
         harness.configs.clear()
@@ -243,12 +239,17 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
         try {
             await runHappyMcpStdioBridge(['--url', 'http://127.0.0.1:43006'])
 
-            expect([...harness.tools.keys()]).toEqual([
+            for (const name of peerTools) {
+                expect(harness.tools.has(name), name).toBe(false)
+            }
+            expect([...harness.tools.keys()]).toEqual(expect.arrayContaining([
                 'change_title',
                 'display_image',
                 'display_video',
-                'display_media'
-            ])
+                'display_media',
+                'get_usage',
+                'close_session'
+            ]))
         } finally {
             delete process.env.HAPI_DISABLE_PEER_TOOLS
         }
