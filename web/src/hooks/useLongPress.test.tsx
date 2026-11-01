@@ -94,6 +94,7 @@ describe('useLongPress', () => {
         // Opening a context menu must not swallow the next ordinary selection.
         fireEvent.mouseDown(row, { button: 0, clientX: 10, clientY: 10 })
         fireEvent.mouseUp(row, { button: 0, clientX: 10, clientY: 10 })
+        fireEvent.click(row)
         expect(onClick).toHaveBeenCalledOnce()
     })
 

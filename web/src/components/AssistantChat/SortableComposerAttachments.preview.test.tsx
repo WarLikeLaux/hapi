@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { SortableComposerAttachments } from './SortableComposerAttachments'
 import { reconcileAttachmentOrder } from '@/lib/attachmentOrder'
+import { ImagePreviewProvider } from '@/components/ImagePreview'
 
 const previewUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP1sAAAAASUVORK5CYII='
 const model: ChatModelAdapter = { async *run() {} }
@@ -39,7 +40,7 @@ function Attachments(props: HarnessProps) {
 function Harness(props: HarnessProps) {
     const runtime = useLocalRuntime(model, { adapters: { attachments: attachmentAdapter } })
     props.runtimeRef.current = runtime
-    return <AssistantRuntimeProvider runtime={runtime}><Attachments {...props} /></AssistantRuntimeProvider>
+    return <ImagePreviewProvider><AssistantRuntimeProvider runtime={runtime}><Attachments {...props} /></AssistantRuntimeProvider></ImagePreviewProvider>
 }
 
 async function setup() {
@@ -135,13 +136,15 @@ describe('sortable composer image preview with the real attachment runtime', () 
         expect(Array.from(container.querySelectorAll<HTMLElement>('[data-hapi-composer-attachment-id]')).map((el) => el.dataset.hapiComposerAttachmentId)).toEqual(['second.png', 'first.png'])
     })
 
-    it('still closes explicitly and removes an attachment through the real runtime', async () => {
+    it('keeps the independent viewer while removing attachments and still closes explicitly', async () => {
         const { runtimeRef, container } = await setup()
         fireEvent.click(within(screen.getByRole('dialog')).getByTitle('Close'))
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
         fireEvent.click(screen.getAllByTitle('Click to zoom')[0]!)
         await act(async () => runtimeRef.current!.thread.composer.clearAttachments())
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: 'first.png' })).toBeInTheDocument()
         expect(container.querySelector('[data-hapi-composer-attachment-id]')).toBeNull()
+        fireEvent.click(screen.getByTitle('Close'))
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
 })

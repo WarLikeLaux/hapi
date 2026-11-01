@@ -18,6 +18,9 @@ describe('selectShareTurnMetadata', () => {
 
     it('uses the desktop session-header order and default visibility', () => {
         expect(selectShareTurnMetadata(DEFAULT_SESSION_HEADER_METADATA, available).map((item) => item.key)).toEqual([
+            'agent', 'project', 'lastActive', 'model', 'reasoning', 'fastMode', 'worktree',
+        ])
+        expect(selectShareTurnMetadata({ ...DEFAULT_SESSION_HEADER_METADATA, machine: true }, available).map((item) => item.key)).toEqual([
             'agent', 'project', 'machine', 'lastActive', 'model', 'reasoning', 'fastMode', 'worktree',
         ])
     })

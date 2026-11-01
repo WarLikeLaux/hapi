@@ -65,7 +65,7 @@ describe('AttachmentItem', () => {
 
         renderAttachment()
 
-        expect(screen.getByRole('img', { name: 'Image' })).toHaveAttribute(
+        expect(screen.getByRole('img', { name: 'photo.png' })).toHaveAttribute(
             'src',
             'data:image/png;base64,cGhvdG8='
         )
@@ -82,7 +82,7 @@ describe('AttachmentItem', () => {
 
         const { container } = renderAttachment()
 
-        expect(screen.getByRole('img', { name: 'Image' })).toBeInTheDocument()
+        expect(screen.getByRole('img', { name: 'uploading.png' })).toBeInTheDocument()
         expect(container.querySelector('[class*="bg-black/40"]')).not.toBeNull()
     })
 
@@ -96,9 +96,9 @@ describe('AttachmentItem', () => {
         renderAttachment()
         fireEvent.click(screen.getByTitle('Click to zoom'))
 
-        const dialog = screen.getByRole('dialog', { name: 'Image' })
+        const dialog = screen.getByRole('dialog', { name: 'zoom-me.png' })
         expect(dialog).toBeInTheDocument()
-        expect(screen.getAllByRole('img', { name: 'Image' })).toHaveLength(2)
+        expect(screen.getAllByRole('img', { name: 'zoom-me.png' })).toHaveLength(2)
     })
 
     it('keeps non-image attachments in the filename chip layout', () => {
@@ -161,7 +161,7 @@ describe('AttachmentItem', () => {
         const { rerender } = renderAttachment()
 
         fireEvent.click(screen.getByTitle('Click to zoom'))
-        expect(screen.getByRole('dialog', { name: 'Image' })).toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: 'flicker.png' })).toBeInTheDocument()
 
         // previewUrl briefly disappears
         mocks.attachment = {
@@ -175,7 +175,7 @@ describe('AttachmentItem', () => {
             </I18nProvider>
         )
         expect(
-            screen.getByRole('dialog', { name: 'Image' }),
+            screen.getByRole('dialog', { name: 'flicker.png' }),
             'lightbox must remain open while previewUrl flickers',
         ).toBeInTheDocument()
 
@@ -190,7 +190,7 @@ describe('AttachmentItem', () => {
                 <AttachmentItem />
             </I18nProvider>
         )
-        expect(screen.getByRole('dialog', { name: 'Image' })).toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: 'flicker.png' })).toBeInTheDocument()
         expect(screen.getByTitle('Click to zoom')).toBeInTheDocument()
     })
 })

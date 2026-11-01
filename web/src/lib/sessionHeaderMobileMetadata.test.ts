@@ -11,8 +11,8 @@ describe('selectMobileSessionHeaderSecondary', () => {
         expect(selectMobileSessionHeaderSecondary({ project: true, machine: true })).toBe('project')
     })
 
-    it('follows the upstream-first display order', () => {
-        expect(selectMobileSessionHeaderSecondary({ machine: true, model: true, updatedAt: true })).toBe('machine')
+    it('keeps the model ahead of the machine in the fork mobile header', () => {
+        expect(selectMobileSessionHeaderSecondary({ machine: true, model: true, updatedAt: true })).toBe('model')
         expect(selectMobileSessionHeaderSecondary({ model: true, updatedAt: true, worktree: true })).toBe('model')
     })
 

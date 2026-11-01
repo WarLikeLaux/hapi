@@ -75,7 +75,7 @@ describe('session dialog title alignment', () => {
         await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Generated title'))
         fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-        await waitFor(() => expect(onUpdateSummary).toHaveBeenCalledWith('Generated title', false))
+        await waitFor(() => expect(onUpdateSummary).toHaveBeenCalledWith('Generated title'))
         expect(onRename).not.toHaveBeenCalled()
     })
 
@@ -100,7 +100,7 @@ describe('session dialog title alignment', () => {
         fireEvent.change(screen.getByRole('textbox'), { target: { value: 'My own title' } })
         fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-        await waitFor(() => expect(onRename).toHaveBeenCalledWith('My own title', false))
+        await waitFor(() => expect(onRename).toHaveBeenCalledWith('My own title'))
         expect(onUpdateSummary).not.toHaveBeenCalled()
     })
 
@@ -126,7 +126,7 @@ describe('session dialog title alignment', () => {
         fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Session' } })
         fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
-        await waitFor(() => expect(onRename).toHaveBeenCalledWith('Session', false))
+        await waitFor(() => expect(onRename).toHaveBeenCalledWith('Session'))
         expect(onUpdateSummary).not.toHaveBeenCalled()
     })
 
@@ -206,7 +206,7 @@ describe('session dialog title alignment', () => {
 
         fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Manual title' } })
         fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-        await waitFor(() => expect(onRename).toHaveBeenCalledWith('Manual title', false))
+        await waitFor(() => expect(onRename).toHaveBeenCalledWith('Manual title'))
         expect(onUpdateSummary).not.toHaveBeenCalled()
 
         rerender(

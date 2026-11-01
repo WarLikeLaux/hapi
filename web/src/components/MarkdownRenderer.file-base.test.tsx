@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { I18nProvider } from '@/lib/i18n-context'
 import { encodeBase64 } from '@/lib/utils'
+import { AppContextProvider } from '@/lib/app-context'
+import type { ApiClient } from '@/api/client'
 
 const readSessionFile = vi.hoisted(() => vi.fn(async () => ({ success: true, content: 'iVBORw0K' })))
 const listSessionDirectory = vi.hoisted(() => vi.fn(async () => ({
@@ -16,10 +18,6 @@ const listSessionDirectory = vi.hoisted(() => vi.fn(async () => ({
 
 vi.mock('@tanstack/react-router', () => ({
     useNavigate: () => vi.fn(),
-}))
-
-vi.mock('@/lib/app-context', () => ({
-    useAppContext: () => ({ api: { readSessionFile, listSessionDirectory } }),
 }))
 
 const markdown = [
@@ -35,14 +33,16 @@ function renderPreview(filePath: string, workspacePath: string | null = null, fi
     return render(
         <QueryClientProvider client={new QueryClient()}>
             <I18nProvider>
-                <MarkdownRenderer
-                    content={markdown}
-                    standalone
-                    sessionId="session-1"
-                    filePath={filePath}
-                    workspacePath={workspacePath}
-                    fileSearch={fileSearch}
-                />
+                <AppContextProvider value={{ api: { readSessionFile, listSessionDirectory } as unknown as ApiClient, token: '', baseUrl: '' }}>
+                    <MarkdownRenderer
+                        content={markdown}
+                        standalone
+                        sessionId="session-1"
+                        filePath={filePath}
+                        workspacePath={workspacePath}
+                        fileSearch={fileSearch}
+                    />
+                </AppContextProvider>
             </I18nProvider>
         </QueryClientProvider>
     )
