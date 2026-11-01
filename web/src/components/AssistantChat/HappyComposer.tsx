@@ -314,6 +314,7 @@ export function HappyComposer(props: {
     agentState?: AgentState | null
     backgroundTaskCount?: number
     activity?: AgentActivity | null
+    turnMetrics?: import('@/chat/turnMetrics').TurnMetrics | null
     contextSize?: number
     contextCacheRead?: number
     contextWindow?: number | null
@@ -2453,6 +2454,7 @@ export function HappyComposer(props: {
                         agentState={agentState}
                         backgroundTaskCount={backgroundTaskCount}
                         activity={props.activity}
+                        turnMetrics={props.turnMetrics}
                         contextSize={contextSize}
                         contextCacheRead={contextCacheRead}
                         contextWindow={contextWindow}
