@@ -1,3 +1,5 @@
+import { EmptyChat } from '@/components/EmptyChat'
+import { useCloseChatOnEscape } from '@/hooks/useCloseChatOnEscape'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate, useParams } from '@tanstack/react-router'
@@ -956,6 +958,9 @@ export function ChatsPage() {
     const [manageOpen, setManageOpen] = useState(false)
     const selectedId = pathname.startsWith('/chats/') ? decodeURIComponent(pathname.slice('/chats/'.length).split('/')[0]) : null
     const isIndex = pathname === '/chats' || pathname === '/chats/'
+    const navigate = useNavigate()
+    const closeChat = useCallback(() => { void navigate({ to: '/chats' }) }, [navigate])
+    useCloseChatOnEscape(!isIndex, closeChat)
     const connections = useQuery({
         queryKey: queryKeys.messengerConnections,
         queryFn: async () => (await api!.getMessengerConnections()).connections,
@@ -995,8 +1000,7 @@ export function ChatsPage() {
 }
 
 export function ChatsIndexPage() {
-    const { t } = useTranslation()
-    return <div className="m-auto hidden max-w-sm text-center text-sm text-[var(--app-hint)] split:block">{t('chats.pickConversation')}</div>
+    return <EmptyChat />
 }
 
 // Conversation pane shared by the full chats view and the sessions layout:

@@ -26,6 +26,8 @@ import {
 } from '@/lib/sessionNavigation'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
+import { EmptyChat } from '@/components/EmptyChat'
+import { useCloseChatOnEscape } from '@/hooks/useCloseChatOnEscape'
 import { QuotaLimitsModal } from '@/components/QuotaLimitsModal'
 import { SessionList } from '@/components/SessionList'
 import { SessionComposer as NewSession } from '@/components/NewSession/SessionComposer'
@@ -292,6 +294,8 @@ function SessionsPage() {
         rememberGroupSession(baseUrl, selectedGroup.id, selectedSession.id)
     }, [isDocumentVisible, selectedGroup, selectedSession, pathname, baseUrl])
     const isSessionsIndex = pathname === '/sessions' || pathname === '/sessions/'
+    const closeChat = useCallback(() => { void navigate({ to: '/sessions', ...PRESERVE_SESSION_SIDEBAR_SCROLL }) }, [navigate])
+    useCloseChatOnEscape(/^\/sessions\/(?:chats\/[^/]+|[^/]+)\/?$/.test(pathname) && pathname !== '/sessions/new', closeChat)
     const sidebarSearch = useLocation({ select: location => location.search })
     const [isSidebarVisible, setIsSidebarVisible] = useState(
         () => shouldShowSessionSidebar(pathname, sidebarSearch)
@@ -465,7 +469,7 @@ function GroupIndexPage() {
 }
 
 function SessionsIndexPage() {
-    return null
+    return <EmptyChat />
 }
 
 /**
