@@ -726,6 +726,10 @@ html:has(.chat-scroll-y) #root {
         transition: opacity 150ms ease;
     }
 
+    /* Keep the latest actionable message of each role visible, even while a
+       newer response is still arriving without a row of its own. */
+    .happy-thread-messages > [data-hapi-message-role="user"]:has(> .happy-message-actions):not(:has(~ [data-hapi-message-role="user"] > .happy-message-actions)) > .happy-message-actions,
+    .happy-thread-messages > [data-hapi-message-role="assistant"]:has(> .happy-message-actions):not(:has(~ [data-hapi-message-role="assistant"] > .happy-message-actions)) > .happy-message-actions,
     .happy-message:hover .happy-message-actions,
     .happy-message:focus-within .happy-message-actions {
         height: 1.25rem;
