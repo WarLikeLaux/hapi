@@ -56,7 +56,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 47
+const SCHEMA_VERSION: number = 48
 const REQUIRED_TABLES = [
     'session_launch_requests',
     'session_groups',
@@ -439,6 +439,7 @@ export class Store {
                 backfillLastUserMessageAt(this.db)
             },
             46: () => this.migrateSessionReadState(),
+            47: () => createSessionGroupTables(this.db),
         })
 
         if (currentVersion === 0) {

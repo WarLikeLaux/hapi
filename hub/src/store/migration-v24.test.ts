@@ -41,7 +41,7 @@ describe('schema migration v23 to latest', () => {
         expect(columns.some((col) => col.name === 'push_key')).toBe(true)
         const messageColumns = internalDb.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
         expect(messageColumns.some((col) => col.name === 'delivery_state')).toBe(true)
-            expect(version.user_version).toBe(47)
+            expect(version.user_version).toBe(48)
 
             // Existing Android rows survive with a NULL push key.
             const devices = migrated.fcm.getDevicesByNamespace('default')
@@ -86,7 +86,7 @@ describe('schema migration v23 to latest', () => {
         const columns = internalDb.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
         const version = internalDb.prepare('PRAGMA user_version').get() as { user_version: number }
         expect(columns.some((col) => col.name === 'delivery_state')).toBe(true)
-        expect(version.user_version).toBe(47)
+        expect(version.user_version).toBe(48)
         migrated.close()
     })
 })
