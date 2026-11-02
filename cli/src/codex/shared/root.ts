@@ -61,6 +61,15 @@ export class SharedCodexRoot {
     private work: Promise<unknown> = Promise.resolve();
     private notifications = Promise.resolve();
     private currentTurn: string | undefined;
+    private capacityFailure?: { turnId: string; message: string; completed: boolean };
+    private capacityAttempts = 0;
+    private readonly finishedCapacityTurns = new Set<string>();
+    private capacityTimer?: ReturnType<typeof setTimeout>;
+    private capacityContinuation = false;
+    private capacityNativeRetry = false;
+    private capacityWork: Promise<void> = Promise.resolve();
+    private pendingSystemError?: { params: unknown; timer: ReturnType<typeof setTimeout> };
+
     // Ephemeral observations only: dequeue/compaction never prove acceptance.
     private readonly dequeuedInputs = new Set<string>();
     private deliveryTurn?: string;
@@ -134,6 +143,8 @@ export class SharedCodexRoot {
         });
         this.client.setTransportAbandonedHandler(() => { void this.reconnect(); });
         this.session.onUserMessage((message, localId) => {
+            // A new user message takes precedence over an automatic continuation.
+            this.cancelCapacityRecovery();
             this.work = this.work.catch(() => {}).then(async () => {
                 await this.bound;
                 if (this.closed || this.stopping) return;
@@ -357,6 +368,7 @@ export class SharedCodexRoot {
             }
             await projection.notification(method, params); return;
         }
+        const suppressCapacityError = await this.handleCapacityNotification(method, params);
         if (method === 'turn/completed') this.session.sendSessionEvent({ type: 'ready' });
         if (method === 'thread/name/updated' && (typeof p.threadName === 'string' || p.threadName === null)) {
             const name = p.threadName ?? undefined; this.session.updateMetadata(metadata => ({ ...metadata, name }));
@@ -380,8 +392,136 @@ export class SharedCodexRoot {
         if (method === 'thread/queue/changed') {
             for (const id of await this.queue.reconcile(false)) this.dequeuedInputs.add(id);
         }
-        await this.projection.notification(method, params, modelAtReceipt, receivedAt, tierAtReceipt); this.publishCompaction(); this.alive();
+        if (!suppressCapacityError) await this.projection.notification(method, params, modelAtReceipt, receivedAt, tierAtReceipt);
+        this.publishCompaction(); this.alive();
     }
+    private cancelCapacityRecovery(): void {
+        clearTimeout(this.capacityTimer);
+        this.capacityTimer = undefined;
+        this.capacityFailure = undefined;
+        this.capacityAttempts = 0;
+        this.capacityContinuation = false;
+    }
+
+    private capacityNotice(message: string, turnId: string): void {
+        this.finishedCapacityTurns.add(turnId);
+        const id = `codex:${this.threadId}:capacity-final:${turnId}`;
+        this.session.sendAgentMessage({ type: 'message', message: `Codex error: ${message}`, id, turn_id: turnId }, id);
+    }
+
+    private async handleCapacityNotification(method: string, params: unknown): Promise<boolean> {
+        const p = record(params);
+        const turn = record(p.turn);
+        const turnId = string(p.turnId) ?? string(turn.id) ?? this.deliveryTurn;
+        if (method === 'thread/status/changed' && record(p.status).type === 'systemError') {
+            if (this.capacityFailure || this.capacityNativeRetry || (this.latestTurn?.status === 'failed' && this.finishedCapacityTurns.has(this.latestTurn.id))) return true;
+            // A more specific error usually follows. Keep the generic error if it does not.
+            if (this.pendingSystemError) clearTimeout(this.pendingSystemError.timer);
+            const timer = setTimeout(() => {
+                const pending = this.pendingSystemError;
+                this.pendingSystemError = undefined;
+                if (pending && !this.closed) void this.projection.notification('thread/status/changed', pending.params);
+            }, 1500);
+            this.pendingSystemError = { params, timer };
+            return true;
+        }
+        const error = method === 'error' ? record(p.error) : method === 'turn/completed' ? record(turn.error) : {};
+        const message = string(error.message) ?? (method === 'error' ? string(p.message) : undefined);
+        const capacity = message?.toLowerCase().includes('selected model is at capacity');
+        if (capacity && turnId) {
+            if (this.finishedCapacityTurns.has(turnId)) return true;
+            if (this.pendingSystemError) clearTimeout(this.pendingSystemError.timer);
+            this.pendingSystemError = undefined;
+            if (method === 'error' && p.willRetry === true) { this.capacityNativeRetry = true; return true; }
+            this.capacityNativeRetry = false;
+            if (this.currentTurn && this.currentTurn !== turnId) return true;
+            const completed = (method === 'turn/completed' && turn.status === 'failed')
+                || (this.latestTurn?.id === turnId && this.latestTurn.status === 'failed');
+            this.capacityFailure = { turnId, message: message!, completed: completed || (this.capacityFailure?.turnId === turnId && this.capacityFailure.completed) };
+            if (this.capacityFailure.completed) this.scheduleCapacityRetry();
+            else {
+                // An error notification alone does not prove the turn has ended.
+                clearTimeout(this.capacityTimer);
+                this.capacityTimer = setTimeout(() => {
+                    if (this.capacityFailure?.turnId === turnId && !this.capacityFailure.completed) {
+                        this.capacityNotice(message!, turnId); this.cancelCapacityRecovery();
+                    }
+                }, 10000);
+            }
+            return true;
+        }
+        if (message) this.capacityNativeRetry = false;
+        if (method === 'turn/completed') this.capacityNativeRetry = false;
+        if (message && this.pendingSystemError) {
+            clearTimeout(this.pendingSystemError.timer);
+            this.pendingSystemError = undefined;
+        }
+        if (method === 'turn/completed' && turnId && this.capacityFailure?.turnId === turnId) {
+            if (turn.status === 'failed' && !message) {
+                this.capacityFailure.completed = true; this.scheduleCapacityRetry(); return true;
+            }
+            // A distinct terminal reason, cancellation or success takes precedence.
+            this.cancelCapacityRecovery();
+        }
+        if (method === 'turn/completed' && turn.status !== 'failed' && !this.capacityFailure) this.capacityAttempts = 0;
+        if (method === 'turn/started') {
+            if (this.capacityContinuation) { this.capacityContinuation = false; this.capacityFailure = undefined; }
+            else if (this.capacityFailure) this.cancelCapacityRecovery();
+        }
+        return false;
+    }
+
+    private scheduleCapacityRetry(): void {
+        const failure = this.capacityFailure;
+        if (!failure) return;
+        clearTimeout(this.capacityTimer);
+        if (this.capacityAttempts >= 3) {
+            this.capacityNotice(failure.message, failure.turnId); this.cancelCapacityRecovery(); return;
+        }
+        this.capacityTimer = setTimeout(() => {
+            this.capacityTimer = undefined;
+            this.capacityWork = this.continueAfterCapacity(failure);
+        }, 2000 * 2 ** this.capacityAttempts);
+    }
+
+    private async continueAfterCapacity(failure: { turnId: string; message: string; completed: boolean }): Promise<void> {
+        if (this.capacityFailure !== failure || this.closed || this.stopping) return;
+        if (this.reconnecting) { this.capacityNotice(failure.message, failure.turnId); this.cancelCapacityRecovery(); return; }
+        try {
+            // Native queue owns ordering; never insert a continuation ahead of user input.
+            const queued = await this.queue.list();
+            if (this.capacityFailure !== failure || this.currentTurn || queued.length) {
+                if (this.capacityFailure === failure) { this.capacityNotice(failure.message, failure.turnId); this.cancelCapacityRecovery(); }
+                return;
+            }
+            this.capacityAttempts++;
+            this.finishedCapacityTurns.add(failure.turnId);
+            this.capacityContinuation = true;
+            const id = `capacity-continuation:${randomUUID()}`;
+            await this.queue.enqueue(id, buildUserInputFromMessage('Continue the interrupted task from the current conversation and state. Check what has already been done before taking further actions.'));
+            if (this.capacityFailure !== failure || this.closed || this.stopping) {
+                await this.queue.cancel(id); return;
+            }
+            const entry = (await this.queue.list()).find(item => item.clientUserMessageId === id);
+            if (entry && !this.currentTurn) {
+                await this.client.request('thread/queue/start', { threadId: this.threadId, queuedSubmissionId: entry.id });
+            } else if (entry && this.currentTurn) {
+                await this.queue.cancel(id);
+                if (this.capacityFailure === failure) {
+                    this.capacityNotice(failure.message, failure.turnId); this.cancelCapacityRecovery();
+                }
+                return;
+            } else if (this.queue.state(id) !== 'consumed') {
+                throw new Error('continuation is absent from the queue and its delivery is unknown');
+            }
+            if (this.capacityFailure === failure) this.capacityFailure = undefined;
+        } catch (error) {
+            // A lost acknowledgement may mean the continuation was accepted. Never replay it blindly.
+            this.capacityNotice(`${failure.message} (automatic continuation was not confirmed: ${error instanceof Error ? error.message : String(error)})`, failure.turnId);
+            this.cancelCapacityRecovery();
+        }
+    }
+
     private lazyHistory(): boolean {
         return !!this.threadId && (process.env.HAPI_CODEX_LAZY_HISTORY_IDS ?? '')
             .split(',').map(id => id.trim()).includes(this.threadId);
@@ -780,13 +920,17 @@ export class SharedCodexRoot {
     }
     stopAccepting(): void {
         this.stopping = true; this.ready();
+        if (this.capacityFailure) this.capacityNotice(this.capacityFailure.message, this.capacityFailure.turnId);
+        this.cancelCapacityRecovery();
+        if (this.pendingSystemError) clearTimeout(this.pendingSystemError.timer);
+        this.pendingSystemError = undefined;
         this.publishSteering();
         this.publishPlan();
         this.session.onReconnect(null); this.client.setTransportAbandonedHandler(null);
     }
     async suspend(): Promise<void> {
         this.stopAccepting();
-        await this.work.catch(() => {}); await Promise.allSettled([...this.controls]);
+        await this.work.catch(() => {}); await this.capacityWork.catch(() => {}); await Promise.allSettled([...this.controls]);
         await this.queue?.suspend();
         // Capture any dequeue/turn that won the race with native deletion.
         if (this.threadId && this.client.isInitialized()) await this.refresh();
@@ -795,7 +939,7 @@ export class SharedCodexRoot {
         return this.closing ??= (async () => {
             this.stopAccepting(); this.closed = true; clearInterval(this.heartbeat);
             this.permissions?.close();
-            await this.client.disconnect(); await this.notifications; await this.queue?.flush(); this.bridge?.server.stop();
+            await this.capacityWork.catch(() => {}); await this.client.disconnect(); await this.notifications; await this.queue?.flush(); this.bridge?.server.stop();
             if (archived) this.session.updateMetadata(metadata => ({ ...metadata, lifecycleState: 'archived', lifecycleStateSince: Date.now() }));
             // Inactive is resumable; uploads referenced by pending input must survive.
             this.session.sendSessionDeath(undefined, { preserveUploads: !archived });
