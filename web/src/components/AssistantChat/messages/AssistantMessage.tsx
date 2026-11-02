@@ -56,12 +56,12 @@ function ImageSequence({ children, indices }: PropsWithChildren<{ indices: numbe
         <div role="region" tabIndex={0} aria-label={t('media.displayed.images', { count: String(parts.length) })} onKeyDown={(event) => {
             if (event.key === 'ArrowLeft' && index > 0) { event.preventDefault(); setSelected(index - 1) }
             if (event.key === 'ArrowRight' && index < parts.length - 1) { event.preventDefault(); setSelected(index + 1) }
-        }} className="w-full max-w-2xl overflow-hidden rounded-2xl bg-[var(--app-tool-card-bg)] px-1 py-4 focus-visible:outline-2 focus-visible:outline-[var(--app-link)]">
-            <div className="relative flex h-56 items-center justify-center sm:h-80">
+        }} className="w-full overflow-hidden rounded-2xl bg-[var(--app-tool-card-bg)] px-1 py-4 focus-visible:outline-2 focus-visible:outline-[var(--app-link)]">
+            <div className="relative flex min-h-32 items-center justify-center">
                 <ImageSequenceContext.Provider value={true}>
                     {parts.map((part, partIndex) => {
                         const distance = partIndex - index
-                        return <div key={partIndex} hidden={Math.abs(distance) > 1} aria-hidden={distance !== 0} inert={distance !== 0} className={cn('absolute flex max-h-full items-center justify-center overflow-hidden rounded-xl [&>div]:w-full', distance === 0 ? 'z-10 w-[46%] shadow-lg' : distance < 0 ? 'left-[8%] w-[18%] opacity-45' : 'right-[8%] w-[18%] opacity-45')}>{part}</div>
+                        return <div key={partIndex} hidden={distance !== 0} aria-hidden={distance !== 0} inert={distance !== 0} className="w-full min-w-0 [&>div]:w-full">{part}</div>
                     })}
                 </ImageSequenceContext.Provider>
                 <button type="button" aria-label={t('media.displayed.previousImage')} disabled={index === 0} onClick={() => setSelected(index - 1)} className="absolute left-1 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--app-fg)] text-[var(--app-bg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-link)] disabled:opacity-30"><ArrowLeftIcon className="h-5 w-5" /></button>
