@@ -44,7 +44,8 @@ describe('user-owned groups through hub API', () => {
         f = fixture(path)
         try {
             const group = await f.create('HAPI')
-            const saved = await (await f.send(`/groups/${group.id}`, 'PUT', { ...group, name: 'HAPI workspace', members: [{ sessionId: f.b.id, pinned: false }, { sessionId: oldId, pinned: true }] })).json() as { group: SessionGroup }
+            const saved = await (await f.send(`/groups/${group.id}`, 'PUT', { ...group, pinned: true, name: 'HAPI workspace', members: [{ sessionId: f.b.id, pinned: false }, { sessionId: oldId, pinned: true }] })).json() as { group: SessionGroup }
+            expect(saved.group.pinned).toBe(true)
             expect(saved.group.members).toEqual([{ sessionId: oldId, pinned: true }, { sessionId: f.b.id, pinned: false }])
             expect(f.events.at(-1)).toEqual({ type: 'groups-updated', namespace: 'team' })
             f.close()

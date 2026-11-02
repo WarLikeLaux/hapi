@@ -35,7 +35,7 @@ function HistoryIcon() {
     </svg>
 }
 
-type Action = { type: 'park' | 'restore' | 'close' | 'reopen' } | { type: 'rename'; name: string }
+type Action = { type: 'pin' } | { type: 'park' | 'restore' | 'close' | 'reopen' } | { type: 'rename'; name: string }
 
 /** Group-level commands shared by sidebar rows and the workspace header. */
 export function SessionGroupActions(props: {
@@ -67,6 +67,7 @@ export function SessionGroupActions(props: {
         mutationKey,
         mutationFn: async (action: Action) => {
             if (!api) throw new Error(t('dialog.error.default'))
+            if (action.type === 'pin') return (await api.updateGroup(group.id, { ...group, pinned: !group.pinned })).group
             if (action.type !== 'rename') {
                 const result = await api.changeGroupLifecycle(group.id, group.version, action.type === 'restore' ? 'reopen' : action.type)
                 if (result.failures.length) {
@@ -168,6 +169,7 @@ export function SessionGroupActions(props: {
             {group.closed ? item(t('groups.viewHistory'), <HistoryIcon />, () => props.onOpen(group)) : null}
             {!group.closed && props.onNew ? item(t('groups.newChat'), <PlusIcon />, props.onNew) : null}
             {props.onManage ? item(t('groups.manage'), <SettingsIcon />, props.onManage) : null}
+            {item(t(group.pinned ? 'groups.unpinGroup' : 'groups.pinGroup'), <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17v5M8 3h8l-1 5 3 4v2H6v-2l3-4-1-5Z" /></svg>, () => void run({ type: 'pin' }), false, true)}
             {item(t('groups.rename'), <EditIcon />, () => { setError(null); setName(group.name); setRenameOpen(true) }, false, true)}
             {!group.closed ? item(t(group.parked ? 'groups.restore' : 'groups.park'), group.parked ? <ReopenIcon /> : <StopIcon />, () => void run({ type: group.parked ? 'restore' : 'park' }), false, true, group.parked ? undefined : t(parkBlocked ? 'groups.parkBusy' : 'groups.parkHint'), !group.parked && parkBlocked) : null}
             {!group.closed || hasOpenChats ? item(t('groups.close'), <StopIcon />, () => setCloseOpen(true), true, true) : null}

@@ -41,3 +41,19 @@ export async function createGroup(callerSessionId: string, args: z.infer<typeof 
     })
     return { groupId: group.id, group }
 }
+
+export const pinGroupSchema = groupInfoSchema.extend({ pinned: z.boolean().describe('True to pin the group in the chat list, false to unpin') })
+export const PIN_GROUP_DESCRIPTION = 'Pin or unpin a group in the chat list. Omit groupId for the current session’s group. Does not alter pins on group tabs.'
+export async function pinGroup(callerSessionId: string, args: z.infer<typeof pinGroupSchema>) {
+    assertPeerToolsEnabled()
+    const hub = await connectPeerHub()
+    let id = args.groupId
+    if (!id) {
+        const { group } = await hub.get<{ group: SessionGroup | null }>(`/sessions/${encodeURIComponent(callerSessionId)}/group`)
+        if (!group) throw new Error('Current session is not in a group')
+        id = group.id
+    }
+    const { group } = await hub.get<{ group: SessionGroup }>(`/groups/${encodeURIComponent(id)}`)
+    if (group.pinned === args.pinned) return { group }
+    return hub.put(`/groups/${encodeURIComponent(id)}`, { ...group, pinned: args.pinned })
+}

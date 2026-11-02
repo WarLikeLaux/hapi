@@ -1343,6 +1343,9 @@ export default {
   'tool.result.fieldId': 'ID',
   'tool.result.agentCount': 'Агентов: {count}',
 
+  'groups.pinGroup': 'Закрепить группу',
+  'groups.unpinGroup': 'Открепить группу',
+
   // Session shell
   'session.notFound.returning': 'Сессия не найдена. Возвращаемся к списку…',
 } as const

@@ -1708,6 +1708,8 @@ export default {
   'groups.closeIncompleteHint': 'Some chats could not be stopped. Retry Close group or open all chats.',
   'groups.manage': 'Manage',
   'groups.tabs': 'Group chats',
+  'groups.pinGroup': 'Pin group',
+  'groups.unpinGroup': 'Unpin group',
   'groups.pinned': 'Pinned',
   'groups.jump': 'Switch chat',
   'groups.empty': 'No chats in this group yet.',
