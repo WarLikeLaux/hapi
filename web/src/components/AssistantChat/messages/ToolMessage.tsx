@@ -214,7 +214,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
             data-hapi-generated-media-id={props.block.imageId}
             data-hapi-generated-media-file-name={props.block.fileName}
             data-hapi-generated-media-loaded={isFile && objectUrl ? 'true' : undefined}
-            className={inSequence ? 'min-w-0' : 'max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3'}>
+            className={inSequence ? 'min-w-0' : 'max-w-full rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3'}>
             <div className={inSequence && isImage ? 'sr-only' : 'mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-[var(--app-hint)]'}>
                 <span className="min-w-0 truncate">{mediaHeader}</span>
                 {isImage && !inSequence ? <span className="min-w-0 truncate">{imageDisplayCaption(props.block.fileName)}</span> : null}
@@ -313,8 +313,8 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                             fileName={props.block.fileName}
                             label={props.block.fileName}
                             fileSize={fileSize}
-                            buttonClassName={inSequence ? 'block w-full min-w-0 cursor-zoom-in rounded-xl text-left' : 'block max-h-[min(28rem,60vh)] max-w-full cursor-zoom-in rounded-xl text-left'}
-                            imageClassName={inSequence ? 'max-h-56 w-full rounded-xl object-contain sm:max-h-80' : 'max-h-[min(28rem,60vh)] max-w-full rounded-xl object-contain'}
+                            buttonClassName={inSequence ? 'block w-full min-w-0 cursor-zoom-in rounded-xl text-left' : 'block max-w-full cursor-zoom-in rounded-xl text-left'}
+                            imageClassName={inSequence ? 'max-h-[50dvh] w-full rounded-xl object-contain sm:max-h-[60dvh]' : 'max-h-[50dvh] max-w-full rounded-xl object-contain sm:max-h-[60dvh]'}
                             imageStyle={imageStyle}
                         />
                     </div>

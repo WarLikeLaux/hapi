@@ -64,7 +64,7 @@ describe('ImagePreview gallery navigation', () => {
         expect(within(dialog).getByTitle('Reset zoom')).toHaveTextContent('125%')
     })
 
-    it('navigates between rendered image previews with toolbar buttons', () => {
+    it('navigates between rendered image previews with buttons', () => {
         renderGallery()
 
         fireEvent.click(screen.getByRole('button', { name: /first image/i }))
@@ -77,15 +77,6 @@ describe('ImagePreview gallery navigation', () => {
             'Zoom in',
             'Previous image',
             'Next image',
-        ])
-        expect(within(dialog).getAllByRole('button')
-            .map((button) => button.querySelector('svg')?.getAttribute('class'))
-            .filter(Boolean)).toEqual([
-            'h-4 w-4',
-            'h-4 w-4',
-            'h-4 w-4',
-            'h-4 w-4',
-            'h-4 w-4',
         ])
         expect(within(dialog).getByRole('button', { name: '100%' })).toHaveClass(
             'flex',

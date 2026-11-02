@@ -460,29 +460,9 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
                             </button>
                             {hasMultiplePreviews ? (
                                 <>
-                                    <button
-                                        type="button"
-                                        onClick={() => showPreview(previewIndex - 1)}
-                                        className="flex h-11 w-11 items-center justify-center rounded bg-white/10 text-lg hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-40 sm:h-8 sm:w-8"
-                                        disabled={previewIndex === 0}
-                                        title="Previous image"
-                                        aria-label="Previous image"
-                                    >
-                                        <ArrowLeftIcon className="h-4 w-4" />
-                                    </button>
                                     <span aria-live="polite" aria-atomic="true" className="min-w-10 text-center text-xs tabular-nums text-white/70">
                                         {previewIndex + 1} / {previewImages.length}
                                     </span>
-                                    <button
-                                        type="button"
-                                        onClick={() => showPreview(previewIndex + 1)}
-                                        className="flex h-11 w-11 items-center justify-center rounded bg-white/10 text-lg hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-40 sm:h-8 sm:w-8"
-                                        disabled={previewIndex === previewImages.length - 1}
-                                        title="Next image"
-                                        aria-label="Next image"
-                                    >
-                                        <ArrowRightIcon className="h-4 w-4" />
-                                    </button>
                                 </>
                             ) : null}
                         </div>
@@ -496,6 +476,25 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
                         onPointerCancel={handlePointerUp}
                         onDoubleClick={resetView}
                     >
+                        {hasMultiplePreviews ? ([
+                            { label: 'Previous image', index: previewIndex - 1, disabled: previewIndex === 0, side: 'left-2', Icon: ArrowLeftIcon },
+                            { label: 'Next image', index: previewIndex + 1, disabled: previewIndex === previewImages.length - 1, side: 'right-2', Icon: ArrowRightIcon }
+                        ] as const).map(({ label, index, disabled, side, Icon }) => (
+                            <button
+                                key={label}
+                                type="button"
+                                aria-label={label}
+                                title={label}
+                                disabled={disabled}
+                                onPointerDown={stopEvent}
+                                onPointerUp={stopEvent}
+                                onDoubleClick={stopEvent}
+                                onClick={() => showPreview(index)}
+                                className={`absolute ${side} top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/25 text-white hover:bg-white/40 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-40`}
+                            >
+                                <Icon className="h-5 w-5" />
+                            </button>
+                        )) : null}
                         <img
                             src={activePreview.src}
                             alt={activePreview.label}
