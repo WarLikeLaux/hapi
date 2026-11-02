@@ -1048,8 +1048,18 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     useLayoutEffect(() => {
         const editor = composerRef.current
         if (!editor) return
-        editor.style.height = isExpanded ? '100%' : 'auto'
-        if (!isExpanded) editor.style.height = `${Math.min(editor.scrollHeight, 128)}px`
+        if (isExpanded) {
+            editor.style.height = '100%'
+            return
+        }
+        // Measure without collapsing the visible editor: collapsing it on every
+        // keystroke also resizes and scrolls the adjacent message viewport.
+        const mirror = editor.cloneNode() as HTMLTextAreaElement
+        mirror.value = editor.value
+        mirror.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;height:auto;width:${editor.getBoundingClientRect().width}px`
+        editor.parentElement?.appendChild(mirror)
+        editor.style.height = `${Math.min(mirror.scrollHeight, 128)}px`
+        mirror.remove()
     }, [text, isExpanded, Boolean(conversations.data)])
     const stickToBottomRef = useRef(true)
     const readerMovedAwayRef = useRef(false)
