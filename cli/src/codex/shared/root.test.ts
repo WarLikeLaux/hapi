@@ -881,3 +881,113 @@ describe('shared steering availability', () => {
         await vi.waitFor(() => expect(end).toHaveBeenCalledTimes(1));
     });
 });
+
+describe('capacity recovery', () => {
+    it('continues a failed turn once without replaying the user message or showing repeated errors', async () => {
+        const f = await fixture();
+        await f.root.activate();
+        vi.useFakeTimers();
+        const turn = { id: 'original', status: 'inProgress', items: [] as unknown[] };
+        f.native.thread.turns.push(turn);
+        f.native.notify('turn/started', { threadId: 'thread', turn });
+        f.native.notify('thread/status/changed', { threadId: 'thread', status: { type: 'systemError' } });
+        const error = { message: 'Selected model is at capacity. Please try a different model.' };
+        f.native.notify('error', { threadId: 'thread', turnId: turn.id, error, willRetry: false });
+        turn.status = 'failed';
+        f.native.notify('turn/completed', { threadId: 'thread', turn: { ...turn, error } });
+        await f.drain();
+        expect(f.send).not.toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Codex error') }), expect.anything());
+        await vi.advanceTimersByTimeAsync(2000);
+        await (f.root as unknown as { capacityWork: Promise<void> }).capacityWork;
+        await f.drain();
+        expect(f.native.thread.turns).toHaveLength(2);
+        expect(f.native.thread.turns[1].items).toEqual([expect.objectContaining({ type: 'userMessage', content: [expect.objectContaining({ text: expect.stringContaining('Continue the interrupted task') })] })]);
+        expect(f.native.queue).toHaveLength(0);
+    });
+
+    it('keeps a queued user message and reports the failure instead of inserting a continuation', async () => {
+        const f = await fixture();
+        await f.root.activate();
+        vi.useFakeTimers();
+        const turn = { id: 'original', status: 'inProgress', items: [] as unknown[] };
+        f.native.thread.turns.push(turn);
+        f.native.notify('turn/started', { threadId: 'thread', turn });
+        const error = { message: 'Selected model is at capacity' };
+        turn.status = 'failed';
+        f.native.notify('turn/completed', { threadId: 'thread', turn: { ...turn, error } });
+        await f.drain();
+        f.native.queue.push({ id: 'user-native', clientUserMessageId: 'user', input: [{ type: 'text', text: 'new instruction' }] });
+        await vi.advanceTimersByTimeAsync(2000);
+        await (f.root as unknown as { capacityWork: Promise<void> }).capacityWork;
+        expect(f.native.queue).toHaveLength(1);
+        expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Selected model is at capacity') }), expect.anything());
+    });
+    it('stops after three continuations and shows the final failure once', async () => {
+        const f = await fixture();
+        await f.root.activate();
+        vi.useFakeTimers();
+        let turn = { id: 'original', status: 'inProgress', items: [] as unknown[] };
+        f.native.thread.turns.push(turn);
+        f.native.notify('turn/started', { threadId: 'thread', turn });
+        const error = { message: 'Selected model is at capacity' };
+        for (let attempt = 0; attempt < 4; attempt++) {
+            turn.status = 'failed';
+            f.native.notify('turn/completed', { threadId: 'thread', turn: { ...turn, error } });
+            await f.drain();
+            if (attempt === 3) break;
+            await vi.advanceTimersByTimeAsync(2000 * 2 ** attempt);
+            await (f.root as unknown as { capacityWork: Promise<void> }).capacityWork;
+            await f.drain();
+            turn = f.native.thread.turns.at(-1)!;
+            turn.id = `retry-${attempt}`;
+            // The mock turn id is replaced to model distinct native turns.
+            f.native.notify('turn/started', { threadId: 'thread', turn });
+            await f.drain();
+        }
+        expect(f.native.thread.turns).toHaveLength(4);
+        expect(f.send.mock.calls.filter(([message]) => String(message.message).includes('Selected model is at capacity'))).toHaveLength(1);
+        f.native.notify('error', { threadId: 'thread', turnId: turn.id, error, willRetry: false });
+        await f.drain();
+        await vi.advanceTimersByTimeAsync(20000);
+        expect(f.native.thread.turns).toHaveLength(4);
+        expect(f.send.mock.calls.filter(([message]) => String(message.message).includes('Selected model is at capacity'))).toHaveLength(1);
+    });
+
+    it('does not start another turn when Codex is already retrying', async () => {
+        const f = await fixture();
+        await f.root.activate();
+        vi.useFakeTimers();
+        const turn = { id: 'original', status: 'inProgress', items: [] as unknown[] };
+        f.native.thread.turns.push(turn);
+        f.native.notify('turn/started', { threadId: 'thread', turn });
+        f.native.notify('thread/status/changed', { threadId: 'thread', status: { type: 'systemError' } });
+        f.native.notify('error', { threadId: 'thread', turnId: turn.id, error: { message: 'Selected model is at capacity' }, willRetry: true });
+        await f.drain();
+        await vi.advanceTimersByTimeAsync(12000);
+        expect(f.native.thread.turns).toHaveLength(1);
+        expect(f.send).not.toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Codex error') }), expect.anything());
+    });
+
+    it('reports an unconfirmed continuation without submitting a second one', async () => {
+        const f = await fixture();
+        await f.root.activate();
+        vi.useFakeTimers();
+        const original = f.root.client.request.bind(f.root.client);
+        const request = vi.spyOn(f.root.client, 'request');
+        request.mockImplementation((method, params) => method === 'thread/queue/start'
+            ? Promise.reject(new Error('connection lost')) : original(method, params));
+        const turn = { id: 'original', status: 'inProgress', items: [] as unknown[] };
+        f.native.thread.turns.push(turn);
+        f.native.notify('turn/started', { threadId: 'thread', turn });
+        turn.status = 'failed';
+        f.native.notify('turn/completed', { threadId: 'thread', turn: { ...turn, error: { message: 'Selected model is at capacity' } } });
+        await f.drain();
+        await vi.advanceTimersByTimeAsync(2000);
+        await (f.root as unknown as { capacityWork: Promise<void> }).capacityWork;
+        await vi.advanceTimersByTimeAsync(30000);
+        expect(f.native.queue).toHaveLength(1);
+        expect(request.mock.calls.filter(([method]) => method === 'thread/queue/add')).toHaveLength(1);
+        expect(f.send).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('not confirmed') }), expect.anything());
+    });
+
+});
