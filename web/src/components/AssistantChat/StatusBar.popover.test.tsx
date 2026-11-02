@@ -45,9 +45,9 @@ describe('StatusBar context details popover', () => {
         </I18nProvider>
         const { rerender } = render(view(true, false))
         expect(screen.getByText('Ожидает запуска…')).toBeVisible()
-        expect(screen.queryByText('20.00 credits')).toBeNull()
+        expect(screen.queryByText('20 credits')).toBeNull()
         rerender(view(false, true))
-        expect(screen.getByText('20.00 credits')).toBeVisible()
+        expect(screen.getByText('20 credits')).toBeVisible()
     })
 
     it('shows the scaled credit estimate beside elapsed time without tokens', () => {
@@ -55,7 +55,18 @@ describe('StatusBar context details popover', () => {
             turnMetrics={{ startedAt: 100, durationMs: 3000, tokens: 132351, credits: 0.6991375 }} /></I18nProvider>)
         expect(screen.getByTestId('turn-metrics')).toHaveTextContent('3s')
         expect(screen.getByTestId('turn-metrics')).not.toHaveTextContent('tokens')
-        expect(screen.getByTestId('turn-metrics')).toHaveTextContent('69.91 credits')
+        expect(screen.getByTestId('turn-metrics')).toHaveTextContent('70 credits')
+    })
+
+    it.each([
+        [0, '0'], [0.4, '1'], [1.4, '1'], [12.6, '13'], [49.6, '50'],
+        [52, '50'], [52.5, '55'], [99, '100'], [104, '100'], [105, '110'],
+        [249, '250'], [274, '250'], [275, '300'], [999, '1000'],
+        [1049, '1000'], [1050, '1100'],
+    ])('displays %s estimated credits as %s', (amount, expected) => {
+        render(<I18nProvider><StatusBar active thinking={false} agentState={null}
+            turnMetrics={{ startedAt: 100, credits: amount / 100 }} /></I18nProvider>)
+        expect(screen.getByText(`${expected} credits`)).toBeVisible()
     })
 
     it('shows live activity only while working and preserves connection and permission priority', () => {

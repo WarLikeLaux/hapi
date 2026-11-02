@@ -6,6 +6,7 @@ import { collectTitleChanges, ensureToolBlock, extractTitleFromChangeTitleInput,
 import { isSubagentToolName } from '@/chat/subagentTool'
 import { asString, isObject } from '@hapi/protocol'
 import type { WorkspaceChanges } from '@hapi/protocol'
+import { estimateCodexCredits } from '@/chat/codexCredits'
 
 function getEventString(event: Record<string, unknown>, key: string): string | null {
     return asString(event[key])
@@ -568,6 +569,7 @@ export function reduceTimeline(
     let previousCodexTotal: { input: number; output: number; cached?: number } | undefined
     let previousCodexTurn: string | undefined
     const codexBaselines = new Map<string, typeof previousCodexTotal>()
+    const codexPricing = new Map<string, { model?: string; tier?: string; consistent: boolean }>()
     for (const msg of messages) {
         if (msg.role === 'event') {
             if (msg.content.type === 'ready') {
@@ -588,7 +590,13 @@ export function reduceTimeline(
                 ) {
                     const model = tokenCount.model ?? undefined
                     let usage = msg.usage
+                    let credits: number | undefined
                     let usageScope: 'round' | 'last-request' = 'last-request'
+                    const tier = usage.service_tier
+                    const pricing = tokenCount.turnId ? codexPricing.get(tokenCount.turnId) : undefined
+                    const consistent = !!tokenCount.turnId && !!model && !!tier && (pricing?.consistent ?? true)
+                        && (!pricing?.model || pricing.model === model) && (!pricing?.tier || pricing.tier === tier)
+                    if (tokenCount.turnId) codexPricing.set(tokenCount.turnId, { model, tier, consistent })
                     const info = msg.content.info
                     const total = isObject(info) ? info.total ?? info.totalTokenUsage ?? info.total_token_usage : null
                     if (tokenCount.turnId && isObject(total)) {
@@ -608,6 +616,9 @@ export function reduceTimeline(
                                 usage = { ...usage, input_tokens: input - baseline.input, output_tokens: output - baseline.output,
                                     cache_read_input_tokens: cache }
                                 usageScope = 'round'
+                                if (consistent && model && tier && cache !== undefined) {
+                                    credits = estimateCodexCredits(model, tier, usage.input_tokens, cache, usage.output_tokens)
+                                }
                             }
                             if (!previousCodexTotal || (input >= previousCodexTotal.input && output >= previousCodexTotal.output)) {
                                 previousCodexTotal = current
@@ -620,6 +631,7 @@ export function reduceTimeline(
                         turnId: tokenCount.turnId,
                         usage,
                         usageScope,
+                        credits,
                         modelUsage: model
                             ? {
                                 [model]: {

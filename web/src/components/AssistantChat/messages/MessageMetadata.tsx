@@ -1,3 +1,4 @@
+import { formatCodexCredits } from '@/chat/codexCredits'
 import { formatDuration } from '@/chat/presentation'
 import type { RoundModelUsage, RoundSummary, UsageData } from '@/chat/types'
 
@@ -45,11 +46,10 @@ function getRoundUsage(summary: RoundSummary): UsageData | undefined {
     }), { input_tokens: 0, output_tokens: 0 })
 }
 
-function buildRoundSummaryLabels(summary: RoundSummary, fallbackModel?: string | null): string[] {
+function buildRoundSummaryLabels(summary: RoundSummary): string[] {
     const parts: string[] = []
-    const models = Object.keys(summary.modelUsage)
-    const model = models.length > 0 ? models.join(', ') : fallbackModel
-    if (model) parts.push(`${models.length > 1 ? 'Models' : 'Model'}: ${model}`)
+    if (summary.durationMs !== undefined && summary.durationMs >= 0) parts.push(`Time: ${formatDuration(summary.durationMs)}`)
+    if (summary.credits !== undefined) parts.push(`Credits: ${formatCodexCredits(summary.credits * 100)}`)
 
     const isCodex = summary.provider === 'codex'
     const usage = isCodex && summary.usage ? summary.usage : getRoundUsage(summary)
@@ -60,7 +60,7 @@ function buildRoundSummaryLabels(summary: RoundSummary, fallbackModel?: string |
             + (usage.cache_creation_input_tokens ?? 0)
             + (usage.cache_read_input_tokens ?? 0)
         const total = input + usage.output_tokens
-        parts.push(`${summary.usageScope === 'last-request' ? 'Last request tokens' : 'Tokens'}: ${formatCompactTokenCount(total)} (${formatCompactTokenCount(input)} in · ${formatCompactTokenCount(usage.output_tokens)} out)`)
+        parts.push(`${summary.usageScope === 'last-request' ? 'Last request tokens' : 'Tokens'}: ${formatCompactTokenCount(total)}${total > 0 ? ` (${formatPercentage(usage.output_tokens / total * 100)}% out)` : ''}`)
 
         const economics: string[] = []
         const cached = usage.cache_read_input_tokens
@@ -79,48 +79,23 @@ function buildRoundSummaryLabels(summary: RoundSummary, fallbackModel?: string |
         parts.push(`Cost: ${formatUsd(summary.totalCostUsd)}`)
     }
 
-    const round: string[] = []
-    if (summary.durationMs !== undefined && summary.durationMs >= 0) round.push(formatDuration(summary.durationMs))
-    if (summary.numTurns !== undefined && summary.numTurns > 0) {
-        round.push(`${summary.numTurns} turn${summary.numTurns === 1 ? '' : 's'}`)
-    }
-    if (round.length > 0) parts.push(`Round: ${round.join(' · ')}`)
     return parts
 }
 
-export function buildMessageMetadataLabels({ durationMs, usage, model, turnCount, roundSummary }: Omit<MessageMetadataProps, 'className'>): string[] {
-    if (roundSummary) return buildRoundSummaryLabels(roundSummary, model)
+export function buildMessageMetadataLabels({ durationMs, usage, roundSummary }: Omit<MessageMetadataProps, 'className'>): string[] {
+    if (roundSummary) return buildRoundSummaryLabels(roundSummary)
     const parts: string[] = []
-    // Aggregated footers represent a response group with multiple distinct
-    // turns. When the caller passes `turnCount >= 2` they have already
-    // dedup-joined `model` into a comma-separated list and summed `usage`
-    // across turns; we adjust the labels to reflect that.
-    const isAggregated = typeof turnCount === 'number' && turnCount >= 2
-
     if (typeof durationMs === 'number' && durationMs >= 0) {
         parts.push(`Duration: ${formatDuration(durationMs)}`)
     }
 
     const tier = usage?.service_tier
     const isStandardTier = tier?.toLowerCase() === 'standard'
-    if (model) {
-        // Pluralize the label when the caller has joined multiple model ids.
-        const modelLabel = isAggregated && model.includes(', ') ? 'Models' : 'Model'
-        let label = `${modelLabel}: ${model}`
-        if (tier && !isStandardTier) label += ` (${tier})`
-        parts.push(label)
-    } else if (tier && !isStandardTier) {
-        parts.push(`Tier: ${tier}`)
-    }
+    if (tier && !isStandardTier) parts.push(`Tier: ${tier}`)
 
     if (usage) {
         const total = usage.input_tokens + usage.output_tokens
-        const formatToken = (n: number) => n.toLocaleString()
-        parts.push(`Tokens: ${formatToken(total)} total (${formatToken(usage.input_tokens)} in / ${formatToken(usage.output_tokens)} out)`)
-    }
-
-    if (isAggregated) {
-        parts.push(`${turnCount} turns`)
+        parts.push(`Tokens: ${formatCompactTokenCount(total)}${total > 0 ? ` (${formatPercentage(usage.output_tokens / total * 100)}% out)` : ''}`)
     }
 
     return parts
