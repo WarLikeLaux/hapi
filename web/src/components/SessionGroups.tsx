@@ -168,6 +168,7 @@ export function SessionGroupRows(props: {
                     </>}
                 </span>}
                 indicators={<>
+                    {group.pinned ? <span title={t('groups.unpinGroup')} aria-label={t('groups.unpinGroup')}><GroupIcon pin /></span> : null}
                     {working ? <span className="inline-flex shrink-0" aria-label={t('groups.working')} title={t('groups.working')}><SessionWorkingIcon /></span> : null}
                     {questions ? <SessionQuestionIcon label={questionLabel} title={questionLabel} /> : null}
                     {permissions ? <SessionAttentionGlyph attention={{ kind: 'permission' }} label={t('session.item.permission')} title={t('session.item.permission')} /> : null}

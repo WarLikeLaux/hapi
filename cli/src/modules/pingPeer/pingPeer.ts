@@ -220,10 +220,11 @@ export async function connectPeerHub(options: { accessToken?: string } = {}) {
     const apiUrl = resolveApiUrl()
     const http = axios
     const jwt = await exchangeJwt(apiUrl, resolveAccessToken(options.accessToken), http)
-    async function request<T>(method: 'get' | 'post', path: string, body?: unknown): Promise<T> {
+    async function request<T>(method: 'get' | 'post' | 'put', path: string, body?: unknown): Promise<T> {
         const config = { headers: authHeaders(jwt), timeout: 120_000, validateStatus: () => true }
         const response = method === 'get'
             ? await http.get(`${apiUrl}/api${path}`, config)
+            : method === 'put' ? await http.put(`${apiUrl}/api${path}`, body, config)
             : await http.post(`${apiUrl}/api${path}`, body, config)
         if (response.status < 200 || response.status >= 300) {
             throw new Error(`${method.toUpperCase()} ${path}: ${response.data?.error ?? `HTTP ${response.status}`}`)
@@ -233,6 +234,7 @@ export async function connectPeerHub(options: { accessToken?: string } = {}) {
     return {
         get: <T>(path: string) => request<T>('get', path),
         post: <T>(path: string, body: unknown) => request<T>('post', path, body),
+        put: <T>(path: string, body: unknown) => request<T>('put', path, body),
     }
 }
 

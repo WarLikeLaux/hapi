@@ -47,6 +47,12 @@ function PinnedSectionIcon(props: { className?: string }) {
     )
 }
 
+function SectionActivityIcon({ section }: { section: string }) {
+    if (section === 'working-section') return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0 text-[var(--app-badge-success-text)]" aria-hidden="true"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48 2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48 2.83-2.83" /></svg>
+    if (section === 'active-section') return <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5 shrink-0 text-[var(--app-link)]" aria-hidden="true"><circle cx="12" cy="12" r="6" /></svg>
+    return null
+}
+
 function MoreHorizontalIcon(props: { className?: string }) {
     return (
         <svg
@@ -1799,7 +1805,7 @@ export function SessionList(props: {
             : grouped
     }, [allDirectoryGroups, hasTextQuery, pinInProgressSessions, searchScoreIndex])
     const chatGroupSections = useMemo(() => {
-        const sections: Record<GroupSection, ChatGroup[]> = { active: [], working: [], idle: [], recent: [] }
+        const sections: Record<GroupSection | 'pinned', ChatGroup[]> = { pinned: [], active: [], working: [], idle: [], recent: [] }
         const byId = new Map((props.groupedSessions ?? []).map(session => [session.id, session]))
         const presented = (props.sessionGroups ?? []).map(group => ({ group, state: presentSessionGroup(group, byId, getSessionLastSeenAt, getSessionManualUnreadAt) }))
             .sort((a, b) => b.state.activityAt - a.state.activityAt)
@@ -1808,7 +1814,7 @@ export function SessionList(props: {
                 && !state.chats.some(session => sessionMatchesQuery(session, normalizedQuery, resolveMachineLabel(session.metadata?.machineId ?? null)))) continue
             if (timeRange && !state.chats.some(session => sessionMatchesTimeRange(session, timeRange))) continue
             if (activeMachineFilter !== null && !state.chats.some(session => session.metadata?.machineId === activeMachineFilter)) continue
-            sections[state.section].push(group)
+            sections[group.pinned ? 'pinned' : state.section].push(group)
         }
         return sections
     }, [props.sessionGroups, props.groupedSessions, lastSeenVersion, normalizedQuery, timeRange?.start, timeRange?.end, activeMachineFilter, machineLabelsById])
@@ -1980,7 +1986,6 @@ export function SessionList(props: {
         sessions,
         activityTimeBasis,
         collapsible = true,
-        statusColorClass = 'bg-[var(--app-badge-success-text)]',
         mergedRows = null,
         chatGroups = [],
     }: {
@@ -1991,7 +1996,6 @@ export function SessionList(props: {
         sessions: SessionSummary[]
         activityTimeBasis: SessionActivityTimeBasis
         collapsible?: boolean
-        statusColorClass?: string
         mergedRows?: SidebarChatRow[] | null
         chatGroups?: ChatGroup[]
     }) => {
@@ -2022,12 +2026,8 @@ export function SessionList(props: {
                     ) : (
                         <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={false} />
                     )}
-                    <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-                        <span className={cn('h-1.5 w-1.5 rounded-full', statusColorClass)} />
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {t(titleKey)}
-                    </span>
+                    <SectionActivityIcon section={sectionKey} />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{t(titleKey)}</span>
                     <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
                         ({sessions.length + chatGroups.length})
                     </span>
@@ -2659,7 +2659,7 @@ export function SessionList(props: {
             <div ref={scrollContainerRef} className="app-scroll-y session-list-scrollbar-left scrollbar-auto-hide min-h-0 flex-1">
             <SessionListScrollAnchor sessions={props.sessions} className="mx-auto flex w-full max-w-content flex-col gap-1 pl-1.5 pr-2 pb-2">
                 {props.groupsStatus}
-                {!pinInProgressSessions || isFiltering ? renderChatGroups(Object.values(chatGroupSections).flat()) : null}
+                {!pinInProgressSessions || isFiltering ? renderChatGroups([...chatGroupSections.working, ...chatGroupSections.active, ...chatGroupSections.idle, ...chatGroupSections.recent]) : null}
                 {props.sessions.length === 0 && !props.isLoading && !props.hasGroupRows ? (
                     <SessionsEmptyState
                         onNewSession={props.onNewSession}
@@ -2711,7 +2711,7 @@ export function SessionList(props: {
                     </div>
                 ) : null}
 
-                {showSessionSections && globalPinnedSessions.length > 0 ? (
+                {showSessionSections && (globalPinnedSessions.length > 0 || chatGroupSections.pinned.length > 0) ? (
                     <div key="pinned-section">
                         <div
                             className="group/pinned flex min-w-0 w-full select-none cursor-pointer items-center gap-2 rounded-lg py-1.5 pl-2 pr-2 transition-colors hover:bg-[var(--app-secondary-bg)]"
@@ -2728,19 +2728,16 @@ export function SessionList(props: {
                             title={t('sessions.pinnedSection')}
                         >
                             <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={pinnedSectionCollapsed && !isFiltering} />
-                            <span className="inline-flex min-w-0 items-center gap-1">
-                                <span className="min-w-0 truncate text-sm font-medium">
-                                    {t('sessions.pinnedSection')}
-                                </span>
-                                <PinnedSectionIcon className="h-3.5 w-3.5 shrink-0 -translate-y-px text-[var(--app-hint)]" />
-                            </span>
+                            <PinnedSectionIcon className="h-3.5 w-3.5 shrink-0 text-[var(--app-hint)]" />
+                            <span className="min-w-0 truncate text-sm font-medium">{t('sessions.pinnedSection')}</span>
                             <span className="min-w-0 flex-1" aria-hidden="true" />
                             <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
-                                ({globalPinnedSessions.length})
+                                ({globalPinnedSessions.length + chatGroupSections.pinned.length})
                             </span>
                         </div>
                         <CollapsiblePanel open={!pinnedSectionCollapsed || isFiltering}>
                                 <div className="flex flex-col gap-0.5 ml-2 py-1">
+                                    {renderChatGroups(chatGroupSections.pinned)}
                                     {globalPinnedSessions.map((s) => (
                                         <SessionItem
                                             key={s.id}
@@ -2786,7 +2783,6 @@ export function SessionList(props: {
                 {showSessionSections ? renderSessionSection({
                     sectionKey: 'idle-section', titleKey: 'session.item.idle', collapsed: false,
                     sessions: idleSessions, activityTimeBasis: 'agent', collapsible: false,
-                    statusColorClass: 'bg-[var(--app-hint)]',
                     chatGroups: pinInProgressSessions && !isFiltering ? chatGroupSections.idle : [],
                 }) : null}
                 {showSessionSections ? renderRecentSessions() : null}

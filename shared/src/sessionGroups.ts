@@ -9,6 +9,7 @@ export const SessionGroupSchema = z.object({
     name: z.string(),
     version: z.number().int().positive(),
     updatedAt: z.number(),
+    pinned: z.boolean().optional(),
     parked: z.boolean(),
     closed: z.boolean(),
     members: z.array(SessionGroupMemberSchema),
@@ -16,6 +17,7 @@ export const SessionGroupSchema = z.object({
 export const CreateSessionGroupSchema = z.object({ name: z.string().trim().min(1).max(120) })
 export const UpdateSessionGroupSchema = CreateSessionGroupSchema.extend({
     version: z.number().int().positive(),
+    pinned: z.boolean().optional(),
     parked: z.boolean().optional(),
     members: z.array(SessionGroupMemberSchema).max(2000),
 }).refine(value => new Set(value.members.map(member => member.sessionId)).size === value.members.length, 'Duplicate chats')

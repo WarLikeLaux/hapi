@@ -65,6 +65,7 @@ describe('agent launch over HTTP MCP', () => {
             }
             if (path === '/api/groups') return reply({ groups: [group] })
             if (path === '/api/sessions/caller/group') return reply({ group })
+            if (path === '/api/groups/group-hapi' && req.method === 'PUT') { groupBodies.push(body); return reply({ group: body }) }
             if (path === '/api/groups/group-hapi') return reply({ group, sessions })
             if (path === '/api/groups/foreign') return reply({ error: 'Group not found' }, 404)
             if (path === '/api/machines') return reply({ machines: [machine] })
@@ -172,6 +173,15 @@ describe('agent launch over HTTP MCP', () => {
         expect(spawnBodies[0]?.groupId).toBe('group-hapi')
         expect((await client.callTool({ name: 'launch_agent', arguments: { ...task, requestId: 'foreign', groupId: 'foreign' } })).isError).toBe(true)
         expect(spawnBodies).toHaveLength(1)
+    })
+
+    it('pins the current group through MCP without changing its tabs', async () => {
+        const client = await connect()
+        const result = await client.callTool({ name: 'pin_group', arguments: { pinned: true } }) as ToolReply
+        expect(result.isError).toBe(false)
+        expect(JSON.parse(result.content[0]!.text!).group).toMatchObject({ pinned: true, members: [{ sessionId: 'caller', pinned: true }, { sessionId: 'spawned', pinned: false }] })
+        expect(groupBodies[0]).toMatchObject({ id: 'group-hapi', version: 2, pinned: true })
+        expect((await client.callTool({ name: 'pin_group', arguments: { groupId: 'foreign', pinned: true } }) as ToolReply).isError).toBe(true)
     })
 
     it('creates a group through MCP and retries an uncertain response with the same caller-scoped ID', async () => {

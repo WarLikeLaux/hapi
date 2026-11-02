@@ -45,6 +45,16 @@ function groupIn(section: string) {
 }
 
 describe('group placement and agent icons', () => {
+    it('keeps a pinned group above activity sections without duplicating it', () => {
+        const grouped = chat('grouped', { thinking: false })
+        const update = mount([grouped], [chat('Working')])
+        update([grouped], [chat('Working')], { id: 'hapi', name: 'HAPI', closed: false, parked: false, pinned: true, version: 2, updatedAt: 1000, members: [{ sessionId: grouped.id, pinned: false }] })
+        const row = screen.getByTestId('session-group-row')
+        expect(screen.getAllByTestId('session-group-row')).toHaveLength(1)
+        expect(screen.getByTitle('Pinned sessions').parentElement).toContainElement(row)
+        expect(within(row).getByLabelText('Unpin group')).toBeVisible()
+    })
+
     it('interleaves groups by displayed activity and moves them only for new conversation activity', async () => {
         const now = Date.now()
         vi.spyOn(Date, 'now').mockReturnValue(now)

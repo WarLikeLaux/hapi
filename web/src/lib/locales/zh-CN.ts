@@ -1701,6 +1701,8 @@ export default {
   'groups.closeIncompleteHint': '部分聊天无法停止。请重试关闭分组或打开全部聊天。',
   'groups.manage': '管理',
   'groups.tabs': '分组聊天',
+  'groups.pinGroup': '固定群组',
+  'groups.unpinGroup': '取消固定群组',
   'groups.pinned': '已固定',
   'groups.jump': '切换聊天',
   'groups.empty': '分组中还没有聊天。',

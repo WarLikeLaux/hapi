@@ -22,6 +22,9 @@ export function createSessionGroupTables(db: Database): void {
         );
     `)
     const columns = db.query('PRAGMA table_info(session_groups)').all() as { name: string }[]
+    if (!columns.some(column => column.name === 'pinned')) {
+        db.exec('ALTER TABLE session_groups ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
+    }
     if (!columns.some(column => column.name === 'closed')) {
         db.exec('ALTER TABLE session_groups ADD COLUMN closed INTEGER NOT NULL DEFAULT 0')
     }
@@ -62,12 +65,12 @@ export class SessionGroupStore {
     }
 
     get(namespace: string, id: string): SessionGroup | null {
-        const row = this.db.query('SELECT id, name, version, updated_at AS updatedAt, parked, closed FROM session_groups WHERE id = ? AND namespace = ?').get(id, namespace) as (Omit<SessionGroup, 'members' | 'parked' | 'closed'> & { parked: number; closed: number }) | null
+        const row = this.db.query('SELECT id, name, version, updated_at AS updatedAt, pinned, parked, closed FROM session_groups WHERE id = ? AND namespace = ?').get(id, namespace) as (Omit<SessionGroup, 'members' | 'pinned' | 'parked' | 'closed'> & { pinned: number; parked: number; closed: number }) | null
         if (!row) return null
         const members = this.db.query(`SELECT m.session_id AS sessionId, m.pinned FROM session_group_members m
             JOIN sessions s ON s.id = m.session_id WHERE m.group_id = ? AND s.namespace = ?
             ORDER BY m.pinned DESC, m.position, m.session_id`).all(id, namespace) as { sessionId: string; pinned: number }[]
-        return { ...row, parked: Boolean(row.parked), closed: Boolean(row.closed), members: members.map(member => ({ ...member, pinned: Boolean(member.pinned) })) }
+        return { ...row, pinned: Boolean(row.pinned), parked: Boolean(row.parked), closed: Boolean(row.closed), members: members.map(member => ({ ...member, pinned: Boolean(member.pinned) })) }
     }
 
     forSession(namespace: string, sessionId: string): SessionGroup | null {
@@ -122,7 +125,7 @@ export class SessionGroupStore {
             for (const groupId of touched) {
                 this.db.query('UPDATE session_groups SET version = version + 1, updated_at = ? WHERE id = ? AND namespace = ?').run(Date.now(), groupId, namespace)
             }
-            this.db.query('UPDATE session_groups SET name = ?, parked = ? WHERE id = ? AND namespace = ?').run(input.name, Number(input.parked ?? group.parked), id, namespace)
+            this.db.query('UPDATE session_groups SET name = ?, pinned = ?, parked = ? WHERE id = ? AND namespace = ?').run(input.name, Number(input.pinned ?? group.pinned), Number(input.parked ?? group.parked), id, namespace)
             return this.get(namespace, id)!
         })()
     }
