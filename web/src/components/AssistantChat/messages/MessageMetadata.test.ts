@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { buildMessageMetadataLabels } from './MessageMetadata'
 
 describe('buildMessageMetadataLabels', () => {
-    it('renders Model label with the per-message model name', () => {
+    it('omits the per-message model name', () => {
         const parts = buildMessageMetadataLabels({
             model: 'claude-sonnet-4-6',
             usage: { input_tokens: 3, output_tokens: 15, service_tier: 'standard' }
         })
-        expect(parts).toContain('Model: claude-sonnet-4-6')
+        expect(parts.some(p => p.startsWith('Model:'))).toBe(false)
     })
 
     it('does not render service_tier as the model when model is missing', () => {
@@ -29,12 +29,12 @@ describe('buildMessageMetadataLabels', () => {
         expect(parts.some(p => p.startsWith('Tier:'))).toBe(false)
     })
 
-    it('appends non-standard service_tier in parentheses next to the model id', () => {
+    it('shows a non-standard tier without a model name', () => {
         const parts = buildMessageMetadataLabels({
             model: 'claude-sonnet-4-6',
             usage: { input_tokens: 3, output_tokens: 15, service_tier: 'priority' }
         })
-        expect(parts).toContain('Model: claude-sonnet-4-6 (priority)')
+        expect(parts).toContain('Tier: priority')
     })
 
     it('returns an empty list when nothing is provided', () => {
@@ -45,7 +45,7 @@ describe('buildMessageMetadataLabels', () => {
         const parts = buildMessageMetadataLabels({
             usage: { input_tokens: 100, output_tokens: 200 }
         })
-        expect(parts).toContain('Tokens: 300 total (100 in / 200 out)')
+        expect(parts).toContain('Tokens: 300 (66.7% out)')
         expect(parts.some(p => /\bbillable\b/.test(p))).toBe(false)
     })
 
@@ -87,34 +87,31 @@ describe('buildMessageMetadataLabels', () => {
         // timezone-independent and locked exactly.
         expect(parts).toEqual([
             'Duration: 1.2s',
-            'Model: claude-sonnet-4-6',
-            'Tokens: 22 total (3 in / 19 out)'
+            'Tokens: 22 (86.4% out)'
         ])
     })
 
-    it('switches to Models/Total/N turns labels only when turnCount >= 2', () => {
+    it('shows aggregated tokens without the turn count', () => {
         const parts = buildMessageMetadataLabels({
             model: 'claude-sonnet-4-6, claude-haiku-4-5-20251001',
             usage: { input_tokens: 100, output_tokens: 200, service_tier: 'standard' },
             turnCount: 3
         })
-        expect(parts).toContain('Models: claude-sonnet-4-6, claude-haiku-4-5-20251001')
+        expect(parts.some(p => p.startsWith('Models:'))).toBe(false)
         expect(parts.some(p => p.startsWith('Model:'))).toBe(false)
-        expect(parts).toContain('Tokens: 300 total (100 in / 200 out)')
-        expect(parts).toContain('3 turns')
+        expect(parts).toContain('Tokens: 300 (66.7% out)')
+        expect(parts.some(p => p.includes('turns'))).toBe(false)
     })
 
-    it('keeps the singular Model label when an aggregated group has only one distinct model', () => {
-        // Mid-session model switch is rare; the common multi-turn case is one
-        // model repeated across N turns. The label must stay singular then.
+    it('omits the model for an aggregated group', () => {
         const parts = buildMessageMetadataLabels({
             model: 'claude-sonnet-4-6',
             usage: { input_tokens: 10, output_tokens: 20, service_tier: 'standard' },
             turnCount: 2
         })
-        expect(parts).toContain('Model: claude-sonnet-4-6')
+        expect(parts.some(p => p.startsWith('Model:'))).toBe(false)
         expect(parts.some(p => p.startsWith('Models:'))).toBe(false)
-        expect(parts).toContain('2 turns')
+        expect(parts.some(p => p.includes('turns'))).toBe(false)
     })
 
     it('omits Duration on aggregated footers when durationMs is undefined', () => {
@@ -147,10 +144,9 @@ describe('buildMessageMetadataLabels', () => {
         } as any)
 
         expect(parts).toEqual([
-            'Models: claude-opus-5, claude-haiku-4-5',
-            'Tokens: 100.6k (100.1k in · 500 out)',
-            'Cached input: 99.9% · Cost: $0.028',
-            'Round: 8.2s · 9 turns'
+            'Time: 8.2s',
+            'Tokens: 100.6k (0.5% out)',
+            'Cached input: 99.9% · Cost: $0.028'
         ])
     })
 
@@ -163,13 +159,13 @@ describe('buildMessageMetadataLabels', () => {
             }
         })
 
-        expect(summary(59_900)).toContain('Round: 59.9s · 1 turn')
-        expect(summary(60_000)).toContain('Round: 1m · 1 turn')
-        expect(summary(537_000)).toContain('Round: 8m 57s · 1 turn')
-        expect(summary(3_661_000)).toContain('Round: 1h 1m 1s · 1 turn')
+        expect(summary(59_900)).toContain('Time: 59.9s')
+        expect(summary(60_000)).toContain('Time: 1m')
+        expect(summary(537_000)).toContain('Time: 8m 57s')
+        expect(summary(3_661_000)).toContain('Time: 1h 1m 1s')
     })
 
-    it('labels a top-level Codex turn with Round', () => {
+    it('omits a round label when only a turn count is available', () => {
         expect(buildMessageMetadataLabels({
             roundSummary: {
                 provider: 'codex',
@@ -179,9 +175,7 @@ describe('buildMessageMetadataLabels', () => {
                 numTurns: 1
             }
         })).toEqual([
-            'Model: gpt-5.4',
-            'Tokens: 110 (100 in · 10 out)',
-            'Round: 1 turn'
+            'Tokens: 110 (9.1% out)'
         ])
     })
 
@@ -192,8 +186,7 @@ describe('buildMessageMetadataLabels', () => {
             usage: { input_tokens: 3, output_tokens: 19, service_tier: 'standard' }
         } as any)).toEqual([
             'Duration: 1.2s',
-            'Model: claude-sonnet-4-6',
-            'Tokens: 22 total (3 in / 19 out)'
+            'Tokens: 22 (86.4% out)'
         ])
     })
 
@@ -209,10 +202,9 @@ describe('buildMessageMetadataLabels', () => {
                 durationMs: 12.5
             }
         })).toEqual([
-            'Models: claude-opus-5, claude-haiku-4-5, claude-empty-5',
-            'Tokens: 24 (10 in · 14 out)',
-            'Cost: <$0.0001',
-            'Round: 0.0s'
+            'Time: 0.0s',
+            'Tokens: 24 (58.3% out)',
+            'Cost: <$0.0001'
         ])
     })
 })
@@ -230,10 +222,8 @@ describe('Codex cached input metadata', () => {
 
     it('uses cache-inclusive input without adding cached tokens again', () => {
         expect(labels(100, 80)).toEqual([
-            'Model: gpt-5.4',
-            'Tokens: 110 (100 in · 10 out)',
-            'Cached input: 80%',
-            'Round: 1 turn'
+            'Tokens: 110 (9.1% out)',
+            'Cached input: 80%'
         ])
     })
 
@@ -270,4 +260,15 @@ describe('Codex cached input metadata', () => {
         expect(labels(input, cached).some(label => label.startsWith('Cached input:'))).toBe(false)
         expect(labels(input, cached).join(' ')).not.toMatch(/NaN|Infinity/)
     })
+})
+
+it('shows the rounded round credit estimate in message details', () => {
+    expect(buildMessageMetadataLabels({ roundSummary: { provider: 'codex', modelUsage: {}, credits: 0.6991375 } }))
+        .toContain('Credits: 70')
+})
+
+it('puts round and credits first without repeating the model', () => {
+    expect(buildMessageMetadataLabels({ roundSummary: { provider: 'codex', modelUsage: { 'gpt-6.1-terra': {} },
+        usage: { input_tokens: 100, output_tokens: 10, service_tier: 'fast' }, durationMs: 3000, credits: 0.6991375 } }))
+        .toEqual(['Time: 3.0s', 'Credits: 70', 'Tokens: 110 (9.1% out)'])
 })

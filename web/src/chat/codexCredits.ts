@@ -23,5 +23,7 @@ export function estimateCodexCredits(model: string, tier: string, input: number,
 }
 
 export function formatCodexCredits(credits: number): string {
-    return credits > 0 && credits < 0.01 ? '<0.01' : credits.toFixed(2)
+    if (credits > 0 && credits < 1) return '1'
+    const step = credits < 50 ? 1 : credits < 100 ? 5 : credits < 250 ? 10 : credits < 1000 ? 50 : 100
+    return String(Math.round(credits / step) * step)
 }

@@ -29,6 +29,7 @@ export type RoundSummary = {
     usage?: UsageData
     modelUsage: Record<string, RoundModelUsage>
     totalCostUsd?: number
+    credits?: number
     numTurns?: number
     durationMs?: number
     workspaceChanges?: WorkspaceChanges
