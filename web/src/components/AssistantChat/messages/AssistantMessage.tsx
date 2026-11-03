@@ -23,6 +23,11 @@ import { ResponseChanges } from './ResponseChanges'
 import { imageDisplayCaption, isInlineImageMimeType } from '@/lib/generatedInlineMedia'
 import type { GeneratedImageBlock } from '@/chat/types'
 import { ArrowLeftIcon, ArrowRightIcon } from '@/components/icons'
+import { formatTokenDelta } from './SystemMessage'
+import { formatMessageTimestamp, formatMessageTimestampTitle } from '@/chat/presentation'
+import type { AgentEvent } from '@/chat/types'
+import { ToolStatusIcon, ToolTimingSummary, toolStatusColorClass } from '@/components/ToolCard/ToolCard'
+import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 
 const TOOL_COMPONENTS = {
     Fallback: HappyToolMessage
@@ -75,8 +80,38 @@ function ImageSequence({ children, indices }: PropsWithChildren<{ indices: numbe
     </MessageImageGallery>
 }
 
+type CompactionData = { event: AgentEvent; createdAt: number }
+
+function CompactionGroup({ indices, children }: PropsWithChildren<{ indices: number[] }>) {
+    const [open, setOpen] = useState(false)
+    const content = useAuiState((s) => s.message.content)
+    const parts = indices.map(index => content[index]).filter(part => part?.type === 'data' && part.name === 'compaction').map(part => (part as { data: CompactionData }).data)
+    const starts = parts.filter(({ event }) => event.type === 'message' && event.message === '📦 Compaction started')
+    const ends = parts.filter(({ event }) => event.type === 'compact-summary' || (event.type === 'message' && typeof event.message === 'string' && /^📦 (?:Compaction (?:completed|failed)|Compacted)/.test(event.message)))
+    const startedAt = starts.length === 1 ? starts[0].createdAt : null
+    const completedAt = ends.length === 1 ? ends[0].createdAt : null
+    const durationMs = startedAt !== null && completedAt !== null && completedAt >= startedAt ? completedAt - startedAt : null
+    return <section aria-label="Compaction" className="my-3 overflow-hidden rounded-[20px] bg-[var(--app-tool-group-bg)]">
+        <div className="p-3 pb-2.5">
+            <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} className="w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]">
+                <div className="flex flex-col gap-1.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <svg className={cn('h-4 w-4 shrink-0 text-[var(--app-tool-card-accent)] transition-transform duration-200', open && 'rotate-90')} viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                        <h3 className="min-w-0 truncate text-sm font-medium leading-tight text-[var(--app-fg)]">Compaction</h3>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-[var(--app-hint)]">
+                        <ToolTimingSummary startedAt={startedAt} completedAt={completedAt} durationMs={durationMs} typography="group" />
+                    </div>
+                </div>
+            </button>
+        </div>
+        {open ? <div className="flex flex-col gap-2 px-3 pb-3 pt-1">{children}</div> : null}
+    </section>
+}
+
 function ResponsePartsGroup({ groupKey, indices, children }: PropsWithChildren<{ groupKey: string | undefined; indices: number[] }>) {
     if (groupKey === 'image-sequence') return <div className="happy-response-images"><ImageSequence indices={indices}>{children}</ImageSequence></div>
+    if (groupKey === 'compaction') return <CompactionGroup indices={indices}>{children}</CompactionGroup>
     return groupKey === 'response-text'
         ? <div className="happy-assistant-bubble flex min-w-0 max-w-full flex-col gap-2">{children}</div>
         : <>{children}</>
@@ -92,7 +127,35 @@ function ResponseRecap({ data }: DataMessagePartProps<{ text: string }>) {
     )
 }
 
-const RECAP_COMPONENTS = { by_name: { recap: ResponseRecap } } as const
+function ResponseCompaction({ data }: DataMessagePartProps<CompactionData>) {
+    const [expanded, setExpanded] = useState(false)
+    const date = new Date(data.createdAt)
+    const event = data.event
+    const summary = event.type === 'compact-summary' && typeof event.summary === 'string' ? event.summary : ''
+    const label = event.type === 'compact-summary' ? 'Context compacted'
+        : event.type === 'message' && typeof event.message === 'string' ? event.message.replace(/^📦\s*/, '') : 'Compaction'
+    const failed = /^Compaction failed/.test(label)
+    const state = failed ? 'error' : 'completed'
+    const delta = formatTokenDelta(event)
+    const canExpand = summary.trim().length > 0
+    const Row = canExpand ? 'button' : 'div'
+    return <div data-hapi-compaction={event.type === 'compact-summary' ? 'summary' : 'status'}>
+        <Row type={canExpand ? 'button' : undefined} aria-expanded={canExpand ? expanded : undefined} onClick={canExpand ? () => setExpanded(value => !value) : undefined} className="flex w-full items-center gap-3 rounded-[16px] border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]">
+            <span className={cn('shrink-0', toolStatusColorClass(state))}><ToolStatusIcon state={state} /></span>
+            <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[var(--app-tool-card-accent)]">
+                <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" aria-hidden="true"><path d="M2.5 4.5 8 2l5.5 2.5v7L8 14l-5.5-2.5v-7ZM2.5 4.5 8 7l5.5-2.5M8 7v7" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></svg>
+            </span>
+            <span className="min-w-0 flex-1">
+                <span className="block break-words text-sm font-medium text-[var(--app-fg)]">{label}</span>
+                {delta ? <span className="block break-words text-xs text-[var(--app-tool-card-subtitle)]">{delta}</span> : null}
+            </span>
+            <time dateTime={date.toISOString()} title={formatMessageTimestampTitle(date)} className="shrink-0 font-mono text-xs text-[var(--app-hint)]">{formatMessageTimestamp(date)}</time>
+        </Row>
+        {canExpand && expanded ? <div className="max-h-96 overflow-y-auto px-3"><MarkdownRenderer standalone content={summary} /></div> : null}
+    </div>
+}
+
+const RECAP_COMPONENTS = { by_name: { recap: ResponseRecap, compaction: ResponseCompaction } } as const
 
 
 const MESSAGE_PART_COMPONENTS = {
@@ -104,8 +167,9 @@ const MESSAGE_PART_COMPONENTS = {
     Group: ResponsePartsGroup,
 } as const
 
-function DetailPartsGroup({ children }: PropsWithChildren) {
-    return <div className="flex min-w-0 flex-col gap-3">{children}</div>
+function DetailPartsGroup({ groupKey, indices, children }: PropsWithChildren<{ groupKey: string | undefined; indices: number[] }>) {
+    if (groupKey === 'compaction') return <CompactionGroup indices={indices}>{children}</CompactionGroup>
+    return <div className="my-3 flex min-w-0 flex-col gap-3">{children}</div>
 }
 
 const DETAIL_PART_COMPONENTS = {
@@ -162,7 +226,8 @@ export function HappyAssistantMessage() {
                 const artifact = part.type === 'tool-call' ? part.artifact as GeneratedImageBlock | undefined : undefined
                 const image = part.type === 'tool-call' && part.toolName === 'GeneratedImage'
                     && artifact?.kind === 'generated-image' && isInlineImageMimeType(artifact.mimeType)
-                const key = image ? 'image-sequence' : part.type === 'text' ? 'response-text' : undefined
+                const key = image ? 'image-sequence' : part.type === 'text' ? 'response-text'
+                    : part.type === 'data' && part.name === 'compaction' ? 'compaction' : undefined
                 const previous = groups.at(-1)
                 if (key && previous?.groupKey === key) {
                     previous.indices.push(index)
@@ -173,10 +238,18 @@ export function HappyAssistantMessage() {
         [compactParts, messageParts]
     )
     const detailPartsGrouping = useMemo(
-        () => () => compactParts
-            ? [{ groupKey: 'response-work', indices: compactParts.detailIndices }]
-            : [],
-        [compactParts]
+        () => () => {
+            const groups: { groupKey: string; indices: number[] }[] = []
+            for (const index of compactParts?.detailIndices ?? []) {
+                const part = messageParts[index]
+                const groupKey = part.type === 'data' && part.name === 'compaction' ? 'compaction' : 'response-work'
+                const previous = groups.at(-1)
+                if (previous?.groupKey === groupKey) previous.indices.push(index)
+                else groups.push({ groupKey, indices: [index] })
+            }
+            return groups
+        },
+        [compactParts, messageParts]
     )
     const elementId = getConversationMessageAnchorId(messageId)
     const isCliOutput = useAuiState((s) => {

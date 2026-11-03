@@ -13,7 +13,7 @@ import { renderEventLabel } from '@/chat/presentation'
 import type { ChatBlock, CliOutputBlock, CodexReview, RoundSummary, UsageData } from '@/chat/types'
 import type { AgentEvent, ToolCallBlock } from '@/chat/types'
 import type { ToolGroupBlock, VisibleChatBlock } from '@/chat/toolGroups'
-import { isInlineWorkEvent, visibleBlockRole } from '@/chat/toolGroups'
+import { isCompactionEvent, isInlineWorkEvent, visibleBlockRole } from '@/chat/toolGroups'
 import type { AttachmentMetadata, MessageStatus as HappyMessageStatus, Session } from '@/types/api'
 import { orderItemsById } from '@/lib/attachmentOrder'
 
@@ -608,6 +608,13 @@ export function toThreadMessageLike(
     }
 
     if (block.kind === 'agent-event') {
+        if (isCompactionEvent(block)) {
+            return {
+                role: 'assistant', id: threadMessageId, createdAt: new Date(timestamp),
+                content: [{ type: 'data', name: 'compaction', data: { event: block.event, createdAt: block.createdAt } }],
+                metadata: { custom: { kind: 'event', event: block.event } satisfies HappyChatMessageMetadata }
+            }
+        }
         if (block.event.type === 'recap' && block.event.flavor === 'codex') {
             return {
                 role: 'assistant',
@@ -629,25 +636,6 @@ export function toThreadMessageLike(
                 metadata: {
                     custom: {
                         kind: 'event',
-                        event: block.event,
-                        invokedAt: block.invokedAt,
-                        model: block.model
-                    } satisfies HappyChatMessageMetadata
-                }
-            }
-        }
-        // Pi compaction summaries carry a real payload; surface them as a
-        // dedicated system message so the chat can render an independent
-        // block instead of a small status line.
-        if (block.event.type === 'compact-summary' && typeof block.event.summary === 'string') {
-            return {
-                role: 'system',
-                id: threadMessageId,
-                createdAt: new Date(timestamp),
-                content: [{ type: 'text', text: block.event.summary }],
-                metadata: {
-                    custom: {
-                        kind: 'compact-summary',
                         event: block.event,
                         invokedAt: block.invokedAt,
                         model: block.model

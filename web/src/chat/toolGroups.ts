@@ -42,6 +42,14 @@ export type VisibleChatBlock = ChatBlock | ToolGroupBlock
 
 export type VisibleChatBlockRole = 'user' | 'assistant' | 'system'
 
+export function isCompactionEvent(block: VisibleChatBlock): boolean {
+    if (block.kind !== 'agent-event') return false
+    const event = block.event
+    return event.type === 'compact-summary'
+        || (event.type === 'message' && typeof event.message === 'string'
+            && /^📦 (?:Compaction (?:started|completed|failed)(?::|$)|Compacted(?:\s|$))/.test(event.message))
+}
+
 export function isInlineWorkEvent(block: VisibleChatBlock): boolean {
     return block.kind === 'agent-event'
         && ['title-changed', 'compact', 'microcompact'].includes(block.event.type)
@@ -59,7 +67,7 @@ export function visibleBlockRole(block: VisibleChatBlock): VisibleChatBlockRole 
     // surrounding assistant output into multiple cards and therefore multiple
     // Show work dialogs. Other lifecycle events remain standalone messages.
     if (block.kind === 'agent-event') {
-        return isInlineWorkEvent(block) || (block.event.type === 'recap' && block.event.flavor === 'codex')
+        return isInlineWorkEvent(block) || isCompactionEvent(block) || (block.event.type === 'recap' && block.event.flavor === 'codex')
             ? 'assistant' : 'system'
     }
     if (block.kind === 'cli-output') return block.source === 'user' ? 'user' : 'assistant'
