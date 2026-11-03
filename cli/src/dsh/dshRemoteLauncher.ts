@@ -220,7 +220,7 @@ export class DshRemoteLauncher extends RemoteLauncherBase {
                 this.messageBuffer.addMessage(message.text, 'assistant')
                 break
             case 'generated_image':
-                this.messageBuffer.addMessage(`Generated image: ${message.fileName}`, 'assistant')
+                this.messageBuffer.addMessage(`Attachment: ${message.fileName} (${message.mimeType})`, 'assistant')
                 break
             case 'error':
                 this.messageBuffer.addMessage(message.message, 'status')

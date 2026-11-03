@@ -226,7 +226,7 @@ export function HappyAssistantMessage() {
             for (const index of visibleIndices) {
                 const part = messageParts[index]
                 const artifact = part.type === 'tool-call' ? part.artifact as GeneratedImageBlock | undefined : undefined
-                const image = part.type === 'tool-call' && part.toolName === 'GeneratedImage'
+                const image = part.type === 'tool-call' && part.toolName === 'DisplayedAttachment'
                     && artifact?.kind === 'generated-image' && isInlineImageMimeType(artifact.mimeType)
                 const key = image ? 'image-sequence' : part.type === 'text' ? 'response-text' : part.type === 'reasoning' ? 'reasoning'
                     : part.type === 'data' && part.name === 'compaction' ? 'compaction' : undefined

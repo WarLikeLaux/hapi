@@ -41,7 +41,7 @@ export function shouldCompactResponse(
 }
 
 export function isAgentImageInspection(part: ThreadAssistantMessagePart): boolean {
-    if (part.type !== 'tool-call' || part.toolName !== 'GeneratedImage') return false
+    if (part.type !== 'tool-call' || part.toolName !== 'DisplayedAttachment') return false
     const block = part.artifact as GeneratedImageBlock | undefined
     return block?.kind === 'generated-image'
         && block.source?.ingress === 'tool_result'
@@ -49,7 +49,7 @@ export function isAgentImageInspection(part: ThreadAssistantMessagePart): boolea
 }
 
 function isResultArtifact(part: ThreadAssistantMessagePart): boolean {
-    return (part.type === 'tool-call' && part.toolName === 'GeneratedImage' && !isAgentImageInspection(part))
+    return (part.type === 'tool-call' && part.toolName === 'DisplayedAttachment' && !isAgentImageInspection(part))
         || (part.type === 'data' && part.name === 'recap')
 }
 

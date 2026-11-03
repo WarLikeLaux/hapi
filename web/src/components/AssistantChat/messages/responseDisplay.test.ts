@@ -71,7 +71,7 @@ describe('partitionCompletedResponseParts', () => {
     it('keeps generated media beside the final answer', () => {
         const parts = [
             { type: 'reasoning', text: 'Thinking' },
-            { type: 'tool-call', toolCallId: 'image-1', toolName: 'GeneratedImage', args: {}, argsText: '{}' },
+            { type: 'tool-call', toolCallId: 'image-1', toolName: 'DisplayedAttachment', args: {}, argsText: '{}' },
             { type: 'text', text: 'Done' },
         ] satisfies ThreadAssistantMessagePart[]
 

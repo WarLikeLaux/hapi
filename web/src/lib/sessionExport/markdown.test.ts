@@ -41,6 +41,20 @@ function makeExport(
 }
 
 describe('serializeSessionMarkdown', () => {
+    it('describes displayed image, HTML and ZIP attachments without claiming generation', () => {
+        const files = [['photo.png', 'image/png'], ['page.html', 'text/html'], ['archive.zip', 'application/zip']]
+        const markdown = serializeSessionMarkdown(makeExport(files.map(([fileName, mimeType], index) => ({
+            id: `media-${index}`, seq: index + 1, localId: null, createdAt: 1, invokedAt: 1, scheduledAt: null,
+            content: { role: 'agent' as const, content: { type: 'codex' as const, data: {
+                type: 'generated-image', imageId: `image-${index}`, fileName, mimeType
+            } } }
+        }))))
+
+        expect(markdown).toContain('- Image: photo.png (image/png)')
+        expect(markdown).toContain('- File: page.html (text/html)')
+        expect(markdown).toContain('- File: archive.zip (application/zip)')
+        expect(markdown).not.toContain('Generated image')
+    })
     it('serializes user and assistant messages from one export payload', () => {
         const markdown = serializeSessionMarkdown(makeExport([
             {
