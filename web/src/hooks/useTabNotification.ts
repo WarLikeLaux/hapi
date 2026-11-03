@@ -21,14 +21,14 @@ export function formatUnreadTitle(count: number): string {
     return count === 1 ? '1 new message' : `${count} new messages`
 }
 
-export function useTabNotification(unreadCount: number): void {
+export function useTabNotification(unreadCount: number, pageTitle = APP_TITLE): void {
     const isVisible = useDocumentVisibility()
     const phaseRef = useRef<number>(0)
 
     useEffect(() => {
         // When document is visible or there are no unread sessions/messages, keep the title and favicon default
         if (isVisible || unreadCount <= 0) {
-            document.title = APP_TITLE
+            document.title = pageTitle
             resetFavicon()
             phaseRef.current = 0
             return
@@ -44,7 +44,7 @@ export function useTabNotification(unreadCount: number): void {
                 document.title = alertTitle
                 setFavicon(alertIcon)
             } else {
-                document.title = APP_TITLE
+                document.title = pageTitle
                 resetFavicon()
             }
         }
@@ -60,5 +60,5 @@ export function useTabNotification(unreadCount: number): void {
             resetFavicon()
             phaseRef.current = 0
         }
-    }, [isVisible, unreadCount])
+    }, [isVisible, unreadCount, pageTitle])
 }

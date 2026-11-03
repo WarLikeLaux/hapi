@@ -241,7 +241,14 @@ function AppInner() {
         const unreadChatsCount = countUnreadConversations(externalConversationsQuery.data ?? [])
         return unreadSessionsCount + unreadChatsCount
     }, [api, token, idleAppSessions, lastSeenVersion, externalConversationsQuery.data])
-    useTabNotification(unreadCount)
+    const chatMatch = matchRoute({ to: '/chats/$conversationId' })
+        || matchRoute({ to: '/sessions/chats/$conversationId' })
+    const activeConversation = chatMatch && api && token
+        ? externalConversationsQuery.data?.find((conversation) => conversation.id === chatMatch.conversationId)
+        : undefined
+    const pageTitle = activeConversation?.provider === 'telegram' ? 'Telegram'
+        : activeConversation?.provider === 'yandex' ? 'Яндекс Телемост' : undefined
+    useTabNotification(unreadCount, pageTitle)
     const { isSupported: isPushSupported, permission: pushPermission, requestPermission, subscribe } = usePushNotifications(api)
 
     useEffect(() => {
