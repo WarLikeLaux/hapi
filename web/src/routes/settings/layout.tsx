@@ -1,5 +1,7 @@
+import { useCallback } from 'react'
 import { Outlet, useLocation, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from '@/lib/use-translation'
+import { useCloseChatOnEscape } from '@/hooks/useCloseChatOnEscape'
 import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { SettingsNav } from '@/components/settings/SettingsNav'
 import { getSettingsCategory } from './categories'
@@ -17,6 +19,14 @@ export default function SettingsLayout() {
     const goBack = useAppGoBack()
     const navigate = useNavigate()
     const pathname = useLocation({ select: (location) => location.pathname })
+    const back = useCallback(() => {
+        if (window.matchMedia('(min-width: 1024px)').matches) {
+            void navigate({ to: '/sessions' })
+        } else {
+            goBack()
+        }
+    }, [goBack, navigate])
+    useCloseChatOnEscape(true, back, false)
     const category = getSettingsCategory(pathname)
     const mobileTitleKey = pathname === '/settings/voice/voices'
         ? 'settings.voice.voice'

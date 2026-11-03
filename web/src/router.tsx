@@ -29,6 +29,7 @@ import { SessionChat } from '@/components/SessionChat'
 import { EmptyChat } from '@/components/EmptyChat'
 import { useCloseChatOnEscape } from '@/hooks/useCloseChatOnEscape'
 import { QuotaLimitsModal } from '@/components/QuotaLimitsModal'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { SessionList } from '@/components/SessionList'
 import { SessionComposer as NewSession } from '@/components/NewSession/SessionComposer'
 import { SidebarShowButton } from '@/components/SidebarToggle'
@@ -209,6 +210,7 @@ function SessionsPage() {
     const { sessions, isLoading, error, refetch } = useSessions(api)
     const [initializedHub, setInitializedHub] = useState<string | null>(null)
     const [limitsOpen, setLimitsOpen] = useState(false)
+    const [aboutOpen, setAboutOpen] = useState(false)
     const groupState = useSessionGroups(api)
     const groupRoute = matchRoute({ to: '/sessions/groups/$groupId', fuzzy: true })
     const sessionSearch = useSearch({ strict: false })
@@ -352,6 +354,17 @@ function SessionsPage() {
 
     return (
         <>
+            <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
+                <DialogContent className="flex max-h-[calc(100dvh-24px)] flex-col overflow-hidden">
+                    <DialogHeader>
+                        <DialogTitle>{t('settings.about.title')}</DialogTitle>
+                        <DialogDescription>{t('settings.about.description')}</DialogDescription>
+                    </DialogHeader>
+                    <div className="app-scroll-y min-h-0 overflow-y-auto">
+                        <SettingsAboutPage />
+                    </div>
+                </DialogContent>
+            </Dialog>
             <QuotaLimitsModal isOpen={limitsOpen} onClose={() => setLimitsOpen(false)} />
             <div className="flex h-full min-h-0">
             <div
@@ -397,7 +410,7 @@ function SessionsPage() {
                                 node: (
                                     <button
                                         type="button"
-                                        onClick={() => navigate({ to: '/settings/about' })}
+                                        onClick={() => setAboutOpen(true)}
                                         className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
                                         title={t('settings.about.title')}
                                     >

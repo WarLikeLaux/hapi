@@ -36,4 +36,23 @@ describe('closing a chat with Escape', () => {
         await Promise.resolve()
         expect(close).not.toHaveBeenCalled()
     })
+
+    it('allows settings to go back on phone while an overlay keeps priority', async () => {
+        vi.stubGlobal('matchMedia', () => ({ matches: false }))
+        const back = vi.fn()
+        renderHook(() => useCloseChatOnEscape(true, back, false))
+        const press = async () => {
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+            await Promise.resolve()
+        }
+        const dialog = document.createElement('div')
+        dialog.setAttribute('role', 'dialog')
+        document.body.append(dialog)
+        await press()
+        expect(back).not.toHaveBeenCalled()
+        dialog.remove()
+        await press()
+        expect(back).toHaveBeenCalledTimes(1)
+    })
+
 })
