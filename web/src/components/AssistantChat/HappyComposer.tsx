@@ -1,3 +1,4 @@
+import { useChatsComposerAutoFocus } from '@/hooks/useChatsComposerAutoFocus'
 import { CLAUDE_GLM_MODEL_ID, CLAUDE_GLM_MODEL_LABEL } from '@/components/NewSession/hardcodedModels'
 import {
     getCodexCollaborationModeOptions,
@@ -989,6 +990,12 @@ export function HappyComposer(props: {
         if (richMentionsEnabled) richInputRef.current?.focus()
         else textareaRef.current?.focus()
     }, [richMentionsEnabled])
+
+    const focusComposerForTyping = useCallback(() => {
+        if (richMentionsEnabled) richInputRef.current?.focus()
+        else textareaRef.current?.focus({ preventScroll: true })
+    }, [richMentionsEnabled])
+    useChatsComposerAutoFocus({ focusComposer: focusComposerForTyping, enabled: !controlsDisabled })
 
     const handleSuggestionSelect = useCallback((index: number) => {
         const suggestion = suggestions[index]

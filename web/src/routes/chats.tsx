@@ -1092,16 +1092,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
         if (document.activeElement === composer) composer.blur()
         composer.focus({ preventScroll: true })
     }, [editingMessage, cancelEditing])
-    // Window-level keydown → focus composer + insert character. Closure
-    // captures the latest `setText` on every render so the typed glyph is
-    // appended to the current draft instead of dropping the user's first
-    // keystroke.
-    useChatsComposerAutoFocus({
-        composerRef,
-        onInsertCharacter: (character) => {
-            if (!editPendingRef.current) setText((current) => current + character)
-        },
-    })
+    useChatsComposerAutoFocus({ composerRef, enabled: !editPendingRef.current })
     const conversation = conversations.data?.find((item) => item.id === conversationId)
     // The pane renders a loading placeholder until the conversations list
     // delivers this chat, so the message viewport does not exist yet. Scroll
