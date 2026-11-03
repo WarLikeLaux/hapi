@@ -48,6 +48,23 @@ function Transcript({ blocks, running = false }: { blocks: ChatBlock[]; running?
 }
 
 describe('Questions outside Show work', () => {
+    it('renders streaming reasoning in its own panel and preserves the formatted final answer', async () => {
+        const blocks: ChatBlock[] = [
+            { kind: 'agent-reasoning', id: 'reason', localId: null, createdAt: 1, text: 'Investigation **details**' },
+            tool('Read'),
+            prose('answer', 'Final **answer**'),
+        ]
+        const { rerender } = render(<Transcript blocks={blocks} running />)
+        expect(await screen.findByRole('button', { name: /Reasoning/ })).toBeVisible()
+        fireEvent.click(screen.getByRole('button', { name: /Reasoning/ }))
+        expect(screen.getByText('details').tagName).toBe('STRONG')
+        expect(screen.getByText('answer').tagName).toBe('STRONG')
+        rerender(<Transcript blocks={blocks} />)
+        expect(await screen.findByText('answer')).toBeVisible()
+        fireEvent.click(screen.getByRole('button', { name: /Show work/ }))
+        fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /Reasoning/ }))
+        expect(screen.getByText('details')).toBeVisible()
+    })
     it('keeps public prose through streaming, completion, a reply and history reopening without duplicating it in work', async () => {
         const blocks = [
             { kind: 'agent-reasoning', id: 'reason', localId: null, createdAt: 1, text: 'Private investigation' },

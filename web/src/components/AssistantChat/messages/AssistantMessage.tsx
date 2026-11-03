@@ -112,6 +112,7 @@ function CompactionGroup({ indices, children }: PropsWithChildren<{ indices: num
 function ResponsePartsGroup({ groupKey, indices, children }: PropsWithChildren<{ groupKey: string | undefined; indices: number[] }>) {
     if (groupKey === 'image-sequence') return <div className="happy-response-images"><ImageSequence indices={indices}>{children}</ImageSequence></div>
     if (groupKey === 'compaction') return <CompactionGroup indices={indices}>{children}</CompactionGroup>
+    if (groupKey === 'reasoning') return <ReasoningGroup startIndex={indices[0]} endIndex={indices.at(-1)}>{children}</ReasoningGroup>
     return groupKey === 'response-text'
         ? <div className="happy-assistant-bubble flex min-w-0 max-w-full flex-col gap-2">{children}</div>
         : <>{children}</>
@@ -169,6 +170,7 @@ const MESSAGE_PART_COMPONENTS = {
 
 function DetailPartsGroup({ groupKey, indices, children }: PropsWithChildren<{ groupKey: string | undefined; indices: number[] }>) {
     if (groupKey === 'compaction') return <CompactionGroup indices={indices}>{children}</CompactionGroup>
+    if (groupKey === 'reasoning') return <ReasoningGroup startIndex={indices[0]} endIndex={indices.at(-1)}>{children}</ReasoningGroup>
     return <div className="my-3 flex min-w-0 flex-col gap-3">{children}</div>
 }
 
@@ -226,7 +228,7 @@ export function HappyAssistantMessage() {
                 const artifact = part.type === 'tool-call' ? part.artifact as GeneratedImageBlock | undefined : undefined
                 const image = part.type === 'tool-call' && part.toolName === 'GeneratedImage'
                     && artifact?.kind === 'generated-image' && isInlineImageMimeType(artifact.mimeType)
-                const key = image ? 'image-sequence' : part.type === 'text' ? 'response-text'
+                const key = image ? 'image-sequence' : part.type === 'text' ? 'response-text' : part.type === 'reasoning' ? 'reasoning'
                     : part.type === 'data' && part.name === 'compaction' ? 'compaction' : undefined
                 const previous = groups.at(-1)
                 if (key && previous?.groupKey === key) {
@@ -242,7 +244,7 @@ export function HappyAssistantMessage() {
             const groups: { groupKey: string; indices: number[] }[] = []
             for (const index of compactParts?.detailIndices ?? []) {
                 const part = messageParts[index]
-                const groupKey = part.type === 'data' && part.name === 'compaction' ? 'compaction' : 'response-work'
+                const groupKey = part.type === 'data' && part.name === 'compaction' ? 'compaction' : part.type === 'reasoning' ? 'reasoning' : 'response-work'
                 const previous = groups.at(-1)
                 if (previous?.groupKey === groupKey) previous.indices.push(index)
                 else groups.push({ groupKey, indices: [index] })
