@@ -334,52 +334,38 @@ describe('markdown <A> component — fail-closed path-like hrefs (#1452)', () =>
         expect(document.querySelector('.aui-md-a-inert')).not.toBeNull()
     })
 
-    it('routes in-workspace absolute file href to FilePathAnchor when chat is present', () => {
+    it('renders an in-workspace absolute file as a relative reference', () => {
         renderA(
             { href: '/home/ada/coding/hapi/docs/a.md', children: 'abs' },
             chatContext()
         )
-        const link = document.querySelector('a')
-        expect(link).not.toBeNull()
-        expect(link!.getAttribute('href')).toContain('/sessions/session-1/file?')
-        expect(document.querySelector('.aui-md-a-inert')).toBeNull()
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('code')?.textContent).toBe('docs/a.md')
     })
 
-    it('keeps outside-workspace absolute file href inert even with chat present', () => {
+    it('renders outside-workspace absolute file paths in full', () => {
         renderA(
             { href: '/etc/passwd.sh', children: 'etc' },
             chatContext()
         )
         expect(document.querySelector('a')).toBeNull()
-        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('etc')
+        expect(document.querySelector('code')?.textContent).toBe('/etc/passwd.sh')
     })
 
-    it('keeps outside-workspace Windows absolute href inert despite drive colon looking like a scheme', () => {
-        renderA(
-            { href: 'D:/outside/secret.ts#L1', children: 'win' },
-            chatContext()
-        )
+    it('renders an outside-workspace file reference with its complete path', () => {
+        renderA({ href: 'D:/outside/secret.ts#L1', children: 'win' }, chatContext())
         expect(document.querySelector('a')).toBeNull()
-        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('win')
+        expect(document.querySelector('code')?.textContent).toBe('D:/outside/secret.ts:1')
     })
 
-    it('routes hapi-file-candidate Windows href through containment to FilePathAnchor', () => {
+    it('renders a Windows project file reference relative to its workspace', () => {
         const path = 'C:\\Users\\ada\\coding\\hapi\\docs\\a.md:19:3'
         renderA(
-            {
-                href: 'hapi-file-candidate:' + encodeURIComponent(path),
-                children: 'win',
-            },
-            chatContext({
-                metadata: { path: 'C:\\Users\\ada\\coding\\hapi', host: 'local' },
-            })
+            { href: 'hapi-file-candidate:' + encodeURIComponent(path), children: 'win' },
+            chatContext({ metadata: { path: 'C:\\Users\\ada\\coding\\hapi', host: 'local' } })
         )
-        const link = document.querySelector('a')
-        expect(link).not.toBeNull()
-        expect(link!.getAttribute('href')).toContain('/sessions/session-1/file?')
-        const href = new URL(link!.getAttribute('href')!, 'https://hapi.example')
-        expect(href.searchParams.get('line')).toBe('19')
-        expect(href.searchParams.get('column')).toBe('3')
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('code')?.textContent).toBe('docs\\a.md:19:3')
     })
 
     it('renders non-Windows hapi-file-candidate payloads as inert (no SPA navigate bypass)', () => {
@@ -412,28 +398,27 @@ describe('markdown <A> component — fail-closed path-like hrefs (#1452)', () =>
         expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('enc')
     })
 
-    it('treats percent-encoded backslash Windows href as inert when outside workspace', () => {
+    it('decodes an outside-workspace Windows path', () => {
         renderA(
             { href: 'D:%5Coutside%5Csecret.ts', children: 'win' },
             chatContext()
         )
         expect(document.querySelector('a')).toBeNull()
-        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('win')
+        expect(document.querySelector('code')?.textContent).toBe('D:\\outside\\secret.ts')
     })
 
-    it('expands ~/ and routes to FilePathAnchor when workspace metadata is present', () => {
+    it('expands ~/ and renders a relative reference', () => {
         renderA(
             { href: '~/coding/hapi/docs/a.md', children: 'tilde' },
             chatContext()
         )
-        const link = document.querySelector('a')
-        expect(link).not.toBeNull()
-        expect(link!.getAttribute('href')).toContain('/sessions/session-1/file?')
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('code')?.textContent).toBe('docs/a.md')
     })
 
-    it('keeps allowlisted relative file href as FilePathAnchor with chat', () => {
+    it('renders an allowlisted relative file reference in chat', () => {
         renderA({ href: 'docs/foo.md', children: 'rel' }, chatContext())
-        expect(document.querySelector('a')!.getAttribute('href')).toContain('/sessions/session-1/file?')
+        expect(document.querySelector('code')?.textContent).toBe('docs/foo.md')
     })
 
     it('still renders /settings as a real navigable link with chat present', () => {
