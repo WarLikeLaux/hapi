@@ -115,6 +115,22 @@ describe('useTabNotification hook', () => {
         expect(getFaviconHref()).toBe(DEFAULT_FAVICON)
     })
 
+    it('tracks the current page title across visibility and unread notifications', () => {
+        const { rerender } = renderHook(({ title }) => useTabNotification(1, title), { initialProps: { title: 'Telegram' } })
+        expect(document.title).toBe('Telegram')
+        rerender({ title: 'Яндекс Телемост' })
+        expect(document.title).toBe('Яндекс Телемост')
+        setVisibilityState('hidden')
+        act(() => document.dispatchEvent(new Event('visibilitychange')))
+        expect(document.title).toBe('1 new message')
+        act(() => vi.advanceTimersByTime(TAB_BLINK_INTERVAL_MS))
+        expect(document.title).toBe('Яндекс Телемост')
+        setVisibilityState('visible')
+        act(() => document.dispatchEvent(new Event('visibilitychange')))
+        rerender({ title: APP_TITLE })
+        expect(document.title).toBe(APP_TITLE)
+    })
+
     it('resets title and favicon on unmount', () => {
         setVisibilityState('hidden')
         const { unmount } = renderHook(() => useTabNotification(4))
