@@ -31,9 +31,10 @@ import {
     decodeFilePathCandidateReferenceHref,
     decodeFilePathReferenceHref,
     formatFilePathReference,
+    parseFilePathReference,
     remarkFilePathLinks,
 } from '@/lib/remark-file-path-links'
-import { classifyNoSchemeHref, resolveMarkdownRelativePath } from '@/lib/markdown-href-policy'
+import { classifyNoSchemeHref, hasKnownFileExtension, isWithinWorkspace, resolveLexicalPath, resolveMarkdownRelativePath } from '@/lib/markdown-href-policy'
 import { useQuery } from '@tanstack/react-query'
 import { useAppContext } from '@/lib/app-context'
 import { queryKeys } from '@/lib/query-keys'
@@ -612,6 +613,15 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & {
     )
 }
 
+function FileReferenceCode({ reference, workspace }: { reference: { path: string; line?: number; column?: number }; workspace?: string | null }) {
+    const normalizedPath = resolveLexicalPath(reference.path)
+    const normalizedWorkspace = workspace && resolveLexicalPath(workspace)
+    const relativePath = normalizedPath && normalizedWorkspace && isWithinWorkspace(normalizedPath, normalizedWorkspace)
+        ? normalizedPath.slice(normalizedWorkspace.replace(/[\\/]+$/, '').length).replace(/^[\\/]+/, '')
+        : reference.path
+    return <InlineCode>{formatFilePathReference({ ...reference, path: relativePath || reference.path })}</InlineCode>
+}
+
 function SessionPathAnchor(props: ComponentPropsWithoutRef<'a'> & { targetSessionId: string }) {
     const { targetSessionId, ...anchorProps } = props
     // Preserve Vite BASE_URL for opening the route in a new tab.
@@ -701,15 +711,7 @@ function MarkdownAnchor(props: ComponentPropsWithoutRef<'a'>) {
         if (!chat) {
             return <>{props.children}</>
         }
-        return (
-            <FilePathAnchor
-                {...props}
-                filePath={fileReference.path}
-                line={fileReference.line}
-                column={fileReference.column}
-                sessionId={chat.sessionId}
-            />
-        )
+        return <FileReferenceCode reference={fileReference} workspace={chat.metadata?.path} />
     }
 
     if (targetSessionId) {
@@ -770,15 +772,15 @@ function MarkdownAnchor(props: ComponentPropsWithoutRef<'a'>) {
             if (!chat) {
                 return <InertMarkdownHref href={href ?? windowsPathFromHref ?? ''} className={props.className}>{props.children}</InertMarkdownHref>
             }
-            return (
-                <FilePathAnchor
-                    {...props}
-                    filePath={decision.path}
-                    line={decision.line}
-                    column={decision.column}
-                    sessionId={chat.sessionId}
-                />
-            )
+            return <FileReferenceCode reference={decision} workspace={chat.metadata?.path} />
+        }
+        if (decision.action === 'inert' && chat) {
+            let raw = windowsPathFromHref ?? href ?? ''
+            try { raw = decodeURIComponent(raw) } catch { /* leave malformed href inert */ }
+            const reference = parseFilePathReference(raw)
+            if (/^(?:\/|[A-Za-z]:[\\/])/.test(reference.path) && hasKnownFileExtension(reference.path)) {
+                return <InlineCode>{formatFilePathReference(reference)}</InlineCode>
+            }
         }
         if (decision.action === 'inert') {
             return <InertMarkdownHref href={href ?? windowsPathFromHref ?? ''} className={props.className}>{props.children}</InertMarkdownHref>
