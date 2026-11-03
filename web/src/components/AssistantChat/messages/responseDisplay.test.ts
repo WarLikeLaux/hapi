@@ -45,6 +45,15 @@ describe('shouldCompactResponse', () => {
 })
 
 describe('partitionCompletedResponseParts', () => {
+    it('places compaction information in Show work in its original order', () => {
+        const parts = [
+            { type: 'text', text: 'Before' },
+            { type: 'data', name: 'compaction', data: { event: { type: 'message', message: '📦 Compaction started' } } },
+            { type: 'reasoning', text: 'Working' },
+            { type: 'text', text: 'After' },
+        ] satisfies ThreadAssistantMessagePart[]
+        expect(partitionCompletedResponseParts(parts)).toEqual({ visibleIndices: [0, 3], detailIndices: [1, 2] })
+    })
     it('keeps public prose in the chat and folds internal work', () => {
         const parts = [
             { type: 'reasoning', text: 'Thinking' },

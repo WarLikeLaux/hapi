@@ -591,6 +591,20 @@ describe('aggregateResponseGroups', () => {
         })
     })
 
+    it('keeps compaction status and summary in the response without changing their order', () => {
+        const blocks: VisibleChatBlock[] = [
+            agentText('before', { text: 'Before' }),
+            agentEvent('start', { type: 'message', message: '📦 Compaction started' }),
+            agentEvent('summary', { type: 'compact-summary', summary: 'Saved context', tokensBefore: 100, tokensAfter: 20 }),
+            agentText('after', { text: 'After' }),
+        ]
+        expect(aggregateResponseGroups(blocks).has('after')).toBe(false)
+        const messages = blocks.map((block, index) => toThreadMessageLike(block, String(index), index))
+        expect(messages.map(message => message.role)).toEqual(['assistant', 'assistant', 'assistant', 'assistant'])
+        expect(messages[1]?.content).toMatchObject([{ type: 'data', name: 'compaction', data: { event: { message: '📦 Compaction started' } } }])
+        expect(messages[2]?.content).toMatchObject([{ type: 'data', name: 'compaction', data: { event: { summary: 'Saved context', tokensBefore: 100, tokensAfter: 20 } } }])
+    })
+
     it('does not aggregate user-role cli-output blocks (they do not belong to a response group)', () => {
         // Defensive: a cli-output with source='user' is rendered as a user
         // role message by the converter, so it must not be folded into an
