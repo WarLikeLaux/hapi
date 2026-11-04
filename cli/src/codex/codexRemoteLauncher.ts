@@ -3207,7 +3207,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     });
                     if (!image) return;
 
-                    messageBuffer.addMessage(`Generated image: ${image.fileName}`, 'assistant');
+                    messageBuffer.addMessage(`Attachment: ${image.fileName} (${image.mimeType})`, 'assistant');
                     sendRootMessage({
                         type: 'generated-image',
                         imageId: image.id,

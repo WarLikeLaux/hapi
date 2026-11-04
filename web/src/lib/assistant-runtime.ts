@@ -556,7 +556,7 @@ export function toThreadMessageLike(
             content: [{
                 type: 'tool-call',
                 toolCallId: block.id,
-                toolName: 'GeneratedImage',
+                toolName: 'DisplayedAttachment',
                 argsText: '',
                 artifact: block
             }],

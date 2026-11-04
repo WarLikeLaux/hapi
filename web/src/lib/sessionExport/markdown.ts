@@ -91,8 +91,12 @@ function formatAgentContentBlock(block: NormalizedAgentContent): string | null {
             const content = safeStringify(block.content).trim()
             return content ? `- ${label}: ${truncate(content.replace(/\s+/g, ' '), 240)}` : `- ${label}`
         }
-        case 'generated-image':
-            return `- Generated image: ${block.fileName}`
+        case 'generated-image': {
+            const kind = block.mimeType?.startsWith('image/') ? 'Image'
+                : block.mimeType?.startsWith('video/') ? 'Video'
+                    : block.mimeType?.startsWith('audio/') ? 'Audio' : 'File'
+            return `- ${kind}: ${block.fileName}${block.mimeType ? ` (${block.mimeType})` : ''}`
+        }
         case 'codex-review':
             return `- Codex review: ${block.review.overallCorrectness ?? 'review'} (${block.review.findings.length} findings)`
         case 'summary':
