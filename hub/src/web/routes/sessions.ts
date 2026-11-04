@@ -932,6 +932,22 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.put('/sessions/:id/mute', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const session = requireSessionFromParam(c, engine)
+        if (session instanceof Response) return session
+        const parsed = z.object({ muted: z.boolean() }).safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid body' }, 400)
+        try {
+            await engine.setSessionMuted(session.sessionId, parsed.data.muted)
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to update mute'
+            return c.json({ error: message }, message.includes('concurrently') ? 409 : 500)
+        }
+    })
+
     app.patch('/sessions/:id', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {

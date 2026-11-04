@@ -81,12 +81,20 @@ export function SessionItemActions(props: {
     const cursorReopenUnverifiedHint = cursorReopenGate.probeUnverified
         ? t('session.action.reopenCursorUnverified')
             : undefined
-    const { archiveSession, parkSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, deleteSession, setPinMode, isPending } = useSessionActions(
+    const { archiveSession, parkSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, deleteSession, setMuted, setPinMode, isPending } = useSessionActions(
         api,
         s.id,
         s.metadata?.flavor ?? null
     )
     const [reopenError, setReopenError] = useState<string | null>(null)
+
+    const handleSetMuted = async (muted: boolean) => {
+        try {
+            await setMuted(muted)
+        } catch (error) {
+            addToast({ title: t('session.action.muteFailed'), body: error instanceof Error ? error.message : t('dialog.error.default'), sessionId: s.id, url: `/sessions/${s.id}` })
+        }
+    }
 
     const handleSetPinMode = async (mode: 'none' | 'project' | 'global') => {
         try {
@@ -196,6 +204,8 @@ export function SessionItemActions(props: {
             sessionTitle={sessionName}
             sessionActive={s.active}
             sessionLifecycleState={s.metadata?.lifecycleState}
+            sessionMuted={Boolean(s.metadata?.muted)}
+            onSetMuted={api ? (muted) => void handleSetMuted(muted) : undefined}
             sessionPinned={Boolean(s.pinned)}
             sessionGlobalPinned={Boolean(s.globalPinned)}
             currentContext={props.currentContext}

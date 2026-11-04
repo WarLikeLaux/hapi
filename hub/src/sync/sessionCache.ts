@@ -1318,6 +1318,21 @@ export class SessionCache {
         throw new Error('Session was modified concurrently. Please try again.')
     }
 
+    async setSessionMuted(sessionId: string, muted: boolean): Promise<void> {
+        for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
+            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            if (!session) throw new Error('Session not found')
+            const result = this.store.sessions.updateSessionMetadata(
+                sessionId, { ...(session.metadata ?? { path: '', host: '' }), muted },
+                session.metadataVersion, session.namespace, { touchUpdatedAt: false }
+            )
+            if (result.result === 'error') throw new Error('Failed to update session metadata')
+            this.refreshSession(sessionId)
+            if (result.result === 'success') return
+        }
+        throw new Error('Session was modified concurrently. Please try again.')
+    }
+
     async renameSession(sessionId: string, name: string): Promise<void> {
         // tiann/hapi#919: retry-with-refresh on version-mismatch instead of
         // throwing on the first contention. Mirrors the good pattern in

@@ -320,9 +320,8 @@ export function SessionHeader(props: {
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [isSyncingCodex, setIsSyncingCodex] = useState(false)
     const [isSyncingPi, setIsSyncingPi] = useState(false)
-    const [isRegeneratingTitle, setIsRegeneratingTitle] = useState(false)
 
-    const { archiveSession, parkSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, setPinMode, deleteSession, isPending: isActionPending } = useSessionActions(
+    const { archiveSession, parkSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, setMuted, setPinMode, deleteSession, isPending: isActionPending } = useSessionActions(
         api,
         session.id,
         session.metadata?.flavor ?? null
@@ -330,6 +329,14 @@ export function SessionHeader(props: {
     const isArchiving = useIsMutating({ mutationKey: sessionArchiveMutationKey(session.id), exact: true }) > 0
     const isPending = isActionPending || isArchiving
     const [reopenError, setReopenError] = useState<string | null>(null)
+
+    const handleSetMuted = async (muted: boolean) => {
+        try {
+            await setMuted(muted)
+        } catch (error) {
+            addToast({ title: t('session.action.muteFailed'), body: error instanceof Error ? error.message : t('dialog.error.default'), sessionId: session.id, url: `/sessions/${session.id}` })
+        }
+    }
 
     const handleSetPinMode = async (mode: 'none' | 'project' | 'global') => {
         try {
@@ -344,28 +351,6 @@ export function SessionHeader(props: {
         }
     }
 
-    const handleRegenerateTitle = async () => {
-        if (!api || isRegeneratingTitle) return
-        setIsRegeneratingTitle(true)
-        try {
-            await api.regenerateSessionTitle(session.id)
-            addToast({
-                title: t('session.action.regenerateTitleQueued'),
-                body: t('session.action.regenerateTitleQueuedBody'),
-                sessionId: session.id,
-                url: `/sessions/${session.id}`
-            })
-        } catch (error) {
-            addToast({
-                title: t('session.action.regenerateTitleFailed'),
-                body: error instanceof Error ? error.message : t('dialog.error.default'),
-                sessionId: session.id,
-                url: `/sessions/${session.id}`
-            })
-        } finally {
-            setIsRegeneratingTitle(false)
-        }
-    }
     // tiann/hapi#893: surface the scratchlist entry count in the
     // delete-confirm copy so the operator knows what cascades when they
     // confirm. Read-only hook reuses the cache filled by SessionChat -
@@ -719,12 +704,11 @@ export function SessionHeader(props: {
                 sessionTitle={title}
                 sessionActive={session.active}
                 sessionLifecycleState={session.metadata?.lifecycleState}
+                sessionMuted={Boolean(session.metadata?.muted)}
+                onSetMuted={api ? (muted) => void handleSetMuted(muted) : undefined}
                 sessionPinned={Boolean(session.pinned)}
                 sessionGlobalPinned={Boolean(session.globalPinned)}
                 onRename={() => setRenameOpen(true)}
-                onRegenerateTitle={api && session.active && agentFlavor === 'codex' && !isRegeneratingTitle
-                    ? () => void handleRegenerateTitle()
-                    : undefined}
                 onMarkUnread={() => markSessionUnread(session.id, session.readState)}
                 onSetPinMode={api ? (mode) => void handleSetPinMode(mode) : undefined}
                 onExport={() => setExportOpen(true)}

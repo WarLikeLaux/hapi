@@ -178,38 +178,6 @@ describe('SessionHeader', () => {
         expect(sendMessage).not.toHaveBeenCalled()
     })
 
-    it('queues Codex title regeneration from the session menu', async () => {
-        const regenerateSessionTitle = vi.fn().mockResolvedValue(undefined)
-        const api = {
-            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
-            getScratchlist: vi.fn().mockResolvedValue({ entries: [] }),
-            regenerateSessionTitle
-        } as unknown as ApiClient
-
-        render(
-            <AppContextTestProvider>
-            <QueryClientProvider client={new QueryClient()}>
-                <ToastProvider>
-                    <I18nProvider>
-                        <SessionHeader
-                            session={baseSession()}
-                            onBack={vi.fn()}
-                            api={api}
-                        />
-                        <ToastMessages />
-                    </I18nProvider>
-                </ToastProvider>
-            </QueryClientProvider>
-            </AppContextTestProvider>
-        )
-
-        fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Regenerate title' }))
-
-        await waitFor(() => expect(regenerateSessionTitle).toHaveBeenCalledWith('session-1'))
-        expect(await screen.findByText(/Title regeneration queued/)).toBeInTheDocument()
-    })
-
     it('does not offer manual Codex sync while the HAPI session is active', () => {
         const api = {
             getMachines: vi.fn().mockResolvedValue({ machines: [] }),
