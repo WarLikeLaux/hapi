@@ -385,6 +385,26 @@ describe('responsive settings pages', () => {
         expect(await screen.findByRole('button', { name: 'Update app' })).toBeInTheDocument()
     })
 
+    it('keeps the result illustration stable while checking again', async () => {
+        let finishInitial!: (response: unknown) => void
+        let finishRetry!: (response: unknown) => void
+        vi.stubGlobal('fetch', vi.fn()
+            .mockImplementationOnce(() => new Promise(resolve => { finishInitial = resolve }))
+            .mockImplementationOnce(() => new Promise(resolve => { finishRetry = resolve })))
+        const { container } = renderPage(<SettingsAboutPage />)
+        expect(container.querySelector('img')).toBeNull()
+        finishInitial({ ok: true, json: async () => ({ buildId: __BUILD_ID__ }) })
+        expect(await screen.findByText('You are using the deployed version.')).toBeInTheDocument()
+        const image = container.querySelector('img')!
+        const resultImage = image.getAttribute('src')
+        fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+        expect(screen.getByText(/Checking for a newer deployed version/)).toBeInTheDocument()
+        expect(image.getAttribute('src')).toBe(resultImage)
+        finishRetry({ ok: true, json: async () => ({ buildId: 'different-deployment' }) })
+        expect(await screen.findByRole('button', { name: 'Update app' })).toBeInTheDocument()
+        expect(image.getAttribute('src')).not.toBe(resultImage)
+    })
+
     it('reports an unavailable deployment check instead of claiming to be current', async () => {
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
         renderPage(<SettingsAboutPage />)

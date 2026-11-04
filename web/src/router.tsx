@@ -87,7 +87,7 @@ import SettingsVoicePage from '@/routes/settings/voice'
 import SettingsVoiceVoicesPage from '@/routes/settings/voice-voices'
 import SettingsVoiceAdvancedPage from '@/routes/settings/voice-advanced'
 import SettingsMachinesPage from '@/routes/settings/machines'
-import SettingsAboutPage from '@/routes/settings/about'
+import SettingsAboutPage, { prepareAbout, type UpdateResult } from '@/routes/settings/about'
 import SettingsStoragePage from '@/routes/settings/storage'
 import SettingsUsagePage from '@/routes/settings/usage'
 import SettingsLimitsPage from '@/routes/settings/limits'
@@ -211,6 +211,28 @@ function SessionsPage() {
     const [initializedHub, setInitializedHub] = useState<string | null>(null)
     const [limitsOpen, setLimitsOpen] = useState(false)
     const [aboutOpen, setAboutOpen] = useState(false)
+    const [aboutPreparing, setAboutPreparing] = useState(false)
+    const [aboutResult, setAboutResult] = useState<UpdateResult>('unavailable')
+    const aboutPreparation = useRef<{ promise: Promise<UpdateResult>, startedAt: number } | null>(null)
+    const prepareAboutDialog = () => {
+        const preparation = { promise: prepareAbout(), startedAt: Date.now() }
+        aboutPreparation.current = preparation
+        return preparation.promise
+    }
+    useEffect(() => { void prepareAboutDialog() }, [])
+    const openAbout = async () => {
+        if (aboutPreparing) return
+        setAboutPreparing(true)
+        const prepared = aboutPreparation.current
+        const result = await (prepared && Date.now() - prepared.startedAt < 30_000 ? prepared.promise : prepareAboutDialog())
+        setAboutResult(result)
+        setAboutPreparing(false)
+        setAboutOpen(true)
+    }
+    const changeAboutOpen = (open: boolean) => {
+        setAboutOpen(open)
+        if (!open) void prepareAboutDialog()
+    }
     const groupState = useSessionGroups(api)
     const groupRoute = matchRoute({ to: '/sessions/groups/$groupId', fuzzy: true })
     const sessionSearch = useSearch({ strict: false })
@@ -354,14 +376,14 @@ function SessionsPage() {
 
     return (
         <>
-            <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
+            <Dialog open={aboutOpen} onOpenChange={changeAboutOpen}>
                 <DialogContent className="flex max-h-[calc(100dvh-24px)] flex-col overflow-hidden">
                     <DialogHeader>
                         <DialogTitle>{t('settings.about.title')}</DialogTitle>
                         <DialogDescription>{t('settings.about.description')}</DialogDescription>
                     </DialogHeader>
                     <div className="app-scroll-y min-h-0 overflow-y-auto">
-                        <SettingsAboutPage />
+                        <SettingsAboutPage initialUpdateResult={aboutResult} />
                     </div>
                 </DialogContent>
             </Dialog>
@@ -410,7 +432,8 @@ function SessionsPage() {
                                 node: (
                                     <button
                                         type="button"
-                                        onClick={() => setAboutOpen(true)}
+                                        onClick={() => void openAbout()}
+                                        disabled={aboutPreparing}
                                         className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
                                         title={t('settings.about.title')}
                                     >
