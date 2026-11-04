@@ -5,7 +5,7 @@ import { ApiError, type ApiClient } from '@/api/client'
 import type { CodexCollaborationMode, CopilotAgentMode, PermissionMode, SessionResponse, SessionsResponse } from '@/types/api'
 import type { ReopenSessionResponse } from '@hapi/protocol/apiTypes'
 import { queryKeys } from '@/lib/query-keys'
-import { clearMessageWindow } from '@/lib/message-window-store'
+import { clearMessageWindow, resumeMessageWindowCache, stopMessageWindowCache } from '@/lib/message-window-store'
 import { isKnownFlavor } from '@hapi/protocol'
 
 export const sessionModelMutationKey = (sessionId: string) => ['session-model', sessionId] as const
@@ -99,7 +99,10 @@ export function useSessionActions(
             }
             await api.archiveSession(sessionId)
         },
-        onSuccess: () => void invalidateSession(),
+        onSuccess: () => {
+            if (sessionId) stopMessageWindowCache(sessionId)
+            void invalidateSession()
+        },
     })
 
     const parkMutation = useMutation({
@@ -120,6 +123,7 @@ export function useSessionActions(
             return await api.reopenSession(sessionId)
         },
         onSuccess: (result) => {
+            resumeMessageWindowCache(result.sessionId)
             void (async () => {
                 // When reopen merges into a different id, the source detail may
                 // already be gone. Invalidating it while still on the source

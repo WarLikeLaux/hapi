@@ -1,3 +1,4 @@
+import { saveLaunchReceipt } from '@/lib/sessionStorageCache'
 import { useProjectPreferences } from '@/hooks/useProjectPreferences'
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -194,7 +195,7 @@ function BatchComposer(props: Props & {
         if (retry) {
             const snapshot = { ...compositionRef.current, cards: compositionRef.current.cards.map(item => item.id === card.id
                 ? { ...item, launch: { ...request, input }, result: { state: 'indeterminate' as const } } : item) }
-            try { sessionStorage.setItem(storageKey, serializeComposition(snapshot)) }
+            try { saveLaunchReceipt(sessionStorage, storageKey, serializeComposition(snapshot)) }
             catch { setError(t('batch.launchSaveFailed')); return }
             compositionRef.current = snapshot
             setComposition(snapshot)
@@ -255,8 +256,8 @@ function BatchComposer(props: Props & {
             // Save every request identity synchronously before the first network dispatch.
             // A response or page can be lost before React has flushed its persistence effect.
             const snapshot = { ...composition, cards }
-            try { sessionStorage.setItem(storageKey, serializeComposition(snapshot)) }
-            catch { throw new Error(t(cards.some(card => card.initialImages?.length) ? 'newSession.imagesSaveFailed' : 'batch.launchSaveFailed')) }
+            try { saveLaunchReceipt(sessionStorage, storageKey, serializeComposition(snapshot)) }
+            catch { throw new Error(t('batch.launchSaveFailed')) }
             compositionRef.current = snapshot
             setComposition(snapshot)
             setExpanded('')

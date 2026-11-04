@@ -40,6 +40,17 @@ export function installScrollRestorationGuard(
     const originalSetItem = storage.setItem
 
     const wrappedSetItem = (key: string, value: string): void => {
+        // The router retains its full history in memory. Bound every persisted
+        // write, not just writes that already exceed the tab quota.
+        if (key === STORAGE_KEY) {
+            try {
+                const parsed = JSON.parse(value) as Record<string, unknown>
+                const keys = Object.keys(parsed)
+                if (keys.length > TARGET_ENTRIES_AFTER_PRUNE) {
+                    value = JSON.stringify(Object.fromEntries(keys.slice(-TARGET_ENTRIES_AFTER_PRUNE).map(k => [k, parsed[k]])))
+                }
+            } catch { /* Keep the existing error recovery below. */ }
+        }
         try {
             originalSetItem.call(storage, key, value)
             return

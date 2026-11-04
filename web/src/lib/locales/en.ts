@@ -54,7 +54,7 @@ export default {
   'batch.chatPrompt': 'Prompt for this chat (optional)',
   'batch.groupHint': 'Leave empty unless you want to create a new group.',
   'batch.addAnother': 'Add another chat',
-  'batch.launchSaveFailed': 'Could not save the launch request in this tab. Free browser storage and try again. No chats were launched by this action.',
+  'batch.launchSaveFailed': 'Could not save the launch request in this tab. No chats were launched by this action. Copy your prompt, then free browser storage or reload this tab and try again.',
   'batch.draftSaveFailed': 'Could not save the form before browsing. Enter a directory here to keep your chat settings.',
   'batch.launchSettings': 'Launch settings',
   'batch.emptyOwnHint': 'Leave empty to use the shared prompt.',

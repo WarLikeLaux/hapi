@@ -664,6 +664,30 @@ describe('NewSession launch preferences', () => {
         expect(launch.mock.calls[1][1]).toEqual(launch.mock.calls[0][1])
     })
 
+    it('launches after a long tab fills storage with recoverable chat snapshots', async () => {
+        const launch = vi.fn().mockResolvedValueOnce({ state: 'indeterminate' })
+            .mockResolvedValueOnce({ state: 'succeeded', sessionId: 'recovered-chat' })
+        const view = await renderComposer(launch)
+        const prompt = 'x'.repeat(80000)
+        fireEvent.change(screen.getByRole('textbox', { name: 'newSession.initialPrompt' }), { target: { value: prompt } })
+        // Fill the browser's real storage quota with old, server-backed snapshots.
+        const snapshot = JSON.stringify({ messages: [{ id: 'server', content: 'x'.repeat(100000) }] })
+        for (let i = 0; i < 49; i++) sessionStorage.setItem(`hapi:message-window:v3:old-${i}`, snapshot)
+        sessionStorage.setItem('hapi:composer-drafts', '{"another-chat":"keep me"}')
+        sessionStorage.setItem('hapi:message-window:v3:pending', JSON.stringify({ messages: [{ id: 'local', localId: 'local' }] }))
+        await waitFor(() => expect(screen.getByTestId('create')).toBeEnabled())
+        fireEvent.click(screen.getByTestId('create'))
+        await screen.findByText('batch.indeterminate')
+        expect(launch).toHaveBeenCalledTimes(1)
+        expect(sessionStorage.getItem('hapi:composer-drafts')).toBe('{"another-chat":"keep me"}')
+        expect(sessionStorage.getItem('hapi:message-window:v3:pending')).not.toBeNull()
+        view.unmount()
+        await renderComposer(launch)
+        fireEvent.click(screen.getByRole('button', { name: 'batch.checkResult' }))
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('recovered-chat', true))
+        expect(launch.mock.calls[1][1].requestId).toBe(launch.mock.calls[0][1].requestId)
+    })
+
     it('passes mute from the creation form to the new session', async () => {
         mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'muted-chat' })
         await renderComposer(vi.fn())

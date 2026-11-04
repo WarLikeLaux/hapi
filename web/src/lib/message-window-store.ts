@@ -1,3 +1,4 @@
+import { disposableMessageWindow, trimSessionCaches } from './sessionStorageCache'
 import { getReasoningStreamId } from '@hapi/protocol/messages'
 import type { ApiClient } from '@/api/client'
 import { normalizeDecryptedMessage } from '@/chat/normalize'
@@ -115,6 +116,7 @@ const messageCharacterSizes = new WeakMap<DecryptedMessage, number>()
 const STORAGE_KEY_PREFIX = 'hapi:message-window:v3:'
 const pendingNotifySessionIds = new Set<string>()
 const pendingPersistSessionIds = new Set<string>()
+const stoppedCacheSessionIds = new Set<string>()
 const normalizedMessageCache = new WeakMap<DecryptedMessage, ReturnType<typeof normalizeDecryptedMessage>>()
 let notifyRafId: ReturnType<typeof requestAnimationFrame> | null = null
 let notifyTimerId: ReturnType<typeof setTimeout> | null = null
@@ -214,7 +216,13 @@ function persistState(sessionId: string, state: InternalState): void {
             newestPositionSeq: tail.newestPositionSeq,
             epoch: tail.epoch
         }
-        sessionStorage.setItem(getStorageKey(sessionId), JSON.stringify(persisted))
+        const serialized = JSON.stringify(persisted)
+        if (stoppedCacheSessionIds.has(sessionId) && disposableMessageWindow(serialized)) {
+            sessionStorage.removeItem(getStorageKey(sessionId))
+            return
+        }
+        sessionStorage.setItem(getStorageKey(sessionId), serialized)
+        trimSessionCaches(sessionStorage, undefined, getStorageKey(sessionId))
     } catch {
     }
 }
@@ -1551,7 +1559,21 @@ export function subscribeMessageWindow(sessionId: string, listener: () => void):
     }
 }
 
+export function stopMessageWindowCache(sessionId: string): void {
+    stoppedCacheSessionIds.add(sessionId)
+    try {
+        const key = getStorageKey(sessionId)
+        const raw = sessionStorage.getItem(key)
+        if (raw && disposableMessageWindow(raw)) sessionStorage.removeItem(key)
+    } catch { /* Storage may be unavailable. */ }
+}
+
+export function resumeMessageWindowCache(sessionId: string): void {
+    stoppedCacheSessionIds.delete(sessionId)
+}
+
 export function clearMessageWindow(sessionId: string): void {
+    stoppedCacheSessionIds.delete(sessionId)
     tailSyncControllers.delete(sessionId)
     clearPersistedState(sessionId)
     const previous = states.get(sessionId)
