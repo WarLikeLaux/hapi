@@ -165,7 +165,7 @@ export function SessionGroupActions(props: {
                 if (event.key === 'Tab') closeMenu()
             }}>
             <div className={ACTION_MENU_HEADING_CLASS}>{t('session.more')}</div>
-            {item(t('groups.open'), <ReopenIcon />, () => group.closed || group.parked ? void run({ type: 'reopen' }) : props.onOpen(group), false, group.closed || group.parked)}
+            {group.closed ? item(t('groups.reopen'), <ReopenIcon />, () => void run({ type: 'reopen' }), false, true) : null}
             {group.closed ? item(t('groups.viewHistory'), <HistoryIcon />, () => props.onOpen(group)) : null}
             {!group.closed && props.onNew ? item(t('groups.newChat'), <PlusIcon />, props.onNew) : null}
             {props.onManage ? item(t('groups.manage'), <SettingsIcon />, props.onManage) : null}

@@ -732,6 +732,8 @@ export function SessionHeader(props: {
                 onSyncPi={api && piSessionId && !session.active ? handleSyncPi : undefined}
                 externalReviewUrl={externalReviewUrl}
                 codeOpenUrl={codeOpenUrl}
+                hideCodeOnDesktop
+                hideReviewInMenu={!isTouch}
                 createExternalReviewUrl={!externalReviewUrl ? createMergeRequestUrl : null}
                 onContinueInFolder={() => navigate({
                     to: '/browse',

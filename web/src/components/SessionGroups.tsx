@@ -253,14 +253,12 @@ export function SessionGroupWorkspace(props: {
             <GroupIcon /><h2 className="min-w-0 flex-1 truncate text-sm font-semibold" title={props.group.name}>{props.group.name}</h2>
             <SessionGroupActions group={props.group} sessions={props.sessions} api={props.api ?? null}
                 onOpen={props.onOpenGroup ?? (group => { if (group.members[0]) props.onSelect(group.members[0].sessionId) })}
-                onNew={props.onNew} onManage={() => setManage(true)} onHidden={props.onBack}>
+                onNew={props.onNew} onManage={() => setManage(value => !value)} onHidden={props.onBack}>
                 {(handlers, openMenu) => <button {...handlers} type="button" onClick={openMenu} aria-label={t('groups.actions')}
                     title={t('groups.actions')} aria-haspopup="menu" className={cn(control, 'flex h-9 w-9 shrink-0 items-center justify-center px-0')}>
                     <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
                 </button>}
             </SessionGroupActions>
-            {!props.group.closed ? <button type="button" onClick={props.onNew} className={control}>{t('groups.newChat')}</button> : null}
-            <button type="button" onClick={() => setManage(!manage)} aria-expanded={manage} className={cn(control, manage && 'bg-[var(--app-secondary-bg)]')}>{t('groups.manage')}</button>
             {members.length ? <div className="relative flex h-9 w-9 shrink-0 items-center justify-center">
                 <GroupChatSwitcher members={tabMembers} selectedSessionId={props.selectedSessionId} onSelect={props.onSelect} />
             </div> : null}
@@ -269,7 +267,7 @@ export function SessionGroupWorkspace(props: {
             <p className="min-w-0 flex-1 text-xs text-[var(--app-hint)]">{t(members.some(member => member.session.active || member.session.metadata?.lifecycleState !== 'archived') ? 'groups.closeIncompleteHint' : 'groups.closedHint')}</p>
             <SessionGroupActions group={props.group} sessions={props.sessions} api={props.api ?? null}
                 onOpen={props.onOpenGroup ?? (group => { if (group.members[0]) props.onSelect(group.members[0].sessionId) })}>
-                {(_handlers, _openMenu, openGroup, pending) => <button type="button" disabled={pending} onClick={openGroup} className={cn(control, 'shrink-0 text-[var(--app-link)]')}>{t('groups.open')}</button>}
+                {(_handlers, _openMenu, openGroup, pending) => <button type="button" disabled={pending} onClick={openGroup} className={cn(control, 'shrink-0 text-[var(--app-link)]')}>{t('groups.reopen')}</button>}
             </SessionGroupActions>
         </div> : null}
         {props.group.parked ? <div className="flex items-center gap-3 border-t border-[var(--app-border)] px-3 py-2">
