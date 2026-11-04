@@ -49,12 +49,12 @@ beforeEach(() => {
 })
 
 describe('SessionActionMenu - Pin action', () => {
-    it('renders project and global pin actions', () => {
+    it('keeps global pin and hides project pin and export', () => {
         const onSetPinMode = vi.fn()
         const { rerender } = renderMenu({ onSetPinMode, sessionPinned: false, sessionGlobalPinned: false })
 
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Pin in project' }))
-        expect(onSetPinMode).toHaveBeenCalledWith('project')
+        expect(screen.queryByRole('menuitem', { name: 'Pin in project' })).toBeNull()
+        expect(screen.queryByRole('menuitem', { name: 'Export conversation' })).toBeNull()
 
         fireEvent.click(screen.getByRole('menuitem', { name: 'Pin globally' }))
         expect(onSetPinMode).toHaveBeenCalledWith('global')
@@ -77,7 +77,7 @@ describe('SessionActionMenu - Pin action', () => {
                 />
             </I18nProvider>
         )
-        expect(screen.getByRole('menuitem', { name: 'Unpin from project' })).toBeInTheDocument()
+        expect(screen.queryByRole('menuitem', { name: 'Unpin from project' })).toBeNull()
         expect(screen.getByRole('menuitem', { name: 'Unpin globally' })).toBeInTheDocument()
     })
 })

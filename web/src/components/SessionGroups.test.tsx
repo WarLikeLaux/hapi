@@ -94,7 +94,8 @@ describe('group chat switcher', () => {
         render(<I18nProvider><SessionGroupWorkspace group={workspaceGroup} groups={[workspaceGroup]}
             sessions={[...chats(false), { ...chats(false)[0], id: 'closed', metadata: { path: '/work', lifecycleState: 'archived' } }]}
             selectedSessionId="worker" onSelect={vi.fn()} onBack={vi.fn()} onNew={vi.fn()} onUpdate={onUpdate} pending={false} /></I18nProvider>)
-        fireEvent.click(screen.getByRole('button', { name: 'Manage' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Group actions' }))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Manage' }))
         const row = screen.getAllByTestId('group-member').find(row => within(row).queryByTitle('worker'))!
         fireEvent.click(within(row).getByRole('button', { name: 'Move tab left' }))
         expect(onUpdate).toHaveBeenCalledWith(workspaceGroup, expect.objectContaining({ members: [

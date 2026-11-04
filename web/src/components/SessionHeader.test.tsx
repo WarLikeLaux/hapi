@@ -109,7 +109,7 @@ describe('SessionHeader', () => {
         expect(link).toHaveAttribute('rel', 'noopener noreferrer')
         expect(link).toHaveClass('max-sm:hidden')
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        expect(screen.getByRole('menuitem', { name: 'Open in Code' })).toHaveAttribute('href', href)
+        expect(screen.getByRole('menuitem', { name: 'Open in Code' })).toHaveClass('sm:hidden')
     })
 
     it('updates the discovered MR with Git data and does not reuse an attached review from another branch', async () => {
@@ -130,9 +130,7 @@ describe('SessionHeader', () => {
             'href', 'https://gitlab.example.test/group/project/-/merge_requests/7'
         )
         fireEvent.click(screen.getByRole('button', { name: /More/ }))
-        expect(screen.getByRole('menuitem', { name: 'Open PR' })).toHaveAttribute(
-            'href', 'https://gitlab.example.test/group/project/-/merge_requests/7'
-        )
+        expect(screen.queryByRole('menuitem', { name: 'Open PR' })).toBeNull()
 
         getGitStatus.mockResolvedValue({
             success: true, stdout: '# branch.head second', mergeRequestUrl: null,
@@ -620,7 +618,7 @@ describe('SessionHeader', () => {
         )
 
         fireEvent.click(screen.getByTitle('More actions'))
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Pin in project' }))
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Pin globally' }))
 
         expect(await screen.findByText('Could not update pin: Network unavailable')).toBeInTheDocument()
     })

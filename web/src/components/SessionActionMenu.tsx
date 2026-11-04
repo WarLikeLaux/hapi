@@ -41,6 +41,8 @@ type SessionActionMenuProps = {
     onSyncPi?: () => void
     externalReviewUrl?: string | null
     codeOpenUrl?: string | null
+    hideCodeOnDesktop?: boolean
+    hideReviewInMenu?: boolean
     createExternalReviewUrl?: string | null
     onContinueInFolder?: () => void
     onRestart?: () => void
@@ -90,27 +92,6 @@ function ContinueInFolderIcon(props: { className?: string }) {
             className={props.className}>
             <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
             <path d="m9 13 2 2 4-4" />
-        </svg>
-    )
-}
-
-function DownloadIcon(props: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={props.className}
-        >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" x2="12" y1="15" y2="3" />
         </svg>
     )
 }
@@ -234,12 +215,10 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         sessionLifecycleState,
         onRename,
         onRegenerateTitle,
-        sessionPinned = false,
         sessionGlobalPinned = false,
         onSetPinMode,
         currentContext,
         onSetContext,
-        onExport,
         onMarkUnread,
         onForkSession,
         forkDisabledReason,
@@ -247,6 +226,8 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onSyncPi,
         externalReviewUrl,
         codeOpenUrl,
+        hideCodeOnDesktop = false,
+        hideReviewInMenu = false,
         createExternalReviewUrl,
         onContinueInFolder,
         onRestart,
@@ -394,11 +375,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const handleReopen = () => {
         onClose()
         onReopen?.()
-    }
-
-    const handleExport = () => {
-        onClose()
-        onExport?.()
     }
 
     const handleMarkUnread = () => {
@@ -593,7 +569,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         target="_blank"
                         rel="noopener noreferrer"
                         role="menuitem"
-                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        className={`${baseItemClassName} ${hideCodeOnDesktop ? 'sm:hidden' : ''} hover:bg-[var(--app-subtle-bg)]`}
                         onClick={onClose}
                     >
                         <CodeIcon className="h-[18px] w-[18px] text-[var(--app-hint)]" />
@@ -601,7 +577,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     </a>
                 ) : null}
 
-                {externalReviewUrl ? (
+                {externalReviewUrl && !hideReviewInMenu ? (
                     <a
                         href={externalReviewUrl}
                         target="_blank"
@@ -613,7 +589,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         <GitLabIcon className="h-[18px] w-[18px] text-[var(--app-hint)]" />
                         {t('session.action.openExternalReview')}
                     </a>
-                ) : createExternalReviewUrl ? (
+                ) : !externalReviewUrl && createExternalReviewUrl ? (
                     <a
                         href={createExternalReviewUrl}
                         target="_blank"
@@ -725,17 +701,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
 
                 {onSetPinMode ? (
                     <>
-                        {!sessionActive ? (
-                            <button
-                                type="button"
-                                role="menuitem"
-                                className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                                onClick={() => handleSetPinMode(sessionPinned ? 'none' : 'project')}
-                            >
-                                <PinIcon filled={sessionPinned} className="text-[var(--app-hint)]" />
-                                {t(sessionPinned ? 'session.action.unpinProject' : 'session.action.pinProject')}
-                            </button>
-                        ) : null}
                         <button
                             type="button"
                             role="menuitem"
@@ -746,18 +711,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                             {t(sessionGlobalPinned ? 'session.action.unpinGlobal' : 'session.action.pinGlobal')}
                         </button>
                     </>
-                ) : null}
-
-                {!sessionActive && onExport ? (
-                    <button
-                        type="button"
-                        role="menuitem"
-                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                        onClick={handleExport}
-                    >
-                        <DownloadIcon className="text-[var(--app-hint)]" />
-                        {t('session.action.export')}
-                    </button>
                 ) : null}
 
                 {onSyncCodex ? (
