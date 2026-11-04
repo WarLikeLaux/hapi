@@ -23,6 +23,7 @@ import { UsageStore } from './usageStore'
 import { WorkGraphStore } from './workGraphStore'
 import { ModelPreferenceStore, createModelPreferenceTable } from './modelPreferenceStore'
 import { ProjectPreferenceStore, createProjectPreferenceTable } from './projectPreferenceStore'
+import { BrowserTitleStore, createBrowserTitleTable } from './browserTitleStore'
 import { shouldRecordSessionActivity } from '../sync/sessionActivity'
 
 export type {
@@ -56,7 +57,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 48
+const SCHEMA_VERSION: number = 49
 const REQUIRED_TABLES = [
     'session_launch_requests',
     'session_groups',
@@ -79,6 +80,7 @@ const REQUIRED_TABLES = [
     'external_participants',
     'model_preferences',
     'project_preferences',
+    'browser_titles',
     'session_turns'
 ] as const
 
@@ -100,6 +102,7 @@ export class Store {
     readonly usage: UsageStore
     readonly turns: TurnStore
     readonly workGraph: WorkGraphStore
+    readonly browserTitles: BrowserTitleStore
     readonly projectPreferences: ProjectPreferenceStore
     readonly modelPreferences: ModelPreferenceStore
 
@@ -161,6 +164,7 @@ export class Store {
         this.turns = new TurnStore(this.db)
         this.workGraph = new WorkGraphStore(this.db)
         this.modelPreferences = new ModelPreferenceStore(this.db)
+        this.browserTitles = new BrowserTitleStore(this.db)
         this.projectPreferences = new ProjectPreferenceStore(this.db)
         this.backfillLastUserMessageAt()
     }
@@ -440,6 +444,7 @@ export class Store {
             },
             46: () => this.migrateSessionReadState(),
             47: () => createSessionGroupTables(this.db),
+            48: () => createBrowserTitleTable(this.db),
         })
 
         if (currentVersion === 0) {
@@ -490,6 +495,7 @@ export class Store {
         createSessionGroupTables(this.db)
         createModelPreferenceTable(this.db)
         createProjectPreferenceTable(this.db)
+        createBrowserTitleTable(this.db)
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,

@@ -1141,6 +1141,11 @@ export default {
 
   // Settings page
   'common.back': 'Back',
+  'settings.display.browserTitles': 'Browser tab title',
+  'settings.display.browserTitles.desc': 'Titles for sessions in work and other projects. An empty field restores HAPI.',
+  'settings.display.browserTitles.work': 'Work projects',
+  'settings.display.browserTitles.regular': 'Other projects',
+  'settings.display.browserTitles.error': 'Could not load or save titles. Please try again.',
   'settings.title': 'Settings',
   'settings.hub.description': 'Choose a category to adjust HAPI to your workflow.',
   'settings.hub.voice.summary': 'Voice, language, and behavior',
