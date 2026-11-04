@@ -82,7 +82,7 @@ function TestRuntime(props: { withSettings?: boolean }) {
         <AssistantRuntimeProvider runtime={runtime}>
             <HappyComposer
                 agentFlavor={props.withSettings ? 'claude' : undefined}
-                onPermissionModeChange={props.withSettings ? () => {} : undefined}
+                onModelChange={props.withSettings ? () => {} : undefined}
             />
             {props.withSettings ? (
                 <button
@@ -144,26 +144,26 @@ describe('HappyComposer plain-text expansion', () => {
         const settingsButton = screen.getByRole('button', { name: 'Composer settings' })
         fireEvent.click(settingsButton)
 
-        const panelLabel = screen.getByText('misc.permissionMode')
+        const panelLabel = screen.getByRole('group', { name: 'newSession.model' })
         fireEvent.pointerDown(panelLabel)
-        expect(screen.getByText('misc.permissionMode')).toBeInTheDocument()
+        expect(panelLabel).toBeInTheDocument()
 
         fireEvent.pointerDown(settingsButton)
-        expect(screen.getByText('misc.permissionMode')).toBeInTheDocument()
+        expect(panelLabel).toBeInTheDocument()
 
         fireEvent.click(settingsButton)
-        expect(screen.queryByText('misc.permissionMode')).not.toBeInTheDocument()
+        expect(screen.queryByRole('group', { name: 'newSession.model' })).not.toBeInTheDocument()
 
         fireEvent.click(settingsButton)
-        expect(screen.getByText('misc.permissionMode')).toBeInTheDocument()
+        expect(screen.getByRole('group', { name: 'newSession.model' })).toBeInTheDocument()
 
         fireEvent.pointerDown(screen.getByRole('textbox'))
-        expect(screen.queryByText('misc.permissionMode')).not.toBeInTheDocument()
+        expect(screen.queryByRole('group', { name: 'newSession.model' })).not.toBeInTheDocument()
 
         fireEvent.click(settingsButton)
-        expect(screen.getByText('misc.permissionMode')).toBeInTheDocument()
+        expect(screen.getByRole('group', { name: 'newSession.model' })).toBeInTheDocument()
 
         fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside action' }))
-        expect(screen.queryByText('misc.permissionMode')).not.toBeInTheDocument()
+        expect(screen.queryByRole('group', { name: 'newSession.model' })).not.toBeInTheDocument()
     })
 })

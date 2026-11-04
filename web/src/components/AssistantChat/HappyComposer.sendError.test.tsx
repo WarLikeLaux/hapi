@@ -319,13 +319,11 @@ it('keeps Pi model selection available while a message is pending', () => {
     act(() => controls.current!.setThreadDisabled(true))
 
     // Mid-turn Pi keeps its model control live (#1442): the gear opens the
-    // unified settings sheet, whose provider-grouped rows stay clickable.
+    // settings sheet, whose model buttons stay clickable.
     const gear = screen.getByRole('button', { name: 'Settings' })
     expect(gear).not.toBeDisabled()
     fireEvent.click(gear)
-    const modelRows = screen.getAllByRole('button', { name: 'Pi model' })
-    expect(modelRows.length).toBeGreaterThan(0)
-    fireEvent.click(modelRows[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Pi model · Pi' }))
     expect(runtime.modelChanges).toEqual([{ provider: 'pi', modelId: 'pi-model' }])
 })
 
