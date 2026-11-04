@@ -16,25 +16,48 @@ function UpdateIcon({ status }: { status: 'checking' | 'current' | 'available' |
     )
 }
 
-export default function SettingsAboutPage() {
+export type UpdateResult = 'current' | 'available' | 'unavailable'
+
+const illustrations: Record<UpdateResult, string> = {
+    current: gojoUpToDate,
+    available: gojoUpdateAvailable,
+    unavailable: gojoLaptop,
+}
+
+export async function getUpdateResult(): Promise<UpdateResult> {
+    try {
+        const response = await fetch(`${import.meta.env.BASE_URL}build-info.json`, { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
+        if (!response.ok) throw new Error('Build information unavailable')
+        const info: unknown = await response.json()
+        if (!info || typeof info !== 'object' || !('buildId' in info) || typeof info.buildId !== 'string' || !info.buildId) throw new Error('Invalid build information')
+        return info.buildId === __BUILD_ID__ ? 'current' : 'available'
+    } catch {
+        return 'unavailable'
+    }
+}
+
+export async function prepareAbout(): Promise<UpdateResult> {
+    const result = await getUpdateResult()
+    const image = new Image()
+    image.src = illustrations[result]
+    if (typeof image.decode === 'function') await image.decode().catch(() => {})
+    return result
+}
+
+export default function SettingsAboutPage({ initialUpdateResult }: { initialUpdateResult?: UpdateResult } = {}) {
     const { t } = useTranslation()
     const [cacheResetting, setCacheResetting] = useState(false)
-    const [updateStatus, setUpdateStatus] = useState<'checking' | 'current' | 'available' | 'unavailable' | 'updating'>('checking')
+    const [illustration, setIllustration] = useState<string | null>(initialUpdateResult ? illustrations[initialUpdateResult] : null)
+    const [updateStatus, setUpdateStatus] = useState<'checking' | UpdateResult | 'updating'>(initialUpdateResult ?? 'checking')
 
     const checkUpdate = async () => {
         setUpdateStatus('checking')
-        try {
-            const response = await fetch(`${import.meta.env.BASE_URL}build-info.json`, { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
-            if (!response.ok) throw new Error('Build information unavailable')
-            const info: unknown = await response.json()
-            if (!info || typeof info !== 'object' || !('buildId' in info) || typeof info.buildId !== 'string' || !info.buildId) throw new Error('Invalid build information')
-            setUpdateStatus(info.buildId === __BUILD_ID__ ? 'current' : 'available')
-        } catch {
-            setUpdateStatus('unavailable')
-        }
+        const result = await prepareAbout()
+        setIllustration(illustrations[result])
+        setUpdateStatus(result)
     }
 
-    useEffect(() => { void checkUpdate() }, [])
+    useEffect(() => { if (!initialUpdateResult) void checkUpdate() }, [])
 
     const handleUpdate = async () => {
         setUpdateStatus('updating')
@@ -86,7 +109,9 @@ export default function SettingsAboutPage() {
     return (
         <SettingsPageContent>
             <div className="relative isolate overflow-hidden rounded-xl bg-[#101820]">
-                <img src={updateStatus === 'current' ? gojoUpToDate : updateStatus === 'available' || updateStatus === 'updating' ? gojoUpdateAvailable : gojoLaptop} alt="" aria-hidden="true" className="aspect-[16/9] w-full object-cover" />
+                <div className="aspect-[16/9] w-full">
+                    {illustration && <img src={illustration} alt="" aria-hidden="true" className="h-full w-full object-cover" />}
+                </div>
                 <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent" />
                 <div className="absolute inset-x-0 bottom-0 px-5 pb-4 sm:px-6 sm:pb-5">
                     <span className="text-xl font-semibold tracking-tight text-white sm:text-2xl">HAPI</span>
