@@ -12,5 +12,5 @@ export function useBrowserTitles(api: ApiClient | null) {
         const saved = await api.saveBrowserTitles(titles)
         client.setQueryData(key, saved)
     }
-    return { titles: query.data ?? defaultBrowserTitles, loading: query.isLoading, error: query.error, save }
+    return { titles: query.data ?? defaultBrowserTitles, loading: query.isLoading, error: query.error, retry: query.refetch, save }
 }

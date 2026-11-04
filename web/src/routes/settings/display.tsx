@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from '@/lib/use-translation'
 import { useAppContext } from '@/lib/app-context'
 import { useBrowserTitles } from '@/hooks/useBrowserTitles'
+import { browserTitleDraft } from '@/hooks/browserTitleDraft'
 import { getAppearanceOptions, useAppearance } from '@/hooks/useTheme'
 import { getColorThemeOptions, getColorThemePreview, useColorTheme, type ColorThemePreset } from '@/hooks/useColorTheme'
 import { getFontScaleOptions, useFontScale } from '@/hooks/useFontScale'
@@ -21,38 +22,27 @@ import { SettingsChoiceGroup, SettingsFieldLabel, SettingsPageContent, SettingsR
 function BrowserTitlesControl() {
     const { t } = useTranslation()
     const { api } = useAppContext()
-    const { titles, loading, error, save } = useBrowserTitles(api)
-    const [draft, setDraft] = useState(titles)
-    const [saveError, setSaveError] = useState(false)
-    const [saving, setSaving] = useState(false)
-    useEffect(() => setDraft(titles), [titles])
+    const { titles, loading, error, retry, save } = useBrowserTitles(api)
+    const { draft, status } = useSyncExternalStore(browserTitleDraft.subscribe, browserTitleDraft.snapshot)
+    useEffect(() => {
+        if (api) browserTitleDraft.init(save, titles, !loading && !error)
+    }, [api, titles, loading, error, save])
 
-    const submit = async (event: React.FormEvent) => {
-        event.preventDefault()
-        setSaving(true)
-        setSaveError(false)
-        try {
-            await save({ work: draft.work.trim() || 'HAPI', regular: draft.regular.trim() || 'HAPI' })
-        } catch {
-            setSaveError(true)
-        } finally {
-            setSaving(false)
-        }
-    }
     return (
         <SettingsSection title={t('settings.display.browserTitles')} description={t('settings.display.browserTitles.desc')}>
-            <form onSubmit={submit} className="space-y-3 px-3 py-3">
+            <div className="space-y-3 px-3 py-3">
                 {(['work', 'regular'] as const).map(key => (
                     <label key={key} className="block">
                         <SettingsFieldLabel>{t(key === 'work' ? 'settings.display.browserTitles.work' : 'settings.display.browserTitles.regular')}</SettingsFieldLabel>
-                        <input value={draft[key]} onChange={event => setDraft({ ...draft, [key]: event.target.value })} maxLength={120}
-                            disabled={loading || Boolean(error) || saving}
+                        <input value={draft?.[key] ?? ''} onChange={event => draft && browserTitleDraft.edit({ ...draft, [key]: event.target.value })} maxLength={120}
+                            disabled={!draft}
                             className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-1.5 text-sm text-[var(--app-fg)] outline-none focus:border-[var(--app-link)]" />
                     </label>
                 ))}
-                <button type="submit" disabled={loading || Boolean(error) || saving} className="rounded-lg bg-[var(--app-link)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{t('button.save')}</button>
-                {error || saveError ? <div role="alert" className="text-sm text-red-600 dark:text-red-400">{t('settings.display.browserTitles.error')}</div> : null}
-            </form>
+                {error && !draft ? <div role="alert" className="text-sm text-red-600 dark:text-red-400">{t('settings.display.browserTitles.loadError')} <button type="button" onClick={() => void retry()} className="underline">{t('button.retry')}</button></div> : null}
+                {status === 'saving' ? <div role="status" className="text-sm text-[var(--app-fg-muted)]">{t('settings.display.browserTitles.saving')}</div> : null}
+                {status === 'error' ? <div role="alert" className="text-sm text-red-600 dark:text-red-400">{t('settings.display.browserTitles.saveError')} <button type="button" onClick={browserTitleDraft.retry} className="underline">{t('button.retry')}</button></div> : null}
+            </div>
         </SettingsSection>
     )
 }
