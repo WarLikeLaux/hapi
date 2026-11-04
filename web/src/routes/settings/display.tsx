@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from '@/lib/use-translation'
+import { useAppContext } from '@/lib/app-context'
+import { useBrowserTitles } from '@/hooks/useBrowserTitles'
 import { getAppearanceOptions, useAppearance } from '@/hooks/useTheme'
 import { getColorThemeOptions, getColorThemePreview, useColorTheme, type ColorThemePreset } from '@/hooks/useColorTheme'
 import { getFontScaleOptions, useFontScale } from '@/hooks/useFontScale'
@@ -15,6 +17,45 @@ import { useAppBadgePreference } from '@/hooks/useAppBadgePreference'
 import { useOpenExternalLinksInNewTab } from '@/hooks/useOpenExternalLinksInNewTab'
 import { normalizeExternalEditorBaseUrl, useExternalEditorBaseUrl } from '@/hooks/useExternalEditor'
 import { SettingsChoiceGroup, SettingsFieldLabel, SettingsPageContent, SettingsRow, SettingsSection, SettingsSwitch } from '@/components/settings/SettingsPrimitives'
+
+function BrowserTitlesControl() {
+    const { t } = useTranslation()
+    const { api } = useAppContext()
+    const { titles, loading, error, save } = useBrowserTitles(api)
+    const [draft, setDraft] = useState(titles)
+    const [saveError, setSaveError] = useState(false)
+    const [saving, setSaving] = useState(false)
+    useEffect(() => setDraft(titles), [titles])
+
+    const submit = async (event: React.FormEvent) => {
+        event.preventDefault()
+        setSaving(true)
+        setSaveError(false)
+        try {
+            await save({ work: draft.work.trim() || 'HAPI', regular: draft.regular.trim() || 'HAPI' })
+        } catch {
+            setSaveError(true)
+        } finally {
+            setSaving(false)
+        }
+    }
+    return (
+        <SettingsSection title={t('settings.display.browserTitles')} description={t('settings.display.browserTitles.desc')}>
+            <form onSubmit={submit} className="space-y-3 px-3 py-3">
+                {(['work', 'regular'] as const).map(key => (
+                    <label key={key} className="block">
+                        <SettingsFieldLabel>{t(key === 'work' ? 'settings.display.browserTitles.work' : 'settings.display.browserTitles.regular')}</SettingsFieldLabel>
+                        <input value={draft[key]} onChange={event => setDraft({ ...draft, [key]: event.target.value })} maxLength={120}
+                            disabled={loading || Boolean(error) || saving}
+                            className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-1.5 text-sm text-[var(--app-fg)] outline-none focus:border-[var(--app-link)]" />
+                    </label>
+                ))}
+                <button type="submit" disabled={loading || Boolean(error) || saving} className="rounded-lg bg-[var(--app-link)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{t('button.save')}</button>
+                {error || saveError ? <div role="alert" className="text-sm text-red-600 dark:text-red-400">{t('settings.display.browserTitles.error')}</div> : null}
+            </form>
+        </SettingsSection>
+    )
+}
 
 function MinusIcon() {
     return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M5 12h14" /></svg>
@@ -225,6 +266,8 @@ export default function SettingsDisplayPage() {
                 <ColorThemePicker />
                 <ThemeColorControls />
             </SettingsSection>
+
+            <BrowserTitlesControl />
 
             <SettingsSection title={t('settings.display.typography')}>
                 <SettingsChoiceGroup label={t('settings.display.fontSize')} value={fontScale} columns={6} options={getFontScaleOptions()} onChange={setFontScale} />

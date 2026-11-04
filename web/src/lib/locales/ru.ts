@@ -824,6 +824,11 @@ export default {
 
   // Страница настроек
   'common.back': 'Назад',
+  'settings.display.browserTitles': 'Название вкладки браузера',
+  'settings.display.browserTitles.desc': 'Названия для сессий рабочих и остальных проектов. Пустое поле вернёт HAPI.',
+  'settings.display.browserTitles.work': 'Рабочие проекты',
+  'settings.display.browserTitles.regular': 'Обычные проекты',
+  'settings.display.browserTitles.error': 'Не удалось загрузить или сохранить названия. Попробуйте ещё раз.',
   'settings.title': 'Настройки',
   'settings.hub.description': 'Выберите категорию, чтобы настроить HAPI под свой рабочий процесс.',
   'settings.hub.voice.summary': 'Голос, язык и поведение',

@@ -1280,6 +1280,14 @@ export class ApiClient {
         return await this.request<MachinesResponse>('/api/machines')
     }
 
+    async getBrowserTitles(): Promise<{ work: string; regular: string }> {
+        return await this.request('/api/browser-titles')
+    }
+
+    async saveBrowserTitles(titles: { work: string; regular: string }): Promise<{ work: string; regular: string }> {
+        return await this.request('/api/browser-titles', { method: 'PUT', body: JSON.stringify(titles) })
+    }
+
     async getProjectPreferences(): Promise<{ projects: ProjectPreference[] }> {
         return await this.request('/api/project-preferences')
     }

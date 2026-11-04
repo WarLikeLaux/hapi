@@ -45,7 +45,7 @@ it('upgrades the fork v45 database without replacing titles, activity or model p
         expect(store.turns.open(session.id, 'default', 2_000, 'agent')).toBe(false)
         expect(store.turns.list('default', 0, 3_000)).toHaveLength(1)
         const db = (store as unknown as { db: Database }).db
-        expect(db.query('PRAGMA user_version').get()).toEqual({ user_version: 48 })
+        expect(db.query('PRAGMA user_version').get()).toEqual({ user_version: 49 })
         expect(db.query("SELECT name FROM sqlite_master WHERE name = 'idx_messages_future_scheduled_queued'").get()).not.toBeNull()
     } finally {
         store?.close()

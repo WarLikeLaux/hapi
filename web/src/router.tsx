@@ -70,7 +70,6 @@ import { observeSessionReadStates } from '@/lib/sessionLastSeen'
 import { useDocumentVisibility } from '@/hooks/useDocumentVisibility'
 import { useGroupSessionCloseNavigation } from '@/hooks/useGroupSessionCloseNavigation'
 import { getGroupEntrySession, rememberGroupSession } from '@/lib/sessionGroupSelection'
-import { useSessionBrowserTitle } from '@/hooks/useSessionBrowserTitle'
 import { clearCodexImportedSession } from '@/lib/codexImportedSessions'
 import { getSupersedingSessionId, prepareFollowSupersedingSession, shouldFollowSupersedingSession } from '@/routes/sessions/followSupersedingSession'
 import { migrateSuppressedSendError } from '@/lib/suppressed-send-error'
@@ -1072,7 +1071,6 @@ function SessionDetailRoute() {
     const { sessionId } = useParams({ from: '/sessions/$sessionId' })
     const navigate = useNavigate()
     const { session, notFound: sessionNotFound } = useSession(api, sessionId)
-    useSessionBrowserTitle(session)
     const basePath = `/sessions/${sessionId}`
     const isChat = pathname === basePath || pathname === `${basePath}/`
     const supersedingSessionId = getSupersedingSessionId(sessionId, session?.metadata)

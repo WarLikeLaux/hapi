@@ -32,6 +32,9 @@ import { useAppBadgePreference } from '@/hooks/useAppBadgePreference'
 import { countUnreadConversations, isWorkingSession } from '@/lib/navigationBadges'
 import { configureSessionReadState, observeSessionReadStates, getSessionLastSeenSnapshot, getSessionManualUnreadSnapshot, useSessionLastSeenVersion } from '@/lib/sessionLastSeen'
 import { useTabNotification } from '@/hooks/useTabNotification'
+import { useBrowserTitles } from '@/hooks/useBrowserTitles'
+import { useProjectPreferences } from '@/hooks/useProjectPreferences'
+import { getProjectPaths } from '@/hooks/useProjectPaths'
 import { reconcileQueuedStateAfterConnect } from '@/lib/queued-state-reconciliation'
 import { LoginPrompt } from '@/components/LoginPrompt'
 import { InstallPrompt } from '@/components/InstallPrompt'
@@ -193,6 +196,22 @@ function AppInner() {
         isLoading: appSessionsLoading,
         error: appSessionsError,
     } = useSessions(api, { enabled: Boolean(api && token) })
+    const { titles: browserTitles } = useBrowserTitles(api)
+    const { projects: titleProjects } = useProjectPreferences(api)
+    const contextSettings = useQuery({
+        queryKey: queryKeys.hubSettings,
+        queryFn: () => api!.getHubSettings(),
+        enabled: Boolean(api && token),
+        staleTime: 30_000,
+    })
+    const selectedSession = appSessions.find(session => session.id === selectedSessionId)
+    const projectPath = selectedSession?.metadata?.worktree?.basePath ?? selectedSession?.metadata?.path
+    const machineId = selectedSession?.metadata?.machineId ?? null
+    const workPaths = useMemo(() => getProjectPaths(appSessions, machineId, {
+        projects: titleProjects,
+        workAliases: contextSettings.data?.workContextAliases,
+        projectOverrides: contextSettings.data?.projectContextOverrides,
+    }).workPaths, [appSessions, machineId, titleProjects, contextSettings.data])
     const idleAppSessions = useMemo(
         () => appSessions.filter((session) => !isWorkingSession(session)),
         [appSessions]
@@ -247,7 +266,8 @@ function AppInner() {
         ? externalConversationsQuery.data?.find((conversation) => conversation.id === chatMatch.conversationId)
         : undefined
     const pageTitle = activeConversation?.provider === 'telegram' ? 'Telegram'
-        : activeConversation?.provider === 'yandex' ? 'Яндекс Телемост' : undefined
+        : activeConversation?.provider === 'yandex' ? 'Яндекс Телемост'
+        : projectPath && workPaths.includes(projectPath) ? browserTitles.work : browserTitles.regular
     useTabNotification(unreadCount, pageTitle)
     const { isSupported: isPushSupported, permission: pushPermission, requestPermission, subscribe } = usePushNotifications(api)
 

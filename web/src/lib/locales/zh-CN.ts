@@ -1135,6 +1135,11 @@ export default {
 
   // Settings page
   'common.back': '返回',
+  'settings.display.browserTitles': '浏览器标签页标题',
+  'settings.display.browserTitles.desc': '工作项目和其他项目会话的标题。留空将恢复为 HAPI。',
+  'settings.display.browserTitles.work': '工作项目',
+  'settings.display.browserTitles.regular': '其他项目',
+  'settings.display.browserTitles.error': '无法加载或保存标题，请重试。',
   'settings.title': '设置',
   'settings.hub.description': '选择一个分类，按你的工作方式调整 HAPI。',
   'settings.hub.voice.summary': '声音、语言和行为',
