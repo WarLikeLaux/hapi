@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ReactNode, TextareaHTMLAttributes } from 'react'
 import { useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -185,13 +185,13 @@ describe('HappyComposer generic model/effort value buttons', () => {
         expect(screen.queryByText('Model')).toBeNull()
     })
 
-    it('opens the full sheet from the gear with Model before Permission', () => {
+    it('shows effort and model without permission or collaboration controls', () => {
         renderComposer('claude')
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-        const model = screen.getByText('Model')
-        const permission = screen.getByText('Permission Mode')
-        expect(model.compareDocumentPosition(permission) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(screen.getByRole('group', { name: 'Model' })).toBeTruthy()
         expect(screen.getByText('Effort')).toBeTruthy()
+        expect(screen.queryByText('Permission Mode')).toBeNull()
+        expect(screen.queryByText('Collaboration Mode')).toBeNull()
     })
 
     it('shows generic value buttons for Pi with the provider-qualified model label', () => {
@@ -218,10 +218,8 @@ describe('HappyComposer generic model/effort value buttons', () => {
         })
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         expect(screen.getByText('Model')).toBeTruthy()
-        // The sheet row for the selected provider keeps the bare model name.
-        expect(screen.getAllByText('Gemini 2.5 Pro').length).toBeGreaterThan(0)
-        expect(screen.getByText('Vertex Gemini 2.5 Pro')).toBeTruthy()
-        // The full sheet from the gear includes the Effort section.
+        expect(screen.getByRole('button', { name: 'Gemini 2.5 Pro · Gemini' })).toBeTruthy()
+        expect(screen.getByRole('button', { name: 'Vertex Gemini 2.5 Pro · Vertex' })).toBeTruthy()
         expect(screen.getByText('Effort')).toBeTruthy()
     })
 
@@ -255,7 +253,7 @@ describe('HappyComposer generic model/effort value buttons', () => {
         expect(gear).not.toBeDisabled()
         fireEvent.click(gear)
         expect(screen.getByText('Model')).toBeTruthy()
-        expect(screen.getByText('Gemini 2.5 Pro')).toBeTruthy()
+        expect(screen.getByText('Gemini 2.5 Pro · Gemini')).toBeTruthy()
     })
 
     it('highlights only the matching provider row when model IDs collide across providers', () => {
@@ -267,14 +265,8 @@ describe('HappyComposer generic model/effort value buttons', () => {
             piSelectedModel: { provider: 'vertex', modelId: 'gemini-2.5-pro' },
         })
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-        const sheetRow = (name: string) => screen.getAllByText(name)
-            .map((el) => el.closest('button'))
-            .find((btn) => btn?.className.includes('w-full'))!
-        const geminiRow = sheetRow('Gemini 2.5 Pro')
-        const vertexRow = sheetRow('Vertex Gemini 2.5 Pro')
-        const selectedClass = 'text-[var(--app-link)]'
-        expect(geminiRow.querySelector('span')!.className).not.toContain(selectedClass)
-        expect(vertexRow.querySelector('span')!.className).toContain(selectedClass)
+        expect(screen.getByRole('button', { name: 'Gemini 2.5 Pro · Gemini' })).toHaveAttribute('aria-pressed', 'false')
+        expect(screen.getByRole('button', { name: 'Vertex Gemini 2.5 Pro · Vertex' })).toHaveAttribute('aria-pressed', 'true')
     })
 
     it('does not show provider-less model rows when the Pi catalog is empty', () => {
@@ -312,8 +304,7 @@ describe('HappyComposer generic model/effort value buttons', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         // Drill into the multi-variant base row: the Model section is replaced
         // by the variant sub-list with a back control.
-        const baseRow = screen.getAllByRole('button', { name: 'Composer 2.5' })
-            .find((btn) => btn.className.includes('w-full'))!
+        const baseRow = screen.getByRole('button', { name: 'Composer 2.5' })
         fireEvent.click(baseRow)
         expect(screen.queryByText('Model')).toBeNull()
         expect(screen.getByText('← Models')).toBeTruthy()
@@ -383,8 +374,7 @@ describe('HappyComposer generic model/effort value buttons', () => {
         )
         // Open the sheet while controls are live.
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-        const sheetRow = () => screen.getAllByRole('button', { name: 'Gemini 2.5 Pro' })
-            .find((btn) => btn.className.includes('w-full'))!
+        const sheetRow = () => screen.getByRole('button', { name: 'Gemini 2.5 Pro · Gemini' })
         expect(sheetRow()).not.toBeDisabled()
         // Inactive session disables configuration controls; the sheet rows must follow.
         rerender(
@@ -435,7 +425,7 @@ describe('HappyComposer generic model/effort value buttons', () => {
             availableModelReasoningEffortOptions: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }],
         })
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-        expect(screen.getByText('Reasoning Effort')).toBeTruthy()
+        expect(screen.getByText('Effort')).toBeTruthy()
         expect(screen.getByText('Model')).toBeTruthy()
         fireEvent.click(screen.getByRole('button', { name: 'Medium' }))
         expect(onModelReasoningEffortChange).toHaveBeenCalledWith('medium')
@@ -458,8 +448,10 @@ describe('HappyComposer generic model/effort value buttons', () => {
         fireEvent.keyDown(window, { key: 'm', ctrlKey: true })
         expect(onModelChange).toHaveBeenLastCalledWith('glm-5.3')
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
-        expect(screen.getByText('Sonnet')).toBeTruthy()
-        fireEvent.click(screen.getByRole('button', { name: 'GLM 5.3' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Show more' }))
+        const menu = document.querySelector('[data-compact-choices-popup]')!
+        expect(within(menu as HTMLElement).getByText('Sonnet')).toBeTruthy()
+        fireEvent.click(within(menu as HTMLElement).getByRole('button', { name: 'GLM 5.3' }))
         expect(onModelChange).toHaveBeenLastCalledWith('glm-5.3')
     })
 
@@ -481,7 +473,7 @@ describe('HappyComposer generic model/effort value buttons', () => {
         // The value button caption and the matching sheet row share the label.
         expect(screen.getAllByText('GLM 5.3 Flash').length).toBeGreaterThan(1)
         expect(screen.queryByText('Effort')).toBeNull()
-        expect(screen.getByText('Permission Mode')).toBeTruthy()
+        expect(screen.getByText('Model')).toBeTruthy()
     })
     it('first-use Escape dismisses FUE before settings and never aborts the running turn', () => {
         localStorage.removeItem('hapi.fue.v1.rich-composer-mentions')
@@ -492,10 +484,10 @@ describe('HappyComposer generic model/effort value buttons', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         fireEvent.keyDown(screen.getByRole('button', { name: 'Settings' }), { key: 'Escape' })
         expect(screen.queryByRole('dialog')).toBeNull()
-        expect(screen.getByText('Permission Mode')).toBeTruthy()
+        expect(screen.getByText('Model')).toBeTruthy()
         expect(runtime.cancelRun).not.toHaveBeenCalled()
         fireEvent.keyDown(screen.getByRole('button', { name: 'Settings' }), { key: 'Escape' })
-        expect(screen.queryByText('Permission Mode')).toBeNull()
+        expect(screen.queryByText('Model')).toBeNull()
         expect(screen.getByRole('button', { name: 'Settings' })).toHaveFocus()
         expect(runtime.cancelRun).not.toHaveBeenCalled()
     })
@@ -509,10 +501,10 @@ describe('HappyComposer generic model/effort value buttons', () => {
         modal.setAttribute('aria-modal', 'true')
         document.body.appendChild(modal)
         fireEvent.keyDown(modal, { key: 'Escape' })
-        expect(screen.getByText('Permission Mode')).toBeTruthy()
+        expect(screen.getByText('Model')).toBeTruthy()
         modal.remove()
         fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' })
-        expect(screen.queryByText('Permission Mode')).toBeNull()
+        expect(screen.queryByText('Model')).toBeNull()
     })
 
     it.each(['trigger', 'menu', 'input'])('Escape closes settings from %s without aborting a running turn', origin => {
@@ -524,11 +516,11 @@ describe('HappyComposer generic model/effort value buttons', () => {
         trigger.focus()
         fireEvent.click(trigger)
         const target = origin === 'trigger' ? screen.getByRole('button', { name: 'Settings' })
-            : origin === 'menu' ? screen.getAllByRole('button', { name: 'Sonnet 4' }).at(-1)!
+            : origin === 'menu' ? screen.getByRole('button', { name: 'Sonnet 4' })
             : screen.getByRole('textbox')
         target.focus()
         fireEvent.keyDown(target, { key: 'Escape' })
-        expect(screen.queryByText('Permission Mode')).toBeNull()
+        expect(screen.queryByText('Model')).toBeNull()
         expect(screen.getByRole('button', { name: 'Settings' })).toHaveFocus()
         expect(runtime.cancelRun).not.toHaveBeenCalled()
         runtime.snapshot.thread.isRunning = false
@@ -540,7 +532,7 @@ describe('HappyComposer generic model/effort value buttons', () => {
         fireEvent.click(trigger)
         fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' })
         expect(trigger).toHaveFocus()
-        expect(screen.queryByText('Permission Mode')).toBeNull()
+        expect(screen.queryByText('Model')).toBeNull()
         expect(runtime.cancelRun).not.toHaveBeenCalled()
     })
 
@@ -552,11 +544,11 @@ describe('HappyComposer generic model/effort value buttons', () => {
         const input = screen.getByRole('textbox')
         input.focus()
         fireEvent.keyDown(input, { key: 'Escape', isComposing: true })
-        expect(screen.getByText('Permission Mode')).toBeTruthy()
+        expect(screen.getByText('Model')).toBeTruthy()
         expect(input).toHaveFocus()
         expect(runtime.cancelRun).not.toHaveBeenCalled()
         fireEvent.keyDown(input, { key: 'Escape' })
-        expect(screen.queryByText('Permission Mode')).toBeNull()
+        expect(screen.queryByText('Model')).toBeNull()
     })
 
 })

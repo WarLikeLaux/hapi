@@ -56,6 +56,6 @@ describe('ModelEffortSettingsSection', () => {
         expect(screen.getByText('Variant')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /^Composer 2.5$/ })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Composer 2.5 Fast/ })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /^Composer 2.5$/ }).innerHTML).toContain('bg-[var(--app-link)]');
+        expect(screen.getByRole('button', { name: /^Composer 2.5$/ })).toHaveAttribute('aria-pressed', 'true');
     });
 });
