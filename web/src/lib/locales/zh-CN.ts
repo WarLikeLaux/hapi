@@ -54,7 +54,7 @@ export default {
   'batch.chatPrompt': '此聊天的提示词（可选）',
   'batch.groupHint': '如需创建新分组，请输入名称；否则留空。',
   'batch.addAnother': '再添加一个聊天',
-  'batch.launchSaveFailed': '无法在此标签页保存启动请求。请释放浏览器存储后重试。此次操作未启动任何聊天。',
+  'batch.launchSaveFailed': '无法在此标签页保存启动请求。此次操作未启动任何聊天。请先复制提示词，然后释放浏览器存储或重新加载此标签页再试。',
   'batch.draftSaveFailed': '无法在浏览目录前保存表单。请在此输入目录，以保留聊天设置。',
   'batch.launchSettings': '启动设置',
   'batch.emptyOwnHint': '留空时使用共享提示词。',

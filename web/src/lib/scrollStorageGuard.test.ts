@@ -101,6 +101,15 @@ describe('installScrollRestorationGuard', () => {
         expect(Object.keys(JSON.parse(storage._store[STORAGE_KEY]) as object).length).toBe(RETAIN_COUNT)
     })
 
+    it('bounds navigation history before it exhausts storage', () => {
+        const history = Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`route-${i}`, { window: { scrollY: i } }]))
+        storage.setItem(STORAGE_KEY, JSON.stringify(history))
+        const retained = JSON.parse(storage.getItem(STORAGE_KEY)!)
+        expect(Object.keys(retained)).toHaveLength(RETAIN_COUNT)
+        expect(retained['route-199']).toEqual({ window: { scrollY: 199 } })
+        expect(retained['route-0']).toBeUndefined()
+    })
+
     it('passes through scroll restoration writes that succeed', () => {
         storage.setItem(STORAGE_KEY, JSON.stringify({ a: 1 }))
         expect(storage._store[STORAGE_KEY]).toBe(JSON.stringify({ a: 1 }))

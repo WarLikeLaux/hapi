@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useSessionActions } from './useSessionActions'
 import { ApiError, type ApiClient } from '@/api/client'
+import { appendOptimisticMessage, clearMessageWindow, ingestIncomingMessages } from '@/lib/message-window-store'
+import type { DecryptedMessage } from '@/types/api'
 
 function createWrapper(queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
@@ -26,6 +28,26 @@ afterEach(() => {
 })
 
 describe('useSessionActions - local archive progress', () => {
+    it('drops a stopped chat’s recoverable snapshot without clearing its messages', async () => {
+        const id = 'stop-cache-test'
+        const key = `hapi:message-window:v3:${id}`
+        const message = { id: 'server-1', localId: null, seq: 1, createdAt: 1, invokedAt: 1,
+            content: { role: 'user', content: { type: 'text', text: 'hello' } } } as DecryptedMessage
+        ingestIncomingMessages(id, [message])
+        await waitFor(() => expect(sessionStorage.getItem(key)).not.toBeNull())
+        const api = { archiveSession: vi.fn(async () => {}) } as unknown as ApiClient
+        const { result } = renderHook(() => useSessionActions(api, id), { wrapper: createWrapper() })
+        await act(async () => { await result.current.archiveSession() })
+        expect(sessionStorage.getItem(key)).toBeNull()
+        // A pending write or late update must not recreate the stopped cache.
+        ingestIncomingMessages(id, [{ ...message, id: 'server-2', seq: 2 }])
+        await new Promise(resolve => setTimeout(resolve, 300))
+        expect(sessionStorage.getItem(key)).toBeNull()
+        appendOptimisticMessage(id, { ...message, id: 'pending', localId: 'pending', invokedAt: null, status: 'sending' })
+        await waitFor(() => expect(sessionStorage.getItem(key)).toContain('pending'))
+        clearMessageWindow(id)
+    })
+
     it('does not subscribe each action consumer to the shared mutation cache', () => {
         const client = new QueryClient()
         const subscribe = vi.spyOn(client.getMutationCache(), 'subscribe')
