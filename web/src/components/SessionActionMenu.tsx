@@ -27,13 +27,14 @@ type SessionActionMenuProps = {
     sessionActive: boolean
     sessionLifecycleState?: string
     onRename: () => void
-    onRegenerateTitle?: () => void
     sessionPinned?: boolean
     sessionGlobalPinned?: boolean
     onSetPinMode?: (mode: 'none' | 'project' | 'global') => void
     currentContext?: SessionContextId
     onSetContext?: (context: SessionContextId | null) => void
     onExport?: () => void
+    sessionMuted?: boolean
+    onSetMuted?: (muted: boolean) => void
     onMarkUnread?: () => void
     onForkSession?: () => void
     forkDisabledReason?: string
@@ -214,11 +215,12 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         sessionActive,
         sessionLifecycleState,
         onRename,
-        onRegenerateTitle,
         sessionGlobalPinned = false,
         onSetPinMode,
         currentContext,
         onSetContext,
+        sessionMuted = false,
+        onSetMuted,
         onMarkUnread,
         onForkSession,
         forkDisabledReason,
@@ -337,10 +339,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onRename()
     }
 
-    const handleRegenerateTitle = () => {
-        onClose()
-        onRegenerateTitle?.()
-    }
 
     const handleCopyReference = async () => {
         onClose()
@@ -613,18 +611,6 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     {t('session.action.rename')}
                 </button>
 
-                {onRegenerateTitle ? (
-                    <button
-                        type="button"
-                        role="menuitem"
-                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                        onClick={handleRegenerateTitle}
-                    >
-                        <SyncIcon className="text-[var(--app-hint)]" />
-                        {t('session.action.regenerateTitle')}
-                    </button>
-                ) : null}
-
                 <button
                     type="button"
                     role="menuitem"
@@ -687,7 +673,18 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     </a>
                 ) : null}
 
-                {!sessionActive && onMarkUnread ? (
+                {onSetMuted ? (
+                    <button type="button" role="menuitem" className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={() => { onSetMuted(!sessionMuted); onClose() }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--app-hint)]" aria-hidden="true">
+                            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+                            {sessionMuted ? <path d="M3 3l18 18" /> : null}
+                        </svg>
+                        {t(sessionMuted ? 'session.action.unmute' : 'session.action.mute')}
+                    </button>
+                ) : null}
+
+                {!sessionActive && !sessionMuted && onMarkUnread ? (
                     <button
                         type="button"
                         role="menuitem"

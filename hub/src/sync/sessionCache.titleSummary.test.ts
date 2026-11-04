@@ -87,3 +87,19 @@ describe('protected titles across session continuation', () => {
         })
     }
 })
+
+describe('session mute', () => {
+    it('persists both states and publishes updates while preserving other metadata', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const session = cache.getOrCreateSession('mute-session', { path: '/tmp', host: 'localhost', name: 'Chat' }, null, 'default')
+        for (const muted of [true, false]) {
+            await cache.setSessionMuted(session.id, muted)
+            expect(store.sessions.getSession(session.id)?.metadata).toMatchObject({ name: 'Chat', muted })
+            expect(cache.getSession(session.id)?.metadata?.muted).toBe(muted)
+            expect(events.at(-1)).toMatchObject({ type: 'session-updated', sessionId: session.id, data: { metadata: { muted } } })
+        }
+        store.close()
+    })
+})

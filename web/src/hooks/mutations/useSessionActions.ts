@@ -30,6 +30,7 @@ export function useSessionActions(
     setModelReasoningEffort: (modelReasoningEffort: string | null) => Promise<void>
     setEffort: (effort: string | null) => Promise<void>
     setServiceTier: (serviceTier: string | null) => Promise<void>
+    setMuted: (muted: boolean) => Promise<void>
     renameSession: (name: string) => Promise<void>
     suggestSessionTitle: () => Promise<string>
     updateSessionSummary: (text: string) => Promise<void>
@@ -275,6 +276,14 @@ export function useSessionActions(
         onSuccess: () => void invalidateSession(),
     })
 
+    const muteMutation = useMutation({
+        mutationFn: async (muted: boolean) => {
+            if (!api || !sessionId) throw new Error('Session unavailable')
+            await api.setSessionMuted(sessionId, muted)
+        },
+        onSuccess: () => void invalidateSession(),
+    })
+
     const renameMutation = useMutation({
         mutationFn: async (name: string) => {
             if (!api || !sessionId) {
@@ -352,6 +361,7 @@ export function useSessionActions(
         setModelReasoningEffort: modelReasoningEffortMutation.mutateAsync,
         setEffort: effortMutation.mutateAsync,
         setServiceTier: serviceTierMutation.mutateAsync,
+        setMuted: muteMutation.mutateAsync,
         renameSession: (name: string) => renameMutation.mutateAsync(name),
         suggestSessionTitle: titleSuggestionMutation.mutateAsync,
         updateSessionSummary: (text: string) => summaryMutation.mutateAsync(text),
@@ -370,6 +380,7 @@ export function useSessionActions(
             || modelReasoningEffortMutation.isPending
             || effortMutation.isPending
             || serviceTierMutation.isPending
+            || muteMutation.isPending
             || renameMutation.isPending
             || titleSuggestionMutation.isPending
             || summaryMutation.isPending

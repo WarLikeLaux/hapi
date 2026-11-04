@@ -1608,6 +1608,12 @@ export class ApiClient {
         )
     }
 
+    async setSessionMuted(sessionId: string, muted: boolean): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/mute`, {
+            method: 'PUT', body: JSON.stringify({ muted })
+        })
+    }
+
     async renameSession(sessionId: string, name: string): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
             method: 'PATCH',

@@ -48,6 +48,18 @@ beforeEach(() => {
     platformState.isTelegram = false
 })
 
+describe('SessionActionMenu - mute', () => {
+    it.each([false, true])('offers the inverse of the current mute state (%s)', (muted) => {
+        const onSetMuted = vi.fn()
+        const onClose = vi.fn()
+        renderMenu({ sessionMuted: muted, onSetMuted, onClose, onMarkUnread: vi.fn() })
+        fireEvent.click(screen.getByRole('menuitem', { name: muted ? 'Unmute chat' : 'Mute chat' }))
+        expect(onSetMuted).toHaveBeenCalledWith(!muted)
+        expect(onClose).toHaveBeenCalled()
+        if (muted) expect(screen.queryByRole('menuitem', { name: 'Mark as unread' })).toBeNull()
+    })
+})
+
 describe('SessionActionMenu - Pin action', () => {
     it('keeps global pin and hides project pin and export', () => {
         const onSetPinMode = vi.fn()
@@ -124,25 +136,6 @@ describe('SessionActionMenu - active session actions', () => {
         fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
         expect(onDelete).toHaveBeenCalledOnce()
         expect(onClose).toHaveBeenCalledOnce()
-    })
-})
-
-describe('SessionActionMenu - regenerate title action', () => {
-    it('fires the regenerate handler and closes the menu', () => {
-        const onRegenerateTitle = vi.fn()
-        const onClose = vi.fn()
-        renderMenu({ onRegenerateTitle, onClose })
-
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Regenerate title' }))
-
-        expect(onRegenerateTitle).toHaveBeenCalledOnce()
-        expect(onClose).toHaveBeenCalledOnce()
-    })
-
-    it('does not render the action when no handler is provided', () => {
-        renderMenu()
-
-        expect(screen.queryByRole('menuitem', { name: 'Regenerate title' })).toBeNull()
     })
 })
 

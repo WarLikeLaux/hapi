@@ -2791,6 +2791,10 @@ export class SyncEngine {
         await this.rpcGateway.switchSession(sessionId, to)
     }
 
+    async setSessionMuted(sessionId: string, muted: boolean): Promise<void> {
+        await this.sessionCache.setSessionMuted(sessionId, muted)
+    }
+
     async renameSession(sessionId: string, name: string): Promise<void> {
         await this.sessionCache.renameSession(sessionId, name)
     }
