@@ -1391,6 +1391,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
             <div
                 ref={viewportRef}
                 tabIndex={0}
+                data-composer-typing-surface=""
                 onClick={closeMessageMenu}
                 onWheel={(event) => {
                     if (event.deltaY < 0) releaseBottomPin()
