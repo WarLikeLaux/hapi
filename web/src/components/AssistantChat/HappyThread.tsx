@@ -1958,6 +1958,7 @@ export function HappyThread(props: {
                         ref={viewportRef}
                         className="chat-wallpaper app-scroll-y chat-scroll-y scrollbar-auto-hide min-h-0 flex-1 overflow-x-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-link)]"
                         tabIndex={0}
+                        data-composer-typing-surface=""
                     >
                         <div ref={contentRef} className="chat-scroll-content mx-auto flex min-h-full w-full max-w-content min-w-0 flex-col justify-end p-3">
                             <div ref={topSentinelRef} className="h-px w-full" aria-hidden="true" />

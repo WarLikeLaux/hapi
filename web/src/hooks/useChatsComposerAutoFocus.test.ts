@@ -32,6 +32,26 @@ describe('type to focus the composer', () => {
         expect(event.defaultPrevented).toBe(false)
     })
 
+    it('focuses from the scrollable message history and its non-interactive content', () => {
+        const composer = setup()
+        const history = document.createElement('div')
+        history.tabIndex = 0
+        history.setAttribute('data-composer-typing-surface', '')
+        history.innerHTML = '<p>Message text</p>'
+        document.body.append(history)
+        for (const target of [history, history.firstElementChild!]) {
+            history.focus()
+            expect(key(target as HTMLElement).defaultPrevented).toBe(false)
+            expect(document.activeElement).toBe(composer)
+        }
+        history.innerHTML = '<textarea aria-label="Question answer"></textarea><button>Option</button><a href="#">Link</a><div tabindex="0">Custom control</div>'
+        for (const control of history.children) {
+            (control as HTMLElement).focus()
+            key(control as HTMLElement)
+            expect(document.activeElement).toBe(control)
+        }
+    })
+
     it('leaves shortcuts, composition and keyboard navigation alone', () => {
         const composer = setup()
         for (const init of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }, { key: 'Process' }, { key: 'Tab' }, { key: ' ' }]) {

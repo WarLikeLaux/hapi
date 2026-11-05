@@ -7,8 +7,9 @@ type Options = {
 }
 
 // Leave keyboard interaction with controls, editors and composite widgets to
-// those elements. In particular, Space must retain its native button/scroll use.
-const interactive = 'input, textarea, select, button, a[href], summary, [contenteditable]:not([contenteditable="false"]), [tabindex]:not([tabindex="-1"]), [role="button"], [role="link"], [role="menu"], [role="menuitem"], [role="listbox"], [role="option"], [role="dialog"], [role="alertdialog"], [role="tree"], [role="grid"], [role="tablist"], [role="slider"]'
+// those elements. Focusable message viewports are typing surfaces, not controls.
+// In particular, Space must retain its native button/scroll use.
+const interactive = 'input, textarea, select, button, a[href], summary, [contenteditable]:not([contenteditable="false"]), [tabindex]:not([tabindex="-1"]):not([data-composer-typing-surface]), [role="button"], [role="link"], [role="menu"], [role="menuitem"], [role="listbox"], [role="option"], [role="dialog"], [role="alertdialog"], [role="tree"], [role="grid"], [role="tablist"], [role="slider"]'
 const overlays = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-state="open"][data-radix-popper-content-wrapper]'
 
 /** Focus the active composer for ordinary typing, leaving insertion to the browser. */
