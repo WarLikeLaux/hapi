@@ -3,6 +3,14 @@ import { logger } from '@/ui/logger';
 import { AppServerEventConverter } from './appServerEventConverter';
 
 describe('AppServerEventConverter', () => {
+    it('preserves completed file changes supplied after the start event', () => {
+        const converter = new AppServerEventConverter();
+        const change = { path: '/tmp/example.txt', kind: 'update', diff: '@@ -1 +1 @@\n-before\n+after' };
+        const started = converter.handleNotification('item/started', { item: { id: 'edit', type: 'fileChange', changes: [change] } });
+        expect(started[0].changes).toEqual({ '/tmp/example.txt': change });
+        const completed = converter.handleNotification('item/completed', { item: { id: 'edit', type: 'fileChange', status: 'completed', changes: [change] } });
+        expect(completed[0].changes).toEqual({ '/tmp/example.txt': change });
+    });
     const footer = 'AGENT_NOTIFY_SUMMARY {"status":"done","summary":"Finished"}';
 
     it.each(['commentary', 'partial_answer'])('removes a summary footer from %s while preserving progress text', phase => {

@@ -1685,7 +1685,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     emitAgentRunTraceMessage(agentId, {
                         type: 'tool-call-result',
                         callId,
-                        output: { stdout, stderr, success },
+                        output: { stdout, stderr, success, changes: msg.changes },
                         is_error: !success,
                         id: randomUUID()
                     });
@@ -3374,8 +3374,10 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                         output: {
                             stdout,
                             stderr,
-                            success
+                            success,
+                            changes: msg.changes
                         },
+                        is_error: !success,
                         id: randomUUID()
                     });
                 }
