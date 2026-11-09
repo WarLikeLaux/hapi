@@ -1728,6 +1728,44 @@ export function HappyThread(props: {
     }, [props.outlineOpen, props.hasMoreMessages])
 
     useEffect(() => {
+        const viewport = viewportRef.current
+        const thread = contentRef.current?.querySelector<HTMLElement>('.happy-thread-messages')
+        if (!viewport || !thread || typeof ResizeObserver === 'undefined') return
+
+        let frame = 0
+        const measure = () => {
+            cancelAnimationFrame(frame)
+            frame = requestAnimationFrame(() => {
+                const children = Array.from(thread.children) as HTMLElement[]
+                const tailBottom = thread.getBoundingClientRect().bottom
+                const threshold = tailBottom - viewport.clientHeight
+                for (const child of children) {
+                    const role = child.dataset.hapiMessageRole
+                    const inTail = (role === 'user' || role === 'assistant')
+                        && child.getBoundingClientRect().bottom > threshold
+                    child.toggleAttribute('data-hapi-actions-in-tail', inTail)
+                }
+            })
+        }
+        const resize = new ResizeObserver(measure)
+        const observeChildren = () => {
+            resize.disconnect()
+            resize.observe(viewport)
+            resize.observe(thread)
+            for (const child of Array.from(thread.children)) resize.observe(child)
+            measure()
+        }
+        const mutations = new MutationObserver(observeChildren)
+        mutations.observe(thread, { childList: true })
+        observeChildren()
+        return () => {
+            cancelAnimationFrame(frame)
+            mutations.disconnect()
+            resize.disconnect()
+        }
+    }, [])
+
+    useEffect(() => {
         const content = contentRef.current
         if (!content || typeof ResizeObserver === 'undefined') {
             return
