@@ -93,9 +93,6 @@ function extractViewedImagePath(value: unknown): string | null {
 }
 
 function extractChanges(value: unknown): Record<string, unknown> | null {
-    const record = asRecord(value);
-    if (record) return record;
-
     if (Array.isArray(value)) {
         const changes: Record<string, unknown> = {};
         for (const entry of value) {
@@ -108,8 +105,7 @@ function extractChanges(value: unknown): Record<string, unknown> | null {
         }
         return Object.keys(changes).length > 0 ? changes : null;
     }
-
-    return null;
+    return asRecord(value);
 }
 
 function extractTextFromContent(value: unknown): string | null {
@@ -1219,6 +1215,7 @@ export class AppServerEventConverter {
 
                 if (method === 'item/completed') {
                     const meta = this.fileChangeMeta.get(itemId) ?? {};
+                    const changes = extractChanges(item.changes ?? item.change ?? item.diff);
                     const stdout = asString(item.stdout ?? item.output);
                     const stderr = asString(item.stderr);
                     const success = asBoolean(item.success ?? item.ok ?? item.applied ?? item.status === 'completed');
@@ -1227,6 +1224,7 @@ export class AppServerEventConverter {
                         type: 'patch_apply_end',
                         call_id: itemId,
                         ...meta,
+                        ...(changes ? { changes } : {}),
                         ...(stdout ? { stdout } : {}),
                         ...(stderr ? { stderr } : {}),
                         success: success ?? false

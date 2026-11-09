@@ -730,6 +730,9 @@ const MutationResultView: ToolViewComponent = (props: ToolViewProps) => {
 
 const CodexPatchResultView: ToolViewComponent = (props: ToolViewProps) => {
     const result = props.block.tool.result
+    if (isObject(result) && result.success === true && !extractTextFromResult(result)) {
+        return <ResultStatusPill text="Done" />
+    }
     const text = extractTextFromResult(result)
     if (text) {
         return (

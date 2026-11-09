@@ -1,3 +1,4 @@
+import { patchFiles } from '@/components/ToolCard/codexPatch'
 import type { ReactNode } from 'react'
 import type { SessionMetadataSummary } from '@/types/api'
 import { isObject } from '@hapi/protocol'
@@ -537,9 +538,9 @@ export const knownTools: Record<string, {
         title: () => 'Apply changes',
         subtitle: (opts) => {
             if (isObject(opts.input) && isObject(opts.input.changes)) {
-                const files = Object.keys(opts.input.changes)
+                const files = patchFiles(opts.input.changes)
                 if (files.length === 0) return null
-                const first = files[0]
+                const first = files[0].path
                 const display = resolveDisplayPath(first, opts.metadata)
                 const name = basename(display)
                 return files.length > 1 ? `${name} (+${files.length - 1})` : name
