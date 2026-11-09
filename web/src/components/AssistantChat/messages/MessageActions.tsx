@@ -112,7 +112,7 @@ export function MessageActions({
         <>
             <div
                 className={cn(
-                    'happy-message-actions mt-1 flex h-5 items-center gap-1',
+                    'happy-message-actions mt-1 flex h-5 items-center gap-1 px-1.5',
                     align === 'end' ? 'justify-end' : 'justify-start'
                 )}
             >
