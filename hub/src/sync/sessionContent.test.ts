@@ -38,6 +38,28 @@ describe('session conversation content', () => {
         }
     })
 
+    it('uses the latest creation time when imported messages arrive out of order', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('imports', { path: '/work', host: 'test' }, null, 'default')
+        const imported = (id: string, createdAt: number, content: unknown) =>
+            store.messages.addImportedMessage(session.id, content, id, createdAt)
+        imported('agent-new', 700, { role: 'agent', content: { type: 'codex', data: { type: 'message', message: 'Answer' } } })
+        imported('user-new', 800, { role: 'user', content: { type: 'text', text: 'Question' } })
+        imported('agent-old', 300, { role: 'agent', content: { type: 'codex', data: { type: 'message', message: 'Earlier answer' } } })
+        imported('status', 900, { role: 'agent', content: { type: 'event', data: { type: 'message', message: 'Session started' } } })
+        const engine = createEngine(store, [])
+        try {
+            expect(engine.getSession(session.id)).toMatchObject({
+                hasConversationContent: true,
+                lastMessageAt: 800,
+                lastAgentMessageAt: 700,
+            })
+        } finally {
+            engine.stop()
+            store.close()
+        }
+    })
+
     it('publishes eligibility changes for first sends, cancellations and CLI messages', async () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []

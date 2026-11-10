@@ -140,6 +140,10 @@ export class Store {
         this.db.exec('PRAGMA foreign_keys = ON')
         this.db.exec('PRAGMA busy_timeout = 5000')
         this.initSchema()
+        // Conversation activity needs the newest message timestamps, which
+        // are not necessarily in sequence order after imports or rewinds.
+        // This additive index works with existing schemas and is built once.
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_created_at ON messages(session_id, created_at DESC)')
 
         if (dbPath !== ':memory:' && !dbPath.startsWith('file::memory:')) {
             for (const path of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {

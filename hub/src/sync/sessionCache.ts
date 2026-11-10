@@ -204,11 +204,15 @@ export class SessionCache {
         }
 
         const existing = this.sessions.get(sessionId)
+        const shouldBackfillTodos = stored.todos === null && !this.todoBackfillAttemptedSessionIds.has(sessionId)
+        // Both recovery passes use the same recent messages. Decode them once.
+        const recentMessages = !existing || shouldBackfillTodos
+            ? this.store.messages.getMessages(sessionId, READY_RECOVERY_MESSAGE_LIMIT)
+            : []
 
         if (!existing) {
             const latestUserMessageAt = stored.lastUserMessageAt ?? stored.createdAt
-            const latestReadyAfterUserMessage = this.store.messages
-                .getMessages(sessionId, READY_RECOVERY_MESSAGE_LIMIT)
+            const latestReadyAfterUserMessage = recentMessages
                 .filter((message) => (
                     message.createdAt >= latestUserMessageAt
                     && isReadySessionEventContent(message.content)
@@ -219,9 +223,9 @@ export class SessionCache {
             }
         }
 
-        if (stored.todos === null && !this.todoBackfillAttemptedSessionIds.has(sessionId)) {
+        if (shouldBackfillTodos) {
             this.todoBackfillAttemptedSessionIds.add(sessionId)
-            const messages = this.store.messages.getMessages(sessionId, 200)
+            const messages = recentMessages.slice(-200)
             for (let i = messages.length - 1; i >= 0; i -= 1) {
                 const message = messages[i]
                 const todos = extractTodoWriteTodosFromMessageContent(message.content)

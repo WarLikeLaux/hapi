@@ -213,7 +213,7 @@ export class MessageStore {
         lastAgentMessageAt?: number
     } {
         const query = this.db.prepare<{ content: string | Uint8Array; created_at: number }, [string]>(
-            'SELECT content, created_at FROM messages WHERE session_id = ? ORDER BY seq ASC'
+            'SELECT content, created_at FROM messages WHERE session_id = ? ORDER BY created_at DESC'
         )
         let lastMessageAt: number | undefined
         let lastAgentMessageAt: number | undefined
@@ -221,10 +221,11 @@ export class MessageStore {
             for (const row of query.iterate(sessionId)) {
                 const content = decodeMessageContent(row.content)
                 if (!hasConversationMessageContent(content)) continue
-                lastMessageAt = Math.max(lastMessageAt ?? 0, row.created_at)
-                if (unwrapRoleWrappedRecordEnvelope(content)?.role === 'agent') {
-                    lastAgentMessageAt = Math.max(lastAgentMessageAt ?? 0, row.created_at)
+                if (lastMessageAt === undefined) lastMessageAt = Math.max(0, row.created_at)
+                if (lastAgentMessageAt === undefined && unwrapRoleWrappedRecordEnvelope(content)?.role === 'agent') {
+                    lastAgentMessageAt = Math.max(0, row.created_at)
                 }
+                if (lastMessageAt !== undefined && lastAgentMessageAt !== undefined) break
             }
         } finally {
             query.finalize()
