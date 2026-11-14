@@ -62,9 +62,10 @@ describe('durable session read state', () => {
     })
 
     it('does not claim a read when durable storage fails', () => {
+        markSessionSeen('s', 1)
         vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
         markSessionSeen('s', 3)
-        expect(getSessionLastSeenAt('s')).toBe(0)
+        expect(getSessionLastSeenAt('s')).toBe(1)
     })
 
     it('retries the persisted operation and preserves a newer operation during acknowledgement', async () => {

@@ -221,6 +221,9 @@ function persistState(sessionId: string, state: InternalState): void {
             sessionStorage.removeItem(getStorageKey(sessionId))
             return
         }
+        // Status-only updates can schedule persistence without changing the
+        // snapshot. Avoid rewriting large answers and rescanning the cache.
+        if (sessionStorage.getItem(getStorageKey(sessionId)) === serialized) return
         sessionStorage.setItem(getStorageKey(sessionId), serialized)
         trimSessionCaches(sessionStorage, undefined, getStorageKey(sessionId))
     } catch {

@@ -17,15 +17,27 @@ let sender: Sender | null = null
 let changeVersion = 0
 let running = false
 let retry: ReturnType<typeof setTimeout> | undefined
+let cachedStore: { key: string; raw: string | null; value: Store } | undefined
 
 function readStore(key = scope): Store {
     try {
-        const value: unknown = JSON.parse(localStorage.getItem(PREFIX + key) ?? '{}')
-        return value && typeof value === 'object' && !Array.isArray(value) ? value as Store : {}
+        const raw = localStorage.getItem(PREFIX + key)
+        if (cachedStore?.key === key && cachedStore.raw === raw) return cachedStore.value
+        const value: unknown = JSON.parse(raw ?? '{}')
+        const store = value && typeof value === 'object' && !Array.isArray(value) ? value as Store : {}
+        cachedStore = { key, raw, value: store }
+        return store
     } catch { return {} }
 }
+// Writers must not mutate the cached snapshot before persistence succeeds.
+function writableStore(key = scope): Store { return structuredClone(readStore(key)) }
 function save(store: Store, key = scope): boolean {
-    try { localStorage.setItem(PREFIX + key, JSON.stringify(store)); return true } catch { return false }
+    try {
+        const raw = JSON.stringify(store)
+        localStorage.setItem(PREFIX + key, raw)
+        cachedStore = { key, raw, value: store }
+        return true
+    } catch { return false }
 }
 function notify(): void {
     changeVersion += 1
@@ -72,7 +84,7 @@ export async function flushSessionReadState(): Promise<void> {
             if (!pending || sender !== send || scope !== key) continue
             try {
                 const response = await send(id, pending.request)
-                const store = readStore(key)
+                const store = writableStore(key)
                 const current = store[id] ?? entry
                 current.server = mergeReadState(current.server, response.readState)!
                 if (current.pending?.id === pending.id) delete current.pending
@@ -89,7 +101,7 @@ export async function flushSessionReadState(): Promise<void> {
             } catch (error) {
                 const failure = error as { status?: number; body?: string }
                 if ([400, 403, 404, 409].includes(failure.status ?? 0)) {
-                    const store = readStore(key)
+                    const store = writableStore(key)
                     const current = store[id]
                     if (current?.pending?.id === pending.id) {
                         // 409 includes the authoritative manual choice.
@@ -115,7 +127,7 @@ export async function flushSessionReadState(): Promise<void> {
 
 export function observeSessionReadStates(sessions: Iterable<SessionInput>, legacyScope?: string): void {
     if (scope === 'unconfigured') return
-    const store = readStore()
+    const store = writableStore()
     const legacy = legacyScope === undefined ? undefined : readLegacyReadState(legacyScope)
     let changed = false
     let migratedUnread = false
@@ -172,7 +184,7 @@ function legacyIsUnread(session: SessionInput, legacy: ReturnType<typeof readLeg
 
 function enqueue(sessionId: string, request: SessionReadStateRequest): void {
     if (!sessionId) return
-    const store = readStore()
+    const store = writableStore()
     const entry = store[sessionId] ?? { server: EMPTY_READ_STATE }
     const previous = entry.pending?.request
     if (request.type === 'read' && previous?.type === 'read') {
@@ -208,7 +220,7 @@ export function markSessionUnread(sessionId: string, observedState?: SessionRead
 export function markAllSessionsSeen(sessions: Iterable<SessionInput>): number {
     const list = uniqueSessions(sessions).filter(s => !s.metadata?.muted)
     observeSessionReadStates(list)
-    const store = readStore()
+    const store = writableStore()
     let count = 0
     for (const session of list) {
         const entry = store[session.id] ?? { server: session.readState ?? EMPTY_READ_STATE }
