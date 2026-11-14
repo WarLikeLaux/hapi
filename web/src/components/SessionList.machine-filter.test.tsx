@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('@/hooks/useShowProjectGroups', () => ({ useShowProjectGroups: () => ({ showProjectGroups: true }) }))
 import type { ReactNode } from 'react'
 import type { SessionSummary, Machine } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'

@@ -10,6 +10,7 @@ import { getTerminalFontSizeOptions, useTerminalFontSize } from '@/hooks/useTerm
 import { getSessionListStatusModeOptions, useSessionListStatusMode } from '@/hooks/useSessionListStatusMode'
 import { useShowActiveSessionsOnly } from '@/hooks/useShowActiveSessionsOnly'
 import { usePinInProgressSessions } from '@/hooks/usePinInProgressSessions'
+import { useShowProjectGroups } from '@/hooks/useShowProjectGroups'
 import { getFreshChatsWindowOptions, useFreshChatsWindow } from '@/hooks/useFreshChatsWindow'
 import { MAX_SESSION_PREVIEW_LIMIT, MIN_SESSION_PREVIEW_LIMIT, normalizeSessionPreviewLimit, useSessionPreviewLimit } from '@/hooks/useSessionPreviewLimit'
 import { useThemeColors, type ThemeColorKeyId } from '@/hooks/useThemeColors'
@@ -224,6 +225,7 @@ export default function SettingsDisplayPage() {
     const { sessionListStatusMode, setSessionListStatusMode } = useSessionListStatusMode()
     const { showActiveSessionsOnly, setShowActiveSessionsOnly } = useShowActiveSessionsOnly()
     const { pinInProgressSessions, setPinInProgressSessions } = usePinInProgressSessions()
+    const { showProjectGroups, setShowProjectGroups } = useShowProjectGroups()
     const { freshChatsWindow, setFreshChatsWindow } = useFreshChatsWindow()
     const { appBadgeEnabled, setAppBadgeEnabled } = useAppBadgePreference()
     const { openExternalLinksInNewTab, setOpenExternalLinksInNewTab } = useOpenExternalLinksInNewTab()
@@ -268,6 +270,7 @@ export default function SettingsDisplayPage() {
                 <SessionPreviewLimitControl />
                 <SettingsSwitch label={t('settings.display.activeSessionsOnly')} description={t('settings.display.activeSessionsOnly.desc')} checked={showActiveSessionsOnly} onChange={setShowActiveSessionsOnly} />
                 <SettingsSwitch label={t('settings.display.pinInProgressSessions')} description={t('settings.display.pinInProgressSessions.desc')} checked={pinInProgressSessions} onChange={setPinInProgressSessions} />
+                <SettingsSwitch label={t('settings.display.showProjectGroups')} description={t('settings.display.showProjectGroups.desc')} checked={showProjectGroups} onChange={setShowProjectGroups} />
                 <SettingsChoiceGroup
                     label={t('settings.display.freshChats')}
                     description={t('settings.display.freshChats.desc')}

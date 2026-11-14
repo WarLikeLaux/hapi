@@ -112,6 +112,7 @@ import { DEFAULT_SESSION_PREVIEW_LIMIT, useSessionPreviewLimit } from '@/hooks/u
 import { useSessionListStatusMode } from '@/hooks/useSessionListStatusMode'
 import { useShowActiveSessionsOnly } from '@/hooks/useShowActiveSessionsOnly'
 import { usePinInProgressSessions } from '@/hooks/usePinInProgressSessions'
+import { useShowProjectGroups } from '@/hooks/useShowProjectGroups'
 import { classifyVisibleSessionAttention, getSessionUnreadActivityAt } from '@/lib/sessionAttention'
 import {
     getSessionLastSeenAt,
@@ -300,7 +301,6 @@ function SessionsEmptyState(props: {
 type MachineGroup = {
     machineId: string | null
     label: string
-    projectGroups: SessionGroup[]
     totalSessions: number
     latestUserMessageAt: number
 }
@@ -548,26 +548,25 @@ export function expandSelectedSessionCollapseOverrides(
 }
 
 function groupByMachine(
-    groups: SessionGroup[],
+    sessions: readonly SessionSummary[],
     resolveMachineLabel: (id: string | null) => string
 ): MachineGroup[] {
     const map = new Map<string, MachineGroup>()
-    for (const g of groups) {
-        const key = g.machineId ?? UNKNOWN_MACHINE_ID
+    for (const session of sessions) {
+        const machineId = session.metadata?.machineId ?? null
+        const key = machineId ?? UNKNOWN_MACHINE_ID
         let mg = map.get(key)
         if (!mg) {
             mg = {
-                machineId: g.machineId,
-                label: resolveMachineLabel(g.machineId),
-                projectGroups: [],
+                machineId,
+                label: resolveMachineLabel(machineId),
                 totalSessions: 0,
                 latestUserMessageAt: 0,
             }
             map.set(key, mg)
         }
-        mg.projectGroups.push(g)
-        mg.totalSessions += g.sessions.length
-        if (g.latestUserMessageAt > mg.latestUserMessageAt) mg.latestUserMessageAt = g.latestUserMessageAt
+        mg.totalSessions += 1
+        mg.latestUserMessageAt = Math.max(mg.latestUserMessageAt, getSessionUserActivityAt(session))
     }
     return [...map.values()].sort((a, b) => {
         const activityDelta = a.latestUserMessageAt - b.latestUserMessageAt
@@ -1423,6 +1422,11 @@ export function SessionList(props: {
     // (The fork removed the header "unread only" filter; unread state still
     // drives dots and mark-all-read below.)
     const { pinInProgressSessions } = usePinInProgressSessions()
+    const { showProjectGroups } = useShowProjectGroups()
+    const useActivitySections = pinInProgressSessions || !showProjectGroups
+    const [recentSectionCollapsed, setRecentSectionCollapsed] = useState(true)
+    const [parkedSectionCollapsed, setParkedSectionCollapsed] = useState(false)
+    const [recentVisibleCount, setRecentVisibleCount] = useState(RECENT_SESSION_BATCH_SIZE)
     const { machineFilter, setMachineFilter } = useSessionListMachineFilter()
     const showDetailedStatus = sessionListStatusMode === 'detailed'
     const [searchQuery, setSearchQuery] = useState('')
@@ -1650,12 +1654,12 @@ export function SessionList(props: {
         [allSessions, hasTextQuery, isFiltering, normalizedQuery, searchScoreIndex, timeScopedSessions, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
     )
     const allGroups = useMemo(
-        () => groupSessionsByDirectory(contextFilteredSessions, projectDisplayNames),
-        [projectDisplayNames, contextFilteredSessions]
+        () => showProjectGroups ? groupSessionsByDirectory(contextFilteredSessions, projectDisplayNames) : [],
+        [showProjectGroups, projectDisplayNames, contextFilteredSessions]
     )
     const machineFilters = useMemo(
-        () => groupByMachine(allGroups, resolveMachineLabel),
-        [allGroups, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
+        () => groupByMachine(contextFilteredSessions, resolveMachineLabel),
+        [contextFilteredSessions, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
     )
     const machineFilterItems = useMemo(
         () => machineFilters.map((mg) => {
@@ -1725,7 +1729,7 @@ export function SessionList(props: {
             : pinned
     }, [hasTextQuery, machineFilteredSessions, searchScoreIndex])
     const workingSessions = useMemo(() => {
-        if (!pinInProgressSessions) {
+        if (!useActivitySections) {
             return []
         }
         const working = sortSessionsByNewestUserActivity(
@@ -1736,9 +1740,9 @@ export function SessionList(props: {
         return hasTextQuery && searchScoreIndex
             ? sortSessionsBySearchRelevancePreservingForkOrder(working, searchScoreIndex)
             : working
-    }, [hasTextQuery, machineFilteredSessions, pinInProgressSessions, searchScoreIndex])
+    }, [hasTextQuery, machineFilteredSessions, useActivitySections, searchScoreIndex])
     const activeSessions = useMemo(() => {
-        if (!pinInProgressSessions) {
+        if (!useActivitySections) {
             return []
         }
         const active = sortActiveSessions(
@@ -1751,7 +1755,7 @@ export function SessionList(props: {
         return hasTextQuery && searchScoreIndex
             ? sortSessionsBySearchRelevancePreservingForkOrder(active, searchScoreIndex)
             : active
-    }, [hasTextQuery, machineFilteredSessions, pinInProgressSessions, searchScoreIndex])
+    }, [hasTextQuery, machineFilteredSessions, useActivitySections, searchScoreIndex])
     // Keep new empty sessions on top, then interleave fresh chats by recency;
     // null keeps the section on its pure-session rendering path.
     const activeRows = useMemo(
@@ -1759,11 +1763,11 @@ export function SessionList(props: {
         [activeSessions, freshChats]
     )
     const idleSessions = useMemo(() => {
-        if (!pinInProgressSessions) {
+        if (!useActivitySections) {
             return []
         }
         const idle = sortSessionsByNewestAgentActivity(
-            machineFilteredSessions.filter((session) => (
+            (isFiltering && !showProjectGroups ? projectHeaderSessions : machineFilteredSessions).filter((session) => (
                 !session.globalPinned
                 && !isWorkingSession(session)
                 && session.metadata?.lifecycleState === SESSION_LIFECYCLE_PARKED
@@ -1772,27 +1776,29 @@ export function SessionList(props: {
         return hasTextQuery && searchScoreIndex
             ? sortSessionsBySearchRelevancePreservingForkOrder(idle, searchScoreIndex)
             : idle
-    }, [hasTextQuery, machineFilteredSessions, pinInProgressSessions, searchScoreIndex])
-    const recentSessions = useMemo(() => sortSessionsByNewestAgentActivity(
-        projectHeaderSessions.filter((session) => (
+    }, [hasTextQuery, machineFilteredSessions, projectHeaderSessions, isFiltering, showProjectGroups, useActivitySections, searchScoreIndex])
+    const recentSessions = useMemo(() => {
+        const candidates = projectHeaderSessions.filter((session) => (
             !session.active
             && !session.globalPinned
             // Parked rows live in the Idle section while it renders. When
             // pin-in-progress is off the Idle section is empty, so keep them
             // in Recent instead of orphaning them into collapsed groups.
-            && (session.metadata?.lifecycleState !== SESSION_LIFECYCLE_PARKED || !pinInProgressSessions)
+            && (session.metadata?.lifecycleState !== SESSION_LIFECYCLE_PARKED || !useActivitySections)
         ))
-    ), [projectHeaderSessions, pinInProgressSessions])
+        if ((isFiltering && hasTextQuery && !showProjectGroups) || (recentSectionCollapsed && !isFiltering)) return candidates
+        return sortSessionsByNewestAgentActivity(candidates)
+    }, [projectHeaderSessions, machineFilteredSessions, useActivitySections, isFiltering, hasTextQuery, showProjectGroups, recentSectionCollapsed])
     const allDirectoryGroups = useMemo(
-        () => groupSessionsByDirectory(
+        () => showProjectGroups ? groupSessionsByDirectory(
             projectHeaderSessions.filter((session) => !session.globalPinned),
             projectDisplayNames
-        ),
-        [projectDisplayNames, projectHeaderSessions]
+        ) : [],
+        [showProjectGroups, projectDisplayNames, projectHeaderSessions]
     )
     const groups = useMemo(() => {
         const grouped = allDirectoryGroups.flatMap((group) => {
-            const sessions = pinInProgressSessions
+            const sessions = useActivitySections
                 ? group.sessions.filter((session) => !isPinnedInProgressSession(session))
                 : group.sessions
             return sessions.length > 0 ? [{ ...group, sessions }] : []
@@ -1800,7 +1806,7 @@ export function SessionList(props: {
         return hasTextQuery && searchScoreIndex
             ? rankSessionGroupsBySearchRelevancePreservingForkOrder(grouped, searchScoreIndex)
             : grouped
-    }, [allDirectoryGroups, hasTextQuery, pinInProgressSessions, searchScoreIndex])
+    }, [allDirectoryGroups, hasTextQuery, useActivitySections, searchScoreIndex])
     const chatGroupSections = useMemo(() => {
         const sections: Record<GroupSection | 'pinned', ChatGroup[]> = { pinned: [], active: [], working: [], idle: [], recent: [] }
         const byId = new Map((props.groupedSessions ?? []).map(session => [session.id, session]))
@@ -1832,9 +1838,7 @@ export function SessionList(props: {
     )
     const [filterCollapseOverrides, setFilterCollapseOverrides] = useState<Map<string, boolean>>(() => new Map())
     const [pinnedSectionCollapsed, setPinnedSectionCollapsed] = useState(false)
-    const [recentSectionCollapsed, setRecentSectionCollapsed] = useState(true)
     const [groupActionError, setGroupActionError] = useState<string | null>(null)
-    const [recentVisibleCount, setRecentVisibleCount] = useState(RECENT_SESSION_BATCH_SIZE)
     const autoExpandedSelectedSessionKeyRef = useRef<string | null>(null)
     const isGroupCollapsed = (group: SessionGroup): boolean => {
         const override = isFiltering
@@ -1975,6 +1979,25 @@ export function SessionList(props: {
                 : <FreshChatItem key={row.key} conversation={row.conversation} />
     )
 
+    const renderFiveStepControls = (total: number, limit: number, setLimit: (update: (count: number) => number) => void) => {
+        const visible = Math.min(total, limit)
+        const hidden = total - visible
+        if (hidden === 0 && visible <= RECENT_SESSION_BATCH_SIZE) return null
+        const buttonClass = 'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md border border-dashed border-[var(--app-border)] px-2 py-1 text-center text-xs text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]'
+        return <div className="ml-2.5 mr-2 my-1 flex gap-1.5">
+            {visible > RECENT_SESSION_BATCH_SIZE ? <button type="button" className={buttonClass}
+                onClick={() => setLimit(() => Math.max(RECENT_SESSION_BATCH_SIZE, visible - RECENT_SESSION_BATCH_SIZE))}>
+                <SessionPreviewArrowIcon direction="up" className="h-3 w-3 shrink-0" />
+                {t('sessions.group.collapse', { n: Math.min(RECENT_SESSION_BATCH_SIZE, visible - RECENT_SESSION_BATCH_SIZE) })}
+            </button> : null}
+            {hidden > 0 ? <button type="button" className={buttonClass}
+                onClick={() => setLimit(() => Math.min(total, visible + RECENT_SESSION_BATCH_SIZE))}>
+                <SessionPreviewArrowIcon direction="down" className="h-3 w-3 shrink-0" />
+                {t('sessions.group.expand', { n: Math.min(RECENT_SESSION_BATCH_SIZE, hidden) })}
+            </button> : null}
+        </div>
+    }
+
     const renderSessionSection = ({
         sectionKey,
         titleKey,
@@ -1999,6 +2022,8 @@ export function SessionList(props: {
         if (sessions.length === 0 && chatGroups.length === 0 && !(mergedRows ?? []).some((row) => row.kind === 'chat')) {
             return null
         }
+        const rows = mergeChatGroupRows(sessions, chatGroups, activityTimeBasis, mergedRows, sectionKey === 'active-section')
+        const parked = sectionKey === 'idle-section'
         return (
             <section key={sectionKey} aria-label={t(titleKey)}>
                 <div
@@ -2025,30 +2050,25 @@ export function SessionList(props: {
                     )}
                     <SectionActivityIcon section={sectionKey} />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{t(titleKey)}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
+                    {!parked ? <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
                         ({sessions.length + chatGroups.length})
-                    </span>
+                    </span> : null}
                 </div>
-                <div className="collapsible-panel" data-open={(!collapsible || !collapsed || isFiltering) || undefined}>
-                    <div className="collapsible-inner">
+                <CollapsiblePanel open={!collapsible || !collapsed || isFiltering}>
                     <div className="flex flex-col gap-0.5 ml-2 py-1">
-                        {mergeChatGroupRows(sessions, chatGroups, activityTimeBasis, mergedRows, sectionKey === 'active-section')
-                            .map(row => renderMixedRow(row, activityTimeBasis))}
+                        {rows.map(row => renderMixedRow(row, activityTimeBasis))}
                     </div>
-                    </div>
-                </div>
+                </CollapsiblePanel>
             </section>
         )
     }
 
     const renderRecentSessions = () => {
-        // Search/date/unread results already render in their project groups.
-        // Keep this shortcut out of filtered views to avoid duplicate results.
-        if ((recentSessions.length === 0 && (pinInProgressSessions ? chatGroupSections.recent.length : 0) === 0) || isFiltering) return null
-        const recentRows = mergeChatGroupRows(recentSessions, pinInProgressSessions ? chatGroupSections.recent : [], 'agent')
+        // In the project view filtered results already appear in project groups.
+        if ((recentSessions.length === 0 && (useActivitySections && !isFiltering ? chatGroupSections.recent.length : 0) === 0) || (isFiltering && showProjectGroups)) return null
+        const recentOpen = !recentSectionCollapsed || isFiltering
+        const recentRows = recentOpen ? mergeChatGroupRows(recentSessions, useActivitySections && !isFiltering ? chatGroupSections.recent : [], 'agent') : []
         const visibleRecentRows = recentRows.slice(0, recentVisibleCount)
-        const hiddenCount = recentRows.length - visibleRecentRows.length
-        const expandCount = Math.min(RECENT_SESSION_BATCH_SIZE, hiddenCount)
 
         return (
             <div key="recent-section">
@@ -2056,7 +2076,7 @@ export function SessionList(props: {
                     className="group/recent flex min-w-0 w-full select-none cursor-pointer items-center gap-2 rounded-lg py-1.5 pl-2 pr-2 transition-colors hover:bg-[var(--app-secondary-bg)]"
                     role="button"
                     tabIndex={0}
-                    aria-expanded={!recentSectionCollapsed}
+                    aria-expanded={!recentSectionCollapsed || isFiltering}
                     aria-label={t('sessions.recentToggle')}
                     onClick={() => setRecentSectionCollapsed((value) => !value)}
                     onKeyDown={(event) => {
@@ -2067,7 +2087,7 @@ export function SessionList(props: {
                     }}
                     title={t('sessions.recentSection')}
                 >
-                    <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={recentSectionCollapsed} />
+                    <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={recentSectionCollapsed && !isFiltering} />
                     <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
                         <span
                             data-testid="recent-session-indicator"
@@ -2077,25 +2097,13 @@ export function SessionList(props: {
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                         {t('sessions.recentSection')}
                     </span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-hint)]">
-                        ({recentSessions.length + (pinInProgressSessions ? chatGroupSections.recent.length : 0)})
-                    </span>
                 </div>
-                <div className="collapsible-panel" data-open={!recentSectionCollapsed || undefined}>
+                <div className="collapsible-panel" data-open={(!recentSectionCollapsed || isFiltering) || undefined}>
                     <div className="collapsible-inner">
-                    {!recentSectionCollapsed ? (
+                    {!recentSectionCollapsed || isFiltering ? (
                         <div className="flex flex-col gap-0.5 ml-2 py-1">
                             {visibleRecentRows.map(row => renderMixedRow(row, 'agent'))}
-                            {hiddenCount > 0 ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setRecentVisibleCount((count) => Math.min(count + RECENT_SESSION_BATCH_SIZE, recentRows.length))}
-                                    className="ml-2.5 mr-2 my-1 flex items-center justify-center gap-1 rounded-md border border-dashed border-[var(--app-border)] px-2 py-1 text-center text-xs text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
-                                >
-                                    <SessionPreviewArrowIcon direction="down" className="h-3 w-3 shrink-0" />
-                                    {t('sessions.group.expand', { n: expandCount })}
-                                </button>
-                            ) : null}
+                            {renderFiveStepControls(recentRows.length, recentVisibleCount, setRecentVisibleCount)}
                         </div>
                     ) : null}
                     </div>
@@ -2656,7 +2664,7 @@ export function SessionList(props: {
             <div ref={scrollContainerRef} className="app-scroll-y session-list-scrollbar-left scrollbar-auto-hide min-h-0 flex-1">
             <SessionListScrollAnchor sessions={props.sessions} className="mx-auto flex w-full max-w-content flex-col gap-1 pl-1.5 pr-2 pb-2">
                 {props.groupsStatus}
-                {!pinInProgressSessions || isFiltering ? renderChatGroups([...chatGroupSections.working, ...chatGroupSections.active, ...chatGroupSections.idle, ...chatGroupSections.recent]) : null}
+                {!useActivitySections || isFiltering ? renderChatGroups([...chatGroupSections.working, ...chatGroupSections.active, ...chatGroupSections.idle, ...chatGroupSections.recent]) : null}
                 {props.sessions.length === 0 && !props.isLoading && !props.hasGroupRows ? (
                     <SessionsEmptyState
                         onNewSession={props.onNewSession}
@@ -2702,7 +2710,7 @@ export function SessionList(props: {
                     </div>
                 ) : null}
 
-                {showSessionSections && props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null) && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
+                {showSessionSections && props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null) && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && idleSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
                     <div className="px-4 py-8 text-center text-sm text-[var(--app-hint)]">
                         {t('sessions.search.noResults')}
                     </div>
@@ -2770,17 +2778,18 @@ export function SessionList(props: {
                 {showSessionSections ? renderSessionSection({
                     sectionKey: 'working-section', titleKey: 'sessions.runningSection', collapsed: false,
                     sessions: workingSessions, activityTimeBasis: 'user', collapsible: false,
-                    chatGroups: pinInProgressSessions && !isFiltering ? chatGroupSections.working : [],
+                    chatGroups: useActivitySections && !isFiltering ? chatGroupSections.working : [],
                 }) : null}
                 {showSessionSections ? renderSessionSection({
                     sectionKey: 'active-section', titleKey: 'sessions.activeSection', collapsed: false,
                     sessions: activeSessions, activityTimeBasis: 'agent', collapsible: false, mergedRows: activeRows,
-                    chatGroups: pinInProgressSessions && !isFiltering ? chatGroupSections.active : [],
+                    chatGroups: useActivitySections && !isFiltering ? chatGroupSections.active : [],
                 }) : null}
                 {showSessionSections ? renderSessionSection({
-                    sectionKey: 'idle-section', titleKey: 'session.item.idle', collapsed: false,
-                    sessions: idleSessions, activityTimeBasis: 'agent', collapsible: false,
-                    chatGroups: pinInProgressSessions && !isFiltering ? chatGroupSections.idle : [],
+                    sectionKey: 'idle-section', titleKey: 'session.item.idle', collapsed: parkedSectionCollapsed,
+                    onToggle: () => setParkedSectionCollapsed(value => !value),
+                    sessions: idleSessions, activityTimeBasis: 'agent', collapsible: true,
+                    chatGroups: useActivitySections && !isFiltering ? chatGroupSections.idle : [],
                 }) : null}
                 {showSessionSections ? renderRecentSessions() : null}
                 {showSessionSections ? groups.map(renderDirectoryGroup) : null}
