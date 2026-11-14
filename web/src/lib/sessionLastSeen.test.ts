@@ -95,6 +95,17 @@ describe('durable session read state', () => {
         expect(getSessionLastSeenAt('s')).toBe(2)
         expect(getSessionManualUnreadAt('s')).toBe(0)
     })
+
+    it('retains the pending read when saving a rejected response fails', async () => {
+        markSessionSeen('s', 9)
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
+        cleanup = configureSessionReadState('hub-a:alice', async () => {
+            throw { status: 409, body: JSON.stringify({ readState: server(2, 3, true) }) }
+        })
+        await vi.advanceTimersByTimeAsync(0)
+        expect(getSessionLastSeenAt('s')).toBe(9)
+        expect(getSessionManualUnreadAt('s')).toBeNull()
+    })
 })
 
 describe('legacy migration', () => {
