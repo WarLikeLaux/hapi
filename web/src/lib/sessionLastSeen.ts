@@ -19,7 +19,8 @@ let running = false
 let retry: ReturnType<typeof setTimeout> | undefined
 let cachedStore: { key: string; raw: string | null; value: Store } | undefined
 
-function readStore(key = scope): Store {
+function readStore(key = scope, refresh = false): Store {
+    if (!refresh && cachedStore?.key === key) return cachedStore.value
     try {
         const raw = localStorage.getItem(PREFIX + key)
         if (cachedStore?.key === key && cachedStore.raw === raw) return cachedStore.value
@@ -31,7 +32,7 @@ function readStore(key = scope): Store {
 }
 // Writers replace entries in this shallow copy; entries that need nested
 // mutation are copied separately before persistence.
-function writableStore(key = scope): Store { return { ...readStore(key) } }
+function writableStore(key = scope): Store { return { ...readStore(key, true) } }
 function save(store: Store, key = scope): boolean {
     try {
         const raw = JSON.stringify(store)
@@ -59,6 +60,7 @@ function effective(entry?: Entry, incoming?: SessionReadState): SessionReadState
 export function configureSessionReadState(key: string, send: Sender): () => void {
     scope = key
     sender = send
+    cachedStore = undefined
     notify()
     void flushSessionReadState()
     const retryNow = () => { void flushSessionReadState() }
@@ -80,7 +82,7 @@ export async function flushSessionReadState(): Promise<void> {
     const send = sender
     let failed = false
     try {
-        for (const [id, entry] of Object.entries(readStore(key))) {
+        for (const [id, entry] of Object.entries(readStore(key, true))) {
             const pending = entry.pending
             if (!pending || sender !== send || scope !== key) continue
             try {
@@ -121,7 +123,7 @@ export async function flushSessionReadState(): Promise<void> {
     } finally {
         running = false
         clearTimeout(retry)
-        if (Object.values(readStore()).some(entry => entry.pending)) {
+        if (Object.values(readStore(scope, true)).some(entry => entry.pending)) {
             retry = setTimeout(() => { void flushSessionReadState() }, failed ? 5_000 : 0)
         }
     }
@@ -210,14 +212,14 @@ export function getSessionManualUnreadSnapshot(sessions: readonly SessionInput[]
 }
 export function markSessionSeen(sessionId: string, readRevision: number, observedVersion?: number): void {
     if (!Number.isSafeInteger(readRevision) || readRevision < 0) return
-    const entry = readStore()[sessionId]
+    const entry = readStore(scope, true)[sessionId]
     const current = effective(entry)
     if (current.readRevision >= readRevision && !current.manualUnread) return
     enqueue(sessionId, { type: 'read', readRevision, expectedVersion: observedVersion ?? entry?.server.version ?? 0 })
 }
 export function markSessionUnread(sessionId: string, observedState?: SessionReadState): void {
     if (observedState) observeSessionReadStates([{ id: sessionId, readState: observedState }])
-    enqueue(sessionId, { type: 'unread', expectedVersion: readStore()[sessionId]?.server.version ?? 0 })
+    enqueue(sessionId, { type: 'unread', expectedVersion: readStore(scope, true)[sessionId]?.server.version ?? 0 })
 }
 export function markAllSessionsSeen(sessions: Iterable<SessionInput>): number {
     const list = uniqueSessions(sessions).filter(s => !s.metadata?.muted)
@@ -269,6 +271,16 @@ function subscribe(listener: () => void): () => void {
     window.addEventListener(CHANGE_EVENT, listener)
     window.addEventListener('storage', storage)
     return () => { window.removeEventListener(CHANGE_EVENT, listener); window.removeEventListener('storage', storage) }
+}
+
+// Storage events arrive even when no read-state component is mounted. Writers
+// also refresh synchronously, so a pending event cannot hide another tab's edit.
+if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (event) => {
+        if (cachedStore && (event.key === null || event.key === PREFIX + cachedStore.key)) {
+            cachedStore = undefined
+        }
+    })
 }
 export function useSessionLastSeenVersion(): number {
     return useSyncExternalStore(subscribe, () => changeVersion, () => 0)

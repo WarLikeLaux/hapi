@@ -170,6 +170,25 @@ it('updates a subscribed consumer only for another tab in the same read-state sc
     expect(result.current).toBe(0)
 })
 
+it('refreshes read state changed by another tab even without mounted subscribers', () => {
+    const key = 'hapi.sessionReadState.v1:hub-a:alice'
+    expect(getSessionManualUnreadAt('s')).toBeNull()
+    localStorage.setItem(key, JSON.stringify({ s: { server: server(3, 2, true) } }))
+    window.dispatchEvent(new StorageEvent('storage', { key }))
+    expect(getSessionManualUnreadAt('s')).toBe(0)
+    expect(getSessionLastSeenAt('s')).toBe(3)
+})
+
+it('refreshes another tab’s manual choice before deciding a read is redundant', () => {
+    const key = 'hapi.sessionReadState.v1:hub-a:alice'
+    observeSessionReadStates([{ id: 's', readState: server(3, 1) }])
+    expect(getSessionManualUnreadAt('s')).toBeNull()
+    localStorage.setItem(key, JSON.stringify({ s: { server: server(3, 2, true) } }))
+    markSessionSeen('s', 3)
+    expect(getSessionManualUnreadAt('s')).toBeNull()
+    expect(JSON.parse(localStorage.getItem(key)!).s.pending.request.expectedVersion).toBe(2)
+})
+
 it('keeps the read-state API usable when browser storage is denied', () => {
     const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')!
     Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('denied') } })
