@@ -361,8 +361,19 @@ export function getSessionDedupKey(session: SessionSummary): string | null {
 }
 
 export function deduplicateSessionsByAgentId(sessions: SessionSummary[], selectedSessionId?: string | null): SessionSummary[] {
-    const byAgentId = new Map<string, SessionSummary[]>()
+    const byAgentId = new Map<string, SessionSummary>()
     const result: SessionSummary[] = []
+    const compare = (a: SessionSummary, b: SessionSummary): number => {
+        // Active session always wins — it's the live connection
+        if (a.active !== b.active) return a.active ? -1 : 1
+        // Among inactive duplicates, keep the selected one visible
+        if (a.id === selectedSessionId) return -1
+        if (b.id === selectedSessionId) return 1
+        // Preserve an explicit pin when otherwise choosing by recency
+        if (Boolean(a.globalPinned) !== Boolean(b.globalPinned)) return a.globalPinned ? -1 : 1
+        if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1
+        return b.updatedAt - a.updatedAt
+    }
 
     for (const session of sessions) {
         const dedupKey = getSessionDedupKey(session)
@@ -370,29 +381,15 @@ export function deduplicateSessionsByAgentId(sessions: SessionSummary[], selecte
             result.push(session)
             continue
         }
-        const group = byAgentId.get(dedupKey)
-        if (group) {
-            group.push(session)
-        } else {
-            byAgentId.set(dedupKey, [session])
+        const current = byAgentId.get(dedupKey)
+        if (!current) {
+            byAgentId.set(dedupKey, session)
+            continue
         }
+        if (compare(session, current) < 0) byAgentId.set(dedupKey, session)
     }
 
-    for (const group of byAgentId.values()) {
-        group.sort((a, b) => {
-            // Active session always wins — it's the live connection
-            if (a.active !== b.active) return a.active ? -1 : 1
-            // Among inactive duplicates, keep the selected one visible
-            if (a.id === selectedSessionId) return -1
-            if (b.id === selectedSessionId) return 1
-            // Preserve an explicit pin when otherwise choosing by recency
-            if (Boolean(a.globalPinned) !== Boolean(b.globalPinned)) return a.globalPinned ? -1 : 1
-            if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1
-            return b.updatedAt - a.updatedAt
-        })
-        result.push(group[0])
-    }
-
+    for (const session of byAgentId.values()) result.push(session)
     return result
 }
 
