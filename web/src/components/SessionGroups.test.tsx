@@ -86,6 +86,17 @@ describe('group tab attention', () => {
 describe('group chat switcher', () => {
     afterEach(() => vi.restoreAllMocks())
 
+    it('opens management directly and dismisses it outside without saving a draft', () => {
+        const onUpdate = vi.fn()
+        render(<I18nProvider><SessionGroupWorkspace group={group} groups={[group]} sessions={chats(false)} selectedSessionId="first"
+            onSelect={vi.fn()} onBack={vi.fn()} onNew={vi.fn()} onUpdate={onUpdate} pending={false} /></I18nProvider>)
+        fireEvent.click(screen.getByRole('button', { name: 'Manage' }))
+        fireEvent.change(screen.getByRole('textbox', { name: 'Group name' }), { target: { value: 'Draft' } })
+        fireEvent.pointerDown(document.body)
+        expect(screen.queryByTestId('group-manager')).toBeNull()
+        expect(onUpdate).not.toHaveBeenCalled()
+    })
+
     it('reorders the intended visible chats when an archived member remains in stored manual order', () => {
         const workspaceGroup = { ...group, members: [
             { sessionId: 'closed', pinned: false }, { sessionId: 'first', pinned: false }, { sessionId: 'worker', pinned: false },
@@ -94,8 +105,7 @@ describe('group chat switcher', () => {
         render(<I18nProvider><SessionGroupWorkspace group={workspaceGroup} groups={[workspaceGroup]}
             sessions={[...chats(false), { ...chats(false)[0], id: 'closed', metadata: { path: '/work', lifecycleState: 'archived' } }]}
             selectedSessionId="worker" onSelect={vi.fn()} onBack={vi.fn()} onNew={vi.fn()} onUpdate={onUpdate} pending={false} /></I18nProvider>)
-        fireEvent.click(screen.getByRole('button', { name: 'Group actions' }))
-        fireEvent.click(screen.getByRole('menuitem', { name: 'Manage' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Manage' }))
         const row = screen.getAllByTestId('group-member').find(row => within(row).queryByTitle('worker'))!
         fireEvent.click(within(row).getByRole('button', { name: 'Move tab left' }))
         expect(onUpdate).toHaveBeenCalledWith(workspaceGroup, expect.objectContaining({ members: [

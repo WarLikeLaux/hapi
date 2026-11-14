@@ -1,3 +1,4 @@
+import { useGroupPin } from '@/hooks/useGroupPin'
 import { isSessionBusy } from '@hapi/protocol'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
@@ -37,6 +38,7 @@ export function SessionItemActions(props: {
     children: (handlers: TriggerHandlers) => ReactNode
 }) {
     const { session: s, api, onSelect, titleSuggestionAvailable = false } = props
+    const groupPin = useGroupPin(api, s.id)
     const { t } = useTranslation()
     const { addToast } = useToast()
     const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -207,6 +209,8 @@ export function SessionItemActions(props: {
             sessionMuted={Boolean(s.metadata?.muted)}
             onSetMuted={api ? (muted) => void handleSetMuted(muted) : undefined}
             sessionPinned={Boolean(s.pinned)}
+            sessionGroupPinned={groupPin.pinned}
+            onToggleGroupPin={groupPin.toggle}
             sessionGlobalPinned={Boolean(s.globalPinned)}
             currentContext={props.currentContext}
             onSetContext={props.onSetContext}
