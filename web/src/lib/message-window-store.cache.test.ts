@@ -95,9 +95,11 @@ it('flushes the complete latest answer on page exit even when it exceeds the sof
     vi.useFakeTimers()
     const answer = row(2, 'agent', 'Long complete answer. '.repeat(30_000))
     ingestIncomingMessages('warm-complete', [row(1, 'user'), answer])
+    const updated = row(2, 'agent', 'Updated complete answer. '.repeat(30_000))
+    ingestIncomingMessages('warm-complete', [updated])
     window.dispatchEvent(new Event('pagehide'))
     const persisted = JSON.parse(sessionStorage.getItem('hapi:message-window:v3:warm-complete')!)
-    expect(persisted.messages).toEqual([row(1, 'user'), answer])
+    expect(persisted.messages).toEqual([row(1, 'user'), updated])
 })
 
 it('updates a hydrated partial cache with the first background response before the chat is opened', () => {

@@ -543,6 +543,17 @@ export function mirrorSelectionFromPoints(
     endOffset: number
 ): ComposerSelection {
     const mapping = mapComposerEditorDom(root)
+    return mirrorSelectionFromMappedPoints(root, startContainer, startOffset, endContainer, endOffset, mapping)
+}
+
+function mirrorSelectionFromMappedPoints(
+    root: HTMLElement,
+    startContainer: Node,
+    startOffset: number,
+    endContainer: Node,
+    endOffset: number,
+    mapping: ComposerDomMapping
+): ComposerSelection {
     if (!root.contains(startContainer) || !root.contains(endContainer)) {
         return { start: mapping.mirrorLength, end: mapping.mirrorLength }
     }
@@ -551,19 +562,20 @@ export function mirrorSelectionFromPoints(
     return { start: Math.min(start, end), end: Math.max(start, end) }
 }
 
-function getMirrorSelection(root: HTMLElement): ComposerSelection {
+function getMirrorSelection(root: HTMLElement, mapping = mapComposerEditorDom(root)): ComposerSelection {
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) {
-        const len = mapComposerEditorDom(root).mirrorLength
+        const len = mapping.mirrorLength
         return { start: len, end: len }
     }
     const range = sel.getRangeAt(0)
-    return mirrorSelectionFromPoints(
+    return mirrorSelectionFromMappedPoints(
         root,
         range.startContainer,
         range.startOffset,
         range.endContainer,
-        range.endOffset
+        range.endOffset,
+        mapping
     )
 }
 
@@ -752,9 +764,10 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
         const root = rootRef.current
         if (!root) return
         setDomIsEmpty(editorDomIsEmpty(root))
-        const segments = segmentsFromEditor(root)
+        const mapping = mapComposerEditorDom(root)
+        const segments = mapping.segments
         const serialized = serializeComposerSegments(segments)
-        const selection = getMirrorSelection(root)
+        const selection = getMirrorSelection(root, mapping)
         const mirror = mirrorComposerSegments(segments)
         lastEmittedRef.current = serialized
         onValueChange(serialized)
@@ -766,13 +779,13 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
         }
     }, [onMirrorChange, onValueChange])
 
-    const recordNativeEdit = useCallback((root: HTMLElement, inputType: string) => {
+    const recordNativeEdit = useCallback((root: HTMLElement, inputType: string, mapping = mapComposerEditorDom(root)) => {
         const kind = inputType.startsWith('insert')
             ? 'insert'
             : inputType.startsWith('delete') ? 'delete' : inputType
-        const segments = segmentsFromEditor(root)
+        const segments = mapping.segments
         const value = serializeComposerSegments(segments)
-        const selection = getMirrorSelection(root)
+        const selection = getMirrorSelection(root, mapping)
         const run = typingRunRef.current
         if (
             run
@@ -1002,6 +1015,11 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
             queueMicrotask(() => {
                 queued = false
                 if (rootRef.current !== root) return
+                // Ordinary typing changes one text node and was already emitted
+                // by onInput. Keep the observer for edits without input events.
+                const onlyChild = root.firstChild
+                if (onlyChild && onlyChild === root.lastChild && onlyChild.nodeType === Node.TEXT_NODE
+                    && onlyChild.textContent === lastEmittedRef.current) return
                 const serialized = serializeComposerSegments(segmentsFromEditor(root))
                 if (serialized === lastEmittedRef.current) return
                 onEdit?.()
@@ -1083,14 +1101,17 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
             }
 
             if (event.inputType === 'deleteContentBackward' && event.cancelable) {
-                const segments = segmentsFromEditor(root)
-                const selection = getMirrorSelection(root)
+                const mapping = mapComposerEditorDom(root)
+                const segments = mapping.segments
+                const selection = getMirrorSelection(root, mapping)
                 const mirror = mirrorComposerSegments(segments)
                 if (selectionIsAfterCaretPad(root, mirror, selection)) {
                     event.preventDefault()
                     applyBackwardDelete(root, segments, selection)
                     return
                 }
+                recordNativeEdit(root, event.inputType, mapping)
+                return
             }
             recordNativeEdit(root, event.inputType)
         }

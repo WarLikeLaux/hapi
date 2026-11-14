@@ -29,8 +29,9 @@ function readStore(key = scope): Store {
         return store
     } catch { return {} }
 }
-// Writers must not mutate the cached snapshot before persistence succeeds.
-function writableStore(key = scope): Store { return structuredClone(readStore(key)) }
+// Writers replace entries in this shallow copy; entries that need nested
+// mutation are copied separately before persistence.
+function writableStore(key = scope): Store { return { ...readStore(key) } }
 function save(store: Store, key = scope): boolean {
     try {
         const raw = JSON.stringify(store)
@@ -85,7 +86,7 @@ export async function flushSessionReadState(): Promise<void> {
             try {
                 const response = await send(id, pending.request)
                 const store = writableStore(key)
-                const current = store[id] ?? entry
+                const current = structuredClone(store[id] ?? entry)
                 current.server = mergeReadState(current.server, response.readState)!
                 if (current.pending?.id === pending.id) delete current.pending
                 else if (current.pending?.request.expectedVersion === pending.request.expectedVersion
@@ -102,7 +103,7 @@ export async function flushSessionReadState(): Promise<void> {
                 const failure = error as { status?: number; body?: string }
                 if ([400, 403, 404, 409].includes(failure.status ?? 0)) {
                     const store = writableStore(key)
-                    const current = store[id]
+                    const current = store[id] ? structuredClone(store[id]) : undefined
                     if (current?.pending?.id === pending.id) {
                         // 409 includes the authoritative manual choice.
                         try {
@@ -110,6 +111,7 @@ export async function flushSessionReadState(): Promise<void> {
                             current.server = mergeReadState(current.server, body.readState)!
                         } catch { /* a removed/replaced session has no read state */ }
                         delete current.pending
+                        store[id] = current
                         if (!save(store, key)) failed = true
                         if (scope === key) notify()
                     }
