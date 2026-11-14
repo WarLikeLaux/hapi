@@ -221,6 +221,20 @@ describe('deduplicateSessionsByAgentId', () => {
         expect(result.map(s => s.id).sort()).toEqual(['b', 'd'])
     })
 
+    it('keeps priority and stable group order when several duplicates compete', () => {
+        const metadata = { path: '/p', agentSessionId: 'thread-1' }
+        const sessions = [
+            makeSession({ id: 'first', metadata, updatedAt: 100 }),
+            makeSession({ id: 'plain', metadata: null }),
+            makeSession({ id: 'other', metadata: { path: '/p', agentSessionId: 'thread-2' } }),
+            makeSession({ id: 'pinned', metadata, globalPinned: true, updatedAt: 200 }),
+            makeSession({ id: 'active', metadata, active: true, updatedAt: 50 }),
+            makeSession({ id: 'same-priority', metadata, active: true, updatedAt: 50 }),
+        ]
+        expect(deduplicateSessionsByAgentId(sessions).map(session => session.id))
+            .toEqual(['plain', 'active', 'other'])
+    })
+
     it('does not dedupe across flavors sharing the same flattened agentSessionId', () => {
         const sessions = [
             makeSession({
