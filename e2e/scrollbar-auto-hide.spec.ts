@@ -117,6 +117,7 @@ for (const isMobile of [true, false]) {
         test('keeps two expanded projects stable while the fallback thumb catches up with a shorter viewport', async ({ page }) => {
             await page.addInitScript(() => {
                 localStorage.setItem('hapi-session-preview-limit', '99')
+                localStorage.setItem('hapi-show-project-groups', 'true')
                 // Exercise project panels, rather than the fork's default
                 // Active section which collects all running sessions.
                 localStorage.setItem('hapi-pin-in-progress-sessions', 'false')

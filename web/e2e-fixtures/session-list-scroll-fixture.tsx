@@ -10,6 +10,7 @@ import type { ApiClient } from '../src/api/client'
 import '../src/index.css'
 
 localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
+localStorage.setItem('hapi-show-project-groups', 'true')
 const initialSessions: SessionSummary[] = Array.from({ length: 40 }, (_, index) => ({
     id: `session-${index}`, active: false, thinking: false, activeAt: 0,
     updatedAt: 1000 - index, metadataVersion: 0, agentStateVersion: 0,
