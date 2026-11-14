@@ -3,13 +3,13 @@ import { basename } from '@/utils/path'
 import type { AgentType } from './types'
 
 // Display order for the Create Session agent picker: Codex, GLM (the claude
-// flavor is branded as GLM in this fork), Antigravity, OpenCode, Cursor.
+// flavor is branded as GLM in this fork), OpenCode, Antigravity, Cursor.
 // Other agents keep their incoming order after these; MiniMax Code goes last.
 const CREATE_SESSION_AGENT_ORDER: readonly AgentType[] = [
     'codex',
     'claude',
-    'agy',
     'opencode',
+    'agy',
     'cursor',
 ]
 
