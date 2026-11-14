@@ -1,5 +1,25 @@
 import type { AgentEvent } from '@/chat/types'
 
+// Formatting is called for every visible message during chat updates. Reuse
+// formatters while preserving the browser's local offset for each timestamp.
+const messageFormatters = new Map<string, Intl.DateTimeFormat>()
+function formatMessageDate(date: Date, style: 'time' | 'short' | 'year' | 'title'): string {
+    if (Number.isNaN(date.getTime())) return 'Invalid Date'
+    const key = `${style}:${date.getTimezoneOffset()}`
+    let formatter = messageFormatters.get(key)
+    if (!formatter) {
+        const options: Intl.DateTimeFormatOptions = style === 'title'
+            ? { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' }
+            : { ...(style === 'year' ? { year: 'numeric' as const } : {}),
+                ...(style !== 'time' ? { month: 'short' as const, day: 'numeric' as const } : {}),
+                hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
+        formatter = new Intl.DateTimeFormat(undefined, options)
+        if (messageFormatters.size >= 32) messageFormatters.clear()
+        messageFormatters.set(key, formatter)
+    }
+    return formatter.format(date)
+}
+
 function normalizeTimestamp(value: number): Date {
     const ms = value < 1_000_000_000_000 ? value * 1000 : value
     return new Date(ms)
@@ -32,15 +52,15 @@ export function formatMessageTimestamp(date: Date, now: Date = new Date()): stri
         && date.getDate() === now.getDate()
 
     if (sameDay) {
-        return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+        return formatMessageDate(date, 'time')
     }
 
     const sameYear = date.getFullYear() === now.getFullYear()
     if (sameYear) {
-        return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+        return formatMessageDate(date, 'short')
     }
 
-    return date.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    return formatMessageDate(date, 'year')
 }
 
 export function formatOutlineTimestamp(
@@ -77,14 +97,7 @@ export function formatOutlineTimestamp(
 }
 
 export function formatMessageTimestampTitle(date: Date): string {
-    return date.toLocaleString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        second: '2-digit'
-    })
+    return formatMessageDate(date, 'title')
 }
 
 // Known types: five_hour → "5-hour", seven_day → "7-day".
