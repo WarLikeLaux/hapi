@@ -3359,7 +3359,7 @@ describe('NewSession fork launch defaults', () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         await act(async () => {})
         const choices = screen.getByRole('region', { name: 'newSession.model' })
-        expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['GPT-6.1 Terra', 'GPT-6 Sol', 'GPT-6.1 Sol', 'GPT-6 Luna', 'GLM 5.3 Flash', 'GLM 5.3', 'Gemini 3.8 Flash (High)', 'Gemini 3.6 Flash', 'Gemini 4 Argon (High)', 'Muse Spark 1.3 (Medium)', 'DeepSeek V4.1 Flash (Max)', 'Grok 4.7 Extra High', 'Composer 2.5', ...(minimaxAvailable ? ['MiniMax M3.1-Flash-Preview'] : [])])
+        expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['GPT-6.1 Terra', 'GPT-6 Sol', 'GPT-6.1 Sol', 'GPT-6 Luna', 'GLM 5.3 Flash', 'GLM 5.3', 'Gemini 4 Argon (High)', 'Muse Spark 1.3 (Medium)', 'DeepSeek V4.1 Flash (Max)', 'Gemini 3.8 Flash (High)', 'Gemini 3.6 Flash', 'Grok 4.7 Extra High', 'Composer 2.5', ...(minimaxAvailable ? ['MiniMax M3.1-Flash-Preview'] : [])])
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' }).querySelector('svg')).not.toBeNull()
         expect(screen.getByRole('button', { name: 'GPT-6 Luna' })).toBeVisible()

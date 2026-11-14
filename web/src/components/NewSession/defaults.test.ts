@@ -19,14 +19,14 @@ function machine(metadata: Machine['metadata']): Machine {
 }
 
 describe('new session defaults', () => {
-    it('orders Create Session agents as codex, GLM (claude), antigravity, opencode, cursor, minimax', () => {
+    it('orders Create Session agents as codex, GLM (claude), opencode, antigravity, cursor, minimax', () => {
         expect(orderCreateSessionAgents(['agy', 'claude', 'codex', 'cursor', 'minimax', 'opencode']))
-            .toEqual(['codex', 'claude', 'agy', 'opencode', 'cursor', 'minimax'])
+            .toEqual(['codex', 'claude', 'opencode', 'agy', 'cursor', 'minimax'])
     })
 
     it('keeps unlisted agents in their incoming order before MiniMax at the end', () => {
         expect(orderCreateSessionAgents(['grok', 'agy', 'claude', 'codex', 'pi', 'cursor', 'minimax', 'opencode']))
-            .toEqual(['codex', 'claude', 'agy', 'opencode', 'cursor', 'grok', 'pi', 'minimax'])
+            .toEqual(['codex', 'claude', 'opencode', 'agy', 'cursor', 'grok', 'pi', 'minimax'])
     })
 
     it('does not fall back to a hidden project directory', () => {
