@@ -131,7 +131,7 @@ export async function flushSessionReadState(): Promise<void> {
 
 export function observeSessionReadStates(sessions: Iterable<SessionInput>, legacyScope?: string): void {
     if (scope === 'unconfigured') return
-    const store = writableStore()
+    let store = readStore(scope, true)
     const legacy = legacyScope === undefined ? undefined : readLegacyReadState(legacyScope)
     let changed = false
     let migratedUnread = false
@@ -149,7 +149,13 @@ export function observeSessionReadStates(sessions: Iterable<SessionInput>, legac
                 migratedUnread = true
             }
         }
-        if (!current || JSON.stringify(current) !== JSON.stringify(entry)) {
+        if (!current
+            || current.server?.readRevision !== server.readRevision
+            || current.server?.manualUnread !== server.manualUnread
+            || current.server?.version !== server.version
+            || current.legacyMigrated !== entry.legacyMigrated
+            || current.pending !== entry.pending) {
+            if (!changed) store = { ...store }
             store[session.id] = entry
             changed = true
         }
