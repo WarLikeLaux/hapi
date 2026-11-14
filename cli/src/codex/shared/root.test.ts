@@ -447,6 +447,47 @@ async function completePlan(f: Awaited<ReturnType<typeof fixture>>, status = 'co
     return codexPlanProposalId('thread', turn.id, 'plan-item');
 }
 
+describe('turn completion ordering', () => {
+    it.each(['completed', 'interrupted', 'failed'])('publishes %s completion before ready and never marks a newer turn ready', async status => {
+        const f = await fixture();
+        f.native.notify('turn/started', { threadId: 'thread', turn: { id: 'first' } });
+        await f.drain();
+        f.native.notify('turn/completed', { threadId: 'thread', turn: { id: 'first', status } });
+        await f.drain();
+        const ready = f.events.mock.invocationCallOrder.at(-1)!;
+        const terminal = f.send.mock.invocationCallOrder.at(-1)!;
+        if (status !== 'interrupted') expect(terminal).toBeLessThan(ready);
+        expect(f.events).toHaveBeenCalledWith({ type: 'ready' });
+        f.events.mockClear();
+        f.native.notify('turn/started', { threadId: 'thread', turn: { id: 'second' } });
+        f.native.notify('turn/completed', { threadId: 'thread', turn: { id: 'first', status } });
+        await f.drain();
+        expect(f.events).not.toHaveBeenCalledWith({ type: 'ready' });
+    });
+
+    it('does not publish ready when the next turn starts before completion is projected', async () => {
+        const f = await fixture();
+        f.native.notify('turn/started', { threadId: 'thread', turn: { id: 'first' } });
+        f.native.notify('turn/completed', { threadId: 'thread', turn: { id: 'first', status: 'completed' } });
+        f.native.notify('turn/started', { threadId: 'thread', turn: { id: 'second' } });
+        await f.drain();
+        expect(f.events).not.toHaveBeenCalledWith({ type: 'ready' });
+        f.native.notify('turn/completed', { threadId: 'thread', turn: { id: 'second', status: 'completed' } });
+        await f.drain();
+        expect(f.events).toHaveBeenCalledWith({ type: 'ready' });
+    });
+
+    it('keeps the heartbeat busy until queued completion is projected', async () => {
+        const f = await fixture();
+        const heartbeat = vi.spyOn(f.root.session, 'keepAlive');
+        f.native.notify('turn/started', { threadId: 'thread', turn: { id: 'first' } });
+        f.native.notify('turn/completed', { threadId: 'thread', turn: { id: 'first', status: 'completed' } });
+        await f.drain();
+        expect(heartbeat.mock.calls.map(call => call[0])).toEqual([true, false]);
+        expect(f.events).toHaveBeenCalledWith({ type: 'ready' });
+    });
+});
+
 describe('native recap freshness', () => {
     it('drops a recap captured before a new turn and rejects delivery after closure', async () => {
         const f = await fixture();

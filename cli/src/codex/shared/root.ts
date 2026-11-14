@@ -61,6 +61,9 @@ export class SharedCodexRoot {
     private work: Promise<unknown> = Promise.resolve();
     private notifications = Promise.resolve();
     private currentTurn: string | undefined;
+    // Receipt can run ahead of projection; keep the heartbeat busy until the
+    // corresponding terminal events have been published.
+    private readonly pendingTurnCompletions = new Set<string>();
     private capacityFailure?: { turnId: string; message: string; completed: boolean };
     private capacityAttempts = 0;
     private readonly finishedCapacityTurns = new Set<string>();
@@ -107,6 +110,7 @@ export class SharedCodexRoot {
         this.session = bootstrap.session;
         this.client = new CodexAppServerClient({ endpoint: host.endpoint, token: host.token, cwd: bootstrap.workingDirectory });
         this.client.setNotificationHandler((method, params) => {
+            let completedTurnId: string | undefined;
             if (method === 'serverRequest/resolved') {
                 this.permissions?.resolved(string(record(params).threadId) ?? '', record(params).requestId); return;
             }
@@ -117,7 +121,9 @@ export class SharedCodexRoot {
                     if (this.currentTurn) this.latestTurn = { id: this.currentTurn, status: 'inProgress' };
                     this.publishSteering();
                 }
-                if (method === 'turn/completed' && (!this.currentTurn || record(record(params).turn).id === this.currentTurn)) {
+                if (method === 'turn/completed' && this.currentTurn && record(record(params).turn).id === this.currentTurn) {
+                    completedTurnId = this.currentTurn;
+                    this.pendingTurnCompletions.add(completedTurnId);
                     this.turnRevision++; this.currentTurn = undefined; this.interrupted = record(record(params).turn).status === 'interrupted';
                     this.publishSteering();
                 }
@@ -139,7 +145,11 @@ export class SharedCodexRoot {
             const receivedAt = Date.now();
             const modelAtReceipt = record(params).threadId === this.threadId ? this.settings.model ?? undefined : undefined;
             const tierAtReceipt = record(params).threadId === this.threadId ? this.settings.serviceTier ?? undefined : undefined;
-            this.notifications = this.notifications.then(() => this.notification(method, params, modelAtReceipt, receivedAt, tierAtReceipt)).catch(error => logger.debug('[Codex shared] projection', error));
+            this.notifications = this.notifications.then(() => this.notification(method, params, modelAtReceipt, receivedAt, tierAtReceipt, completedTurnId)).catch(error => {
+                if (completedTurnId) this.pendingTurnCompletions.delete(completedTurnId);
+                logger.debug('[Codex shared] projection', error);
+                this.alive();
+            });
         });
         this.client.setTransportAbandonedHandler(() => { void this.reconnect(); });
         this.session.onUserMessage((message, localId) => {
@@ -320,7 +330,7 @@ export class SharedCodexRoot {
     private alive(): void {
         this.publishSteering();
         this.publishPlan();
-        if (!this.closed) this.session.keepAlive(Boolean(this.currentTurn), undefined, this.settings);
+        if (!this.closed) this.session.keepAlive(Boolean(this.currentTurn || this.pendingTurnCompletions.size), undefined, this.settings);
     }
     private availablePlanId(): string | null {
         if (this.currentTurn || this.latestTurn?.status !== 'completed' || this.settings.collaborationMode !== 'plan'
@@ -351,7 +361,7 @@ export class SharedCodexRoot {
         for (const listener of this.settingsListeners) listener();
         this.publishPlan();
     }
-    private async notification(method: string, params: unknown, modelAtReceipt?: string, receivedAt = Date.now(), tierAtReceipt?: string): Promise<void> {
+    private async notification(method: string, params: unknown, modelAtReceipt?: string, receivedAt = Date.now(), tierAtReceipt?: string, completedTurnId?: string): Promise<void> {
         if (!this.threadId || this.closed) return;
         const p = record(params);
         if (method === 'thread/started') {
@@ -369,7 +379,6 @@ export class SharedCodexRoot {
             await projection.notification(method, params); return;
         }
         const suppressCapacityError = await this.handleCapacityNotification(method, params);
-        if (method === 'turn/completed') this.session.sendSessionEvent({ type: 'ready' });
         if (method === 'thread/name/updated' && (typeof p.threadName === 'string' || p.threadName === null)) {
             const name = p.threadName ?? undefined; this.session.updateMetadata(metadata => ({ ...metadata, name }));
         }
@@ -393,6 +402,12 @@ export class SharedCodexRoot {
             for (const id of await this.queue.reconcile(false)) this.dequeuedInputs.add(id);
         }
         if (!suppressCapacityError) await this.projection.notification(method, params, modelAtReceipt, receivedAt, tierAtReceipt);
+        if (completedTurnId) {
+            this.pendingTurnCompletions.delete(completedTurnId);
+            if (!this.currentTurn && this.pendingTurnCompletions.size === 0 && this.latestTurn?.id === completedTurnId) {
+                this.session.sendSessionEvent({ type: 'ready' });
+            }
+        }
         this.publishCompaction(); this.alive();
     }
     private cancelCapacityRecovery(): void {
