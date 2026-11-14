@@ -204,6 +204,15 @@ describe('NotifySummaryText', () => {
         expect(screen.getByTestId('raw-markdown')).toHaveAttribute('data-smooth', 'true')
     })
 
+    it('shows long streaming replies without repeatedly animating the whole Markdown document', () => {
+        const view = renderText('a'.repeat(4095), 'running')
+        expect(screen.getByTestId('raw-markdown')).toHaveAttribute('data-smooth', 'true')
+        rerenderText(view, 'a'.repeat(4096), 'running')
+        expect(screen.getByTestId('raw-markdown')).toHaveAttribute('data-smooth', 'false')
+        rerenderText(view, 'short replacement', 'running')
+        expect(screen.getByTestId('raw-markdown')).toHaveAttribute('data-smooth', 'true')
+    })
+
     it('does not enable smoothing when a completed message is briefly marked running', () => {
         mockUseSessionSummaryInChat.mockReturnValue(false)
         const view = renderText('Already generated.', 'complete')
