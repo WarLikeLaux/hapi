@@ -1,9 +1,19 @@
 import { disposableMessageWindow, trimSessionCaches } from './sessionStorageCache'
 import { getReasoningStreamId } from '@hapi/protocol/messages'
-import type { ApiClient } from '@/api/client'
+import { ApiError, type ApiClient } from '@/api/client'
 import { normalizeDecryptedMessage } from '@/chat/normalize'
 import type { DecryptedMessage, MessageStatus, MessagesResponse } from '@/types/api'
 import { isQueuedForInvocation, isUserMessage, mergeMessages } from '@/lib/messages'
+
+function isTemporaryGatewayError(error: unknown): boolean {
+    return error instanceof ApiError && !error.code && [502, 503, 504].includes(error.status)
+}
+
+function messageLoadError(error: unknown): string {
+    if (error instanceof ApiError) return `HTTP ${error.status}`
+    if (!(error instanceof Error)) return 'Failed to synchronize messages'
+    return /<[^>]*>/.test(error.message) ? 'Failed to synchronize messages' : error.message.slice(0, 300)
+}
 
 export type MessageViewMode = 'tail' | 'history'
 
@@ -1170,11 +1180,17 @@ async function runTailSync(api: ApiClient, sessionId: string): Promise<void> {
         finishTailSync(sessionId, generation, null)
     } catch (error) {
         if (!isCurrentTailSync(sessionId, generation)) return
-        finishTailSync(
-            sessionId,
-            generation,
-            error instanceof Error ? error.message : 'Failed to synchronize messages'
-        )
+        const temporary = isTemporaryGatewayError(error)
+        finishTailSync(sessionId, generation, temporary ? null : messageLoadError(error))
+        if (temporary) {
+            const controller = tailSyncControllers.get(sessionId)
+            setTimeout(() => {
+                if (controller && tailSyncControllers.get(sessionId) === controller && listeners.has(sessionId)
+                    && getState(sessionId).syncGeneration === generation) {
+                    void syncTailMessages(controller.api, sessionId)
+                }
+            }, 5_000)
+        }
     }
 }
 
@@ -1523,7 +1539,7 @@ export async function fetchOlderMessages(
             if (previous.olderGeneration !== generation) return previous
             return buildState(previous, {
                 isLoadingMore: false,
-                warning: loadError.message
+                warning: isTemporaryGatewayError(error) ? null : messageLoadError(error)
             })
         })
         return { kind: 'failed', error: loadError }

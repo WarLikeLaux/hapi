@@ -4,7 +4,7 @@ import { reduceChatBlocks } from '@/chat/reducer'
 import type { NormalizedMessage } from '@/chat/types'
 import { aggregateResponseGroups } from '@/lib/assistant-runtime'
 import { buildVisibleChatBlocks } from '@/chat/toolGroups'
-import type { ApiClient } from '@/api/client'
+import { ApiError, type ApiClient } from '@/api/client'
 import type { DecryptedMessage, MessagesResponse } from '@/types/api'
 import {
     HISTORY_UNIT_BUDGET,
@@ -23,6 +23,7 @@ import {
     rewindMessageWindow,
     setMessageViewMode,
     syncTailMessages,
+    subscribeMessageWindow,
     updateMessageStatus,
     type MessageWindowState,
 } from '@/lib/message-window-store'
@@ -801,6 +802,28 @@ describe('message tail synchronization', () => {
             'latest'
         ])
         expect(getMessageWindowState(id).hasMore).toBe(false)
+    })
+
+    it('silently retries a gateway failure and restores the message tail', async () => {
+        const id = sessionId('gateway-recovery')
+        const message = makeAgentMessage({ id: 'recovered', seq: 1, at: 1000 })
+        const getMessages = vi.fn()
+            .mockRejectedValueOnce(new ApiError('HTTP 502: <html>nginx</html>', 502))
+            .mockResolvedValueOnce(latestResponse([message]))
+        const unsubscribe = subscribeMessageWindow(id, () => {})
+        try {
+            await syncTailMessages(createApi(getMessages), id)
+            expect(getMessageWindowState(id).warning).toBeNull()
+            await vi.waitFor(() => expect(getMessageWindowState(id).messages.map(item => item.id)).toContain('recovered'), { timeout: 8000 })
+        } finally {
+            unsubscribe()
+        }
+    }, 10000)
+
+    it('reports other message loading errors without a proxy response body', async () => {
+        const id = sessionId('message-http-error')
+        await syncTailMessages(createApi(vi.fn().mockRejectedValue(new ApiError('HTTP 403: <html>forbidden</html>', 403))), id)
+        expect(getMessageWindowState(id).warning).toBe('HTTP 403')
     })
 
     it('keeps cached messages visible when the re-entry refresh fails', async () => {

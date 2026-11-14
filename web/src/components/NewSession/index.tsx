@@ -481,6 +481,7 @@ export function NewSession(props: {
             agent !== 'codex'
             || model === 'auto'
             || codexModelsState.isLoading
+            || codexModelsState.isUnavailable
             || modelPreferences.loading
             || codexModelsState.error
         ) {
@@ -491,7 +492,7 @@ export function NewSession(props: {
             && !CODEX_HARDCODED_OPTIONS.some((option) => option.value === model)) {
             setModel(CODEX_DEFAULT_MODEL_ID)
         }
-    }, [agent, codexModelsState.error, codexModelsState.isLoading, codexModelsState.models, model, modelPreferences.loading, modelPreferences.preferences])
+    }, [agent, codexModelsState.error, codexModelsState.isLoading, codexModelsState.isUnavailable, codexModelsState.models, model, modelPreferences.loading, modelPreferences.preferences])
     const showCodexFastMode = agent === 'codex'
         && !codexModelsState.error
         && codexModelAdvertisesFastTier(model === 'auto' ? null : model, codexModelsState.models)

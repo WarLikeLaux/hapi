@@ -21,6 +21,46 @@ function createQueryClient(): QueryClient {
 }
 
 describe('useCodexModels query scoping', () => {
+    it('keeps the catalog and hides a temporary gateway failure until recovery', async () => {
+        const getSessionCodexModels = vi.fn()
+            .mockResolvedValueOnce({ success: true, models: [{ id: 'chosen', displayName: 'Chosen' }] })
+            .mockRejectedValueOnce(new ApiError('HTTP 502: <html>nginx</html>', 502))
+            .mockResolvedValueOnce({ success: true, models: [{ id: 'chosen', displayName: 'Chosen' }] })
+        const queryClient = createQueryClient()
+        const result = renderHook(() => useCodexModels({
+            api: { getSessionCodexModels } as unknown as ApiClient,
+            sessionId: 'session-1', preferSession: true, enabled: true
+        }), { wrapper: wrapper(queryClient) })
+        await waitFor(() => expect(result.result.current.models[0]?.id).toBe('chosen'))
+        await queryClient.invalidateQueries({ queryKey: ['session-codex-models', 'session-1'] })
+        await waitFor(() => expect(getSessionCodexModels).toHaveBeenCalledTimes(2))
+        await waitFor(() => expect(result.result.current.isUnavailable).toBe(true))
+        expect(result.result.current.models[0]?.id).toBe('chosen')
+        expect(result.result.current.error).toBeNull()
+        await queryClient.invalidateQueries({ queryKey: ['session-codex-models', 'session-1'] })
+        await waitFor(() => expect(result.result.current.isUnavailable).toBe(false))
+        expect(result.result.current.models[0]?.id).toBe('chosen')
+    })
+
+    it('automatically recovers after a gateway restart', async () => {
+        const getSessionCodexModels = vi.fn()
+            .mockRejectedValueOnce(new ApiError('HTTP 502', 502))
+            .mockResolvedValue({ success: true, models: [{ id: 'recovered', displayName: 'Recovered' }] })
+        const result = renderHook(() => useCodexModels({
+            api: { getSessionCodexModels } as unknown as ApiClient,
+            sessionId: 's', preferSession: true, enabled: true
+        }), { wrapper: wrapper(createQueryClient()) })
+        await waitFor(() => expect(result.result.current.isUnavailable).toBe(true))
+        await waitFor(() => expect(result.result.current.models[0]?.id).toBe('recovered'), { timeout: 8000 })
+        expect(result.result.current.error).toBeNull()
+    }, 10000)
+
+    it('reports a permanent HTTP error without exposing its HTML body', async () => {
+        const api = { getSessionCodexModels: vi.fn().mockRejectedValue(new ApiError('HTTP 403: <html>secret</html>', 403)) } as unknown as ApiClient
+        const result = renderHook(() => useCodexModels({ api, sessionId: 's', preferSession: true, enabled: true }), { wrapper: wrapper(createQueryClient()) })
+        await waitFor(() => expect(result.result.current.error).toBe('HTTP 403'))
+    })
+
     it('uses a shared session connection before machine discovery', async () => {
         const getMachineCodexModels = vi.fn()
         const getSessionCodexModels = vi.fn(async () => ({
