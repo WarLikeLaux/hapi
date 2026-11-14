@@ -1481,13 +1481,15 @@ export class ApiClient {
 
     async getMachineCodexModels(machineId: string): Promise<CodexModelsResponse> {
         return await this.request<CodexModelsResponse>(
-            `/api/machines/${encodeURIComponent(machineId)}/codex-models`
+            `/api/machines/${encodeURIComponent(machineId)}/codex-models`,
+            { signal: AbortSignal.timeout(15_000) }
         )
     }
 
     async getSessionCodexModels(sessionId: string): Promise<CodexModelsResponse> {
         return await this.request<CodexModelsResponse>(
-            `/api/sessions/${encodeURIComponent(sessionId)}/codex-models`
+            `/api/sessions/${encodeURIComponent(sessionId)}/codex-models`,
+            { signal: AbortSignal.timeout(15_000) }
         )
     }
 
