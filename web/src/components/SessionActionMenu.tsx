@@ -28,6 +28,8 @@ type SessionActionMenuProps = {
     sessionLifecycleState?: string
     onRename: () => void
     sessionPinned?: boolean
+    sessionGroupPinned?: boolean
+    onToggleGroupPin?: () => void
     sessionGlobalPinned?: boolean
     onSetPinMode?: (mode: 'none' | 'project' | 'global') => void
     currentContext?: SessionContextId
@@ -215,6 +217,8 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         sessionActive,
         sessionLifecycleState,
         onRename,
+        sessionGroupPinned = false,
+        onToggleGroupPin,
         sessionGlobalPinned = false,
         onSetPinMode,
         currentContext,
@@ -695,6 +699,13 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                         {t('session.action.markUnread')}
                     </button>
                 ) : null}
+
+                {onToggleGroupPin ? <button type="button" role="menuitem"
+                    className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                    onClick={() => { onClose(); onToggleGroupPin() }}>
+                    <PinIcon filled={sessionGroupPinned} className="text-[var(--app-hint)]" />
+                    {t(sessionGroupPinned ? 'session.action.unpinGroup' : 'session.action.pinGroup')}
+                </button> : null}
 
                 {onSetPinMode ? (
                     <>

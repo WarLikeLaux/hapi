@@ -488,6 +488,8 @@ export default {
   'session.action.regenerateTitleFailed': 'Could not regenerate title',
   'session.action.pinProject': 'Pin in project',
   'session.action.unpinProject': 'Unpin from project',
+  'session.action.pinGroup': 'Pin in the group',
+  'session.action.unpinGroup': 'Unpin from the group',
   'session.action.pinGlobal': 'Pin globally',
   'session.action.unpinGlobal': 'Unpin globally',
   'session.action.pinFailed': 'Could not update pin',

@@ -488,6 +488,8 @@ export default {
   'session.action.regenerateTitleFailed': '无法重新生成标题',
   'session.action.pinProject': '项目置顶',
   'session.action.unpinProject': '取消项目置顶',
+  'session.action.pinGroup': '在群组中固定',
+  'session.action.unpinGroup': '取消群组内固定',
   'session.action.pinGlobal': '全局置顶',
   'session.action.unpinGlobal': '取消全局置顶',
   'session.action.pinFailed': '无法更新置顶状态',

@@ -263,6 +263,8 @@ export default {
   'session.action.rename': 'Переименовать',
   'session.action.pinProject': 'Закрепить в проекте',
   'session.action.unpinProject': 'Открепить от проекта',
+  'session.action.pinGroup': 'Закрепить в группе',
+  'session.action.unpinGroup': 'Открепить от группы',
   'session.action.pinGlobal': 'Закрепить глобально',
   'session.action.unpinGlobal': 'Открепить глобально',
   'session.action.pinFailed': 'Не удалось изменить закрепление',

@@ -197,8 +197,19 @@ export function SessionGroupWorkspace(props: {
 }) {
     const { t } = useTranslation()
     const [manage, setManage] = useState(false)
+    const managerRef = useRef<HTMLDivElement>(null)
+    const manageButtonRef = useRef<HTMLButtonElement>(null)
     const [search, setSearch] = useState('')
     const [name, setName] = useState(props.group.name)
+    useEffect(() => {
+        if (!manage) return
+        const dismiss = (event: PointerEvent) => {
+            const target = event.target as Node
+            if (!managerRef.current?.contains(target) && !manageButtonRef.current?.contains(target)) setManage(false)
+        }
+        document.addEventListener('pointerdown', dismiss)
+        return () => document.removeEventListener('pointerdown', dismiss)
+    }, [manage])
     const selectedTab = useRef<HTMLButtonElement | null>(null)
     const tabList = useRef<HTMLDivElement | null>(null)
     useEffect(() => { setName(props.group.name) }, [props.group.id, props.group.name])
@@ -251,9 +262,14 @@ export function SessionGroupWorkspace(props: {
         <div className="flex min-h-11 items-center gap-2 px-2">
             <button type="button" onClick={props.onBack} className={cn(control, 'split:hidden')} aria-label={t('groups.back')}><svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6" /></svg></button>
             <GroupIcon /><h2 className="min-w-0 flex-1 truncate text-sm font-semibold" title={props.group.name}>{props.group.name}</h2>
+            <button ref={manageButtonRef} type="button" aria-label={t('groups.manage')} title={t('groups.manage')}
+                aria-expanded={manage} aria-controls="group-manager" onClick={() => setManage(value => !value)}
+                className={cn(control, 'flex h-10 w-10 shrink-0 items-center justify-center px-0', manage && 'bg-[var(--app-secondary-bg)] text-[var(--app-link)]')}>
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /><circle cx="8" cy="7" r="2" fill="var(--app-bg)" /><circle cx="16" cy="12" r="2" fill="var(--app-bg)" /><circle cx="9" cy="17" r="2" fill="var(--app-bg)" /></svg>
+            </button>
             <SessionGroupActions group={props.group} sessions={props.sessions} api={props.api ?? null}
                 onOpen={props.onOpenGroup ?? (group => { if (group.members[0]) props.onSelect(group.members[0].sessionId) })}
-                onNew={props.onNew} onManage={() => setManage(value => !value)} onHidden={props.onBack}>
+                onNew={props.onNew} onHidden={props.onBack}>
                 {(handlers, openMenu) => <button {...handlers} type="button" onClick={openMenu} aria-label={t('groups.actions')}
                     title={t('groups.actions')} aria-haspopup="menu" className={cn(control, 'flex h-9 w-9 shrink-0 items-center justify-center px-0')}>
                     <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
@@ -287,10 +303,10 @@ export function SessionGroupWorkspace(props: {
             {tabMembers.some(m => m.pinned) ? <div className="contents sm:flex sm:max-w-[48%] sm:shrink-0 sm:overflow-x-auto sm:border-r sm:border-[var(--app-border)]" aria-label={t('groups.pinned')}>{tabMembers.filter(m => m.pinned).map(tab)}</div> : null}
             <div className="contents sm:flex sm:min-w-0 sm:flex-1 sm:overflow-x-auto">{tabMembers.filter(m => !m.pinned).map(tab)}</div>
         </div> : <p className="px-4 pb-3 text-sm text-[var(--app-hint)]">{t('groups.empty')} <button type="button" onClick={() => setManage(true)} className="text-[var(--app-link)] underline">{t('groups.addChats')}</button></p>}
-        {manage ? <div className="max-h-[50dvh] overflow-y-auto border-t border-[var(--app-border)] px-3 py-3" data-testid="group-manager">
+        {manage ? <div ref={managerRef} id="group-manager" className="max-h-[50dvh] overflow-y-auto border-t border-[var(--app-border)] px-3 py-3" data-testid="group-manager">
             <form className="mb-3 flex items-end gap-2" onSubmit={e => { e.preventDefault(); void props.onUpdate(props.group, { ...props.group, name: name.trim() }) }}>
                 <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-[var(--app-hint)]">{t('groups.name')}<input className={field} value={name} maxLength={120} onChange={e => setName(e.target.value)} /></label>
-                <button disabled={props.pending || !name.trim() || name.trim() === props.group.name} className={control}>{t('groups.saveName')}</button>
+                <button disabled={props.pending || !name.trim() || name.trim() === props.group.name} className={cn(control, 'min-h-10 shrink-0 border border-[var(--app-border)] px-4 font-medium text-[var(--app-fg)] disabled:cursor-not-allowed')}>{t('groups.saveName')}</button>
             </form>
             <p className="mb-2 text-xs text-[var(--app-hint)]">{t('groups.orderHint')}</p>
             {members.map((member, index) => <div key={member.sessionId} className="flex flex-wrap items-center gap-1 border-b border-[var(--app-border)] py-1" data-testid="group-member">

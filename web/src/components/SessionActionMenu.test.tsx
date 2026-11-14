@@ -61,6 +61,14 @@ describe('SessionActionMenu - mute', () => {
 })
 
 describe('SessionActionMenu - Pin action', () => {
+    it.each([false, true])('offers group pin independently of global pin (%s)', pinned => {
+        const toggle = vi.fn()
+        renderMenu({ sessionGroupPinned: pinned, onToggleGroupPin: toggle, onSetPinMode: vi.fn() })
+        expect(screen.getByRole('menuitem', { name: 'Pin globally' })).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('menuitem', { name: pinned ? 'Unpin from the group' : 'Pin in the group' }))
+        expect(toggle).toHaveBeenCalledOnce()
+    })
+
     it('keeps global pin and hides project pin and export', () => {
         const onSetPinMode = vi.fn()
         const { rerender } = renderMenu({ onSetPinMode, sessionPinned: false, sessionGlobalPinned: false })

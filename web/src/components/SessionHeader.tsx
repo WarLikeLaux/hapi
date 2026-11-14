@@ -1,3 +1,4 @@
+import { useGroupPin } from '@/hooks/useGroupPin'
 import { isSessionBusy, toSessionSummary } from '@hapi/protocol'
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useIsMutating, useQueryClient } from '@tanstack/react-query'
@@ -169,6 +170,7 @@ export function SessionHeader(props: {
     const queryClient = useQueryClient()
     const { addToast } = useToast()
     const { session, api, onSessionDeleted, onSessionReopened } = props
+    const groupPin = useGroupPin(api, session.id)
     const title = useMemo(() => getSessionTitle(session), [session])
     // On mobile, give a long title the top row and share the second row
     // between the summary and actions. Measure natural text/button widths
@@ -707,6 +709,8 @@ export function SessionHeader(props: {
                 sessionMuted={Boolean(session.metadata?.muted)}
                 onSetMuted={api ? (muted) => void handleSetMuted(muted) : undefined}
                 sessionPinned={Boolean(session.pinned)}
+                sessionGroupPinned={groupPin.pinned}
+                onToggleGroupPin={groupPin.toggle}
                 sessionGlobalPinned={Boolean(session.globalPinned)}
                 onRename={() => setRenameOpen(true)}
                 onMarkUnread={() => markSessionUnread(session.id, session.readState)}
