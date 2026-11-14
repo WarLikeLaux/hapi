@@ -77,6 +77,7 @@ function createApp(session: Session, opts?: {
     dismissCodexAsyncQuestion?: SyncEngine['dismissCodexAsyncQuestion']
     rewindConversation?: SyncEngine['rewindConversation']
     suggestSessionTitle?: SyncEngine['suggestSessionTitle']
+    unlockSessionTitle?: SyncEngine['unlockSessionTitle']
     renameSession?: SyncEngine['renameSession']
     updateSessionSummary?: SyncEngine['updateSessionSummary']
     setSessionPinned?: (sessionId: string, pinned: boolean) => void
@@ -195,6 +196,7 @@ function createApp(session: Session, opts?: {
         dismissCodexAsyncQuestion: opts?.dismissCodexAsyncQuestion,
         rewindConversation: opts?.rewindConversation ?? (async () => ({ type: 'success' })),
         suggestSessionTitle: opts?.suggestSessionTitle ?? (async () => 'Generated title'),
+        unlockSessionTitle: opts?.unlockSessionTitle ?? (async () => {}),
         renameSession: opts?.renameSession ?? (async () => {}),
         updateSessionSummary: opts?.updateSessionSummary ?? (async () => {}),
     } as Partial<SyncEngine>
@@ -210,6 +212,21 @@ function createApp(session: Session, opts?: {
 }
 
 describe('sessions routes', () => {
+    it('validates title unlocks and reports conflicting title state', async () => {
+        const calls: unknown[] = []
+        const { app } = createApp(createSession(), { unlockSessionTitle: async (...args) => {
+            calls.push(args)
+            if (args[1] === 'old') throw new Error('Title changed concurrently')
+        } })
+        const post = (body: unknown) => app.request('/api/sessions/session-1/unlock-title', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        })
+        expect((await post({ expectedName: 'Title', expectedLock: 'invalid' })).status).toBe(400)
+        expect((await post({ expectedName: 'old', expectedLock: 'agent' })).status).toBe(409)
+        expect((await post({ expectedName: 'Title', expectedLock: 'user' })).status).toBe(200)
+        expect(calls).toEqual([['session-1', 'old', 'agent'], ['session-1', 'Title', 'user']])
+    })
+
     it('validates async question answers and scopes delivery to the authenticated session', async () => {
         const request = { questionId: 'question', answers: { '0': { answers: ['Chat'] } } }
         const calls: unknown[] = []

@@ -65,6 +65,8 @@ describe('agent launch over HTTP MCP', () => {
             }
             if (path === '/api/groups') return reply({ groups: [group] })
             if (path === '/api/sessions/caller/group') return reply({ group })
+            if (path === '/api/groups/group-hapi/members' && req.method === 'POST') { groupBodies.push(body); return reply({ ok: true }) }
+            if (path === '/api/sessions/caller/unlock-title' && req.method === 'POST') { groupBodies.push(body); return reply({ ok: true }) }
             if (path === '/api/groups/group-hapi' && req.method === 'PUT') { groupBodies.push(body); return reply({ group: body }) }
             if (path === '/api/groups/group-hapi') return reply({ group, sessions })
             if (path === '/api/groups/foreign') return reply({ error: 'Group not found' }, 404)
@@ -115,6 +117,22 @@ describe('agent launch over HTTP MCP', () => {
     async function launch(client: Client, args = task) {
         return await client.callTool({ name: 'launch_agent', arguments: args }) as ToolReply
     }
+
+    it('manages existing group chats and rejects stale or incomplete tab lists', async () => {
+        const client = await connect()
+        const added = await client.callTool({ name: 'add_group_chat', arguments: { groupId: 'group-hapi' } }) as ToolReply
+        expect(added.isError).toBeFalsy()
+        expect(groupBodies.at(-1)).toEqual({ sessionId: 'caller' })
+        const members = [{ sessionId: 'spawned', pinned: true }, { sessionId: 'caller', pinned: false }]
+        const arranged = await client.callTool({ name: 'arrange_group_tabs', arguments: { groupId: 'group-hapi', version: 2, members } }) as ToolReply
+        expect(arranged.isError).toBeFalsy()
+        expect(groupBodies.at(-1)).toMatchObject({ version: 2, members })
+        expect((await client.callTool({ name: 'arrange_group_tabs', arguments: { groupId: 'group-hapi', version: 1, members } }) as ToolReply).isError).toBe(true)
+        expect((await client.callTool({ name: 'arrange_group_tabs', arguments: { groupId: 'group-hapi', version: 2, members: members.slice(0, 1) } }) as ToolReply).isError).toBe(true)
+        const unlocked = await client.callTool({ name: 'unlock_title', arguments: { expectedName: 'Protected', expectedLock: 'agent' } }) as ToolReply
+        expect(unlocked.isError).toBeFalsy()
+        expect(groupBodies.at(-1)).toEqual({ expectedName: 'Protected', expectedLock: 'agent' })
+    })
 
     it('discovers workspace and recent project paths with launchable native defaults', async () => {
         const client = await connect()

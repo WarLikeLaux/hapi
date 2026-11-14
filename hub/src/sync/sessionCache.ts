@@ -1337,6 +1337,16 @@ export class SessionCache {
         throw new Error('Session was modified concurrently. Please try again.')
     }
 
+    async unlockSessionTitle(sessionId: string, expectedName: string, expectedLock: 'user' | 'agent'): Promise<void> {
+        const session = this.refreshSession(sessionId)
+        if (!session) throw new Error('Session not found')
+        const metadata = session.metadata
+        if (!metadata || metadata.name !== expectedName || metadata.nameLock !== expectedLock) throw new Error('Title changed concurrently. Read it again and retry.')
+        const result = this.store.sessions.updateSessionMetadata(sessionId, metadata, session.metadataVersion, session.namespace, { touchUpdatedAt: false, titleOperation: 'unlock' })
+        if (result.result !== 'success') throw new Error('Session was modified concurrently. Please try again.')
+        this.refreshSession(sessionId)
+    }
+
     async renameSession(sessionId: string, name: string): Promise<void> {
         // tiann/hapi#919: retry-with-refresh on version-mismatch instead of
         // throwing on the first contention. Mirrors the good pattern in

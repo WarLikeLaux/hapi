@@ -948,6 +948,22 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.post('/sessions/:id/unlock-title', async c => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const session = requireSessionFromParam(c, engine)
+        if (session instanceof Response) return session
+        const input = z.object({ expectedName: z.string().min(1), expectedLock: z.enum(['user', 'agent']) }).safeParse(await c.req.json().catch(() => null))
+        if (!input.success) return c.json({ error: 'Expected title and ownership are required' }, 400)
+        try {
+            await engine.unlockSessionTitle(session.sessionId, input.data.expectedName, input.data.expectedLock)
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to unlock title'
+            return c.json({ error: message }, message.includes('concurrently') ? 409 : 500)
+        }
+    })
+
     app.patch('/sessions/:id', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {

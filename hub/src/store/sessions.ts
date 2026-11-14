@@ -172,7 +172,7 @@ export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
 // Only explicit hub operations may establish or replace title ownership.
 // Ordinary CLI/native metadata writes cannot remove protection, even with a
 // fresh version or a sparse/null snapshot after reconnect.
-function preserveSessionTitle(prior: unknown, next: unknown, operation?: 'user' | 'pin' | 'transfer'): unknown {
+function preserveSessionTitle(prior: unknown, next: unknown, operation?: 'user' | 'pin' | 'transfer' | 'unlock'): unknown {
     const current = isPlainObject(prior) ? prior : {}
     const locked = current.nameLock === 'user' || current.nameLock === 'agent'
     if (operation === 'user' && isPlainObject(next)) {
@@ -180,6 +180,11 @@ function preserveSessionTitle(prior: unknown, next: unknown, operation?: 'user' 
     }
     if (operation === 'pin' && isPlainObject(next) && !locked) {
         return { ...next, nameLock: 'agent' }
+    }
+    if (operation === 'unlock' && isPlainObject(next)) {
+        const result: Record<string, unknown> = { ...next, name: current.name }
+        delete result.nameLock
+        return result
     }
     if (operation === 'transfer' && isPlainObject(next)) {
         return next
@@ -481,7 +486,7 @@ export function updateSessionMetadata(
     metadata: unknown,
     expectedVersion: number,
     namespace: string,
-    options?: { touchUpdatedAt?: boolean; allowUnarchive?: boolean; titleOperation?: 'user' | 'pin' | 'transfer' }
+    options?: { touchUpdatedAt?: boolean; allowUnarchive?: boolean; titleOperation?: 'user' | 'pin' | 'transfer' | 'unlock' }
 ): VersionedUpdateResult<unknown | null> {
     const now = Date.now()
     const touchUpdatedAt = options?.touchUpdatedAt !== false

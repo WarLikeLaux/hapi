@@ -340,6 +340,8 @@ Create an empty group with `create_group({ name: "HAPI", requestId: "hapi-worksp
 
 The web Create Session page can optionally create a named group with its first chat. New chat inside an existing group starts with the first tab's project, runner and agent. These remain editable. Empty groups use the ordinary form defaults. If the first runner or agent is unavailable, the form explains the fallback to available choices. Directory validation still applies.
 
+Use `add_group_chat` with a group ID to add the current chat, or provide an exact session ID to move another existing chat. To pin or order tabs, call `get_group` and pass its version and complete member list to `arrange_group_tabs`. The operation rejects stale versions and membership changes. `pin_group` controls the group in the chat list independently of tab pins. Only reorganize chats or remove title protection when authorized by the user.
+
 Read a listed chat with `inspect_peer({ sessionIdPrefix: sessionId })`. Its existing `beforeAt`/`beforeSeq` pagination reads older context without resuming the chat. Group membership grants no additional namespace access.
 
 To launch a chat in a group, pass `groupId` from `create_group`, `get_group` or `list_groups` to `launch_agent` together with the usual project, message and request ID. The hub assigns membership before starting the runner, so the new agent's first `get_group` already sees its workspace. Omit `groupId` for a standalone chat. Retry rules and launch permissions remain the same as for other launches. Existing agents need a restarted MCP bridge to discover the new tools.
@@ -348,7 +350,7 @@ To launch a chat in a group, pass `groupId` from `create_group`, `get_group` or 
 
 Call `change_title` with `{ "title": "Координатор", "pin": true }` to set a title and protect it from later agent renames, native title updates and automatic naming. Omit `pin` for ordinary task naming. `pin: false` behaves like an ordinary rename and does not unpin a title. The protection is stored with the session and survives continuation or restart.
 
-An existing protected title cannot be replaced through MCP, even with `pin: true`. Repeating the same pinned title is safe. The user can still rename the session through HAPI, and the user's new title stays protected. MCP does not expose an unpin or force-rename option.
+An existing protected title cannot be replaced through `change_title`, even with `pin: true`. Repeating the same pinned title is safe. The user can rename the session through HAPI and the new title remains protected. If the user explicitly requests removing protection from the current chat, use `read_title_state` and then `unlock_title` with the returned exact name and owner. Unlocking keeps the name and permits future automatic changes. A changed name or owner is rejected.
 
 HAPI coordinator and integrator sessions use the pinned titles `Координатор` and `Интегратор` as required by `AGENTS.md`. Ordinary workers continue to use descriptive task titles.
 

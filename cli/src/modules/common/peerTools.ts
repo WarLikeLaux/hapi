@@ -12,7 +12,7 @@
  * variable unset in their interactive shell keep full CLI access.
  */
 
-export const PEER_TOOL_NAMES = ['list_peers', 'ping_peer', 'inspect_peer', 'pin_group', 'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent'] as const;
+export const PEER_TOOL_NAMES = ['list_peers', 'ping_peer', 'inspect_peer', 'pin_group', 'read_title_state', 'unlock_title', 'add_group_chat', 'arrange_group_tabs', 'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent'] as const;
 
 export function isPeerToolsDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
     return ['true', '1', 'yes'].includes((env.HAPI_DISABLE_PEER_TOOLS ?? '').toLowerCase());
