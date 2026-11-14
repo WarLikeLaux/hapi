@@ -283,6 +283,26 @@ afterEach(() => {
     touchedSessions.clear()
     sessionStorage.clear()
     vi.restoreAllMocks()
+    vi.useRealTimers()
+})
+
+it('lets other work run between cache saves and flushes remaining chats on pagehide', () => {
+    vi.useFakeTimers()
+    const ids = ['yield-a', 'yield-b', 'yield-c'].map(sessionId)
+    for (const [index, id] of ids.entries()) {
+        ingestIncomingMessages(id, [makeUserMessage({ id: `message-${index}`, seq: index + 1 })])
+    }
+    let savedBeforeOtherWork = 0
+    setTimeout(() => {
+        savedBeforeOtherWork = ids.filter(id => sessionStorage.getItem(`hapi:message-window:v3:${id}`)).length
+    }, 201)
+    vi.advanceTimersByTime(201)
+    expect(savedBeforeOtherWork).toBeGreaterThan(0)
+    expect(savedBeforeOtherWork).toBeLessThan(ids.length)
+    window.dispatchEvent(new Event('pagehide'))
+    for (const id of ids) {
+        expect(JSON.parse(sessionStorage.getItem(`hapi:message-window:v3:${id}`)!).messages).toHaveLength(1)
+    }
 })
 
 function makeToolMessages(count: number, firstSeq: number): DecryptedMessage[] {

@@ -122,7 +122,10 @@ export const NotifySummaryText: TextMessagePartComponent = ({ text, status }) =>
     ) {
         hasTextChangedDuringRunRef.current = true
     }
-    const smooth = status.type === 'running'
+    // Re-parsing a long Markdown document for every typewriter frame blocks
+    // input. Keep the animation for short replies; show incoming chunks directly
+    // once the reply is large enough for the repeated parsing to become costly.
+    const smooth = text.length < 4096 && status.type === 'running'
         && (runStartedWithRunningRef.current || hasTextChangedDuringRunRef.current)
 
     previousTextRef.current = text

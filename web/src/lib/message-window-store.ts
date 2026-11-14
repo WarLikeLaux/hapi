@@ -110,6 +110,7 @@ const appliedRewindLocalIds = new Map<string, Set<string>>()
 
 const NOTIFY_THROTTLE_MS = 150
 const PERSIST_THROTTLE_MS = 200
+const PERSIST_YIELD_MS = 16
 const CACHE_UNIT_BUDGET = 4
 const CACHE_CHARACTER_BUDGET = 256 * 1024
 const messageCharacterSizes = new WeakMap<DecryptedMessage, number>()
@@ -244,27 +245,37 @@ function clearPersistedState(sessionId: string): void {
     }
 }
 
+function persistPendingSession(sessionId: string): void {
+    pendingPersistSessionIds.delete(sessionId)
+    const state = states.get(sessionId)
+    if (state) {
+        persistState(sessionId, state)
+        const tail = getCachedTail(sessionId)
+        if (tail && !listeners.has(sessionId) && !state.isSyncingTail && !state.isLoadingMore) {
+            // Defer cleanup so React's temporary unsubscribe in StrictMode
+            // cannot replace a mounted reader's history window.
+            states.set(sessionId, restoreCachedTail(state, tail))
+            if (!tailSyncControllers.get(sessionId)?.running) {
+                tailSyncControllers.delete(sessionId)
+            }
+        }
+    } else {
+        clearPersistedState(sessionId)
+    }
+}
+
 function flushPersistedStates(): void {
     if (persistTimerId !== null) clearTimeout(persistTimerId)
     persistTimerId = null
-    const sessionIds = [...pendingPersistSessionIds]
-    pendingPersistSessionIds.clear()
-    for (const sessionId of sessionIds) {
-        const state = states.get(sessionId)
-        if (state) {
-            persistState(sessionId, state)
-            const tail = getCachedTail(sessionId)
-            if (tail && !listeners.has(sessionId) && !state.isSyncingTail && !state.isLoadingMore) {
-                // Defer cleanup so React's temporary unsubscribe in StrictMode
-                // cannot replace a mounted reader's history window.
-                states.set(sessionId, restoreCachedTail(state, tail))
-                if (!tailSyncControllers.get(sessionId)?.running) {
-                    tailSyncControllers.delete(sessionId)
-                }
-            }
-        } else {
-            clearPersistedState(sessionId)
-        }
+    for (const sessionId of pendingPersistSessionIds) persistPendingSession(sessionId)
+}
+
+function persistNextSession(): void {
+    persistTimerId = null
+    const sessionId = pendingPersistSessionIds.values().next().value
+    if (sessionId !== undefined) persistPendingSession(sessionId)
+    if (pendingPersistSessionIds.size > 0 && persistTimerId === null) {
+        persistTimerId = setTimeout(persistNextSession, PERSIST_YIELD_MS)
     }
 }
 
@@ -276,7 +287,7 @@ function schedulePersist(sessionId: string): void {
     // In-memory cleanup still runs when browser storage is unavailable.
     pendingPersistSessionIds.add(sessionId)
     if (persistTimerId === null) {
-        persistTimerId = setTimeout(flushPersistedStates, PERSIST_THROTTLE_MS)
+        persistTimerId = setTimeout(persistNextSession, PERSIST_THROTTLE_MS)
     }
 }
 
