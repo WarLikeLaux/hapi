@@ -88,6 +88,25 @@ describe('protected titles across session continuation', () => {
     }
 })
 
+describe('unlocking a title', () => {
+    it('requires the current name and owner, preserves the name, and permits later automatic updates', async () => {
+        const store = new Store(':memory:')
+        const cache = new SessionCache(store, createPublisher([]))
+        const session = cache.getOrCreateSession('unlock', { path: '/tmp', host: 'localhost' }, null, 'default')
+        await cache.renameSession(session.id, 'Protected')
+        await expect(cache.unlockSessionTitle(session.id, 'Old', 'user')).rejects.toThrow('concurrently')
+        await expect(cache.unlockSessionTitle(session.id, 'Protected', 'agent')).rejects.toThrow('concurrently')
+        expect(store.sessions.getSession(session.id)?.metadata).toMatchObject({ name: 'Protected', nameLock: 'user' })
+        await cache.unlockSessionTitle(session.id, 'Protected', 'user')
+        const current = store.sessions.getSession(session.id)!
+        expect(current.metadata).toMatchObject({ name: 'Protected' })
+        expect((current.metadata as { nameLock?: string }).nameLock).toBeUndefined()
+        const updated = store.sessions.updateSessionMetadata(session.id, { name: 'Automatic' }, current.metadataVersion, 'default')
+        expect(updated).toMatchObject({ result: 'success', value: { name: 'Automatic' } })
+        store.close()
+    })
+})
+
 describe('session mute', () => {
     it('persists both states and publishes updates while preserving other metadata', async () => {
         const store = new Store(':memory:')

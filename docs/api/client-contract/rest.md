@@ -364,7 +364,7 @@ internal and must never be used by clients.
 
 ### Session title protection
 
-`metadata.nameLock` records title ownership as `'user'` or `'agent'`. A manual rename through the user PATCH route establishes user ownership. MCP `change_title` can pin an agent title with `pin: true`. Ordinary agent metadata writes cannot establish, clear or replace ownership. Protected names survive sparse updates, history replay, imports and restarts. A user can rename a protected session through HAPI, and the new name remains protected.
+`metadata.nameLock` records title ownership as `'user'` or `'agent'`. A manual rename through the user PATCH route establishes user ownership. MCP `change_title` can pin an agent title with `pin: true`. Ordinary agent metadata writes cannot establish, clear or replace ownership. Protected names survive sparse updates, history replay, imports and restarts. A user can rename a protected session through HAPI, and the new name remains protected. `POST /api/sessions/:id/unlock-title` removes protection while preserving the title when `expectedName` and `expectedLock` match the current title. A mismatch returns 409.
 
 `metadata.promptTitle` is an optional, Hub-owned provisional title: the first
 non-command user prompt, with whitespace collapsed and capped at 80 characters.

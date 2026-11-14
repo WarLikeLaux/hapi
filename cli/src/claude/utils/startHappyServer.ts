@@ -1,3 +1,4 @@
+import { READ_TITLE_STATE_DESCRIPTION, readTitleState, unlockTitleSchema, UNLOCK_TITLE_DESCRIPTION, unlockTitle, addGroupChatSchema, ADD_GROUP_CHAT_DESCRIPTION, addGroupChat, arrangeGroupTabsSchema, ARRANGE_GROUP_TABS_DESCRIPTION, arrangeGroupTabs } from '@/modules/pingPeer/groupTools';
 import { pinGroupSchema, PIN_GROUP_DESCRIPTION, groupInfoSchema, GROUP_INFO_DESCRIPTION, GROUP_LIST_DESCRIPTION, readGroup, listGroups, pinGroup, createGroupSchema, GROUP_CREATE_DESCRIPTION, createGroup } from '@/modules/pingPeer/groupTools';
 /**
  * HAPI MCP server
@@ -61,7 +62,7 @@ const CLAUDE_MANUAL_APPROVAL_HAPI_TOOLS = new Set([
     'get_usage',
     'launch_agent',
     'create_group',
-    'pin_group'
+    'pin_group', 'add_group_chat', 'arrange_group_tabs', 'unlock_title'
 ]);
 
 /**
@@ -507,12 +508,24 @@ function createHapiMcpServer(
             }
         });
 
+        for (const tool of [
+            { name: 'unlock_title', description: UNLOCK_TITLE_DESCRIPTION, schema: unlockTitleSchema, run: unlockTitle },
+            { name: 'add_group_chat', description: ADD_GROUP_CHAT_DESCRIPTION, schema: addGroupChatSchema, run: addGroupChat },
+            { name: 'arrange_group_tabs', description: ARRANGE_GROUP_TABS_DESCRIPTION, schema: arrangeGroupTabsSchema, run: arrangeGroupTabs },
+        ]) {
+            mcp.registerTool<any, any>(tool.name, { description: tool.description, inputSchema: tool.schema }, async (args: any) => {
+                try { return { content: [{ type: 'text' as const, text: JSON.stringify(await tool.run(client.sessionId, args), null, 2) }], isError: false }; }
+                catch (error) { return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }], isError: true }; }
+            });
+        }
+
         mcp.registerTool<any, any>('pin_group', { description: PIN_GROUP_DESCRIPTION, inputSchema: pinGroupSchema }, async (args: z.infer<typeof pinGroupSchema>) => {
             try { return { content: [{ type: 'text' as const, text: JSON.stringify(await pinGroup(client.sessionId, args), null, 2) }], isError: false }; }
             catch (error) { return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }], isError: true }; }
         });
 
         for (const tool of [
+            { name: 'read_title_state', description: READ_TITLE_STATE_DESCRIPTION, schema: z.object({}), run: () => readTitleState(client.sessionId) },
             { name: 'get_group', description: GROUP_INFO_DESCRIPTION, schema: groupInfoSchema, run: (args: z.infer<typeof groupInfoSchema>) => readGroup(client.sessionId, args) },
             { name: 'list_groups', description: GROUP_LIST_DESCRIPTION, schema: z.object({}), run: () => listGroups() },
         ]) {
@@ -692,7 +705,7 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
     if (options.skillLookup) {
         toolNames.push('skill_lookup');
     }
-    if (!peerToolsDisabled) toolNames.push('pin_group', 'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent');
+    if (!peerToolsDisabled) toolNames.push('read_title_state', 'unlock_title', 'add_group_chat', 'arrange_group_tabs', 'pin_group', 'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent');
     toolNames.push('get_usage');
     toolNames.push('close_session');
 

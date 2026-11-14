@@ -2795,6 +2795,10 @@ export class SyncEngine {
         await this.sessionCache.setSessionMuted(sessionId, muted)
     }
 
+    async unlockSessionTitle(sessionId: string, expectedName: string, expectedLock: 'user' | 'agent'): Promise<void> {
+        await this.sessionCache.unlockSessionTitle(sessionId, expectedName, expectedLock)
+    }
+
     async renameSession(sessionId: string, name: string): Promise<void> {
         await this.sessionCache.renameSession(sessionId, name)
     }

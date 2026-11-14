@@ -1,3 +1,4 @@
+import { READ_TITLE_STATE_DESCRIPTION, unlockTitleSchema, UNLOCK_TITLE_DESCRIPTION, addGroupChatSchema, ADD_GROUP_CHAT_DESCRIPTION, arrangeGroupTabsSchema, ARRANGE_GROUP_TABS_DESCRIPTION } from '@/modules/pingPeer/groupTools';
 import { pinGroupSchema, PIN_GROUP_DESCRIPTION, groupInfoSchema, GROUP_INFO_DESCRIPTION, GROUP_LIST_DESCRIPTION, createGroupSchema, GROUP_CREATE_DESCRIPTION } from '@/modules/pingPeer/groupTools';
 /**
  * HAPI MCP STDIO Bridge
@@ -31,7 +32,7 @@ import { closeSessionSchema, CLOSE_SESSION_DESCRIPTION } from '@/modules/common/
 import { usageSchema, USAGE_DESCRIPTION } from '@/modules/usage';
 import { isPeerToolsDisabled, PEER_TOOL_NAMES } from '@/modules/common/peerTools';
 
-const DEFAULT_TOOL_NAMES = ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer', 'pin_group', 'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent', 'get_usage', 'close_session'];
+const DEFAULT_TOOL_NAMES = ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer', 'pin_group', 'read_title_state', 'unlock_title', 'add_group_chat', 'arrange_group_tabs', 'create_group', 'list_groups', 'get_group', 'list_launch_options', 'launch_agent', 'get_usage', 'close_session'];
 
 function parseArgs(argv: string[]): { url: string | null; toolNames: Set<string> } {
   let url: string | null = null;
@@ -102,6 +103,10 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
       { name: 'close_session', title: 'Close Current Session', description: CLOSE_SESSION_DESCRIPTION, schema: closeSessionSchema },
       { name: 'create_group', title: 'Create Chat Group', description: GROUP_CREATE_DESCRIPTION, schema: createGroupSchema },
       { name: 'list_groups', title: 'List Chat Groups', description: GROUP_LIST_DESCRIPTION, schema: z.object({}) },
+      { name: 'read_title_state', title: 'Read Current Title Protection', description: READ_TITLE_STATE_DESCRIPTION, schema: z.object({}) },
+      { name: 'unlock_title', title: 'Unlock Current Chat Title', description: UNLOCK_TITLE_DESCRIPTION, schema: unlockTitleSchema },
+      { name: 'add_group_chat', title: 'Add Chat to Group', description: ADD_GROUP_CHAT_DESCRIPTION, schema: addGroupChatSchema },
+      { name: 'arrange_group_tabs', title: 'Arrange Group Tabs', description: ARRANGE_GROUP_TABS_DESCRIPTION, schema: arrangeGroupTabsSchema },
       { name: 'pin_group', title: 'Pin Chat Group', description: PIN_GROUP_DESCRIPTION, schema: pinGroupSchema },
       { name: 'get_group', title: 'Read Chat Group', description: GROUP_INFO_DESCRIPTION, schema: groupInfoSchema },
       { name: 'list_launch_options', title: 'List Agent Launch Options', description: LAUNCH_OPTIONS_DESCRIPTION, schema: launchOptionsSchema },
