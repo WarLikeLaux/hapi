@@ -74,7 +74,7 @@ const INITIAL_AGENT_UNITS = 2
  * covers any plausible transcript; per-page work is bounded by PAGE_SIZE.
  */
 const INITIAL_COVERAGE_MAX_PAGES = 256
-const OLDER_LOAD_MAX_PAGES = 4
+const OLDER_LOAD_MAX_PAGES = 256
 const AGENT_RUN_WINDOW_SIZE = 800
 const PAGE_SIZE = 200
 
@@ -696,7 +696,20 @@ function hasInitialConversationCoverage(messages: DecryptedMessage[]): boolean {
 }
 
 function countConversationUnits(messages: DecryptedMessage[]): number {
-    return findConversationAnchorIds(messages).size
+    let units = 0
+    let inAgentRun = false
+    for (const message of messages) {
+        const normalized = normalizeConversationUnitMessage(message)
+        if (!normalized || normalized.role === 'event') continue
+        if (normalized.role === 'user') {
+            units++
+            inAgentRun = false
+        } else if (!inAgentRun) {
+            units++
+            inAgentRun = true
+        }
+    }
+    return units
 }
 
 /**
@@ -1421,13 +1434,13 @@ export async function fetchOlderMessages(
 
     try {
         let cursor: MessagePosition | null = before
-        let historyVersion = 0
-        let addedRenderableCount = 0
+        let preview = initial
+        let incoming: DecryptedMessage[] = []
         let lastPageHasMore: boolean = initial.hasMore
-        // One swipe must surface at least one conversation unit. In a
-        // record-dense session a single page can sit entirely inside the
-        // newest agent turn and fold into nothing visible, so keep paging
-        // (bounded) until a unit actually appears.
+        let lastEpoch = initial.epoch
+        // A single scroll restore must correspond to the complete batch. A
+        // long assistant response can span several pages that all fold into
+        // the same card, so do not publish intermediate versions of it.
         for (let page = 0; page < OLDER_LOAD_MAX_PAGES; page++) {
             const response = await api.getMessages(sessionId, {
                 beforeAt: cursor.at,
@@ -1456,51 +1469,50 @@ export async function fetchOlderMessages(
                 break
             }
 
-            const unitsBefore = countConversationUnits(getState(sessionId).messages)
-            let applyRejected = false
-            // The first applied page and its prepared scroll restore must
-            // reach the UI in one publication; the normal 150ms notification
-            // throttle would expose rows that this state has already evicted.
-            // Follow-up pages ride the throttle; the final apply publishes
-            // immediately below.
-            updateState(sessionId, (previous) => {
-                if (previous.olderGeneration !== generation) return previous
-                addedRenderableCount += countNewRenderableMessages(previous, response.messages)
-                if (page === 0) {
-                    const nextHistoryVersion = previous.historyVersion + 1
-                    if (options.onBeforeApply && !options.onBeforeApply(nextHistoryVersion)) {
-                        applyRejected = true
-                        return buildState(previous, {
-                            olderGeneration: previous.olderGeneration + 1,
-                            isLoadingMore: false,
-                            warning: null
-                        })
-                    }
-                    historyVersion = nextHistoryVersion
-                }
-                const merged = mergeIntoWindow(previous, response.messages, {
-                    mode: 'prepend',
-                    budgetUnits: HISTORY_UNIT_BUDGET
-                })
-                return buildState(merged, {
-                    hasMore: response.page.hasMore,
-                    historyVersion,
-                    epoch: response.page.epoch,
-                    oldestPositionAt: response.page.nextBeforeAt,
-                    oldestPositionSeq: response.page.nextBeforeSeq,
-                    isLoadingMore: page === OLDER_LOAD_MAX_PAGES - 1,
-                    warning: null
-                })
-            }, page === 0)
-            if (applyRejected || historyVersion === 0) {
-                return { kind: 'stopped', reason: 'invalidated' }
-            }
+            const unitsBefore = countConversationUnits(preview.messages)
+            incoming.push(...response.messages)
+            preview = mergeIntoWindow(preview, response.messages, {
+                mode: 'prepend',
+                budgetUnits: HISTORY_UNIT_BUDGET
+            })
             lastPageHasMore = response.page.hasMore
+            lastEpoch = response.page.epoch
             cursor = pagePosition(response.page.nextBeforeAt, response.page.nextBeforeSeq)
-            const addedUnits = countConversationUnits(getState(sessionId).messages) - unitsBefore
-            if (addedUnits > 0 || !response.page.hasMore || !cursor) {
+            if (countConversationUnits(preview.messages) > unitsBefore || !lastPageHasMore || !cursor) {
                 break
             }
+        }
+
+        let historyVersion = 0
+        let addedRenderableCount = 0
+        updateState(sessionId, (previous) => {
+            if (previous.olderGeneration !== generation) return previous
+            const nextHistoryVersion = previous.historyVersion + 1
+            if (options.onBeforeApply && !options.onBeforeApply(nextHistoryVersion)) {
+                return buildState(previous, {
+                    olderGeneration: previous.olderGeneration + 1,
+                    isLoadingMore: false,
+                    warning: null
+                })
+            }
+            historyVersion = nextHistoryVersion
+            addedRenderableCount = countNewRenderableMessages(previous, incoming)
+            const merged = mergeIntoWindow(previous, incoming, {
+                mode: 'prepend',
+                budgetUnits: HISTORY_UNIT_BUDGET
+            })
+            return buildState(merged, {
+                hasMore: lastPageHasMore,
+                historyVersion,
+                epoch: lastEpoch,
+                oldestPositionAt: cursor?.at ?? null,
+                oldestPositionSeq: cursor?.seq ?? null,
+                isLoadingMore: true,
+                warning: null
+            })
+        }, true)
+        if (historyVersion === 0) {
+            return { kind: 'stopped', reason: 'invalidated' }
         }
 
         // The prepend's HISTORY_UNIT_BUDGET trim drops newer rows when the

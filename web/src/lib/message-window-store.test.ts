@@ -1795,6 +1795,34 @@ describe('history view and older pagination', () => {
         ])
     })
 
+    it('publishes a long folded response only after reaching an older conversation unit', async () => {
+        const id = sessionId('folded-history-batch')
+        const lastPage = deferred<MessagesResponse>()
+        const getMessages = vi.fn()
+            .mockResolvedValueOnce(latestResponse([makeAgentMessage({ id: 'current-work', seq: 20, at: 20 }), ...coverageTail([], 21)], {
+                epoch: 4, hasMore: true, nextBeforeAt: 20, nextBeforeSeq: 20
+            }))
+        for (let seq = 19; seq >= 15; seq--) {
+            getMessages.mockResolvedValueOnce(beforeResponse([
+                makeAgentMessage({ id: `work-${seq}`, seq, at: seq })
+            ], { epoch: 4, hasMore: true, nextBeforeAt: seq, nextBeforeSeq: seq }))
+        }
+        getMessages.mockReturnValueOnce(lastPage.promise)
+        const api = createApi(getMessages)
+        await syncTailMessages(api, id)
+        const before = getMessageWindowState(id)
+        const loading = fetchOlderMessages(api, id)
+        await vi.waitFor(() => expect(getMessages).toHaveBeenCalledTimes(7))
+        expect(getMessageWindowState(id).messages).toEqual(before.messages)
+        expect(getMessageWindowState(id).historyVersion).toBe(before.historyVersion)
+        lastPage.resolve(beforeResponse([
+            makeUserMessage({ id: 'older-prompt', seq: 14, createdAt: 14 })
+        ], { epoch: 4, hasMore: false, nextBeforeAt: 14, nextBeforeSeq: 14 }))
+        expect(await loading).toMatchObject({ kind: 'applied' })
+        expect(getMessageWindowState(id).messages.map(message => message.id)).toContain('older-prompt')
+        expect(getMessageWindowState(id).historyVersion).toBe(before.historyVersion + 1)
+    })
+
     it('discards an older response invalidated by a concurrent epoch reset', async () => {
         const id = sessionId('older-reset-race')
         const older = deferred<MessagesResponse>()
