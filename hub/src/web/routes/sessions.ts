@@ -46,6 +46,20 @@ import { requireSessionFromParam, requireSyncEngine } from './guards'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
+const LegacyServiceTierErrorSchema = z.tuple([z.object({
+    code: z.literal('invalid_value'),
+    path: z.tuple([z.literal('serviceTier')]),
+    values: z.tuple([z.literal('fast'), z.literal('standard')]),
+})])
+
+function isLegacyServiceTierError(message: string): boolean {
+    try {
+        return LegacyServiceTierErrorSchema.safeParse(JSON.parse(message)).success
+    } catch {
+        return false
+    }
+}
+
 function commandsFromMetadataSlashCommands(names: readonly string[] | undefined): SlashCommand[] {
     if (!names?.length) {
         return []
@@ -928,6 +942,12 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ ok: true })
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to apply service tier'
+            if (parsed.data.serviceTier === 'ultrafast' && isLegacyServiceTierError(message)) {
+                return c.json({
+                    error: 'This session is still running an older HAPI CLI. Wait for the idle session to update, or reopen it and try again.',
+                    code: 'session_cli_upgrade_required',
+                }, 409)
+            }
             return c.json({ error: message }, 409)
         }
     })

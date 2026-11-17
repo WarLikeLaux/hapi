@@ -1,5 +1,6 @@
 import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, PermissionMode } from '@hapi/protocol/types'
 import { isObject, type AnswerCodexAsyncQuestionRequest } from '@hapi/protocol'
+import type { SessionProcessIdentity } from '@hapi/protocol/schemas'
 import { PERMISSION_REQUEST_NOT_FOUND_MESSAGE, RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import {
     ArchiveCodexSessionRpcResponseSchema,
@@ -211,8 +212,24 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.SetSessionConfig, config)
     }
 
-    async killSession(sessionId: string): Promise<{ pid?: number; processStartMarker?: string }> {
+    canStopSession(sessionId: string): boolean {
+        const socketId = this.rpcRegistry.getSocketIdForMethod(`${sessionId}:${RPC_METHODS.KillSession}`)
+        return socketId !== null && this.io.of('/cli').sockets.has(socketId)
+    }
+
+    async findStaleSessionProcesses(machineId: string, processes: SessionProcessIdentity[]): Promise<number[]> {
+        const result = await this.machineRpc(machineId, RPC_METHODS.FindStaleSessionProcesses, processes)
+        if (!Array.isArray(result) || !result.every(pid => Number.isSafeInteger(pid) && pid > 0)) {
+            throw new Error('Invalid response from session executable probe')
+        }
+        return result
+    }
+
+    async killSession(sessionId: string, requireAcknowledgement = false): Promise<{ pid?: number; processStartMarker?: string }> {
         const result = await this.sessionRpc(sessionId, RPC_METHODS.KillSession, {})
+        if (requireAcknowledgement && (!isObject(result) || result.success !== true)) {
+            throw new Error('The session did not acknowledge stopping for the CLI update')
+        }
         if (!result || typeof result !== 'object') return {}
         const pid = (result as { pid?: unknown }).pid
         const processStartMarker = (result as { processStartMarker?: unknown }).processStartMarker

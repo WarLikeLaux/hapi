@@ -517,6 +517,13 @@ export const ScratchlistEntriesResponseSchema = z.object({
 
 export type ScratchlistEntriesResponse = z.infer<typeof ScratchlistEntriesResponseSchema>
 
+export const SessionProcessIdentitySchema = z.object({
+    pid: z.number().int().positive(),
+    startMarker: z.string().min(1),
+})
+
+export type SessionProcessIdentity = z.infer<typeof SessionProcessIdentitySchema>
+
 export const MachineMetadataSchema = z.object({
     host: z.string(),
     platform: z.string(),
