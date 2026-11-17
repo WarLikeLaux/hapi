@@ -102,6 +102,7 @@ export function modelChipText(args: {
     effort?: string | null
     effortLabel?: string | null
     fast?: boolean
+    speedLabel?: 'Fast' | 'Ultrafast'
 }): string {
     const given = args.name.trim()
     const wireId = args.wireId?.trim() || given
@@ -110,7 +111,8 @@ export function modelChipText(args: {
     let name = knownName ?? (given && /[A-Z ]/.test(given) ? given : parsed.name)
     if (args.flavor === 'opencode') name = name.replace(/\s+Contributor\b/gi, '')
     const effort = effortWord(args.flavor, args.modelReasoningEffort, args.effort, args.effortLabel, parsed.effort)
-    if ((args.fast || parsed.fast) && !/\bfast\b/i.test(name)) name += ' Fast'
+    if (args.speedLabel === 'Ultrafast') name += ' Ultrafast'
+    else if ((args.speedLabel || args.fast || parsed.fast) && !/\bfast\b/i.test(name)) name += ' Fast'
     return effort ? `${name} (${effort})` : name
 }
 

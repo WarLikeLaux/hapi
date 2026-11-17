@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { z } from 'zod';
+import { CodexServiceTierSchema } from '@hapi/protocol/schemas';
+import { toAppServerServiceTier } from '../utils/appServerConfig';
 import { resolveCodexCommand, type CodexCommand } from '../utils/codexExecutable';
 import { parseCodexCliOverrides, stripCodexCliOverrides } from '../utils/codexCliOverrides';
 import { resolveCodexPermissionModeConfig, serializeCodexApprovalPolicy } from '../utils/permissionModeConfig';
@@ -16,7 +18,7 @@ export const SharedLaunchSchema = z.object({
     /** Hub-preallocated stub — create/adopt, not reopen. */
     reservedSessionId: z.string().optional(),
     model: z.string().optional(), modelReasoningEffort: z.string().optional(),
-    serviceTier: z.string().optional(), collaborationMode: z.enum(['default', 'plan']).optional(),
+    serviceTier: CodexServiceTierSchema.optional(), collaborationMode: z.enum(['default', 'plan']).optional(),
     workingDirectory: z.string().optional()
 });
 export type SharedLaunchOptions = z.infer<typeof SharedLaunchSchema>;
@@ -151,7 +153,7 @@ export function sharedLaunchConfig(options: SharedLaunchOptions, cwd: string): {
         threadParams: {
             ...(model ? { model } : {}),
             ...(provider ? { modelProvider: provider } : {}),
-            ...(options.serviceTier ? { serviceTier: options.serviceTier === 'fast' ? 'priority' : null } : {}),
+            ...(options.serviceTier ? { serviceTier: toAppServerServiceTier(options.serviceTier) } : {}),
             ...(overrides.approvalPolicy ? { approvalPolicy: overrides.approvalPolicy } : {}),
             ...(overrides.sandbox ? { sandbox: overrides.sandbox } : {}),
             ...(autoReview ? { approvalPolicy: 'on-request', approvalsReviewer: 'auto_review', sandbox: 'workspace-write' } : {}),

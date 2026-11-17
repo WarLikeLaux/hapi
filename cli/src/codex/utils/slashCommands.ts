@@ -264,6 +264,13 @@ export function resolveCodexSlashCommand(
                 updates: { serviceTier: 'fast' }
             };
         }
+        if (arg === 'ultrafast') {
+            return {
+                kind: 'handled',
+                message: 'Codex Ultrafast mode enabled',
+                updates: { serviceTier: 'ultrafast' }
+            };
+        }
         if (arg === 'off') {
             return {
                 kind: 'handled',
@@ -275,12 +282,12 @@ export function resolveCodexSlashCommand(
             const on = state.serviceTier === 'fast';
             return {
                 kind: 'handled',
-                message: `Codex Fast mode: ${on ? 'on' : 'off'}`
+                message: state.serviceTier === 'ultrafast' ? 'Codex speed: Ultrafast' : `Codex Fast mode: ${on ? 'on' : 'off'}`
             };
         }
         return {
             kind: 'handled',
-            message: 'Usage: /fast [on|off|status]'
+            message: 'Usage: /fast [on|off|ultrafast|status]'
         };
     }
 
@@ -317,7 +324,7 @@ export function resolveCodexSlashCommand(
                 '- `/model [name|auto]` — show or set model',
                 '- `/reasoning [level|default]` — show or set reasoning effort',
                 '- `/personality [friendly|pragmatic|none]` — show or set response style (sticky on thread)',
-                '- `/fast [on|off|status]` — toggle Fast mode (GPT-5.5 / GPT-5.4, ChatGPT login)',
+                '- `/fast [on|off|ultrafast|status]` — set Codex speed. Ultrafast requires model support',
                 '- `/permissions [default|read-only|autoReview|yolo]` — show or set permission mode',
                 '',
                 'Custom `/commands` from `.codex/prompts` are expanded before sending.'

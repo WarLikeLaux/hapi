@@ -1601,6 +1601,7 @@ export default {
   'misc.fastMode': 'Fast Mode',
   'misc.fastModeStandard': 'Standard',
   'misc.fastModeFast': 'Fast',
+  'misc.fastModeUltrafast': 'Ultrafast',
   'misc.variant': 'Variant',
   'misc.changeModel': 'Change model…',
   'misc.backToModelList': '← Models',

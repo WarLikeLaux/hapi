@@ -5,6 +5,7 @@ import type { AgentState, Metadata, UserMessage } from '@/api/types';
 import type { SessionBootstrapResult } from '@/agent/sessionFactory';
 import { SharedCodexRoot, type RootHost } from './root';
 import { codexPlanProposalId } from './plan';
+import { record } from './gateway';
 import { registerUploadHandlers, cleanupUploadDir } from '@/modules/common/handlers/uploads';
 import type { UploadFileResponse } from '@hapi/protocol';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
@@ -596,12 +597,29 @@ describe('shared async questions', () => {
 });
 
 describe('shared settings confirmation', () => {
-    it.each([['priority', 'fast'], ['default', 'standard']] as const)('publishes the initial native %s tier as HAPI %s before any turn', async (nativeTier, hapiTier) => {
+    it.each([['priority', 'fast'], ['default', 'standard'], ['ultrafast', 'ultrafast']] as const)('publishes the initial native %s tier as HAPI %s before any turn', async (nativeTier, hapiTier) => {
         const f = await fixture({ nativeSettings: { serviceTier: nativeTier } });
         const heartbeat = vi.spyOn(f.root.session, 'keepAlive');
         await f.root.activate();
         expect(heartbeat).toHaveBeenLastCalledWith(false, undefined, expect.objectContaining({ serviceTier: hapiTier }));
         expect(f.native.queue).toHaveLength(0);
+    });
+    it('reports Ultrafast and Standard after Codex confirms the requested tier', async () => {
+        const f = await fixture({ nativeSettings: { serviceTier: 'priority' } });
+        await f.root.activate();
+        const request = f.root.client.request.bind(f.root.client);
+        vi.spyOn(f.root.client, 'request').mockImplementation(async (method, params) => {
+            if (method === 'thread/settings/update' && record(params).serviceTier === null) {
+                f.native.notify('thread/settings/updated', { threadId: 'thread', threadSettings: {
+                    model: 'mock', serviceTier: 'default'
+                } });
+                return {};
+            }
+            return request(method, params);
+        });
+
+        expect((await f.root.applySettings({ serviceTier: 'ultrafast' })).applied.serviceTier).toBe('ultrafast');
+        expect((await f.root.applySettings({ serviceTier: 'standard' })).applied.serviceTier).toBe('standard');
     });
     it('skips the native round trip when the requested state already holds (Codex 0.157 no-op suppression)', async () => {
         const f = await fixture();

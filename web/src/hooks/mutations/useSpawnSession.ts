@@ -1,3 +1,4 @@
+import type { CodexServiceTier } from '@hapi/protocol/schemas'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, PermissionMode } from '@hapi/protocol'
 import type { ApiClient } from '@/api/client'
@@ -17,7 +18,7 @@ type SpawnInput = {
     permissionMode?: PermissionMode
     sessionType?: 'simple' | 'worktree'
     worktreeName?: string
-    serviceTier?: 'fast' | 'standard'
+    serviceTier?: CodexServiceTier
     collaborationMode?: CodexCollaborationMode
     copilotAgentMode?: CopilotAgentMode
     startingMode?: 'remote' | 'pty'

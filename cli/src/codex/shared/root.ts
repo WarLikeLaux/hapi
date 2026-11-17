@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { CodexServiceTierSchema } from '@hapi/protocol/schemas';
 import type { SessionBootstrapResult } from '@/agent/sessionFactory';
 import type { ApiSessionClient } from '@/api/apiSession';
 import { logger } from '@/ui/logger';
@@ -14,7 +15,7 @@ import { ImplementCodexPlanRequestSchema, type ImplementCodexPlanResult } from '
 import type { CodexPermissionMode } from '@hapi/protocol/types';
 import { CodexAppServerClient, isIndeterminateError } from '../codexAppServerClient';
 import { buildHapiMcpBridge, type HapiMcpBridge } from '../utils/buildHapiMcpBridge';
-import { buildUserInputFromMessage } from '../utils/appServerConfig';
+import { buildUserInputFromMessage, toAppServerServiceTier } from '../utils/appServerConfig';
 import { resolveCodexPermissionModeConfig } from '../utils/permissionModeConfig';
 import { resolveCodexSlashCommand } from '../utils/slashCommands';
 import { parseReasoningEffortValue } from '../utils/reasoningEffort';
@@ -42,7 +43,7 @@ const SettingsSchema = z.object({
     permissionMode: z.enum(['default', 'read-only', 'autoReview', 'yolo']).optional(),
     model: z.string().min(1).optional(), modelReasoningEffort: z.string().nullable().optional(),
     collaborationMode: z.enum(['default', 'plan']).optional(),
-    serviceTier: z.enum(['fast', 'standard']).nullable().optional(),
+    serviceTier: CodexServiceTierSchema.nullable().optional(),
     personality: z.enum(['friendly', 'pragmatic', 'none']).optional()
 });
 
@@ -355,7 +356,7 @@ export class SharedCodexRoot {
             modelReasoningEffort: string(value.effort ?? value.reasoningEffort) ?? null,
             ...(sandbox ? { permissionMode: sandbox === 'dangerFullAccess' ? 'yolo' : sandbox === 'readOnly' ? 'read-only'
                 : this.settingsNative.approvalsReviewer === 'auto_review' ? 'autoReview' : 'default' } : {}),
-            ...('serviceTier' in value ? { serviceTier: value.serviceTier === 'priority' ? 'fast' : 'standard' } : {}),
+            ...('serviceTier' in value ? { serviceTier: value.serviceTier === 'priority' ? 'fast' : value.serviceTier === 'ultrafast' ? 'ultrafast' : 'standard' } : {}),
             ...('collaborationMode' in value ? { collaborationMode: record(value.collaborationMode).mode === 'plan' ? 'plan' as const : 'default' as const } : {})
         };
         for (const listener of this.settingsListeners) listener();
@@ -690,7 +691,7 @@ export class SharedCodexRoot {
             ...(config.model ? { model: config.model } : {}),
             ...(config.personality ? { personality: config.personality } : {}),
             ...(config.modelReasoningEffort !== undefined ? { effort: config.modelReasoningEffort } : {}),
-            ...(config.serviceTier !== undefined ? { serviceTier: config.serviceTier === 'fast' ? 'priority' : null } : {}),
+            ...(config.serviceTier !== undefined ? { serviceTier: toAppServerServiceTier(config.serviceTier ?? 'standard') } : {}),
             ...(permission ? { approvalPolicy: permission.approvalPolicy, sandboxPolicy: permission.sandboxPolicy,
                 approvalsReviewer: config.permissionMode === 'autoReview' ? 'auto_review' : 'user' } : {}),
             ...(config.collaborationMode ? { collaborationMode: { mode: config.collaborationMode, settings: {
@@ -756,6 +757,16 @@ export class SharedCodexRoot {
                 error: `Plan implementation was not confirmed: ${detail}. Check the mode, queue and conversation before retrying.` };
         } finally { this.submittingPlan = false; this.publishPlan(); }
     }
+    private async listModels(includeHidden: boolean) {
+        const models = [];
+        let cursor: string | undefined;
+        do {
+            const response = await this.client.listModels({ includeHidden, cursor });
+            models.push(...(response.data ?? []).map(normalizeCodexModel).filter(model => model !== null));
+            cursor = response.nextCursor ?? undefined;
+        } while (cursor);
+        return models;
+    }
     private registerControls(): void {
         const rpc = { registerHandler: (method: string, handler: (raw: unknown) => Promise<unknown>) => {
             this.session.rpcHandlerManager.registerHandler(method, async (raw: unknown) => {
@@ -764,14 +775,9 @@ export class SharedCodexRoot {
                 try { return await pending; } finally { this.controls.delete(pending); }
             });
         } };
-        rpc.registerHandler(RPC_METHODS.ListCodexModels, async raw => {
-            const models = []; let cursor: string | undefined;
-            do {
-                const response = await this.client.listModels({ includeHidden: record(raw).includeHidden === true, cursor });
-                models.push(...(response.data ?? []).map(normalizeCodexModel).filter(model => model !== null)); cursor = response.nextCursor ?? undefined;
-            } while (cursor);
-            return { success: true, models };
-        });
+        rpc.registerHandler(RPC_METHODS.ListCodexModels, async raw => ({
+            success: true, models: await this.listModels(record(raw).includeHidden === true)
+        }));
         rpc.registerHandler(RPC_METHODS.Switch, async () => { throw new Error('control_mode_not_applicable'); });
         rpc.registerHandler(RPC_METHODS.HandoffLocal, async () => { throw new Error('control_mode_not_applicable'); });
         rpc.registerHandler(RPC_METHODS.Abort, async () => {
@@ -929,6 +935,14 @@ export class SharedCodexRoot {
         }
         if (slash.updates?.proactiveMultiAgent !== undefined) throw new Error('This Codex version uses Ultra reasoning effort instead of a multi-agent toggle');
         if (slash.updates?.model === null) throw new Error('Choose an explicit model in a shared thread');
+        if (slash.updates?.serviceTier === 'ultrafast') {
+            const models = await this.listModels(true);
+            const model = models.find(entry => entry.id === this.settings.model);
+            if (!model?.serviceTiers?.includes('ultrafast')) {
+                this.notice('The active Codex model does not advertise Ultrafast.');
+                return null;
+            }
+        }
         if (slash.updates) await this.applySettings(slash.updates);
         if (slash.message) this.notice(slash.message);
         return slash.kind === 'replace' ? slash.text : null;

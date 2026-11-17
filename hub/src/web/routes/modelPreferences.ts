@@ -1,3 +1,4 @@
+import { CodexServiceTierSchema } from '@hapi/protocol/schemas'
 import { CREATABLE_AGENT_FLAVORS } from '@hapi/protocol'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -11,9 +12,9 @@ const preferenceSchema = z.object({
     alias: z.string().trim().max(80).nullable(),
     hidden: z.boolean().optional().default(false),
     reasoningEffort: z.string().trim().min(1).max(64).nullable().optional().default(null),
-    speed: z.enum(['fast', 'standard']).nullable().optional().default(null),
+    speed: CodexServiceTierSchema.nullable().optional().default(null),
     showInAll: z.boolean().optional().default(true)
-})
+}).refine(value => value.agent === 'codex' || value.speed !== 'ultrafast', { path: ['speed'], message: 'Ultrafast is only supported for Codex' })
 
 export function createModelPreferenceRoutes(store: Store): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()

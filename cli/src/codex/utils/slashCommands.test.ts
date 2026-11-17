@@ -112,6 +112,13 @@ describe('resolveCodexSlashCommand', () => {
         });
     });
 
+    it('selects the Ultrafast tier with /fast ultrafast', () => {
+        expect(resolveCodexSlashCommand('/fast ultrafast', state)).toMatchObject({
+            kind: 'handled',
+            updates: { serviceTier: 'ultrafast' }
+        });
+    });
+
     it('disables Codex fast mode with an explicit standard tier', () => {
         expect(resolveCodexSlashCommand('/fast off', { ...state, serviceTier: 'fast' })).toEqual({
             kind: 'handled',
@@ -134,7 +141,7 @@ describe('resolveCodexSlashCommand', () => {
     it('rejects unknown Codex fast mode arguments', () => {
         expect(resolveCodexSlashCommand('/fast turbo', state)).toEqual({
             kind: 'handled',
-            message: 'Usage: /fast [on|off|status]'
+            message: 'Usage: /fast [on|off|ultrafast|status]'
         });
     });
 

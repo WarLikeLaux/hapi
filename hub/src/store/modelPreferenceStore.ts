@@ -1,3 +1,4 @@
+import type { CodexServiceTier } from '@hapi/protocol/schemas'
 import type { Database } from 'bun:sqlite'
 
 export type ModelPreference = {
@@ -7,7 +8,7 @@ export type ModelPreference = {
     alias: string | null
     hidden?: boolean
     reasoningEffort?: string | null
-    speed?: 'fast' | 'standard' | null
+    speed?: CodexServiceTier | null
     showInAll?: boolean
 }
 
@@ -34,7 +35,7 @@ export class ModelPreferenceStore {
         const rows = this.db.query(`SELECT agent, model_id AS modelId, pinned, alias, hidden, reasoning_effort AS reasoningEffort, speed, show_in_all AS showInAll
             FROM model_preferences WHERE namespace = ?
             ORDER BY pinned DESC, pin_order ASC, agent ASC, model_id ASC`).all(namespace) as Array<{
-                agent: string; modelId: string; pinned: number; alias: string | null; hidden: number; reasoningEffort: string | null; speed: 'fast' | 'standard' | null; showInAll: number
+                agent: string; modelId: string; pinned: number; alias: string | null; hidden: number; reasoningEffort: string | null; speed: CodexServiceTier | null; showInAll: number
             }>
         return rows.map(row => ({ ...row, pinned: row.pinned === 1, hidden: row.hidden === 1, showInAll: row.showInAll === 1 }))
     }

@@ -140,7 +140,7 @@ Source: `hub/src/web/routes/sessions.ts`; flavor gates in `shared/src/modes.ts` 
 | `POST /api/sessions/:id/model` | `{model: string \| {provider, modelId} \| null, effort?: string \| null}` | Flavors with `supportsModelChange` (not `dsh`); remote-only for codex/cursor/grok. Only claude and agy accept `effort` with a model change. |
 | `POST /api/sessions/:id/effort` | `{effort: string \| null}` | agy, claude, grok, pi (`supportsEffort`) |
 | `POST /api/sessions/:id/model-reasoning-effort` | `{modelReasoningEffort: string \| null}` | codex, opencode (remote-only) |
-| `POST /api/sessions/:id/service-tier` | `{serviceTier: 'fast' \| 'standard'}` | codex (remote-only) |
+| `POST /api/sessions/:id/service-tier` | `{serviceTier: 'fast' \| 'standard' \| 'ultrafast'}` | codex (remote-only) |
 | `POST /api/sessions/:id/collaboration-mode` | `{mode: 'default' \| 'plan'}` | codex (remote-only) |
 | `POST /api/sessions/:id/copilot-agent-mode` | `{mode}` | copilot (remote-only) |
 

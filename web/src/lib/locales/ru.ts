@@ -1214,6 +1214,7 @@ export default {
   'misc.fastMode': 'Быстрый режим',
   'misc.fastModeStandard': 'Стандартный',
   'misc.fastModeFast': 'Быстрый',
+  'misc.fastModeUltrafast': 'Ultrafast',
   'misc.variant': 'Вариант',
   'misc.changeModel': 'Сменить модель…',
   'misc.backToModelList': '← Модели',

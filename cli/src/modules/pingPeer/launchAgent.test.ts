@@ -157,7 +157,7 @@ describe('agent launch over HTTP MCP', () => {
         expect(spawnBodies[0]?.muted).toBe(true)
     })
 
-    it.each(['fast', 'standard'])('launches Codex with explicit %s tier and protects retries from tier changes', async (serviceTier) => {
+    it.each(['fast', 'standard', 'ultrafast'])('launches Codex with explicit %s tier and protects retries from tier changes', async (serviceTier) => {
         const client = await connect()
         const args = { ...task, serviceTier }
         expect((await client.callTool({ name: 'launch_agent', arguments: args })).isError).toBe(false)

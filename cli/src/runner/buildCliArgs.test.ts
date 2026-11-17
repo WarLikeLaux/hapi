@@ -86,7 +86,7 @@ describe('buildCliArgs', () => {
         expect(args).toContain('high')
     })
 
-    it.each(['fast', 'standard'])('passes --service-tier %s through for codex (resume preserves Fast/Standard)', (serviceTier) => {
+    it.each(['fast', 'standard', 'ultrafast'])('passes --service-tier %s through for codex (resume preserves the selected speed)', (serviceTier) => {
         const args = buildCliArgs('codex', {
             directory: '/tmp',
             serviceTier,

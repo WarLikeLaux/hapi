@@ -33,6 +33,7 @@ describe('shared launch configuration', () => {
         expect(sharedLaunchConfig({}, '/tmp').threadParams.config).not.toHaveProperty('model_reasoning_effort');
         expect(sharedLaunchConfig({ serviceTier: 'standard' }, '/tmp').threadParams.serviceTier).toBeNull();
         expect(sharedLaunchConfig({ serviceTier: 'fast' }, '/tmp').threadParams.serviceTier).toBe('priority');
+        expect(sharedLaunchConfig({ serviceTier: 'ultrafast' }, '/tmp').threadParams.serviceTier).toBe('ultrafast');
     });
     it('enables Default-mode question forwarding on every launch surface', () => {
         for (const options of [{}, { permissionMode: 'yolo' as const }, { codexArgs: ['-c', 'features.default_mode_request_user_input=false'] }]) {

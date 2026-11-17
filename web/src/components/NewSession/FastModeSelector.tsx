@@ -1,18 +1,19 @@
 import { useTranslation } from '@/lib/use-translation'
 import type { NewSessionServiceTier } from './types'
+import { CODEX_SPEED_LABELS } from '@/components/AssistantChat/codexFastMode'
 import { ChoiceLabel } from './ChoiceLabel'
 
 export type { NewSessionServiceTier }
 
 export function FastModeSelector(props: {
-    visible: boolean
+    options: readonly NewSessionServiceTier[]
     value: NewSessionServiceTier
     isDisabled: boolean
     onChange: (value: NewSessionServiceTier) => void
 }) {
     const { t } = useTranslation()
 
-    if (!props.visible) {
+    if (props.options.length === 0) {
         return null
     }
 
@@ -20,7 +21,7 @@ export function FastModeSelector(props: {
         <section className="flex min-w-0 items-center gap-2 p-2 sm:gap-3 sm:p-3 lg:border-l lg:border-[var(--app-divider)]" role="group" aria-label={t('newSession.speed')}>
             <ChoiceLabel kind="speed" />
             <div className="flex min-w-0 flex-1 flex-wrap gap-2 sm:gap-3">
-                {(['standard', 'fast'] as const).map((value) => (
+                {props.options.map((value) => (
                     <button
                         key={value}
                         type="button"
@@ -33,7 +34,7 @@ export function FastModeSelector(props: {
                                 : 'border-[var(--app-border)] bg-[var(--app-subtle-bg)] text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)]'
                         }`}
                     >
-                        {t(value === 'fast' ? 'misc.fastModeFast' : 'misc.fastModeStandard')}
+                        {t(CODEX_SPEED_LABELS[value])}
                     </button>
                 ))}
             </div>

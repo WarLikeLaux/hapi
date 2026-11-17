@@ -1,16 +1,21 @@
-import { isFastServiceTier } from '@/components/AssistantChat/codexFastMode'
+import { getDisplayedCodexServiceTier } from '@/components/AssistantChat/codexFastMode'
 import { parseCursorWireParams } from './cursorModelOptions'
 
 /** Uses the effective Codex tier or the active Cursor variant, never effort. */
-export function isSessionFastMode(
+export function getSessionSpeedLabel(
     agentFlavor: string | null | undefined,
     serviceTier: string | null | undefined,
     model?: string | null
-): boolean {
-    if (agentFlavor === 'codex') return isFastServiceTier(serviceTier)
-    if (agentFlavor !== 'cursor' || !model) return false
+): 'Fast' | 'Ultrafast' | undefined {
+    if (agentFlavor === 'codex') {
+        const speed = getDisplayedCodexServiceTier(serviceTier)
+        if (speed === 'ultrafast') return 'Ultrafast'
+        return speed === 'fast' ? 'Fast' : undefined
+    }
+    if (agentFlavor !== 'cursor' || !model) return undefined
     const fastParam = parseCursorWireParams(model).fast
-    return fastParam !== undefined
+    const fast = fastParam !== undefined
         ? fastParam.toLowerCase() === 'true'
         : /-fast$/i.test(model.trim())
+    return fast ? 'Fast' : undefined
 }

@@ -24,7 +24,7 @@ import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { getProjectLabelHue } from '@/components/SessionRowSummary'
 import { basename } from '@/utils/path'
-import { isSessionFastMode } from '@/lib/sessionFastMode'
+import { getSessionSpeedLabel } from '@/lib/sessionFastMode'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { getSessionProjectLabel, getSessionProjectPath } from '@/lib/sessionProjectLabel'
 import { useToast } from '@/lib/toast-context'
@@ -253,7 +253,7 @@ export function SessionHeader(props: {
     const reasoningLabel = reasoningEffort
         ? formatReasoningLabel(reasoningEffort, headerMetadata.showLabels)
         : null
-    const showFastBadge = isSessionFastMode(agentFlavor, props.serviceTier ?? session.serviceTier, session.model)
+    const speedLabel = getSessionSpeedLabel(agentFlavor, props.serviceTier ?? session.serviceTier, session.model)
     const createdAtLabel = headerMetadata.createdAt ? formatSessionHeaderTimestamp(session.createdAt, locale) : null
     const updatedAtLabel = headerMetadata.updatedAt ? formatSessionHeaderTimestamp(session.updatedAt, locale) : null
     const codexSessionId = session.metadata?.flavor === 'codex'
@@ -280,7 +280,7 @@ export function SessionHeader(props: {
             flavor: agentFlavor,
             modelReasoningEffort: session.modelReasoningEffort,
             effort: session.effort,
-            fast: showFastBadge,
+            speedLabel,
         })
         : null
     const showMobileModel = headerMetadata.model && modelChip !== null
@@ -294,7 +294,7 @@ export function SessionHeader(props: {
         updatedAt: updatedAtLabel !== null,
         createdAt: createdAtLabel !== null,
         worktree: headerMetadata.worktree && Boolean(worktreeBranch),
-        fastMode: headerMetadata.fastMode && showFastBadge,
+        fastMode: headerMetadata.fastMode && Boolean(speedLabel),
     })
     const mobileSecondaryValue = mobileSecondary === 'reasoning' ? reasoningLabel
         : mobileSecondary === 'branch' ? gitBranch
@@ -302,7 +302,7 @@ export function SessionHeader(props: {
         : mobileSecondary === 'updatedAt' ? updatedAtLabel
         : mobileSecondary === 'createdAt' ? createdAtLabel
         : mobileSecondary === 'worktree' ? worktreeBranch
-        : mobileSecondary === 'fastMode' ? 'Fast'
+        : mobileSecondary === 'fastMode' ? speedLabel
         : null
     const mobileModelChip = modelChip?.startsWith('Muse Spark ')
         ? modelChip.replace(/\s+Contributor\b/, '')
@@ -580,9 +580,9 @@ export function SessionHeader(props: {
                                     {reasoningLabel}
                                 </span>
                             ) : null}
-                            {headerMetadata.fastMode && showFastBadge && !modelChip ? (
+                            {headerMetadata.fastMode && speedLabel && !modelChip ? (
                                 <span data-testid="session-header-fast" className="text-[#34C759]">
-                                    Fast
+                                    {speedLabel}
                                 </span>
                             ) : null}
                             {createdAtLabel ? <span>{headerMetadata.showLabels ? `${t('session.header.createdAt')}: ` : ''}{createdAtLabel}</span> : null}

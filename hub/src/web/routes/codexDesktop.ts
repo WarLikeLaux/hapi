@@ -6,6 +6,7 @@ import { homedir, hostname, platform } from 'node:os'
 import { AGENT_MESSAGE_PAYLOAD_TYPE } from '@hapi/protocol'
 import type { CodexCollaborationMode } from '@hapi/protocol/types'
 import { Hono } from 'hono'
+import { CodexServiceTierSchema } from '@hapi/protocol/schemas'
 import type { Machine, SyncEngine } from '../../sync/syncEngine'
 import { shouldRecordSessionActivity } from '../../sync/sessionActivity'
 import type { Store, StoredMessage } from '../../store'
@@ -1909,9 +1910,9 @@ function parseSyncSessionRequest(body: unknown): SyncSessionRequestParseResult {
 
     const hasModel = Object.prototype.hasOwnProperty.call(bodyRecord, 'model')
     const hasModelReasoningEffort = Object.prototype.hasOwnProperty.call(bodyRecord, 'modelReasoningEffort')
-    const hasServiceTier = Object.prototype.hasOwnProperty.call(bodyRecord, 'serviceTier')
+    const serviceTier = CodexServiceTierSchema.nullable().optional().safeParse(bodyRecord.serviceTier)
     const hasCollaborationMode = Object.prototype.hasOwnProperty.call(bodyRecord, 'collaborationMode')
-    if (hasServiceTier && bodyRecord.serviceTier !== null && bodyRecord.serviceTier !== 'fast' && bodyRecord.serviceTier !== 'standard') {
+    if (!serviceTier.success) {
         return { sessionIds: [], error: 'Invalid serviceTier' }
     }
     if (hasCollaborationMode && bodyRecord.collaborationMode !== 'default' && bodyRecord.collaborationMode !== 'plan') {
@@ -1925,7 +1926,7 @@ function parseSyncSessionRequest(body: unknown): SyncSessionRequestParseResult {
         machineId: typeof bodyRecord.machineId === 'string' && bodyRecord.machineId.trim() ? bodyRecord.machineId.trim() : null,
         model: hasModel ? (typeof bodyRecord.model === 'string' && bodyRecord.model.trim() ? bodyRecord.model.trim() : null) : undefined,
         modelReasoningEffort: hasModelReasoningEffort ? (typeof bodyRecord.modelReasoningEffort === 'string' && bodyRecord.modelReasoningEffort.trim() ? bodyRecord.modelReasoningEffort.trim() : null) : undefined,
-        serviceTier: hasServiceTier ? bodyRecord.serviceTier as 'fast' | 'standard' | null : undefined,
+        serviceTier: serviceTier.data,
         collaborationMode: hasCollaborationMode ? bodyRecord.collaborationMode as CodexCollaborationMode : undefined,
         yolo: bodyRecord.yolo === true
     }

@@ -13,6 +13,7 @@ import {
     type LaunchEffort,
     type NewSessionServiceTier
 } from './types'
+import { CodexServiceTierSchema } from '@hapi/protocol/schemas'
 import { LEGACY_YOLO_BRIDGE_AGENTS, usesSharedPermissionModeState } from '@/lib/codexFamilyPermissionAgents'
 
 const AGENT_STORAGE_KEY = 'hapi:newSession:agent'
@@ -111,6 +112,7 @@ export function loadPreferredLaunchSettings(
             permissionMode = 'yolo'
             localStorage.setItem(CODEX_YOLO_DEFAULT_MIGRATION_KEY, 'true')
         }
+        const serviceTier = agent === 'codex' ? CodexServiceTierSchema.safeParse(parsed.serviceTier).data : undefined
         return {
             model: parsed.model,
             cursorSelectedBase: typeof parsed.cursorSelectedBase === 'string'
@@ -120,8 +122,7 @@ export function loadPreferredLaunchSettings(
             modelReasoningEffort: typeof parsed.modelReasoningEffort === 'string'
                 ? parsed.modelReasoningEffort
                 : 'default',
-            ...(agent === 'codex' && (parsed.serviceTier === 'fast' || parsed.serviceTier === 'standard')
-                ? { serviceTier: parsed.serviceTier } : {}),
+            ...(serviceTier ? { serviceTier } : {}),
             ...(permissionMode ? { permissionMode } : {})
         }
     } catch {

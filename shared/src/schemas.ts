@@ -5,6 +5,8 @@ import { CODEX_COLLABORATION_MODES, PERMISSION_MODES } from './modes'
 import { AgentConfigDescriptorSchema } from './agentConfig'
 
 export const PermissionModeSchema = z.enum(PERMISSION_MODES)
+export const CodexServiceTierSchema = z.enum(['standard', 'fast', 'ultrafast'])
+export type CodexServiceTier = z.infer<typeof CodexServiceTierSchema>
 export const CodexCollaborationModeSchema = z.enum(CODEX_COLLABORATION_MODES)
 /** Accept legacy `fleet` (was briefly a peer mode) and coerce to interactive. */
 export const CopilotAgentModeSchema = z.union([

@@ -13,7 +13,7 @@ import { formatCodexCredits } from '@/chat/codexCredits'
 import type { AgentState, CodexCollaborationMode, PermissionMode } from '@/types/api'
 import type { ConversationStatus } from '@/realtime/types'
 import { getContextBudgetTokens } from '@/chat/modelConfig'
-import { isSessionFastMode } from '@/lib/sessionFastMode'
+import { getSessionSpeedLabel } from '@/lib/sessionFastMode'
 import { useTranslation } from '@/lib/use-translation'
 import { AGENT_ACTIVITY_LABELS, type AgentActivity } from '@/lib/agentActivity'
 
@@ -250,7 +250,7 @@ export function StatusBar(props: {
     const copilotAgentModeLabel = displayCopilotAgentMode
         ? getCopilotAgentModeLabel(displayCopilotAgentMode)
         : null
-    const fastMode = isSessionFastMode(props.agentFlavor, props.serviceTier, props.model)
+    const speedLabel = getSessionSpeedLabel(props.agentFlavor, props.serviceTier, props.model)
     const showMetrics = !awaitingStart && props.active && Object.keys(props.agentState?.requests ?? {}).length === 0
         && props.voiceStatus !== 'connecting' && (props.thinking || !(props.backgroundTaskCount ?? 0))
     const duration = props.thinking && props.turnMetrics
@@ -330,9 +330,9 @@ export function StatusBar(props: {
             </div>
 
             <div className="flex min-w-0 shrink-0 items-center gap-2">
-                {fastMode ? (
+                {speedLabel ? (
                     <span className="whitespace-nowrap text-xs text-[#34C759]">
-                        Fast
+                        {speedLabel}
                     </span>
                 ) : null}
                 {collaborationModeLabel ? (

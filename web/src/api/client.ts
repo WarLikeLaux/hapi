@@ -1,3 +1,4 @@
+import type { CodexServiceTier } from '@hapi/protocol/schemas'
 import type { SessionGroupLifecycleResult, SessionGroup, UpdateSessionGroup, LaunchSessionRequest, LaunchSessionResult } from '@hapi/protocol'
 import type {
     AttachmentMetadata,
@@ -121,7 +122,7 @@ export type ModelPreference = {
     alias: string | null
     hidden?: boolean
     reasoningEffort?: string | null
-    speed?: 'fast' | 'standard' | null
+    speed?: CodexServiceTier | null
     showInAll?: boolean
 }
 
@@ -1421,7 +1422,7 @@ export class ApiClient {
         worktreeName?: string,
         effort?: string,
         permissionMode?: PermissionMode,
-        serviceTier?: 'fast' | 'standard',
+        serviceTier?: CodexServiceTier,
         collaborationMode?: CodexCollaborationMode,
         copilotAgentMode?: CopilotAgentMode,
         startingMode?: 'remote' | 'pty',

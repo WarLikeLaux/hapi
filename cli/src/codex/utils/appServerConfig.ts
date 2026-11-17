@@ -83,11 +83,15 @@ const APP_SERVER_FAST_TIER = 'priority';
  * app-server `serviceTier` field for thread/turn params:
  * - `'fast'`     → `'priority'`  (the advertised Fast tier request value)
  * - `'standard'` → `null`        (explicit Standard tier)
+ * - 'ultrafast' → 'ultrafast' (the advertised Ultrafast tier)
  * - anything else / untouched → `undefined` (omit; use account default)
  */
-function toAppServerServiceTier(stored: string | null | undefined): string | null | undefined {
+export function toAppServerServiceTier(stored: string | null | undefined): string | null | undefined {
     if (stored === 'fast') {
         return APP_SERVER_FAST_TIER;
+    }
+    if (stored === 'ultrafast') {
+        return stored;
     }
     if (stored === 'standard') {
         return null;
