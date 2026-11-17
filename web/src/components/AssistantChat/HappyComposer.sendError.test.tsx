@@ -395,6 +395,17 @@ describe('HappyComposer send-error atomic restore', () => {
         expect(screen.getByTestId('pending-schedule')).toHaveTextContent('{"type":"absolute","ms":1234}')
     })
 
+    it('restores a retryable draft without displaying an alert for a connection failure', async () => {
+        const controls = renderComposer('retry this message', null)
+        send()
+        act(() => controls.current!.acceptSend())
+        act(() => controls.current!.settleSend({ ...fail(1, 'retry this message', null), message: null }))
+
+        await waitFor(() => expect(input()).toHaveValue('retry this message'))
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'send' })).toBeEnabled()
+    })
+
     it('restores text but preserves the original schedule when rejection happens before mutation acceptance', async () => {
         const controls = renderComposer()
         send()

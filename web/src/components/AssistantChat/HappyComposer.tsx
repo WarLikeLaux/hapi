@@ -120,12 +120,12 @@ export function getComposerEscapeAction(input: {
  * consumer that:
  *  1. restores the text once per `id` via `api.composer().setText`,
  *  2. restores the schedule (if any) via `onSchedule`, and
- *  3. shows a red ring + inline message until the user types or sends.
+ *  3. shows an inline alert and a red ring when a message is provided.
  */
 export type ComposerSendError = {
     id: number
     text: string
-    message: string
+    message: string | null
     scheduledAt: number | null
     /** False for guards that reject before the underlying message mutation starts. */
     mutationStarted: boolean
@@ -455,8 +455,8 @@ export function HappyComposer(props: {
     /** SessionChat binds Ctrl/Cmd+Shift+D; HappyComposer registers the effective voice toggle. */
     dictateHotkeyRef?: MutableRefObject<(() => void) | null>
     // Set when the most recent send failed (4xx/5xx/network).  The composer
-    // restores the original text once per `sendError.id` and renders an
-    // inline error affordance until the user dismisses or starts editing.
+    // restores the original text once per `sendError.id` and displays the
+    // inline error affordance when a message is provided.
     sendError?: ComposerSendError | null
     onClearSendError?: () => void
     onSuppressSendErrorRestore?: (id: number) => void
@@ -548,6 +548,8 @@ export function HappyComposer(props: {
         attachmentOrderRef: externalAttachmentOrderRef,
         resolveSessionMentionTooltip,
     } = props
+
+    const visibleSendError = sendError?.message != null ? sendError : null
 
     // Use ?? so missing values fall back to default (destructuring defaults only handle undefined)
     const permissionMode = rawPermissionMode ?? 'default'
@@ -2249,22 +2251,22 @@ export function HappyComposer(props: {
                         </div>
                     ) : null}
 
-                    {sendError ? (
+                    {visibleSendError ? (
                         <div
                             role="alert"
                             data-testid="composer-send-error"
                             className="mb-2 flex items-center justify-between gap-3 rounded-md bg-[var(--app-subtle-bg)] px-3 py-2 text-sm text-red-600"
                         >
-                            <span className="flex-1">{sendError.message}</span>
-                            {sendError.action ? (
+                            <span className="flex-1">{visibleSendError.message}</span>
+                            {visibleSendError.action ? (
                                 <button
                                     type="button"
                                     data-testid="composer-send-error-action"
-                                    onClick={sendError.action.onClick}
-                                    disabled={sendError.action.pending}
+                                    onClick={visibleSendError.action.onClick}
+                                    disabled={visibleSendError.action.pending}
                                     className="shrink-0 rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
-                                    {sendError.action.label}
+                                    {visibleSendError.action.label}
                                 </button>
                             ) : null}
                         </div>
@@ -2274,7 +2276,7 @@ export function HappyComposer(props: {
                         className={`flex overflow-hidden rounded-[20px] bg-[var(--app-secondary-bg)] ${
                             isExpanded ? 'min-h-0 flex-1' : ''
                         } ${
-                            sendError ? 'ring-1 ring-red-500' : ''
+                            visibleSendError ? 'ring-1 ring-red-500' : ''
                         }`}
                         data-testid="composer-card"
                     >
