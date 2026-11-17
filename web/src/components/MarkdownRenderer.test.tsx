@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { I18nProvider } from '@/lib/i18n-context'
 import { MarkdownRenderer } from './MarkdownRenderer'
 
@@ -34,14 +34,14 @@ describe('MarkdownRenderer', () => {
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
         render(<I18nProvider><MarkdownRenderer standalone content={'Run `npm test` now.'} /></I18nProvider>)
 
-        fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
-        await waitFor(() => expect(writeText).toHaveBeenCalledWith('npm test'))
-        expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'npm test' }))
+        await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Copied'))
+        expect(writeText).toHaveBeenCalledExactlyOnceWith('npm test')
     })
 
     it('keeps inline code inside a link free of nested controls', () => {
         render(<I18nProvider><MarkdownRenderer standalone content={'[`example`](https://example.com)'} /></I18nProvider>)
-        expect(screen.getByRole('link', { name: 'example' }).querySelector('button')).toBeNull()
+        expect(within(screen.getByRole('link', { name: 'example' })).queryByRole('button')).toBeNull()
     })
 
     it.each(['markdown', 'md'])('keeps the gutter padding for %s fenced blocks', (language) => {
