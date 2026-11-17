@@ -493,7 +493,7 @@ function InlineCode(props: ComponentPropsWithoutRef<'code'>) {
                 props.onClick?.(event)
                 if (window.matchMedia('(hover: none), (pointer: coarse)').matches && !window.getSelection()?.toString()) void copy(ref.current?.textContent ?? '')
             }} className={cn('aui-md-code break-words rounded-md border border-[var(--app-inline-code-border)] bg-[var(--app-inline-code-bg)] px-[0.38em] py-[0.14em] font-mono text-[0.88em] text-[var(--app-inline-code-fg)]', props.className)} />
-            <button type="button" className="aui-inline-code-copy-button" aria-label={t(copied ? 'message.copied' : 'code.copy')} title={t(copied ? 'message.copied' : 'code.copy')} onClick={() => void copy(ref.current?.textContent ?? '')}>
+            <button type="button" className="aui-inline-code-copy-button" data-hapi-share-export-exclude="true" aria-label={t(copied ? 'message.copied' : 'code.copy')} title={t(copied ? 'message.copied' : 'code.copy')} onClick={() => void copy(ref.current?.textContent ?? '')}>
                 {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
             </button>
         </span>
