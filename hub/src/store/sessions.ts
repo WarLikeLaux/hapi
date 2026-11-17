@@ -365,7 +365,7 @@ export function isMachineSpawnPreallocatedStub(session: Pick<StoredSession, 'id'
     return session.tag === machineSpawnPreallocTag(session.id)
 }
 
-function isArchivedSessionMetadata(metadata: unknown): boolean {
+function isArchivedSessionMetadata(metadata: unknown): metadata is Record<string, unknown> & { lifecycleState: 'archived' } {
     if (!isPlainObject(metadata)) return false
     return metadata.lifecycleState === 'archived'
 }
@@ -480,13 +480,34 @@ export function adoptPreallocatedSession(
     })()
 }
 
+export function parkedSessionMetadata(metadata: Record<string, unknown>, reason: string): Record<string, unknown> {
+    const next: Record<string, unknown> = {
+        ...metadata,
+        lifecycleState: 'parked',
+        lifecycleStateSince: Date.now(),
+        restoreOnRestart: false,
+        parkedBy: 'hub',
+        parkReason: reason,
+    }
+    delete next.archivedBy
+    delete next.archiveReason
+    return next
+}
+
+export type SessionMetadataUpdateOptions = {
+    touchUpdatedAt?: boolean
+    allowUnarchive?: boolean
+    titleOperation?: 'user' | 'pin' | 'transfer' | 'unlock'
+}
+
 export function updateSessionMetadata(
     db: Database,
     id: string,
     metadata: unknown,
     expectedVersion: number,
     namespace: string,
-    options?: { touchUpdatedAt?: boolean; allowUnarchive?: boolean; titleOperation?: 'user' | 'pin' | 'transfer' | 'unlock' }
+    options?: SessionMetadataUpdateOptions,
+    upgradeParkReason?: string
 ): VersionedUpdateResult<unknown | null> {
     const now = Date.now()
     const touchUpdatedAt = options?.touchUpdatedAt !== false
@@ -514,6 +535,12 @@ export function updateSessionMetadata(
                 && !allowUnarchive
             ) {
                 merged = preserveHubArchiveOnMerged(prior, merged)
+            }
+
+            // A stale CLI still reports shutdown as an archive. Store a park
+            // before group detachment or broadcast can observe the archive.
+            if (upgradeParkReason !== undefined && isArchivedSessionMetadata(merged)) {
+                merged = parkedSessionMetadata(merged, upgradeParkReason)
             }
 
             const result = updateVersionedField({

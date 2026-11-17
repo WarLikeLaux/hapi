@@ -4,6 +4,7 @@ import { AgentStateSchema, MetadataSchema, SessionPatchSchema, TeamStateSchema }
 import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { BackgroundTask, CodexCollaborationMode, CopilotAgentMode, PermissionMode, Session, SessionPatch } from '@hapi/protocol/types'
 import type { SessionTurnEndReason, SessionTurnTrigger, Store } from '../store'
+import { parkedSessionMetadata } from '../store/sessions'
 import { clampAliveTime } from './aliveTime'
 import { EventPublisher } from './eventPublisher'
 import { extractTodoWriteTodosFromMessageContent, TodosSchema } from './todos'
@@ -1255,22 +1256,9 @@ export class SessionCache {
                 return
             }
 
-            const next: Record<string, unknown> = {
-                ...current,
-                lifecycleState: 'parked',
-                lifecycleStateSince: Date.now(),
-                restoreOnRestart: false,
-                parkedBy: 'hub',
-                parkReason: reason
-            }
-            // Parked rows are not archived rows: drop stale archive markers
-            // so reopen/snapshot logic does not read them as archived.
-            delete next.archivedBy
-            delete next.archiveReason
-
             const result = this.store.sessions.updateSessionMetadata(
                 sessionId,
-                next,
+                parkedSessionMetadata(current, reason),
                 session.metadataVersion,
                 session.namespace,
                 // This hub-only transition follows confirmed termination; it must
