@@ -30,7 +30,7 @@ describe('chat file anchors', () => {
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
         renderFileAnchor('docs/guide.md')
         expect(screen.queryByRole('link')).toBeNull()
-        fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+        fireEvent.click(screen.getByRole('button', { name: 'docs/guide.md', description: 'Copy' }))
         await waitFor(() => expect(writeText).toHaveBeenCalledWith('docs/guide.md'))
     })
 
@@ -39,7 +39,7 @@ describe('chat file anchors', () => {
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
         render(<I18nProvider><UriConfirmProvider><AnchorComponent href="hapi-file:%2Fhome%2Fuser%2Fproject%2Fsrc%2Fapp.ts%23L42C7">app.ts</AnchorComponent></UriConfirmProvider></I18nProvider>)
         expect(screen.queryByRole('link')).toBeNull()
-        fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+        fireEvent.click(screen.getByRole('button', { name: 'src/app.ts:42:7', description: 'Copy' }))
         await waitFor(() => expect(writeText).toHaveBeenCalledWith('src/app.ts:42:7'))
     })
 

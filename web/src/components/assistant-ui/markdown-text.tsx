@@ -474,29 +474,32 @@ function Pre(props: ComponentPropsWithoutRef<'pre'>) {
 const MarkdownLinkContext = createContext(false)
 
 function InlineCode(props: ComponentPropsWithoutRef<'code'>) {
-    const { copied, copy } = useCopyToClipboard()
+    const { copied, copy } = useCopyToClipboard(2000)
     const { t } = useTranslation()
-    const ref = useRef<HTMLElement>(null)
-    const containerRef = useRef<HTMLSpanElement>(null)
-    const [hovered, setHovered] = useState(false)
-    useEffect(() => {
-        if (!hovered) return
-        const onMove = (event: PointerEvent) => {
-            if (!containerRef.current?.contains(document.elementFromPoint(event.clientX, event.clientY))) setHovered(false)
-        }
-        document.addEventListener('pointermove', onMove)
-        return () => document.removeEventListener('pointermove', onMove)
-    }, [hovered])
+    const copiedLabel = t('message.copied')
     return (
-        <span ref={containerRef} className="aui-inline-code-copy" data-hovered={hovered || undefined} data-copied={copied || undefined} onPointerEnter={(event) => { if (event.pointerType === 'mouse') setHovered(true) }}>
-            <code {...props} ref={ref} onClick={(event) => {
-                props.onClick?.(event)
-                if (window.matchMedia('(hover: none), (pointer: coarse)').matches && !window.getSelection()?.toString()) void copy(ref.current?.textContent ?? '')
-            }} className={cn('aui-md-code break-words rounded-md border border-[var(--app-inline-code-border)] bg-[var(--app-inline-code-bg)] px-[0.38em] py-[0.14em] font-mono text-[0.88em] text-[var(--app-inline-code-fg)]', props.className)} />
-            <button type="button" className="aui-inline-code-copy-button" data-hapi-share-export-exclude="true" aria-label={t(copied ? 'message.copied' : 'code.copy')} title={t(copied ? 'message.copied' : 'code.copy')} onClick={() => void copy(ref.current?.textContent ?? '')}>
-                {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
-            </button>
-        </span>
+        <>
+            <code
+                {...props}
+                role="button"
+                tabIndex={0}
+                title={copied ? copiedLabel : t('code.copy')}
+                data-copied={copied || undefined}
+                className={cn('aui-md-code aui-inline-code-copy break-words rounded-md border border-[var(--app-inline-code-border)] bg-[var(--app-inline-code-bg)] px-[0.38em] py-[0.14em] font-mono text-[0.88em] text-[var(--app-inline-code-fg)]', props.className)}
+                onClick={(event) => {
+                    props.onClick?.(event)
+                    if (event.defaultPrevented || (event.detail > 0 && window.getSelection()?.toString())) return
+                    void copy(event.currentTarget.textContent ?? '')
+                }}
+                onKeyDown={(event) => {
+                    props.onKeyDown?.(event)
+                    if (event.defaultPrevented || (event.key !== 'Enter' && event.key !== ' ')) return
+                    event.preventDefault()
+                    if (!event.repeat) event.currentTarget.click()
+                }}
+            />
+            <span role="status" className="sr-only" data-hapi-share-export-exclude="true">{copied ? copiedLabel : ''}</span>
+        </>
     )
 }
 
