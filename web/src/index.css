@@ -651,8 +651,8 @@ html:has(.chat-scroll-y) #root {
     align-items: center;
     justify-content: center;
     vertical-align: middle;
-    width: 0;
-    padding: 0;
+    width: 1.5rem;
+    padding: 0.25rem;
     overflow: hidden;
     border-radius: 0.375rem;
     color: var(--app-hint);
@@ -665,12 +665,12 @@ html:has(.chat-scroll-y) #root {
     color: var(--app-fg);
 }
 .aui-inline-code-copy-button:focus-visible { outline: 2px solid var(--app-link); outline-offset: 2px; }
-.aui-inline-code-copy:focus-within .aui-inline-code-copy-button { width: 1.5rem; padding: 0.25rem; opacity: 1; pointer-events: auto; }
+.aui-inline-code-copy:focus-within .aui-inline-code-copy-button { opacity: 1; pointer-events: auto; }
 @media (hover: none), (pointer: coarse) {
-    .aui-inline-code-copy[data-copied] .aui-inline-code-copy-button { width: 1.5rem; padding: 0.25rem; opacity: 1; }
+    .aui-inline-code-copy[data-copied] .aui-inline-code-copy-button { opacity: 1; }
 }
 @media (hover: hover) and (pointer: fine) {
-    .aui-inline-code-copy[data-hovered] .aui-inline-code-copy-button { width: 1.5rem; padding: 0.25rem; opacity: 1; pointer-events: auto; }
+    .aui-inline-code-copy[data-hovered] .aui-inline-code-copy-button { opacity: 1; pointer-events: auto; }
 }
 .markdown-content a { color: var(--app-link); text-decoration: underline; }
 .markdown-content code { background: var(--app-inline-code-bg); padding: 0.1em 0.3em; border-radius: 4px; font-size: 0.9em; }
