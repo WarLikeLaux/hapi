@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'bun:test'
-import { MACHINE_CAPABILITIES, RPC_METHODS } from '@hapi/protocol'
+import { MACHINE_CAPABILITIES, RPC_METHODS, type SessionGroup, type SessionSummary } from '@hapi/protocol'
+import { Hono } from 'hono'
 import type { SessionProcessIdentity } from '@hapi/protocol/schemas'
+import { registerSessionHandlers } from '../socket/handlers/cli/sessionHandlers'
 import { RpcRegistry } from '../socket/rpcRegistry'
 import { Store } from '../store'
+import type { WebAppEnv } from '../web/middleware/auth'
+import { createGroupsRoutes } from '../web/routes/groups'
+import { createSessionsRoutes } from '../web/routes/sessions'
 import { SyncEngine } from './syncEngine'
 
 describe('upgrading session processes', () => {
-    it('waits for a stale chat to finish and resumes its existing conversation with its saved settings', async () => {
+    it.each([true, false])('keeps the group when an idle chat upgrades (old CLI flushes archive metadata: %s)', async flushArchive => {
         const store = new Store(':memory:')
         const registry = new RpcRegistry()
         const rpcCalls: Array<{ method: string; params: unknown }> = []
@@ -44,10 +49,50 @@ describe('upgrading session processes', () => {
             }, { status: 'running', pid: 1, startedAt: 1 }, namespace)
             const stale = addSession('stale', stalePid, true)
             const current = addSession('current', currentPid, false)
+            const other = engine.getOrCreateSession('other', { path: '/tmp/project', host: 'localhost' }, null, namespace)
+            const created = store.groups.create(namespace, 'Upgrade test')
+            const group = store.groups.update(namespace, created.id, { ...created, members: [
+                { sessionId: current.id, pinned: true },
+                { sessionId: stale.id, pinned: true },
+                { sessionId: other.id, pinned: false },
+            ] })
+            const app = new Hono<WebAppEnv>()
+            app.use('*', async (c, next) => { c.set('namespace', namespace); await next() })
+            app.route('/', createGroupsRoutes(() => engine))
+            app.route('/', createSessionsRoutes(() => engine))
+            const readWorkspace = async () => {
+                const response = await app.request(`/groups/${group.id}`)
+                expect(response.status).toBe(200)
+                return await response.json() as { group: SessionGroup; sessions: SessionSummary[] }
+            }
+
+            let workspaceBeforeSpawn: Awaited<ReturnType<typeof readWorkspace>> | undefined
             let resolveResume!: () => void
             const resumed = new Promise<void>(resolve => { resolveResume = resolve })
+            const handlers = new Map<string, (data: unknown, ack: (result: unknown) => void) => void>()
+            const updateCliMetadata = (lifecycleState: 'archived' | 'running') => {
+                const row = store.sessions.getSession(stale.id)!
+                const lifecycleMetadata = lifecycleState === 'archived'
+                    ? { archivedBy: 'cli', restoreOnRestart: false }
+                    : { hostPid: 300, hostStartMarker: '300' }
+                handlers.get('update-metadata')!({
+                    sid: stale.id,
+                    metadata: {
+                        ...row.metadata as object,
+                        lifecycleState,
+                        lifecycleStateSince: Date.now(),
+                        ...lifecycleMetadata,
+                    },
+                    expectedVersion: row.metadataVersion,
+                }, result => expect(result).toMatchObject({ result: 'success' }))
+            }
             const socket = {
                 id: 'test-socket',
+                on(event: string, handler: (data: unknown, ack: (result: unknown) => void) => void) {
+                    handlers.set(event, handler)
+                    return this
+                },
+                to: () => ({ emit() {} }),
                 timeout() { return this },
                 async emitWithAck(_: string, request: { method: string; params: string }) {
                     const params = JSON.parse(request.params)
@@ -55,9 +100,14 @@ describe('upgrading session processes', () => {
                     if (request.method === `${machineId}:${RPC_METHODS.FindStaleSessionProcesses}`) {
                         return (params as SessionProcessIdentity[]).map(process => process.pid).filter(pid => pid === stalePid)
                     }
-                    if (request.method.endsWith(':' + RPC_METHODS.KillSession)) return { success: true }
+                    if (request.method.endsWith(':' + RPC_METHODS.KillSession)) {
+                        if (flushArchive) updateCliMetadata('archived')
+                        return { success: true }
+                    }
                     if (request.method.endsWith(':' + RPC_METHODS.StopSession)) return { success: true, status: 'stopped' }
                     if (request.method.endsWith(':' + RPC_METHODS.SpawnHappySession)) {
+                        workspaceBeforeSpawn = await readWorkspace()
+                        updateCliMetadata('running')
                         engine.handleSessionAlive({ sid: params.existingSessionId, time: Date.now(), thinking: false })
                         engine.handleSessionReady({ sid: params.existingSessionId, time: Date.now() })
                         resolveResume()
@@ -66,6 +116,12 @@ describe('upgrading session processes', () => {
                     throw new Error(`Unexpected RPC: ${request.method}`)
                 },
             }
+            registerSessionHandlers(socket as never, {
+                store,
+                resolveSessionAccess: () => ({ ok: true, value: store.sessions.getSession(stale.id)! }),
+                emitAccessError() {},
+                onWebappEvent: event => engine.handleRealtimeEvent(event),
+            })
             sockets.set(socket.id, socket)
             for (const method of [
                 `${machineId}:${RPC_METHODS.FindStaleSessionProcesses}`,
@@ -97,10 +153,25 @@ describe('upgrading session processes', () => {
                     freshGeneration: true,
                 },
             })
+            await Bun.sleep(0)
             expect(engine.getSession(stale.id)?.active).toBe(true)
             expect(engine.getSession(current.id)?.active).toBe(true)
+            expect(workspaceBeforeSpawn?.group).toEqual(group)
+            const sessionBeforeSpawn = workspaceBeforeSpawn?.sessions.find(session => session.id === stale.id)
+            expect(sessionBeforeSpawn?.active).toBe(false)
+            expect(sessionBeforeSpawn?.metadata?.lifecycleState).not.toBe('archived')
+            expect((await readWorkspace()).group).toEqual(group)
+
+            const archived = await app.request(`/sessions/${stale.id}/archive`, { method: 'POST' })
+            expect(archived.status).toBe(200)
+            expect(engine.getSession(stale.id)?.metadata?.lifecycleState).toBe('archived')
+            expect((await readWorkspace()).group.members).toEqual([
+                { sessionId: current.id, pinned: true },
+                { sessionId: other.id, pinned: false },
+            ])
         } finally {
             engine.stop()
+            store.close()
         }
     })
 })

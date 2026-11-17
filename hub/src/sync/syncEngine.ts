@@ -2580,7 +2580,11 @@ export class SyncEngine {
     }
 
     private async parkSessionUnlocked(sessionId: string, reason: string, upgrading = false): Promise<void> {
-        await this.archiveSessionUnlocked(sessionId, upgrading)
+        if (upgrading) {
+            await this.store.sessions.parkArchivesDuringUpgrade(sessionId, reason, () => this.archiveSessionUnlocked(sessionId, true))
+        } else {
+            await this.archiveSessionUnlocked(sessionId)
+        }
         this.sessionCache.markSessionParkedFromHub(sessionId, reason)
         this.emitCliSessionMetadataUpdate(sessionId)
         this.handleSessionEnd({ sid: sessionId, time: Date.now() })

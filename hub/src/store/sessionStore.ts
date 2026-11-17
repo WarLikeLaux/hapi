@@ -19,6 +19,7 @@ import {
     setSessionPinned,
     setSessionPinMode,
     type SessionPinMode,
+    type SessionMetadataUpdateOptions,
     setSessionTeamState,
     setSessionTodos,
     replaceSessionTodos,
@@ -31,6 +32,7 @@ import {
 
 export class SessionStore {
     private readonly db: Database
+    private readonly upgradeParkReasons = new Map<string, string>()
 
     constructor(db: Database) {
         this.db = db
@@ -68,14 +70,23 @@ export class SessionStore {
         )
     }
 
+    async parkArchivesDuringUpgrade(id: string, reason: string, stop: () => Promise<void>): Promise<void> {
+        this.upgradeParkReasons.set(id, reason)
+        try {
+            await stop()
+        } finally {
+            this.upgradeParkReasons.delete(id)
+        }
+    }
+
     updateSessionMetadata(
         id: string,
         metadata: unknown,
         expectedVersion: number,
         namespace: string,
-        options?: { touchUpdatedAt?: boolean; allowUnarchive?: boolean; titleOperation?: 'user' | 'pin' | 'transfer' | 'unlock' }
+        options?: SessionMetadataUpdateOptions
     ): VersionedUpdateResult<unknown | null> {
-        return updateSessionMetadata(this.db, id, metadata, expectedVersion, namespace, options)
+        return updateSessionMetadata(this.db, id, metadata, expectedVersion, namespace, options, this.upgradeParkReasons.get(id))
     }
 
     updateSessionAgentState(
