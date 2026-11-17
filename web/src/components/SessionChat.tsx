@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom'
 import { useNavigate } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { PRESERVE_SESSION_SIDEBAR_SCROLL } from '@/lib/sessionNavigation'
+import { useToast } from '@/lib/toast-context'
 import { useSessionChatSwipe } from '@/hooks/useSessionChatSwipe'
 import { AssistantRuntimeProvider, useAui, useAuiState } from '@assistant-ui/react'
 import { DragDropZone } from '@/components/AssistantChat/DragDropZone'
@@ -670,6 +671,7 @@ export function SessionChat(props: SessionChatProps) {
 function SessionChatInner(props: SessionChatProps) {
     const { haptic } = usePlatform()
     const { t } = useTranslation()
+    const { addToast } = useToast()
     const { codexExplorationCollapsed } = useCodexExplorationCollapse()
     const navigate = useNavigate()
     const { toolCardDisplayMode } = useToolCardDisplayMode()
@@ -1838,11 +1840,19 @@ function SessionChatInner(props: SessionChatProps) {
             await setServiceTier(serviceTier)
             haptic.notification('success')
             props.onRefresh()
-        } catch (e) {
+        } catch (error) {
             haptic.notification('error')
-            console.error('Failed to set service tier:', e)
+            const detail = error instanceof ApiError ? error.code : undefined
+            addToast({
+                title: t('misc.fastModeChangeFailed'),
+                body: detail === 'session_cli_upgrade_required'
+                    ? t('misc.fastModeUpgradeRequired')
+                    : detail ?? t('misc.fastModeTryAgain'),
+                sessionId: '',
+                url: '',
+            })
         }
-    }, [setServiceTier, props.onRefresh, haptic])
+    }, [setServiceTier, props.onRefresh, haptic, addToast, t])
 
     // Abort handler
     const handleAbort = useCallback(async () => {

@@ -8,12 +8,9 @@
  */
 
 import { type SessionReadStateRequest, initialImageBytes, MACHINE_CAPABILITIES, isSessionBusy, toSessionSummary, isKnownFlavor, isLiveLifecycleState, isParkedLifecycleState, isSteeringSupportedForSession, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
-import {
-    cliBinaryUpdatedOnDisk,
-    isMachineCapabilitySkewed,
-} from '@hapi/protocol/runnerCapabilities'
+import { isMachineCapabilitySkewed } from '@hapi/protocol/runnerCapabilities'
 import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, GitComparisonResponse, GitComparisonScope, MessageDeliveryMode, MessageSearchResponse, MessagesResponse, QueuedStateResponse, RewindConversationErrorCode, SlashCommandsResponse, WorkspaceTurnDiffResponse } from '@hapi/protocol/apiTypes'
-import type { InterruptQueuedMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
+import type { InterruptQueuedMessageResponse, SessionProcessIdentity, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { ImplementCodexPlanResult } from '@hapi/protocol/apiTypes'
 import type { AnswerCodexAsyncQuestionRequest } from '@hapi/protocol'
 import type { LaunchSessionRequest, LaunchSessionResult } from '@hapi/protocol'
@@ -252,6 +249,8 @@ export class SyncEngine {
     private readonly autoRestoreAttemptedMachineIds = new Set<string>()
     /** Delayed restores give surviving session clients time to reconnect first. */
     private readonly autoRestoreTimers = new Map<string, NodeJS.Timeout>()
+    private readonly upgradingMachineIds = new Set<string>()
+    private stopped = false
     private readonly autoRestoreSessions: boolean
     private readonly autoRestoreDelayMs: number
     /**
@@ -339,6 +338,7 @@ export class SyncEngine {
     }
 
     stop(): void {
+        this.stopped = true
         if (this.inactivityTimer) {
             clearInterval(this.inactivityTimer)
             this.inactivityTimer = null
@@ -1129,6 +1129,81 @@ export class SyncEngine {
     handleMachineAlive(payload: { machineId: string; time: number; health?: unknown }): void {
         this.machineCache.handleMachineAlive(payload)
         this.scheduleColdSessionRestore(payload.machineId)
+        void this.upgradeIdleSessionProcesses(payload.machineId)
+    }
+
+    private getIdleSessionProcess(session: Session, machine: Machine): SessionProcessIdentity | null {
+        const metadata = session.metadata
+        if (
+            !session.active
+            || !metadata?.hostPid
+            || !metadata.hostStartMarker
+            || !isLiveLifecycleState(metadata.lifecycleState)
+            || !this.hasColdRestoreIntent(session, machine)
+            || metadata.codexResumePending
+            || metadata.piResumeAttempt
+            || metadata.ptyResumeAttempt
+            || session.agentState?.controlledByUser === true
+            || session.agentState?.startingMode === 'local'
+            || session.agentState?.startingMode === 'pty'
+            || this.historyActionsInFlight.has(session.id)
+            || this.archivedForkPending(session.id)
+            || isSessionBusy(toSessionSummary(session))
+            || !this.rpcGateway.canStopSession(session.id)
+        ) return null
+
+        return { pid: metadata.hostPid, startMarker: metadata.hostStartMarker }
+    }
+
+    private async upgradeIdleSessionProcesses(machineId: string): Promise<void> {
+        if (this.stopped || !this.autoRestoreSessions || this.upgradingMachineIds.has(machineId)) return
+        const machine = this.machineCache.getMachine(machineId)
+        if (!machine?.active || machine.metadata?.platform !== 'linux'
+            || !machine.metadata.capabilities?.includes(MACHINE_CAPABILITIES.FindStaleSessionProcesses)) return
+        const generation = this.getRunnerGeneration(machine)
+        if (!generation) return
+
+        this.upgradingMachineIds.add(machineId)
+        try {
+            const candidates = this.sessionCache.getSessionsByNamespace(machine.namespace).flatMap(session => {
+                const process = this.getIdleSessionProcess(session, machine)
+                return process ? [{ sessionId: session.id, process }] : []
+            })
+            if (!candidates.length) return
+
+            const processes = candidates.map(candidate => candidate.process)
+            const stalePids = new Set(await this.rpcGateway.findStaleSessionProcesses(machineId, processes))
+            for (const { sessionId, process } of candidates) {
+                if (!stalePids.has(process.pid)) continue
+                const runner = this.machineCache.getMachine(machineId)
+                if (this.stopped || !runner?.active || this.getRunnerGeneration(runner) !== generation) return
+
+                const session = this.sessionCache.getSessionByNamespace(sessionId, machine.namespace)
+                const currentProcess = session && this.getIdleSessionProcess(session, runner)
+                if (currentProcess?.pid !== process.pid || currentProcess.startMarker !== process.startMarker
+                    || this.store.messages.getUninvokedLocalMessages(sessionId).length > 0
+                    || this.resolveLocalResumeTarget(sessionId, machine.namespace).type !== 'success') continue
+
+                this.historyActionsInFlight.add(sessionId)
+                try {
+                    await this.parkSessionUnlocked(sessionId, 'Paused to update the HAPI CLI', true)
+                    const result = await this.reopenSessionUnlocked(sessionId, machine.namespace, true)
+                    if (result.type !== 'success') throw new Error(result.message)
+                    console.log('[session-upgrade] Reloaded session', { sessionId, machineId })
+                } catch (error) {
+                    console.warn('[session-upgrade] Could not reload session', { sessionId, machineId, error })
+                } finally {
+                    this.historyActionsInFlight.delete(sessionId)
+                }
+            }
+        } catch (error) {
+            // A runner can disconnect while publishing its next generation.
+            if (!(error instanceof RpcTargetMissingError)) {
+                console.warn('[session-upgrade] Could not inspect session processes', { machineId, error })
+            }
+        } finally {
+            this.upgradingMachineIds.delete(machineId)
+        }
     }
 
     private getRunnerGeneration(machine: Machine): string | null {
@@ -2330,7 +2405,7 @@ export class SyncEngine {
         } finally { this.historyActionsInFlight.delete(sessionId) }
     }
 
-    private async archiveSessionUnlocked(sessionId: string): Promise<void> {
+    private async archiveSessionUnlocked(sessionId: string, upgrading = false): Promise<void> {
         // tiann/hapi#916 / #1910: KillSession is a session-socket RPC. A missing
         // target does not prove the runner child is dead (stale registration,
         // mid-reconnect, id rotation on resume). Always fall through to the
@@ -2345,7 +2420,7 @@ export class SyncEngine {
         // unknown. A stub has no live child, so there is no restart intent to
         // pin before stopping.
         const preArchiveRow = this.store.sessions.getSession(sessionId)
-        if (!preArchiveRow || !isMachineSpawnPreallocatedStub(preArchiveRow)) {
+        if (!upgrading && (!preArchiveRow || !isMachineSpawnPreallocatedStub(preArchiveRow))) {
             this.sessionCache.setSessionRestoreOnRestart(sessionId, false)
         }
         const session = this.sessionCache.getSession(sessionId)
@@ -2361,11 +2436,11 @@ export class SyncEngine {
         let killPid: number | undefined
         let killProcessStartMarker: string | undefined
         try {
-            const killResult = (await this.rpcGateway.killSession(sessionId)) ?? {}
+            const killResult = (await this.rpcGateway.killSession(sessionId, upgrading)) ?? {}
             killPid = killResult.pid
             killProcessStartMarker = killResult.processStartMarker
         } catch (error) {
-            if (error instanceof RpcTargetMissingError) {
+            if (error instanceof RpcTargetMissingError && !upgrading) {
                 cliUnreachable = true
             } else {
                 throw error
@@ -2493,11 +2568,20 @@ export class SyncEngine {
         const session = this.sessionCache.getSession(sessionId)
         if (session && isSessionBusy(toSessionSummary(session))) throw new SessionBusyError()
         if (session && !session.active && session.metadata?.lifecycleState === 'parked') return
-        await this.archiveSession(sessionId)
-        this.sessionCache.markSessionParkedFromHub(
-            sessionId,
-            'Parked from hub (process stopped, kept in list)'
-        )
+        if (this.historyActionsInFlight.has(sessionId) || this.archivedForkPending(sessionId)) {
+            throw new Error('Conversation history action already in progress')
+        }
+        this.historyActionsInFlight.add(sessionId)
+        try {
+            await this.parkSessionUnlocked(sessionId, 'Parked from hub (process stopped, kept in list)')
+        } finally {
+            this.historyActionsInFlight.delete(sessionId)
+        }
+    }
+
+    private async parkSessionUnlocked(sessionId: string, reason: string, upgrading = false): Promise<void> {
+        await this.archiveSessionUnlocked(sessionId, upgrading)
+        this.sessionCache.markSessionParkedFromHub(sessionId, reason)
         this.emitCliSessionMetadataUpdate(sessionId)
         this.handleSessionEnd({ sid: sessionId, time: Date.now() })
     }
@@ -4000,7 +4084,7 @@ export class SyncEngine {
         return await promise
     }
 
-    private async resumeSessionUnlocked(sessionId: string, namespace: string, opts?: { permissionMode?: PermissionMode; freshGeneration?: boolean }): Promise<ResumeSessionResult> {
+    private async resumeSessionUnlocked(sessionId: string, namespace: string, opts?: { permissionMode?: PermissionMode; freshGeneration?: boolean; strictMachineId?: boolean }): Promise<ResumeSessionResult> {
         const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {
             return {
@@ -4089,7 +4173,7 @@ export class SyncEngine {
         const targetMachine = this.resolveOnlineMachineForSession(
             session,
             namespace,
-            { strictMachineId: flavor === 'cursor' || ((flavor === 'pi' || flavor === 'opencode') && resumeToken !== undefined) }
+            { strictMachineId: opts?.strictMachineId || flavor === 'cursor' || ((flavor === 'pi' || flavor === 'opencode') && resumeToken !== undefined) }
         )
         if (!targetMachine) {
             return { type: 'error', message: 'No machine online', code: 'no_machine_online' }
@@ -4527,7 +4611,7 @@ export class SyncEngine {
         return await promise
     }
 
-    private async reopenSessionUnlocked(sessionId: string, namespace: string): Promise<ReopenSessionResult> {
+    private async reopenSessionUnlocked(sessionId: string, namespace: string, strictMachineId = false): Promise<ReopenSessionResult> {
         const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {
             return {
@@ -4630,7 +4714,7 @@ export class SyncEngine {
             // (after Pi/PTY attempt rows capture archiveSnapshot). Hub restart
             // between clear and spawn leaves a non-archived inactive row;
             // archiveSnapshot still rolls back on resume failure while alive.
-            const resumeResult = await this.resumeSessionUnlocked(access.sessionId, namespace, { freshGeneration: true })
+            const resumeResult = await this.resumeSessionUnlocked(access.sessionId, namespace, { freshGeneration: true, strictMachineId })
             if (resumeResult.type === 'error') {
                 // Never restore archived metadata over a live Pi child. A live
                 // row blocks retry by itself and must remain visible as active.
@@ -4665,7 +4749,7 @@ export class SyncEngine {
         // otherwise an archive -> reopen race can reuse the old child's cached spawn result
         // and wait forever for that already-stopped generation to become active again.
         this.sessionCache.setSessionRestoreOnRestart(access.sessionId, true)
-        const resumeResult = await this.resumeSessionUnlocked(access.sessionId, namespace, { freshGeneration: true })
+        const resumeResult = await this.resumeSessionUnlocked(access.sessionId, namespace, { freshGeneration: true, strictMachineId })
         if (resumeResult.type === 'error') {
             return resumeResult
         }

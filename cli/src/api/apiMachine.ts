@@ -25,6 +25,9 @@ import {
 } from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import { RUNNER_CAPABILITIES } from '@hapi/protocol'
+import { SessionProcessIdentitySchema } from '@hapi/protocol/schemas'
+import { z } from 'zod'
+import { findStaleSessionProcesses } from '@/runner/sessionUpgrade'
 import type { RunnerState, Machine, MachineMetadata } from './types'
 import { RunnerStateSchema, MachineMetadataSchema } from './types'
 import { getInstalledCliMtimeMs } from '@/runner/controlClient'
@@ -159,6 +162,11 @@ export class ApiMachineClient {
             RPC_METHODS.AgentAvailability,
             async () => getAgentAvailabilityResponse()
         )
+
+        this.rpcHandlerManager.registerHandler(RPC_METHODS.FindStaleSessionProcesses, async (raw: unknown) => {
+            const processes = z.array(SessionProcessIdentitySchema).parse(raw)
+            return await findStaleSessionProcesses(processes)
+        })
 
         this.rpcHandlerManager.registerHandler<PathExistsRequest, PathExistsResponse>(RPC_METHODS.PathExists, async (params) => {
             const rawPaths = Array.isArray(params?.paths) ? params.paths : []
