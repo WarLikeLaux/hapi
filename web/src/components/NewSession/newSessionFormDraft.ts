@@ -1,3 +1,4 @@
+import { CodexServiceTierSchema } from '@hapi/protocol/schemas'
 import { InitialImageDraftSchema, type InitialImageDraft } from './initialImageDrafts'
 import {
     CREATABLE_AGENT_FLAVORS,
@@ -82,7 +83,7 @@ export function loadNewSessionFormDraft(): NewSessionFormDraft | null {
             modelReasoningEffort: agentPreserved
                 ? ((parsed.modelReasoningEffort as CodexReasoningEffort | undefined) ?? 'default')
                 : 'default',
-            serviceTier: agentPreserved && parsed.serviceTier === 'fast' ? 'fast' : 'standard',
+            serviceTier: (agentPreserved ? CodexServiceTierSchema.safeParse(parsed.serviceTier).data : undefined) ?? 'standard',
             collaborationMode: agentPreserved && parsed.collaborationMode === 'plan' ? 'plan' : 'default',
             copilotAgentMode: agentPreserved
                 ? normalizeCopilotAgentMode(parsed.copilotAgentMode)

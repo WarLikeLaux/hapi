@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { AgentFlavorSchema, CREATABLE_AGENT_FLAVORS } from '@hapi/protocol'
-import { PermissionModeSchema } from '@hapi/protocol/schemas'
+import { CodexServiceTierSchema, PermissionModeSchema } from '@hapi/protocol/schemas'
 
 export const LAUNCH_OPTIONS_DESCRIPTION = 'Discover projects and installed agents for launching HAPI sessions, like the web + picker. Lists online runners, workspace directories, recent project paths and native default models in the current hub namespace. Use a returned project path and agent with launch_agent. Optional machineId narrows discovery.'
 export const LAUNCH_AGENT_DESCRIPTION = 'Launch another agent in a HAPI session and deliver its task once, like the web + picker. Select project and agent from list_launch_options. Defaults: Codex, native model/effort, maximum permissions (YOLO), remote mode. Omit machineId to use the caller runner (or the only online runner). Return includes session link for inspect_peer / ping_peer. Choose a unique requestId per task and reuse it with identical arguments on retries. Retry protection lasts for this caller MCP server lifetime. An uncertain spawn is never automatically repeated. Pass groupId from create_group, get_group or list_groups to create the chat in that group; omit for a standalone chat.'
@@ -19,7 +19,7 @@ export const launchAgentSchema = z.object({
     machineId: z.string().trim().min(1).optional().describe('Runner ID or unique prefix; default caller runner'),
     model: z.string().trim().min(1).optional().describe('Optional native model ID; omit for agent default'),
     effort: z.string().trim().min(1).optional().describe('Optional agent reasoning effort; omit for native default'),
-    serviceTier: z.enum(['fast', 'standard']).optional().describe('Codex only: fast requests priority service; standard explicitly disables Fast. Omit to preserve native defaults.'),
+    serviceTier: CodexServiceTierSchema.optional().describe('Codex only: fast requests priority service, ultrafast requests Ultrafast where supported, and standard explicitly selects Standard. Omit to preserve native defaults.'),
     permissionMode: PermissionModeSchema.optional().describe('Optional permission override; default maximum permissions'),
     worktreeName: z.string().trim().min(1).optional().describe('Create a Git worktree with this name instead of using the project directory directly'),
 })

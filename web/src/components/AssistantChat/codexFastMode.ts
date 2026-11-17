@@ -1,19 +1,18 @@
-// Codex Fast mode (service tier) availability is advertised per-model by the
-// Codex app-server `model/list` catalog, which is resolved server-side from the
-// user's account/auth/plan. An API-key session (no Fast credits) or a model
-// without Fast support simply won't list a `fast` service tier. Gating the UI on
-// this catalog signal — rather than a model-name heuristic — means the toggle
-// only appears when toggling it will actually do something.
+import type { CodexServiceTier } from '@hapi/protocol/schemas'
+
+export const STANDARD_FAST_SPEEDS = ['standard', 'fast'] as const
+
+export const CODEX_SPEED_LABELS = {
+    standard: 'misc.fastModeStandard',
+    fast: 'misc.fastModeFast',
+    ultrafast: 'misc.fastModeUltrafast'
+} as const satisfies Record<CodexServiceTier, string>
 
 type CodexModelCatalogEntry = {
     id: string
     isDefault: boolean
     defaultServiceTier?: string | null
     serviceTiers?: string[]
-}
-
-function isFastTierId(tierId: string): boolean {
-    return /fast/i.test(tierId.trim())
 }
 
 /**
@@ -31,20 +30,15 @@ function findActiveModel<T extends CodexModelCatalogEntry>(
     return models.find((model) => model.isDefault)
 }
 
-/**
- * True when the session's active Codex model advertises a Fast service tier in
- * the current auth/plan context. Returns false when the catalog is empty/not
- * yet loaded so the toggle stays hidden until we have an authoritative answer.
- */
-export function codexModelAdvertisesFastTier(
+export function getCodexSpeedOptions(
     sessionModel: string | null | undefined,
     models: ReadonlyArray<CodexModelCatalogEntry>
-): boolean {
-    if (models.length === 0) {
-        return false
-    }
-    const active = findActiveModel(sessionModel, models)
-    return Boolean(active?.serviceTiers?.some(isFastTierId))
+): readonly CodexServiceTier[] {
+    const tiers = findActiveModel(sessionModel, models)?.serviceTiers ?? []
+    const speeds: CodexServiceTier[] = []
+    if (tiers.some(isFastServiceTier)) speeds.push('fast')
+    if (tiers.some(tier => tier.trim().toLowerCase() === 'ultrafast')) speeds.push('ultrafast')
+    return speeds.length > 0 ? ['standard', ...speeds] : []
 }
 
 export function isFastServiceTier(serviceTier?: string | null): boolean {
@@ -59,11 +53,8 @@ export function getEffectiveCodexServiceTier(
     return serviceTier ?? findActiveModel(sessionModel, models)?.defaultServiceTier
 }
 
-/**
- * The persisted null tier means the user has not chosen an override. The
- * current two-option control still needs a visible selection, so display that
- * untouched state as Standard without changing the value sent to the backend.
- */
-export function getDisplayedCodexServiceTier(serviceTier?: string | null): 'standard' | 'fast' {
-    return isFastServiceTier(serviceTier) ? 'fast' : 'standard'
+/** Display an untouched tier as Standard without setting an override. */
+export function getDisplayedCodexServiceTier(serviceTier?: string | null): CodexServiceTier {
+    if (isFastServiceTier(serviceTier)) return 'fast'
+    return serviceTier?.trim().toLowerCase() === 'ultrafast' ? 'ultrafast' : 'standard'
 }

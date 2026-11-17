@@ -54,7 +54,7 @@ import { ChoiceLabel } from '@/components/NewSession/ChoiceLabel'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import type { AgentActivity } from '@/lib/agentActivity'
 import { StatusBar } from '@/components/AssistantChat/StatusBar'
-import { isSessionFastMode } from '@/lib/sessionFastMode'
+import { getSessionSpeedLabel } from '@/lib/sessionFastMode'
 import { modelChipText } from '@/lib/modelChipLabel'
 import { OPENCODE_HARDCODED_LABEL } from '@/components/NewSession/hardcodedModels'
 import {
@@ -71,7 +71,8 @@ import { getModelOptionsForFlavor, getNextModelForFlavor } from './modelOptions'
 import { getClaudeComposerEffortOptions } from './claudeEffortOptions'
 import { formatCodexReasoningEffortLabel, getCodexComposerReasoningEffortOptions } from './codexReasoningEffortOptions'
 import { useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
-import { getDisplayedCodexServiceTier } from './codexFastMode'
+import type { CodexServiceTier } from '@hapi/protocol/schemas'
+import { CODEX_SPEED_LABELS, getDisplayedCodexServiceTier } from './codexFastMode'
 import { getPiThinkingLevelOptions, getHighestThinkingLevel, isThinkingLevelSupported } from './piThinkingLevelOptions'
 import { groupModelsByProvider } from './piModelGroups'
 import type { ApiClient } from '@/api/client'
@@ -398,9 +399,10 @@ export function HappyComposer(props: {
     onModelEffortChange?: (wireId: string | null) => void
     onModelReasoningEffortChange?: (modelReasoningEffort: string | null) => void
     onEffortChange?: (effort: string | null) => void
-    /** Codex Fast mode (service tier): current value ('fast' or null/standard). */
+    /** Effective Codex service tier. */
     serviceTier?: string | null
-    /** When provided, a Fast-mode toggle renders (Codex GPT-5.5 / GPT-5.4 only). */
+    /** Speeds advertised by Codex for the active model. */
+    serviceTierOptions?: readonly CodexServiceTier[]
     onServiceTierChange?: (serviceTier: string | null) => void
     onSwitchToRemote?: () => void
     onTerminal?: () => void
@@ -524,6 +526,7 @@ export function HappyComposer(props: {
         onModelReasoningEffortChange,
         onEffortChange,
         serviceTier: rawServiceTier,
+        serviceTierOptions,
         onServiceTierChange,
         onSwitchToRemote,
         onTerminal,
@@ -1810,13 +1813,6 @@ export function HappyComposer(props: {
         haptic('light')
     }, [onServiceTierChange, controlsDisabled, haptic])
 
-    // 'standard' (not null) is the explicit Fast-off choice so it persists
-    // distinctly from an untouched/account-default session.
-    const fastModeOptions: Array<{ value: string; label: string }> = useMemo(() => [
-        { value: 'standard', label: t('misc.fastModeStandard') },
-        { value: 'fast', label: t('misc.fastModeFast') }
-    ], [t])
-
     const showCopilotAgentModeSettings = Boolean(onCopilotAgentModeChange && copilotAgentModeOptions.length > 0)
     const showModelSettings = agentFlavor === 'pi'
         // Pi models only come from the dynamic piModels catalog; never fall
@@ -1841,7 +1837,7 @@ export function HappyComposer(props: {
     // A GLM-wired claude has no effort levels at all (the create form hides
     // the field too), so neither the sheet section nor the value button renders.
     const showEffortSettings = Boolean(onEffortChange && supportsEffort(agentFlavor) && !piEffortUnavailable && !isGlmBrandedClaude && !(agentFlavor === 'claude' && availableEffortOptions?.length === 0) && (agentFlavor !== 'agy' || availableEffortOptions?.length))
-    const showFastModeSettings = Boolean(onServiceTierChange)
+    const showFastModeSettings = Boolean(onServiceTierChange && serviceTierOptions?.length)
     const showSettingsButton = Boolean(
         showCopilotAgentModeSettings
         || showModelSettings
@@ -1970,7 +1966,7 @@ export function HappyComposer(props: {
             modelReasoningEffort,
             effort: isGlmBrandedClaude ? undefined : effort,
             effortLabel: effortValueLabel ?? reasoningEffortValueLabel,
-            fast: isSessionFastMode(agentFlavor, serviceTier, model),
+            speedLabel: getSessionSpeedLabel(agentFlavor, serviceTier, model),
         })
     }, [modelValueLabel, model, agentFlavor, modelReasoningEffort, effort, effortValueLabel, reasoningEffortValueLabel, serviceTier, isGlmBrandedClaude])
 
@@ -2010,18 +2006,18 @@ export function HappyComposer(props: {
                             <div className="flex min-w-0 items-center gap-3 px-3 py-2.5" role="group" aria-label={t('newSession.speed')}>
                                 <ChoiceLabel kind="speed" />
                                 <div className="flex flex-wrap gap-2">
-                                {fastModeOptions.map((option) => (
+                                {serviceTierOptions?.map((value) => (
                                     <button
-                                        key={option.value ?? 'standard'}
+                                        key={value}
                                         type="button"
-                                        aria-pressed={displayedServiceTier === option.value}
+                                        aria-pressed={displayedServiceTier === value}
                                         disabled={controlsDisabled}
-                                        className={settingsChipClass(displayedServiceTier === option.value)}
-                                        onClick={() => handleServiceTierChange(option.value)}
+                                        className={settingsChipClass(displayedServiceTier === value)}
+                                        onClick={() => handleServiceTierChange(value)}
                                         onMouseDown={(e) => e.preventDefault()}
                                     >
                                         <span>
-                                            {option.label}
+                                            {t(CODEX_SPEED_LABELS[value])}
                                         </span>
                                     </button>
                                 ))}
@@ -2170,7 +2166,7 @@ export function HappyComposer(props: {
         codexReasoningEffortOptions,
         defaultModelReasoningEffort,
         claudeEffortOptions,
-        fastModeOptions,
+        serviceTierOptions,
         suggestions,
         selectedIndex,
         controlsDisabled,

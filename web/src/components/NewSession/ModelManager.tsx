@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ModelPreference } from '@/api/client'
 import { useTranslation } from '@/lib/use-translation'
-import type { AgentType } from './types'
+import { CODEX_SPEED_LABELS } from '@/components/AssistantChat/codexFastMode'
+import type { AgentType, NewSessionServiceTier } from './types'
 
 type ModelOption = { value: string; label: string }
 
@@ -14,7 +15,7 @@ function ModelRow(props: {
     shown: boolean
     onSave: (preference: ModelPreference) => Promise<void>
     effortOptions?: string[]
-    supportsSpeed: boolean
+    speedOptions: readonly NewSessionServiceTier[]
     onRemove: (id: string) => void
     onMove: (id: string, direction: -1 | 1) => void
 }) {
@@ -47,16 +48,15 @@ function ModelRow(props: {
             </select>
             <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--app-hint)]"><path d="m4 6 4 4 4-4" /></svg>
         </div> : null}
-        {props.supportsSpeed ? <select aria-label={t('newSession.models.speedFor', { model: props.option.label })}
-            value={props.preference?.speed ?? ''} onChange={event => void props.onSave({
+        {props.speedOptions.length > 0 ? <select aria-label={t('newSession.models.speedFor', { model: props.option.label })}
+            value={props.preference?.speed && props.speedOptions.includes(props.preference.speed) ? props.preference.speed : ''} onChange={event => void props.onSave({
                 agent: props.agent, modelId: props.option.value, pinned: props.preference?.pinned ?? false,
                 hidden: props.preference?.hidden ?? false, alias: alias.trim() || null,
                 reasoningEffort: props.preference?.reasoningEffort ?? null,
                 speed: (event.target.value || null) as ModelPreference['speed'], showInAll: props.preference?.showInAll ?? true
             })} className="w-full min-w-0 sm:w-24 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-1.5 text-xs text-[var(--app-fg)]">
             <option value="">{t('newSession.speed')}</option>
-            <option value="standard">{t('misc.fastModeStandard')}</option>
-            <option value="fast">{t('misc.fastModeFast')}</option>
+            {props.speedOptions.map(speed => <option key={speed} value={speed}>{t(CODEX_SPEED_LABELS[speed])}</option>)}
         </select> : null}
         {props.shown ? <label className="flex min-h-9 cursor-pointer items-center gap-2 text-xs text-[var(--app-fg)] sm:shrink-0">
             <input type="checkbox" className="peer sr-only" aria-label={t('newSession.models.showInAllFor', { model: props.option.label })}
@@ -89,7 +89,7 @@ export function ModelManager(props: {
     shown: ModelOption[]
     preferences: ModelPreference[]
     getEffortOptions?: (id: string) => string[]
-    supportsSpeed?: (id: string) => boolean
+    getSpeedOptions?: (id: string) => readonly NewSessionServiceTier[]
     error: string | null
     onSave: (preference: ModelPreference) => Promise<void>
     onReorder: (agent: AgentType, ids: string[]) => Promise<void>
@@ -138,7 +138,7 @@ export function ModelManager(props: {
         <div className="max-h-64 overflow-y-auto rounded-lg bg-[var(--app-bg)]">
             {visible.map(option => <ModelRow key={`${props.agent}:${option.value}`} agent={props.agent} option={option}
                 preference={props.preferences.find(row => row.agent === props.agent && row.modelId === option.value)}
-                effortOptions={props.getEffortOptions?.(option.value)} supportsSpeed={props.supportsSpeed?.(option.value) ?? false}
+                effortOptions={props.getEffortOptions?.(option.value)} speedOptions={props.getSpeedOptions?.(option.value) ?? []}
                 shown={shownIds.includes(option.value)} index={shownIds.indexOf(option.value)} count={shownIds.length}
                 onSave={props.onSave} onRemove={props.onRemove} onMove={move} />)}
             {visible.length === 0 ? <p className="px-3 py-2 text-xs text-[var(--app-hint)]">{t('newSession.models.noResults')}</p> : null}

@@ -5,6 +5,8 @@ import { record } from './gateway';
 export function settingsMatch(actual: Record<string, unknown>, expected: Record<string, unknown>): boolean {
     return Object.entries(expected).every(([key, value]) => {
         if (key === 'threadId') return true;
+        // Codex reports an explicit Standard reset as "default" in newer versions.
+        if (key === 'serviceTier' && value === null && actual[key] === 'default') return true;
         // null developer instructions select the native built-in instructions;
         // the effective snapshot is allowed to contain their expanded text.
         if (key === 'developer_instructions' && value === null) return true;

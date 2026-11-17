@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-    codexModelAdvertisesFastTier,
+    getCodexSpeedOptions,
     getEffectiveCodexServiceTier,
     getDisplayedCodexServiceTier,
     isFastServiceTier
@@ -12,33 +12,26 @@ import {
 const models = [
     { id: 'gpt-5.5', isDefault: true, serviceTiers: ['priority', 'fast'] },
     { id: 'gpt-5.4-mini', isDefault: false, serviceTiers: [] },
-    { id: 'o3', isDefault: false }
+    { id: 'o3', isDefault: false },
+    { id: 'gpt-6.2-sol', isDefault: false, serviceTiers: ['priority', 'ultrafast'] },
+    { id: 'ultrafast-only', isDefault: false, serviceTiers: ['Ultrafast'] }
 ]
 
-describe('codexModelAdvertisesFastTier', () => {
-    it('is true when the active model advertises a fast tier (real id=priority, name=Fast)', () => {
-        expect(codexModelAdvertisesFastTier('gpt-5.5', models)).toBe(true)
+describe('getCodexSpeedOptions', () => {
+    it.each([
+        ['gpt-6.2-sol', ['standard', 'fast', 'ultrafast']],
+        ['ultrafast-only', ['standard', 'ultrafast']],
+        ['gpt-5.5', ['standard', 'fast']],
+        [null, ['standard', 'fast']],
+        ['gpt-5.4-mini', []],
+        ['o3', []],
+        ['unknown', []],
+    ] as const)('offers the advertised speeds for %s', (model, expected) => {
+        expect(getCodexSpeedOptions(model, models)).toEqual(expected)
     })
 
-    it('falls back to the catalog default model when session model is auto/null', () => {
-        // default model (gpt-5.5) advertises fast
-        expect(codexModelAdvertisesFastTier(null, models)).toBe(true)
-        expect(codexModelAdvertisesFastTier(undefined, models)).toBe(true)
-        expect(codexModelAdvertisesFastTier('  ', models)).toBe(true)
-    })
-
-    it('is false when the active model does not advertise a fast tier', () => {
-        expect(codexModelAdvertisesFastTier('gpt-5.4-mini', models)).toBe(false)
-        expect(codexModelAdvertisesFastTier('o3', models)).toBe(false)
-    })
-
-    it('is false when the model is unknown or the catalog is empty', () => {
-        expect(codexModelAdvertisesFastTier('gpt-9', models)).toBe(false)
-        expect(codexModelAdvertisesFastTier('gpt-5.5', [])).toBe(false)
-    })
-
-    it('matches fast tokens case-insensitively', () => {
-        expect(codexModelAdvertisesFastTier('m', [{ id: 'm', isDefault: true, serviceTiers: ['Fast'] }])).toBe(true)
+    it('keeps the speed control hidden without a catalog', () => {
+        expect(getCodexSpeedOptions('gpt-6.2-sol', [])).toEqual([])
     })
 })
 
@@ -74,7 +67,7 @@ describe('getDisplayedCodexServiceTier', () => {
         expect(getDisplayedCodexServiceTier('standard')).toBe('standard')
     })
 
-    it('preserves the fast selection', () => {
-        expect(getDisplayedCodexServiceTier('fast')).toBe('fast')
+    it.each(['fast', 'ultrafast'] as const)('preserves the %s selection', (tier) => {
+        expect(getDisplayedCodexServiceTier(tier)).toBe(tier)
     })
 })

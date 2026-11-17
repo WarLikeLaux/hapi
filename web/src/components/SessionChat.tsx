@@ -43,7 +43,7 @@ import {
     isDictateHotkeyBlockedTarget,
     isDictateToggleHotkey,
 } from '@/lib/composerDictateShortcut'
-import { codexModelAdvertisesFastTier, getEffectiveCodexServiceTier } from '@/components/AssistantChat/codexFastMode'
+import { getCodexSpeedOptions, getEffectiveCodexServiceTier } from '@/components/AssistantChat/codexFastMode'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { HappyThread } from '@/components/AssistantChat/HappyThread'
@@ -1831,6 +1831,8 @@ function SessionChatInner(props: SessionChatProps) {
         }
     }, [agentFlavor, agyCurrentModel, setModel, setEffort, props.onRefresh, haptic])
 
+    const codexSpeedOptions = getCodexSpeedOptions(props.session.model, codexModelsState.models)
+
     const handleServiceTierChange = useCallback(async (serviceTier: string | null) => {
         try {
             await setServiceTier(serviceTier)
@@ -2409,12 +2411,13 @@ function SessionChatInner(props: SessionChatProps) {
                                 : handleEffortChange
                         }
                         serviceTier={effectiveCodexServiceTier}
+                        serviceTierOptions={codexSpeedOptions}
                         onServiceTierChange={
                             agentFlavor === 'codex'
                                 && props.session.active
                                 && !controlledByUser
                                 && !codexModelsState.error
-                                && codexModelAdvertisesFastTier(props.session.model, codexModelsState.models)
+                                && codexSpeedOptions.length > 0
                                 ? handleServiceTierChange
                                 : undefined
                         }

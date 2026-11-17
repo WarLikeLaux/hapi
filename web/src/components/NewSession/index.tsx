@@ -4,7 +4,8 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, ty
 import type { ApiClient } from '@/api/client'
 import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, OpencodeLocalSessionSummary, PiLocalSessionSummary, Session } from '@/types/api'
 import { MUSE_SPARK_MODEL_ID, getClaudeModelChoices, getClaudeEffortLevelsForModel, resolveClaudeEffortForModel, getDefaultOpencodeReasoningEffort, isKnownFlavor, isRemovedAgyModel, resolveHapiYoloPermissionMode, type CodexCollaborationMode, type GrokPermissionMode, type PermissionMode, type CopilotAgentMode } from '@hapi/protocol'
-import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
+import { CodexServiceTierSchema } from '@hapi/protocol/schemas'
+import { getCodexSpeedOptions, STANDARD_FAST_SPEEDS } from '@/components/AssistantChat/codexFastMode'
 import { formatCodexReasoningEffortLabel } from '@/components/AssistantChat/codexReasoningEffortOptions'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
@@ -36,6 +37,7 @@ import { useSessionContextHubSync } from '@/hooks/useSessionContextHubSync'
 import { useTranslation } from '@/lib/use-translation'
 import { getClaudeGlmBranded, useClaudeGlmBranding } from '@/lib/claudeGlmBranding'
 import { getCodexModelReasoningEfforts, resolveCodexModel } from '@/lib/codexModelCapabilities'
+import { getSessionSpeedLabel } from '@/lib/sessionFastMode'
 import { modelChipText } from '@/lib/modelChipLabel'
 import {
     buildNewSessionCursorModelCatalog,
@@ -200,7 +202,7 @@ export function NewSession(props: {
     })
     const [serviceTier, setServiceTier] = useState<NewSessionServiceTier>(() => {
         const restored = editorDraft?.serviceTier ?? continueFrom?.serviceTier
-        return restored === 'fast' || restored === 'standard' ? restored : agent === 'codex' ? 'fast' : 'standard'
+        return CodexServiceTierSchema.safeParse(restored).data ?? (agent === 'codex' ? 'fast' : 'standard')
     })
     // Fork: the collaboration-mode selector is dormant; a hidden field must
     // not carry a non-default mode into the spawn, so it stays at 'default'.
@@ -493,21 +495,17 @@ export function NewSession(props: {
             setModel(CODEX_DEFAULT_MODEL_ID)
         }
     }, [agent, codexModelsState.error, codexModelsState.isLoading, codexModelsState.isUnavailable, codexModelsState.models, model, modelPreferences.loading, modelPreferences.preferences])
-    const showCodexFastMode = agent === 'codex'
-        && !codexModelsState.error
-        && codexModelAdvertisesFastTier(model === 'auto' ? null : model, codexModelsState.models)
+    const codexSpeedOptions = agent === 'codex' && !codexModelsState.error
+        ? getCodexSpeedOptions(model === 'auto' ? null : model, codexModelsState.models)
+        : []
+    const effectiveCodexServiceTier = codexSpeedOptions.includes(serviceTier) ? serviceTier
+        : codexSpeedOptions.includes('fast') ? 'fast' : 'standard'
 
     useEffect(() => {
-        // Wait for the Codex model catalog to settle before clearing Fast;
-        // otherwise Browse → remount restores serviceTier: 'fast' and this
-        // effect would wipe it while models are still loading.
-        if (agent === 'codex' && codexModelsState.isLoading) {
-            return
-        }
-        if (agent !== 'codex' && !showCodexFastMode && serviceTier !== 'standard') {
+        if (agent !== 'codex' && serviceTier !== 'standard') {
             setServiceTier('standard')
         }
-    }, [agent, codexModelsState.isLoading, showCodexFastMode, serviceTier])
+    }, [agent, serviceTier])
     useEffect(() => {
         if (agent === 'claude' && claudeGlmBranded && model !== 'auto' && model !== CLAUDE_GLM_MODEL_ID) {
             setModel('auto')
@@ -1603,7 +1601,7 @@ export function NewSession(props: {
     function applyModelChoice(choice: ModelChoice) {
         const speed = modelPreferences.preferences.find(row => row.agent === choice.agent && row.modelId === choice.value)?.speed
         if (choice.agent === 'codex') setServiceTier(speed ?? 'fast')
-        pendingCursorSpeed.current = choice.agent === 'cursor' ? { id: choice.value, speed: speed ?? 'standard' } : null
+        pendingCursorSpeed.current = choice.agent === 'cursor' ? { id: choice.value, speed: speed === 'fast' ? 'fast' : 'standard' } : null
         if (choice.agent === 'codex' || choice.agent === 'opencode') setModelReasoningEffort('default')
         if (choice.agent === 'agy') {
             agyModelPickedByUserRef.current = choice.value !== 'auto'
@@ -1925,8 +1923,8 @@ export function NewSession(props: {
             : agent === 'codex' && effectiveCodexEffort !== 'default'
                 ? effectiveCodexEffort
                 : undefined
-        const resolvedServiceTier = agent === 'codex' && showCodexFastMode
-            ? serviceTier
+        const resolvedServiceTier = codexSpeedOptions.length > 0
+            ? effectiveCodexServiceTier
             : undefined
         const resolvedCollaborationMode = agent === 'codex' && collaborationMode !== 'default'
             ? collaborationMode
@@ -2180,8 +2178,8 @@ export function NewSession(props: {
         || (agent === 'pi'
             && model !== 'auto'
             && piModelsState.isLoading)
-    const fastModeSelectionPending = agent === 'codex'
-        && serviceTier === 'fast'
+    const codexSpeedSelectionPending = agent === 'codex'
+        && serviceTier !== 'standard'
         && codexModelsState.isLoading
     const canCreate = Boolean(
         machineId
@@ -2194,7 +2192,7 @@ export function NewSession(props: {
         && !agentAvailability.error
         && selectedAgentAvailable
         && !isLaunchPreferenceValidationPending
-        && !fastModeSelectionPending
+        && !codexSpeedSelectionPending
         && !readingImages
         && (!createGroup || (groupName.trim().length > 0 && groupName.trim().length <= 120))
     )
@@ -2215,7 +2213,7 @@ export function NewSession(props: {
                 name: agent === 'opencode' || agent === 'cursor' ? modelChoiceLabel(modelName) : modelName,
                 wireId: input.model ?? codexModel?.id, flavor: agent,
                 modelReasoningEffort: agent === 'codex' ? undefined : input.modelReasoningEffort,
-                effort: input.effort, fast: input.serviceTier === 'fast',
+                effort: input.effort, speedLabel: getSessionSpeedLabel(agent, input.serviceTier),
             }),
             draft: { muted, initialPrompt, initialImages, agent, model: agent === 'agy' ? (agySelectedModel ?? 'auto') : agent === 'opencode' ? (opencodeSelectedModel ?? 'auto') : model,
                 cursorSelectedBase, machineId, effort, modelReasoningEffort, serviceTier, collaborationMode, copilotAgentMode,
@@ -2418,7 +2416,7 @@ export function NewSession(props: {
                 onModelChange={setModel}
             /> : null}
             {agent === 'codex' && codexModelsState.error ? <p role="alert" className="px-3 py-2 text-sm text-red-600">{t('newSession.model.loadFailed')}: {codexModelsState.error}</p> : null}
-            <div className={showCodexFastMode || cursorSpeedOptions ? 'flex flex-col divide-y divide-[var(--app-divider)] lg:flex-row lg:flex-wrap lg:divide-y-0' : ''}>
+            <div className={codexSpeedOptions.length > 0 || cursorSpeedOptions ? 'flex flex-col divide-y divide-[var(--app-divider)] lg:flex-row lg:flex-wrap lg:divide-y-0' : ''}>
             {!modelPreferences.loading && agent === 'agy' && agyGroup?.variants.length ? <section className="flex min-w-0 items-center gap-2 p-2 sm:gap-3 sm:p-3" role="group" aria-label={t('newSession.effort')}>
                 <ChoiceLabel kind="effort" />
                 <EffortChips options={agyGroup.variants.map(variant => ({ value: variant.id, label: formatCodexReasoningEffortLabel(variant.effort) }))}
@@ -2444,12 +2442,12 @@ export function NewSession(props: {
                 />
             ) : null}
             <FastModeSelector
-                visible={showCodexFastMode || Boolean(cursorSpeedOptions)}
-                value={agent === 'cursor' ? cursorServiceTier : serviceTier}
+                options={cursorSpeedOptions ? STANDARD_FAST_SPEEDS : codexSpeedOptions}
+                value={agent === 'cursor' ? cursorServiceTier : effectiveCodexServiceTier}
                 isDisabled={isFormDisabled || (agent === 'codex' && codexModelsState.isLoading)}
                 onChange={(value) => {
                     if (cursorSpeedOptions) {
-                        setModel(cursorSpeedOptions[value])
+                        if (value !== 'ultrafast') setModel(cursorSpeedOptions[value])
                     } else {
                         setServiceTier(value)
                     }
@@ -2471,13 +2469,13 @@ export function NewSession(props: {
                 agent={agent}
                 options={agent === 'opencode' ? manageModelOptions.map(option => ({ ...option, label: modelChoiceLabel(option.label) })) : manageModelOptions}
                 shown={visibleModelChoices.filter(choice => choice.agent === agent).map(choice => agent === 'opencode' ? { ...choice, label: modelChoiceLabel(choice.label) } : choice)}
-                supportsSpeed={agent === 'codex' ? id => codexModelAdvertisesFastTier(id === 'auto' ? null : id, codexModelsState.models) : agent === 'cursor' ? id => Boolean(getCursorModelSpeedOptions(id, [...cursorModelsState.availableModels, ...cursorModelsState.cliModelSkus])) : undefined}
+                getSpeedOptions={agent === 'codex' ? id => getCodexSpeedOptions(id === 'auto' ? null : id, codexModelsState.models) : agent === 'cursor' ? id => getCursorModelSpeedOptions(id, [...cursorModelsState.availableModels, ...cursorModelsState.cliModelSkus]) ? STANDARD_FAST_SPEEDS : [] : undefined}
                 getEffortOptions={agent === 'codex' ? id => getCodexModelReasoningEfforts(codexModelsState.models, id) ?? ['low', 'medium', 'high', 'xhigh'] : agent === 'opencode' ? id => opencodeVariantsState.variants?.[id] ?? [] : agent === 'agy' ? id => agyGroups.find(group => group.value === id)?.variants.map(item => item.effort) ?? [] : undefined}
                 preferences={modelPreferences.preferences} error={modelPreferences.error} onSave={async preference => {
                     await modelPreferences.save(preference)
                     if (preference.agent === agent && preference.modelId === displayedModel && preference.speed) {
                         if (agent === 'codex') setServiceTier(preference.speed)
-                        if (agent === 'cursor' && cursorSpeedOptions) setModel(cursorSpeedOptions[preference.speed])
+                        if (agent === 'cursor' && cursorSpeedOptions && preference.speed !== 'ultrafast') setModel(cursorSpeedOptions[preference.speed])
                     }
                     if ((preference.agent === 'codex' && preference.modelId === model) || (preference.agent === 'opencode' && preference.modelId === opencodeEffectiveModelId)) setModelReasoningEffort('default')
                     if (preference.agent === 'agy' && preference.modelId === agyBase && preference.reasoningEffort) {

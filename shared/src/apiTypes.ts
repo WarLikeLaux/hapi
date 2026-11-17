@@ -2,6 +2,7 @@ import { z } from 'zod'
 import {
     AttachmentMetadataSchema,
     CodexCollaborationModeSchema,
+    CodexServiceTierSchema,
     CopilotAgentModeSchema,
     DecryptedMessageSchema,
     MachineSchema,
@@ -446,7 +447,7 @@ export type SessionEffortRequest = z.infer<typeof SessionEffortRequestSchema>
 // "untouched" and survives restart/resume. Reject anything else so stray tier
 // strings are never forwarded to the Codex app-server.
 export const SessionServiceTierRequestSchema = z.object({
-    serviceTier: z.enum(['fast', 'standard'])
+    serviceTier: CodexServiceTierSchema
 })
 
 export type SessionServiceTierRequest = z.infer<typeof SessionServiceTierRequestSchema>
@@ -821,7 +822,7 @@ export const SpawnSessionRequestSchema = z.object({
     permissionMode: PermissionModeSchema.optional(),
     sessionType: z.enum(['simple', 'worktree']).optional(),
     worktreeName: z.string().optional(),
-    serviceTier: z.enum(['fast', 'standard']).optional(),
+    serviceTier: CodexServiceTierSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional(),
     copilotAgentMode: CopilotAgentModeSchema.optional(),
     startingMode: z.enum(['remote', 'pty']).optional()

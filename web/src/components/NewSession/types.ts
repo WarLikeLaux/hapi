@@ -1,3 +1,4 @@
+import type { CodexServiceTier } from '@hapi/protocol/schemas'
 import {
     AGY_MODEL_LABELS,
     AGY_MODEL_PRESETS,
@@ -17,7 +18,7 @@ export type CodexReasoningEffort = string
 // Grok reports effort values dynamically through ACP, while Claude uses the
 // fixed ClaudeEffortLevel catalog.
 export type LaunchEffort = string
-export type NewSessionServiceTier = 'standard' | 'fast'
+export type NewSessionServiceTier = CodexServiceTier
 
 function modelPresetOptions<TModel extends string>(
     presets: readonly TModel[],

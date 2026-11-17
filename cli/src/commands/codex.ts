@@ -5,17 +5,17 @@ import { maybeAutoStartServer } from '@/utils/autoStartServer'
 import type { CommandDefinition } from './types'
 import { CODEX_PERMISSION_MODES } from '@hapi/protocol/modes'
 import type { CodexPermissionMode } from '@hapi/protocol/types'
-import { CodexCollaborationModeSchema } from '@hapi/protocol/schemas'
+import { CodexCollaborationModeSchema, CodexServiceTierSchema, type CodexServiceTier } from '@hapi/protocol/schemas'
 import type { ReasoningEffort } from '@/codex/appServerTypes'
 import { parseReasoningEffortValue } from '@/codex/utils/reasoningEffort'
 import { resolveSharedCodex } from '@/codex/shared/launch'
 
 // Mirror the web /service-tier endpoint's enum so the internal resume spawn
 // path can never seed/persist an unsupported tier string.
-function parseServiceTier(value: string): 'fast' | 'standard' {
-    const normalized = value.trim().toLowerCase()
-    if (normalized === 'fast' || normalized === 'standard') {
-        return normalized
+function parseServiceTier(value: string): CodexServiceTier {
+    const parsed = CodexServiceTierSchema.safeParse(value.trim().toLowerCase())
+    if (parsed.success) {
+        return parsed.data
     }
     throw new Error('Invalid --service-tier value')
 }
@@ -46,7 +46,7 @@ export const codexCommand: CommandDefinition = {
                 reservedSessionId?: string
                 model?: string
                 modelReasoningEffort?: ReasoningEffort
-                serviceTier?: string
+                serviceTier?: CodexServiceTier
                 collaborationMode?: 'default' | 'plan'
             } = {}
             const unknownArgs: string[] = []

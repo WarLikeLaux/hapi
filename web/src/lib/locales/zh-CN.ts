@@ -1595,6 +1595,7 @@ export default {
   'misc.fastMode': '快速模式',
   'misc.fastModeStandard': '标准',
   'misc.fastModeFast': '快速',
+  'misc.fastModeUltrafast': 'Ultrafast',
   'misc.variant': '变体',
   'misc.changeModel': '更换模型…',
   'misc.backToModelList': '← 模型',
