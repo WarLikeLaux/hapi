@@ -32,9 +32,10 @@ vi.mock('@/lib/app-context', () => ({
 
 vi.mock('@/hooks/useAppGoBack', () => ({ useAppGoBack: () => vi.fn() }))
 
-vi.mock('@/lib/shiki', () => ({
-    langAlias: {},
-    useShikiHighlighter: (content: string) => content
+vi.mock('@/lib/shiki', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@/lib/shiki')>(),
+    useShikiHighlighter: (content: string) => content,
+    useShikiHighlightedLines: () => null
 }))
 
 function renderPage() {

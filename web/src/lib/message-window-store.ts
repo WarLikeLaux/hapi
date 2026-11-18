@@ -1866,10 +1866,15 @@ export function markMessagesConsumed(
             const needsStatus = message.status !== 'sent'
             const needsInvokedAt = message.invokedAt === null
             const needsSteered = steered === true && message.steered !== true
-            const needsClearDismiss = message.queueDismissed === true
-            if (!needsStatus && !needsInvokedAt && !needsSteered && !needsClearDismiss) return message
+            const needsClearHold = message.queueDismissed === true || message.deliveryState !== undefined || message.deliveryPending === true
+            if (!needsStatus && !needsInvokedAt && !needsSteered && !needsClearHold) return message
             changed = true
-            const { deliveryState: _deliveryState, queueDismissed: _queueDismissed, ...withoutClientHold } = message
+            const {
+                deliveryState: _deliveryState,
+                deliveryPending: _deliveryPending,
+                queueDismissed: _queueDismissed,
+                ...withoutClientHold
+            } = message
             return {
                 ...withoutClientHold,
                 ...(needsStatus ? { status: 'sent' as MessageStatus } : {}),

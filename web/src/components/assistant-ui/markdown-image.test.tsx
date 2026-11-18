@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ApiClient } from '@/api/client'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
+import { ImagePreviewProvider } from '@/components/ImagePreview'
 import { HappyChatProvider, type HappyChatContextValue } from '@/components/AssistantChat/context'
 import { I18nProvider } from '@/lib/i18n-context'
 import { encodeBase64 } from '@/lib/utils'
@@ -36,7 +37,9 @@ function renderImage(props: {
     return render(
         <I18nProvider>
             <HappyChatProvider value={chatValue(api, props.metadataPath)}>
-                <ChatMarkdownImage src={props.src} alt={props.alt} onLoad={props.onLoad} onError={props.onError} />
+                <ImagePreviewProvider>
+                    <ChatMarkdownImage src={props.src} alt={props.alt} onLoad={props.onLoad} onError={props.onError} />
+                </ImagePreviewProvider>
             </HappyChatProvider>
         </I18nProvider>
     )
@@ -110,7 +113,9 @@ describe('ChatMarkdownImage', () => {
         render(
             <I18nProvider>
                 <HappyChatProvider value={chatValue(api)}>
-                    <MarkdownRenderer content={'[![Linked chart](images/chart.png)](report.md)'} />
+                    <ImagePreviewProvider>
+                        <MarkdownRenderer content={'[![Linked chart](images/chart.png)](report.md)'} />
+                    </ImagePreviewProvider>
                 </HappyChatProvider>
             </I18nProvider>
         )

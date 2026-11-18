@@ -1780,6 +1780,7 @@ export function createAppRouter(history?: RouterHistory, basepath = normalizeRou
     return createRouter({
         routeTree,
         history,
+        basepath,
         // Chat panes pin their thread to the newest message when a
         // conversation opens. Router restoration re-applies a saved (or the
         // previous conversation's) viewport position after those effects, and

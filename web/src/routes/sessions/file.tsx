@@ -251,9 +251,9 @@ export default function FilePage() {
     const [markdownMode, setMarkdownMode] = useState<MarkdownPreviewMode>(() =>
         targetLine === undefined ? getInitialMarkdownPreviewMode() : 'source'
     )
-    const showMarkdownSource = !markdownFile || markdownMode === 'source'
+    const showMarkdownSource = !previewableFile || markdownMode === 'source'
     const highlightedLines = useShikiHighlightedLines(
-        imageMimeType || (markdownFile && !showMarkdownSource) ? '' : decodedContent,
+        imageMimeType || !showMarkdownSource ? '' : decodedContent,
         language
     )
     const sourceLines = useMemo(() => splitCodeLines(decodedContent), [decodedContent])

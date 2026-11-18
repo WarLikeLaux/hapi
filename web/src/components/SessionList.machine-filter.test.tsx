@@ -11,7 +11,7 @@ import { SessionList, SessionListSearch } from './SessionList'
 
 const SEARCH_LABEL = 'Search sessions (title, path, Agent, machine name, ID, and more)'
 const SEARCH_PLACEHOLDER = 'Search title/path/Agent/machine/ID…'
-const SEARCH_SCOPE_LABEL = 'Search scope'
+const EXCLUDE_LABEL = 'Exclude'
 
 afterEach(() => cleanup())
 
@@ -183,7 +183,7 @@ describe('SessionList machine filter', () => {
         expect(screen.queryByTitle('/work/docs')).toBeNull()
     })
 
-    it('uses the search scope dropdown to exclude matching sessions', () => {
+    it('uses the exclusion toggle to hide matching sessions', () => {
         renderSessionList([
             makeSession({
                 id: 'session-match',
@@ -198,13 +198,10 @@ describe('SessionList machine filter', () => {
         ])
 
         fireEvent.click(screen.getByRole('button', { name: SEARCH_LABEL }))
-        const scopeButton = screen.getByRole('button', { name: SEARCH_SCOPE_LABEL })
-        expect(scopeButton).toHaveAttribute('aria-expanded', 'false')
-        fireEvent.click(scopeButton)
-
-        expect(screen.getByRole('button', { name: 'Default' })).toHaveAttribute('aria-pressed', 'true')
-        fireEvent.click(screen.getByRole('button', { name: 'Exclude' }))
-        expect(scopeButton).toHaveAttribute('aria-expanded', 'false')
+        const exclude = screen.getByRole('button', { name: EXCLUDE_LABEL })
+        expect(exclude).toHaveAttribute('aria-pressed', 'false')
+        fireEvent.click(exclude)
+        expect(exclude).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByTitle('/work/archive')).toBeTruthy()
         expect(screen.getByTitle('/work/hapi')).toBeTruthy()
 
@@ -224,7 +221,7 @@ describe('SessionList machine filter', () => {
             />
         )
 
-        expect(screen.queryByRole('button', { name: SEARCH_SCOPE_LABEL })).toBeNull()
+        expect(screen.queryByRole('button', { name: EXCLUDE_LABEL })).toBeNull()
     })
 
     it('returns focus to the input so an outside blur still collapses search', () => {
@@ -238,8 +235,7 @@ describe('SessionList machine filter', () => {
 
         fireEvent.click(screen.getByRole('button', { name: SEARCH_LABEL }))
         const input = screen.getByPlaceholderText(SEARCH_PLACEHOLDER)
-        fireEvent.click(screen.getByRole('button', { name: SEARCH_SCOPE_LABEL }))
-        fireEvent.click(screen.getByRole('button', { name: 'Exclude' }))
+        fireEvent.click(screen.getByRole('button', { name: EXCLUDE_LABEL }))
 
         expect(input).toHaveFocus()
         fireEvent.blur(input, { relatedTarget: document.body })

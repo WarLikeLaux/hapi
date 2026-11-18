@@ -1169,7 +1169,10 @@ export function SessionListSearch(props: {
                     <button
                         type="button"
                         aria-pressed={props.excludeMatches}
-                        onClick={() => props.onExcludeMatchesChange?.(!props.excludeMatches)}
+                        onClick={() => {
+                            props.onExcludeMatchesChange?.(!props.excludeMatches)
+                            inputRef.current?.focus()
+                        }}
                         className={cn(
                             'min-h-12 shrink-0 border-l border-[var(--app-border)] px-2 text-xs',
                             props.excludeMatches ? 'text-[var(--app-link)]' : 'text-[var(--app-hint)]'

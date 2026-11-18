@@ -485,10 +485,7 @@ function ToolCardInner(props: ToolCardProps) {
     const isAskUserQuestion = isAskUserQuestionToolName(toolName)
     const isRequestUserInput = isRequestUserInputToolName(toolName)
     const isQuestionTool = isAskUserQuestion || isRequestUserInput
-    const showsPermissionFooter = Boolean(permission && (
-        permission.status === 'resolved' || permission.status === 'pending'
-        || ((permission.status === 'denied' || permission.status === 'canceled') && Boolean(permission.reason))
-    ))
+    const showsPermissionFooter = permissionFooterContent(permission, toolName, props.block.tool.input) !== null
     const hasAsyncQuestion = toolName === 'request_user_input_async'
         && props.metadata?.flavor === 'codex'
         && !(isObject(props.block.tool.input) && props.block.tool.input.readOnly === true)

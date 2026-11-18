@@ -796,7 +796,16 @@ function MarkdownAnchor(props: ComponentPropsWithoutRef<'a'>) {
         if (!chat) {
             return <>{props.children}</>
         }
-        return <FileReferenceCode reference={fileReference} workspace={chat.metadata?.path} />
+        const split = renderSplitInteractiveImageLink(
+            props.children,
+            fileBase,
+            (children, key) => (
+                <FilePathAnchor key={key} {...props} filePath={fileReference.path} sessionId={chat.sessionId} line={fileReference.line} column={fileReference.column}>
+                    {children}
+                </FilePathAnchor>
+            ),
+        )
+        return split ?? <FileReferenceCode reference={fileReference} workspace={chat.metadata?.path} />
     }
 
     if (targetSessionId) {
@@ -883,7 +892,16 @@ function MarkdownAnchor(props: ComponentPropsWithoutRef<'a'>) {
             if (!chat) {
                 return <InertMarkdownHref href={href ?? windowsPathFromHref ?? ''} className={props.className}>{props.children}</InertMarkdownHref>
             }
-            return <FileReferenceCode reference={decision} workspace={chat.metadata?.path} />
+            const split = renderSplitInteractiveImageLink(
+                props.children,
+                fileBase,
+                (children, key) => (
+                    <FilePathAnchor key={key} {...props} filePath={decision.path} sessionId={chat.sessionId} line={decision.line} column={decision.column}>
+                        {children}
+                    </FilePathAnchor>
+                ),
+            )
+            return split ?? <FileReferenceCode reference={decision} workspace={chat.metadata?.path} />
         }
         if (decision.action === 'inert' && chat) {
             let raw = windowsPathFromHref ?? href ?? ''

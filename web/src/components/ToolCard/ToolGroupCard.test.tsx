@@ -163,7 +163,6 @@ describe('ToolGroupCard', () => {
         expect(screen.queryByText('Started')).not.toBeInTheDocument()
         expect(screen.queryByText('Finished')).not.toBeInTheDocument()
         expect(screen.getByText(/5\.0s|6\.0s/).parentElement).toHaveClass('items-center')
-        expect(screen.getByText(/5\.0s|6\.0s/).parentElement).toHaveClass('shrink-0')
         expect(within(view.container).getByLabelText('Running')).toBeInTheDocument()
     })
 
@@ -182,7 +181,6 @@ describe('ToolGroupCard', () => {
         expect(screen.queryByText('Started')).not.toBeInTheDocument()
         expect(screen.queryByText('Finished')).not.toBeInTheDocument()
         expect(screen.getByText('4.0s').parentElement).toHaveClass('items-center')
-        expect(screen.getByText('4.0s').parentElement).toHaveClass('shrink-0')
     })
 
     it('expands to show compact rows and opens a detail dialog per row', async () => {

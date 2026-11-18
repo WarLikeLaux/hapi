@@ -79,6 +79,12 @@ function buildRoundSummaryLabels(summary: RoundSummary): string[] {
         parts.push(`Cost: ${formatUsd(summary.totalCostUsd)}`)
     }
 
+    const { generationMs, generationOutputTokens } = summary
+    if (generationMs !== undefined && Number.isFinite(generationMs) && generationMs > 0
+        && generationOutputTokens !== undefined && Number.isSafeInteger(generationOutputTokens) && generationOutputTokens > 0) {
+        parts.push(`${(generationOutputTokens * 1000 / generationMs).toFixed(1)} tok/s`)
+    }
+
     return parts
 }
 

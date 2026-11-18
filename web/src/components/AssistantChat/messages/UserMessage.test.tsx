@@ -5,7 +5,6 @@ import { I18nProvider } from '@/lib/i18n-context'
 import { findLatestCompletedBoundaryId } from '@/lib/assistant-runtime'
 import { HappyUserMessage } from './UserMessage'
 
-const onBranch = vi.fn()
 const onFork = vi.fn(async (_localId?: string) => {})
 const state = {
     message: { id: 'user-text:interrupted', role: 'user', createdAt: new Date(10),
@@ -18,7 +17,6 @@ const ctx = {
         conversationHistoryPoints: { 'local-interrupted': true } as Record<string, true> },
     disabled: false, historyActionPending: false, allowInactiveFork: false,
     isLatestCompletedBoundary: (_id: string) => true,
-    onBranchConversation: onBranch,
     onForkConversation: onFork, onRewindConversation: async () => {}
 }
 
@@ -51,7 +49,6 @@ describe('user-only completed fork boundary', () => {
     beforeEach(() => {
         localStorage.clear()
         onFork.mockClear()
-        onBranch.mockClear()
         state.message.metadata.custom.invokedAt = 10
         state.message.metadata.custom.localId = 'local-interrupted'
         state.message.metadata.custom.isTranscriptEcho = false
@@ -77,30 +74,11 @@ describe('user-only completed fork boundary', () => {
         expect(onFork).toHaveBeenCalledWith('local-interrupted')
     })
 
-    it('offers a portable historical branch without native points, including inactive sources', () => {
-        state.thread.isRunning = false
-        ctx.disabled = true
-        ctx.metadata.flavor = 'claude'
-        ctx.metadata.conversationHistoryPoints = {}
-        mount()
-        fireEvent.click(screen.getByRole('button', { name: 'Branch with options' }))
-        expect(onBranch).toHaveBeenCalledWith('local-interrupted')
-    })
-
     it('never offers a queued user message as a branch boundary', () => {
         state.thread.isRunning = false
         state.message.metadata.custom.invokedAt = null
         mount()
-        expect(screen.queryByRole('button', { name: 'Branch with options' })).toBeNull()
-    })
-
-    it('offers a portable branch for an invoked terminal message without a local id', () => {
-        state.message.metadata.custom.localId = null
-        state.thread.isRunning = false
-        ctx.metadata.flavor = 'claude'
-        mount()
-        fireEvent.click(screen.getByRole('button', { name: 'Branch with options' }))
-        expect(onBranch).toHaveBeenCalledWith(undefined, 'stored-message')
+        expect(screen.queryByRole('button', { name: 'Fork' })).toBeNull()
     })
 
     it('does not offer a branch on a transcript echo', () => {
@@ -109,7 +87,7 @@ describe('user-only completed fork boundary', () => {
         state.thread.isRunning = false
         ctx.metadata.flavor = 'claude'
         mount()
-        expect(screen.queryByRole('button', { name: 'Branch with options' })).toBeNull()
+        expect(screen.queryByRole('button', { name: 'Fork' })).toBeNull()
     })
 
     it('retains current-fork semantics for the same card when idle', async () => {

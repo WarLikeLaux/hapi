@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import {
+    isAsyncRequestUserInput,
     isRequestUserInputToolName,
     parseRequestUserInputInput,
     formatRequestUserInputAnswers,
@@ -90,6 +91,7 @@ function RequestUserInputForm(props: FooterProps) {
     const draftKey = JSON.stringify([props.sessionId, props.tool.id])
     const permission = props.tool.permission
     const isAsync = props.tool.name === 'request_user_input_async'
+    const canDismiss = isAsyncRequestUserInput(props.tool.name, props.tool.input)
     const parsed = useMemo(() => parseRequestUserInputInput(props.tool.input), [props.tool.input])
     const questions = parsed.questions
 
@@ -185,6 +187,22 @@ function RequestUserInputForm(props: FooterProps) {
         setLoading(false)
     }
 
+    const dismiss = async () => {
+        if (props.disabled || submittingRef.current) return
+        submittingRef.current = true
+        setLoading(true)
+        await run(async () => {
+            if (isAsync) {
+                await props.api.dismissCodexAsyncQuestion(props.sessionId, props.tool.id)
+                setSubmitted(true)
+            } else if (permission) {
+                await props.api.denyPermission(props.sessionId, permission.id)
+            }
+        }, 'success')
+        submittingRef.current = false
+        setLoading(false)
+    }
+
     const next = () => {
         if (!currentQuestion) return
         if (!validateQuestion(currentQuestion)) {
@@ -228,6 +246,7 @@ function RequestUserInputForm(props: FooterProps) {
 
     return (
         <div className="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3">
+            {canDismiss ? <p className="mb-2 text-xs text-[var(--app-hint)]">{t('tool.waitingForReply')}</p> : null}
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -311,6 +330,18 @@ function RequestUserInputForm(props: FooterProps) {
 
             <div className="mt-3 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
+                    {canDismiss ? (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={props.disabled || loading}
+                            onClick={dismiss}
+                            title={t('tool.requestUserInput.dismissHint')}
+                        >
+                            {t('button.dismiss')}
+                        </Button>
+                    ) : null}
                     {questions.length > 1 ? (
                         <Button
                             type="button"

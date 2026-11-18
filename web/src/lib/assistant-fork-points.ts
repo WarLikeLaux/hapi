@@ -1,6 +1,6 @@
 import type { ChatBlock } from '@/chat/types'
 import type { VisibleChatBlock } from '@/chat/toolGroups'
-import { buildVisibleChatBlocks, visibleBlockRole } from '@/chat/toolGroups'
+import { buildVisibleChatBlocks, isCompactionEvent, visibleBlockRole } from '@/chat/toolGroups'
 import { assignThreadMessageIds } from '@/lib/assistant-runtime'
 
 // Native historical forks exclude the selected user prompt. The next
@@ -17,7 +17,7 @@ export function resolveAssistantForkPoints(
                 result.set(assistantId, block.localId)
             }
             assistantId = null
-        } else if (visibleBlockRole(block) === 'assistant') {
+        } else if (visibleBlockRole(block) === 'assistant' && !isCompactionEvent(block)) {
             assistantId ??= threadMessageId
         } else {
             // Never bridge across unrepresented events or system boundaries.

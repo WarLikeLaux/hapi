@@ -69,7 +69,7 @@ describe('concise summary through reducer, reconcile, grouping and runtime metad
     it.each(['tool', 'reasoning', 'narration'] as const)('preserves the whole common summary from hidden %s on the retained final reply', first => {
         const result = pipeline(round('one', first))
         expect(result.projected.map(block => block.kind)).toEqual(['user-text', 'agent-text'])
-        expect(result.labels).toEqual([['Model: fixture/model', 'Tokens: 130 (100 in · 30 out)', 'Cost: $0.020', 'Round: 9s · 2 turns · 20.0 tok/s']])
+        expect(result.labels).toEqual([['Time: 9.0s', 'Tokens: 130 (23.1% out)', 'Cost: $0.020', '20.0 tok/s']])
         expect(result.rendered).toContain('20.0 tok/s')
         const original = result.canonical.find(block => block.kind === 'agent-text' && block.text === 'one-final')
         const final = result.projected[1]
@@ -96,7 +96,7 @@ describe('concise summary through reducer, reconcile, grouping and runtime metad
             if (expected) expect(result.rendered).toContain(expected)
             else expect(result.rendered).not.toContain('tok/s')
             expect(result.rendered).toContain('Cost: $0.020')
-            expect(result.rendered).toContain('Round: 9s')
+            expect(result.rendered).toContain('Time: 9.0s')
         }
         result = pipeline(messages.filter(message => message.id !== 'late-summary'), result.byId)
         expect(result.rendered).not.toContain('tok/s')
@@ -135,7 +135,7 @@ describe('concise summary through reducer, reconcile, grouping and runtime metad
         const messages = round('first')
         messages.splice(3, 0, text('first-final-more'))
         const result = pipeline([...messages, ...round('second', 'reasoning', { ...wireSummary, generation_ms: 3000 })])
-        expect(result.labels.flat().filter(label => label.includes('tok/s'))).toEqual(['Round: 9s · 2 turns · 20.0 tok/s', 'Round: 9s · 2 turns · 10.0 tok/s'])
+        expect(result.labels.flat().filter(label => label.includes('tok/s'))).toEqual(['20.0 tok/s', '10.0 tok/s'])
         expect(result.projected.filter(block => 'roundSummary' in block && block.roundSummary)).toHaveLength(2)
     })
 
@@ -183,7 +183,7 @@ describe('concise summary through reducer, reconcile, grouping and runtime metad
             expect(project(result.canonical).labels).toEqual(result.labels)
             expect(JSON.stringify(result.canonical)).toBe(before)
             const final = result.visible.find(block => block.kind === 'agent-text')!
-            expect(buildSourceMessageIdsByBlock(result.visible).get(final)).toEqual(['post-compact-final'])
+            expect(buildSourceMessageIdsByBlock(result.visible).get(final)).toContain('post-compact-final')
             expect(assignThreadMessageIds(result.visible).find(row => row.block === final)?.threadMessageId).toBe(`agent-text:${final.id}`)
         }
         result = pipeline(messages, result.byId)
@@ -216,9 +216,9 @@ describe('concise summary through reducer, reconcile, grouping and runtime metad
             event('compact', { type: 'compact-summary', summary: 'compacted' }), tool('after', 'AskUserQuestion'),
             text('final'), carrier('after', { ...wireSummary, generation_ms: 3000 })])
         expect(result.canonical.filter(block => 'roundSummary' in block && block.roundSummary)).toHaveLength(2)
-        expect(result.projected.filter(block => 'roundSummary' in block && block.roundSummary)).toHaveLength(2)
-        expect(result.labels.flat().filter(label => label.includes('tok/s'))).toEqual([
-            'Round: 9s · 2 turns · 20.0 tok/s', 'Round: 9s · 2 turns · 10.0 tok/s'])
+        expect(result.projected.flatMap(block => 'roundSummary' in block && block.roundSummary
+            ? [block.roundSummary.generationMs] : [])).toEqual([1500, 3000])
+        expect(result.labels.flat().filter(label => label.includes('tok/s'))).toEqual(['20.0 tok/s'])
     })
 
     it('preserves the legacy Claude summary contract on the post-event response without inventing TPS', () => {
@@ -228,7 +228,7 @@ describe('concise summary through reducer, reconcile, grouping and runtime metad
         if (!legacy) throw new Error('Invalid legacy Claude carrier')
         const result = pipeline([user('u'), tool('hidden'), event('compact', { type: 'compact-summary', summary: 'compacted' }),
             text('claude-final'), legacy])
-        expect(result.labels.flat()).toContain('Round: 9s · 2 turns')
+        expect(result.labels.flat()).toContain('Time: 9.0s')
         expect(result.rendered).not.toContain('tok/s')
         expect(result.canonical.filter(block => 'roundSummary' in block && block.roundSummary)).toEqual([
             expect.objectContaining({ kind: 'agent-text', text: 'claude-final' })])

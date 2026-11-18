@@ -168,7 +168,7 @@ describe('getToolPresentation — Codex agent tools', () => {
 
         expect(presentation.title).toBe('Agent: 检查 Hub Web README')
         expect(presentation.title).not.toContain('agent-1234567890')
-        expect(presentation.subtitle).toBe('effort medium · Reading file: README.md')
+        expect(presentation.subtitle).toBe('reasoning medium · Reading file: README.md')
         expect(presentation.minimal).toBe(true)
     })
 
@@ -186,7 +186,7 @@ describe('getToolPresentation — Codex agent tools', () => {
         })
 
         expect(presentation.title).toBe('Agent: Inspect package metadata')
-        expect(presentation.subtitle).toBe('effort low')
+        expect(presentation.subtitle).toBe('reasoning low')
     })
 
     it('does not present sub-operation completion as final agent completion while still running', () => {
@@ -204,7 +204,7 @@ describe('getToolPresentation — Codex agent tools', () => {
             metadata: null,
         })
 
-        expect(presentation.subtitle).toBe('effort low · Command finished: bun test')
+        expect(presentation.subtitle).toBe('reasoning low · Command finished: bun test')
     })
 
     it('falls back to prompt-derived CodexAgent titles without exposing agent id', () => {

@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type SyntheticEvent } from 'react'
-import { createPortal } from 'react-dom'
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type SyntheticEvent } from 'react'
+import * as Dialog from '@radix-ui/react-dialog'
 import { ArrowLeftIcon, ArrowRightIcon, CloseIcon, MinusIcon, PlusIcon } from '@/components/icons'
 import { formatFileSize } from '@/lib/file-metadata'
 
@@ -19,7 +19,11 @@ type PreviewImage = {
     label: string
     fileName: string
     fileSize?: number
+    referrerPolicy?: ComponentPropsWithoutRef<'img'>['referrerPolicy']
 }
+
+type ThumbnailProps = Omit<ComponentPropsWithoutRef<'img'>,
+    'src' | 'alt' | 'className' | 'style' | 'draggable' | 'loading' | 'referrerPolicy' | 'onLoad' | 'onError'>
 
 function getPointDistance(a: ImagePoint, b: ImagePoint): number {
     return Math.hypot(a.x - b.x, a.y - b.y)
@@ -36,20 +40,21 @@ type PreviewSelection = {
     images: PreviewImage[]
     index: number
     blobs: Promise<(Blob | null)[]>
+    trigger: HTMLButtonElement
 }
 
-const ImagePreviewContext = createContext<((images: PreviewImage[], index: number) => void) | null>(null)
+const ImagePreviewContext = createContext<((images: PreviewImage[], index: number, trigger: HTMLButtonElement) => void) | null>(null)
 
 /** Own the open image independently of chat rows, attachment uploads, and route errors. */
 export function ImagePreviewProvider({ children }: { children: ReactNode }) {
     const [selection, setSelection] = useState<PreviewSelection | null>(null)
     const [revision, setRevision] = useState(0)
-    const open = useCallback((images: PreviewImage[], index: number) => {
+    const open = useCallback((images: PreviewImage[], index: number, trigger: HTMLButtonElement) => {
         // Start copying blob sources while their originating cards still own the URLs.
         const blobs = Promise.all(images.map(image => image.src.startsWith('blob:')
             ? fetch(image.src).then(response => response.blob()).catch(() => null)
             : Promise.resolve(null)))
-        setSelection({ images, index, blobs })
+        setSelection({ images, index, blobs, trigger })
         setRevision(current => current + 1)
     }, [])
     const close = useCallback(() => setSelection(null), [])
@@ -80,6 +85,12 @@ export function ImagePreview(props: {
     imageStyle?: CSSProperties
     caption?: ReactNode
     galleryId?: string
+    disabled?: boolean
+    loading?: ComponentPropsWithoutRef<'img'>['loading']
+    referrerPolicy?: ComponentPropsWithoutRef<'img'>['referrerPolicy']
+    thumbnailProps?: ThumbnailProps
+    onThumbnailLoad?: (event: SyntheticEvent<HTMLImageElement>) => void
+    onThumbnailError?: (event: SyntheticEvent<HTMLImageElement>) => void
     onTriggerPointerDown?: (event: PointerEvent<HTMLButtonElement>) => void
     onTriggerContextMenu?: (event: MouseEvent<HTMLButtonElement>) => void
     onTriggerClick?: (event: MouseEvent<HTMLButtonElement>) => void
@@ -96,7 +107,7 @@ export function ImagePreview(props: {
         // Ungrouped previews are standalone; callers opt into message-local galleries.
         const triggers = galleryId
             ? Array.from(document.querySelectorAll<HTMLButtonElement>('[data-image-preview-trigger]'))
-                .filter((trigger) => trigger.dataset.imagePreviewGallery === galleryId)
+                .filter((trigger) => !trigger.disabled && trigger.dataset.imagePreviewGallery === galleryId)
             : [event.currentTarget]
         const images = triggers.flatMap((trigger): PreviewImage[] => {
             const image = trigger.querySelector('img')
@@ -105,11 +116,12 @@ export function ImagePreview(props: {
                 src: image.getAttribute('src') ?? image.src,
                 label: trigger.dataset.imagePreviewLabel ?? image.alt,
                 fileName: trigger.dataset.imagePreviewFileName ?? image.alt,
-                fileSize: parseFileSize(trigger.dataset.imagePreviewFileSize)
+                fileSize: parseFileSize(trigger.dataset.imagePreviewFileSize),
+                referrerPolicy: (image.getAttribute('referrerpolicy') ?? undefined) as PreviewImage['referrerPolicy']
             }]
         })
         const index = triggers.indexOf(event.currentTarget)
-        open(images, index >= 0 ? index : 0)
+        open(images, index >= 0 ? index : 0, event.currentTarget)
     }, [open, galleryId])
 
     const handleTriggerPointerDown = useCallback((event: PointerEvent<HTMLButtonElement>) => {
@@ -118,15 +130,17 @@ export function ImagePreview(props: {
     }, [props.onTriggerPointerDown, stopEvent])
 
     const handleTriggerClick = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+        if (props.disabled) return
         props.onTriggerClick?.(event)
         if (event.defaultPrevented) return
         openViewer(event)
-    }, [openViewer, props.onTriggerClick])
+    }, [openViewer, props.disabled, props.onTriggerClick])
 
     if (!props.src) return null
     return (
         <button
             type="button"
+            disabled={props.disabled}
             onPointerDown={handleTriggerPointerDown}
             onMouseDown={stopEvent}
             onTouchStart={stopEvent}
@@ -138,11 +152,16 @@ export function ImagePreview(props: {
             data-image-preview-label={props.label}
             data-image-preview-gallery={galleryId ?? ''}
             className={props.buttonClassName ?? 'group flex min-h-[18rem] w-full items-center justify-center overflow-auto rounded-md border border-[var(--app-border)] bg-[var(--app-code-bg)] p-3 text-left'}
-            title="Click to zoom"
+            title={props.disabled ? 'Loading image' : 'Click to zoom'}
         >
             <img
+                {...props.thumbnailProps}
                 src={props.src}
                 alt={props.label}
+                loading={props.loading}
+                referrerPolicy={props.referrerPolicy}
+                onLoad={props.onThumbnailLoad}
+                onError={props.onThumbnailError}
                 className={props.imageClassName ?? 'max-h-[calc(100vh-14rem)] max-w-full object-contain transition-transform group-hover:scale-[1.01]'}
                 style={props.imageStyle}
                 draggable={false}
@@ -174,12 +193,6 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
     const backdropPressRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
 
     const stopEvent = useCallback((event: SyntheticEvent) => event.stopPropagation(), [])
-
-    useEffect(() => {
-        const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-        closeRef.current?.focus()
-        return () => previous?.focus()
-    }, [])
 
     useEffect(() => {
         let disposed = false
@@ -392,22 +405,33 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
     ].filter(Boolean).join(' · ')
     const hasMultiplePreviews = previewImages.length > 1
 
-    return createPortal(
-        <div
-            className="fixed inset-0 z-50 flex flex-col bg-black/90 text-white"
-            data-hapi-nested-scroll="true"
-            onWheel={stopEvent}
-            onPointerDown={stopEvent}
-            onPointerMove={stopEvent}
-            onPointerUp={stopEvent}
-            onTouchStart={stopEvent}
-            onTouchMove={stopEvent}
-            onTouchEnd={stopEvent}
-            role="dialog"
-            aria-modal="true"
-            aria-label={activePreview.label}
-        >
-            <div className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-black/50 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)] max-sm:gap-1">
+    return (
+        <Dialog.Root open onOpenChange={open => { if (!open) props.onClose() }}>
+            <Dialog.Portal>
+                <Dialog.Content
+                    className="pointer-events-auto fixed inset-0 z-[60] flex flex-col bg-black/90 text-white"
+                    data-hapi-nested-scroll="true"
+                    onOpenAutoFocus={event => {
+                        event.preventDefault()
+                        closeRef.current?.focus()
+                    }}
+                    onCloseAutoFocus={event => {
+                        event.preventDefault()
+                        props.selection.trigger.focus()
+                    }}
+                    onClick={stopEvent}
+                    onWheel={stopEvent}
+                    onPointerDown={stopEvent}
+                    onPointerMove={stopEvent}
+                    onPointerUp={stopEvent}
+                    onTouchStart={stopEvent}
+                    onTouchMove={stopEvent}
+                    onTouchEnd={stopEvent}
+                    aria-label={activePreview.label}
+                    aria-describedby={undefined}
+                >
+                    <Dialog.Title className="sr-only">{activePreview.label}</Dialog.Title>
+                    <div className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-black/50 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)] max-sm:gap-1">
                         <button
                             type="button"
                             ref={closeRef}
@@ -498,6 +522,7 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
                         <img
                             src={activePreview.src}
                             alt={activePreview.label}
+                            referrerPolicy={activePreview.referrerPolicy}
                             draggable={false}
                             onLoad={(event) => {
                                 const { naturalWidth, naturalHeight } = event.currentTarget
@@ -527,7 +552,8 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
                             </span>
                         ) : null}
                     </div>
-        </div>,
-        document.body
+                </Dialog.Content>
+            </Dialog.Portal>
+        </Dialog.Root>
     )
 }

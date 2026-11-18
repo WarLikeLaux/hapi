@@ -33,7 +33,7 @@ describe('StatusBar pending requests', () => {
         renderStatus({
             approval: { tool: 'Bash', arguments: {}, createdAt: 1 },
         })
-        expect(screen.getByText('Approval required')).toBeInTheDocument()
+        expect(screen.getByText('Permission required')).toBeInTheDocument()
     })
 
     it('lets mixed requests be selected individually', () => {
