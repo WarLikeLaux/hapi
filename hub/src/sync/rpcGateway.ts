@@ -843,6 +843,13 @@ export class RpcGateway {
         }
     }
 
+    async startCodexQueuedMessage(sessionId: string, localId: string): Promise<void> {
+        const result = await this.sessionRpc(sessionId, RPC_METHODS.StartCodexQueuedMessage, { localId })
+        if (typeof result !== 'object' || result === null || !('ok' in result) || result.ok !== true) {
+            throw new Error('Codex did not confirm the queue start')
+        }
+    }
+
     async interruptQueuedMessage(sessionId: string, localId: string): Promise<{ interrupted: boolean; error?: string }> {
         return await this.sessionRpc(sessionId, RPC_METHODS.InterruptQueuedMessage, { localId }) as {
             interrupted: boolean

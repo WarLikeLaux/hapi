@@ -110,6 +110,19 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         return c.json(result)
     })
 
+    app.post('/sessions/:id/messages/:messageId/start', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        try {
+            await engine.startCodexQueuedMessage(sessionResult.sessionId, c.req.param('messageId'))
+            return c.json({ ok: true })
+        } catch (error) {
+            return c.json({ error: error instanceof Error ? error.message : 'Queue start failed' }, 409)
+        }
+    })
+
     app.post('/sessions/:id/messages/:messageId/interrupt', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) return engine

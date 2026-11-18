@@ -1217,6 +1217,13 @@ export class ApiClient {
         return response as SteerQueuedMessageResponse
     }
 
+    async startCodexQueuedMessage(sessionId: string, messageId: string): Promise<void> {
+        await this.request(
+            `/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/start`,
+            { method: 'POST' }
+        )
+    }
+
     async interruptMessage(sessionId: string, messageId: string): Promise<InterruptQueuedMessageResponse> {
         return await this.request<InterruptQueuedMessageResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/interrupt`,

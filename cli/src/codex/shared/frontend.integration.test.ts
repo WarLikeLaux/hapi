@@ -154,8 +154,35 @@ describe.skipIf(process.env.HAPI_RUN_SHARED_CODEX_TESTS !== '1' || process.platf
             await eventually(async () => webEvents, hasSharedReply, 'Web answer over live SSE');
             await eventually(() => api(`/sessions/${sessionId}/messages`), value => hasReply(value, 'HELLO_SHARED'), 'Web answer persisted');
             await eventually(detail, value => !record(value.session).thinking, 'native turn idle');
-            // Formal plans are native items, while the confirmation menu lives only in the TUI.
             const nativeThreadId = String(record(record(runtime.sessions)[sessionId]).threadId);
+            await send('ASK_SHARED_PAUSE_QUEUE');
+            await eventually(detail, value => Object.keys(record(record(record(value.session).agentState).requests)).length > 0, 'question before interrupting');
+            const pausedInput = randomUUID();
+            const messagePath = `/sessions/${sessionId}/messages`;
+            await api(messagePath, { text: 'START_SAVED_PROMPT', localId: pausedInput });
+            const savedMessage = await eventually(async () => {
+                const messages = (await api(messagePath)).messages as unknown[];
+                return record(messages.map(record).find(message => message.localId === pausedInput));
+            }, message => typeof message.id === 'string' && message.invokedAt === null, 'saved prompt before interrupting');
+            await eventually(async () => client!.request('thread/queue/list', { threadId: nativeThreadId }),
+                value => JSON.stringify(value).includes(pausedInput), 'prompt in the native queue');
+            await api(`/sessions/${sessionId}/abort`, {});
+            await eventually(detail, value => {
+                const session = record(value.session);
+                return session.thinking === false && record(session.agentState).codexPausedQueueHeadId === pausedInput;
+            }, 'Hub reports paused native queue and its saved head');
+            const startPath = `${messagePath}/${savedMessage.id}/start`;
+            expect(await api(startPath, {})).toEqual({ ok: true });
+            await eventually(() => api(messagePath), value => hasReply(value, 'START_SAVED_PROMPT'), 'saved prompt completed after explicit start');
+            expect(await api(startPath, {})).toEqual({ ok: true });
+            const pausedHistory = record(await client.request('thread/turns/list', {
+                threadId: nativeThreadId, itemsView: 'full', sortDirection: 'asc', limit: 30,
+            }));
+            const accepted = (pausedHistory.data as unknown[]).map(record).flatMap(turn => (turn.items as unknown[]).map(record));
+            expect(accepted.filter(item => item.type === 'userMessage' && item.clientId === pausedInput)).toHaveLength(1);
+            await eventually(detail, value => !record(value.session).thinking, 'resumed turn idle');
+
+            // Formal plans are native items, while the confirmation menu lives only in the TUI.
             const planCards = async () => {
                 const response = await api(`/sessions/${sessionId}/messages`);
                 return (Array.isArray(response.messages) ? response.messages : [])

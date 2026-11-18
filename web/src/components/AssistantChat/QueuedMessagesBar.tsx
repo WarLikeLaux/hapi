@@ -5,6 +5,7 @@ import {
     useEffect,
     useMemo,
     useRef,
+    useState,
     useSyncExternalStore,
 } from 'react'
 import type { ApiClient } from '@/api/client'
@@ -246,10 +247,12 @@ export function QueuedMessagesBar({
     steerHeadRef,
     deliveryActive = canSteer,
     compactionPendingMessageIds,
+    pausedQueueHeadId,
 }: {
     sessionId: string
     api: ApiClient | null
     compactionPendingMessageIds?: readonly string[]
+    pausedQueueHeadId?: string
     /** Current composer schedule, used only to guard an asynchronous edit restore. */
     pendingSchedule: PendingSchedule | null
     /** Monotonic per-session revision; schedule selections win over an async edit restore. */
@@ -283,6 +286,7 @@ export function QueuedMessagesBar({
     const steerMutation = useSteerQueuedMessage(api)
     const interruptMutation = useInterruptQueuedMessage(api)
     const retryMutation = useRetryIndeterminateMessage(api)
+    const [failedStart, setFailedStart] = useState<{ sessionId: string; messageId: string } | null>(null)
     const { t } = useTranslation()
     const { addToast } = useToast()
     const pendingScheduleRef = useRef(pendingSchedule)
@@ -513,6 +517,23 @@ export function QueuedMessagesBar({
                                 }).finally(() => endQueuedOperation(sessionId, token))
                         }
 
+                        const showStart = api && pausedQueueHeadId === msg.localId && msg.id !== msg.localId
+                            && msg.scheduledAt == null && !needsResolution
+                        const startFailed = failedStart?.sessionId === sessionId && failedStart.messageId === msg.id
+                        const handleStart = async () => {
+                            if (!showStart || !canCancel) return
+                            const token = beginQueuedOperation(sessionId)
+                            if (!token) return
+                            setFailedStart(null)
+                            try {
+                                await api.startCodexQueuedMessage(sessionId, msg.id)
+                            } catch {
+                                setFailedStart({ sessionId, messageId: msg.id })
+                            } finally {
+                                endQueuedOperation(sessionId, token)
+                            }
+                        }
+
                         const retryPending = retryMutation.isPending
                             && retryMutation.variables?.messageId === msg.id
                         const handleRetry = () => {
@@ -674,6 +695,23 @@ export function QueuedMessagesBar({
                                             </span>
                                         </div>
                                     )}
+                                    {showStart ? (
+                                        <>
+                                            {startFailed ? (
+                                                <p role="alert" className="mt-1 text-xs text-[var(--app-badge-warning-text)]">
+                                                    {t('queuedMessages.startFailed')}
+                                                </p>
+                                            ) : null}
+                                            <button
+                                                type="button"
+                                                disabled={!canCancel}
+                                                onClick={() => void handleStart()}
+                                                className="mt-2 rounded border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--app-fg)] transition-colors hover:bg-[var(--app-border)] disabled:opacity-40"
+                                            >
+                                                {t(startFailed ? 'queuedMessages.retryStart' : 'queuedMessages.start')}
+                                            </button>
+                                        </>
+                                    ) : null}
                                     {showInterrupt ? (
                                         <button
                                             type="button"

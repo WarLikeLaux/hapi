@@ -2598,6 +2598,8 @@ function SessionChatInner(props: SessionChatProps) {
                                         || props.session.agentState?.steeringActive === true)
                                     && !controlledByUser}
                                 canInterrupt={agentFlavor === 'agy' && props.session.active && props.session.thinking && !controlledByUser}
+                                pausedQueueHeadId={agentFlavor === 'codex' && props.session.active && !props.session.thinking
+                                    ? props.session.agentState?.codexPausedQueueHeadId ?? undefined : undefined}
                             />
                         </div>
 
