@@ -81,23 +81,33 @@ export async function saveRuntime(record: CodexRuntimeRecord): Promise<void> {
     }
 }
 
-/** The store-wide lock spans cold resume, not merely registry writes. */
-export async function withThreadOwnership<T>(home: string, threadId: string, ownId: string, work: () => Promise<T>,
-    onPreflightRejected?: (error: unknown) => Promise<T>): Promise<T> {
+export async function withRuntimeOwnershipLock<T>(home: string, work: () => Promise<T>): Promise<T> {
     const directory = join(home, 'hapi-runtime-owners');
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    return withSettingsFileLock(join(directory, 'ownership'), async () => {
+    return withSettingsFileLock(join(directory, 'ownership'), work);
+}
+
+/** Existing threads require proof that no unbound creation can own them. */
+export async function withThreadOwnership<T>(home: string, target: string | { createdThreadId: string }, ownId: string, work: () => Promise<T>,
+    onPreflightRejected?: (error: unknown) => Promise<T>): Promise<T> {
+    const existing = typeof target === 'string';
+    const threadId = existing ? target : target.createdThreadId;
+    const directory = join(home, 'hapi-runtime-owners');
+    return withRuntimeOwnershipLock(home, async () => {
         try {
             for (const owner of await readRecords(directory, true)) {
-                if (owner.id === ownId || owner.codexHome !== home) continue;
+                if (owner.codexHome !== home) continue;
                 if (!runtimeMayBeAlive(owner)) {
                     // Preserve the fork's cleanup of dead ownership records.
                     void unlink(join(directory, `${owner.id}.json`)).catch(() => {});
                     continue;
                 }
-                if (owner.pendingCreations?.length) {
+                // A successful non-ephemeral start/fork allocates a fresh native ID.
+                // An unrelated in-flight creation cannot own that ID.
+                if (existing && owner.pendingCreations?.length) {
                     throw new Error(`Codex runtime ${owner.id} has an unconfirmed creation. Inspect/stop that runtime before cold resume; its thread ID may be unknown.`);
                 }
+                if (owner.id === ownId) continue;
                 const match = Object.entries(owner.sessions).find(([, session]) => session.threadId === threadId && session.active);
                 if (!match) continue;
                 const orphanAlive = owner.serverPid && generationMayBeAlive(owner.serverPid, owner.serverMarker);
