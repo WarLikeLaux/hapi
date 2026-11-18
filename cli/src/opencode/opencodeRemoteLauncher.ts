@@ -3,6 +3,8 @@ import { getDefaultOpencodeReasoningEffort } from '@hapi/protocol';
 import React from 'react';
 import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
+import { join } from 'node:path';
+import { configuration } from '@/configuration';
 import { registerAcpSessionTitleSync } from '@/agent/acpSessionTitle';
 import { logger } from '@/ui/logger';
 import { buildHapiMcpBridge } from '@/codex/utils/buildHapiMcpBridge';
@@ -49,6 +51,7 @@ import { OpencodePermissionHandler } from './utils/permissionHandler';
 import { isAcpIndeterminateError } from '@/agent/backends/acp/AcpStdioTransport';
 import { getOpencodeNativeToolInstruction, PLAN_MODE_INSTRUCTION } from './utils/systemPrompt';
 import { resolveThoughtLevelEffort } from './thoughtLevelEffort';
+import { readOpenCodeRewindIntent } from './rewind';
 
 type OpencodeRemoteLauncherOptions = {
     onModelRollback?: (model: string | null) => void;
@@ -619,6 +622,20 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
         const sendReady = () => {
             session.sendSessionEvent({ type: 'ready' });
         };
+
+        // Incoming prompts wait on the startup fence until ACP is ready.
+        // Leave the fence in place if history still needs reconciliation.
+        if (!this.shouldExit) {
+            try {
+                if (!session.client.getMetadata()?.opencodeRewind
+                    && !readOpenCodeRewindIntent(join(configuration.happyHomeDir, 'opencode-rewind'), session.client.sessionId)) {
+                    const entryFence = session.runtimeGate.takeInitialEntryFence();
+                    if (entryFence) session.runtimeGate.releaseEntryFence(entryFence);
+                }
+            } catch (error) {
+                logger.warn('[opencode-remote] Could not verify the rewind journal at startup', error);
+            }
+        }
 
         while (!this.shouldExit) {
             const waitSignal = this.abortController.signal;
