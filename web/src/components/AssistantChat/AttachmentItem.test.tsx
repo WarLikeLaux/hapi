@@ -1,7 +1,7 @@
 import { ImagePreviewProvider } from '@/components/ImagePreview'
 import type { ReactElement } from 'react'
 import type { ComponentProps, ReactNode } from 'react'
-import { cleanup, fireEvent, render as renderComponent, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render as renderComponent, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
 
@@ -94,11 +94,13 @@ describe('AttachmentItem', () => {
         }
 
         renderAttachment()
+        const thumbnail = screen.getByRole('img', { name: 'zoom-me.png' })
         fireEvent.click(screen.getByTitle('Click to zoom'))
 
         const dialog = screen.getByRole('dialog', { name: 'zoom-me.png' })
-        expect(dialog).toBeInTheDocument()
-        expect(screen.getAllByRole('img', { name: 'zoom-me.png' })).toHaveLength(2)
+        const preview = within(dialog).getByRole('img', { name: 'zoom-me.png' })
+        expect(preview).toHaveAttribute('src', thumbnail.getAttribute('src'))
+        expect(screen.getByRole('img', { name: 'zoom-me.png' })).toBe(preview)
     })
 
     it('keeps non-image attachments in the filename chip layout', () => {

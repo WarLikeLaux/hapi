@@ -106,7 +106,8 @@ describe('buildSessionCitationSteerInstruction', () => {
         expect(text).toContain(PEER_DELIVERY_MODE_DESCRIPTION)
         expect(PING_PEER_TOOL_DESCRIPTION).toContain(PEER_DELIVERY_MODE_DESCRIPTION)
         expect(text).toContain('auto (default)')
-        expect(text).toContain('active turn when the target supports steering and is ready')
+        expect(text).toContain('steer an active Codex turn when it is ready; otherwise queue')
+        expect(text).toContain('Inactive peers require explicit wake=true')
         expect(text).toContain('auto retains the same single accepted message without resending')
         expect(text).not.toContain('Auto currently queues for other agent flavors')
         expect(text).toContain('Prefer auto for routine collaboration when queueing is an acceptable fallback')
@@ -155,12 +156,9 @@ describe('SPAWN_PEER_TOOL_DESCRIPTION', () => {
         expect(SPAWN_PEER_TOOL_DESCRIPTION.toLowerCase()).not.toMatch(/strip/)
     })
 
-    it('teaches omit permissionMode = yolo default, not approval-gated default', () => {
-        expect(SPAWN_PEER_TOOL_DESCRIPTION.toLowerCase()).toMatch(/yolo/)
-        expect(SPAWN_PEER_TOOL_DESCRIPTION.toLowerCase()).toMatch(/omit/)
-        expect(SPAWN_PEER_TOOL_DESCRIPTION.toLowerCase()).not.toMatch(
-            /pass permissionmode only when the operator asked/
-        )
+    it('preserves configured launch policy and limits permission overrides', () => {
+        expect(SPAWN_PEER_TOOL_DESCRIPTION).toContain('When permissionMode is omitted, use the configured launch policy')
+        expect(SPAWN_PEER_TOOL_DESCRIPTION).toContain('only when the operator asks or the work calls for tighter permissions')
     })
 
     it('forbids inventing peer titles and teaches Parent UUID stamp', () => {

@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'bun:test'
 import {
     PeerSpawnDefaultsSchema,
-    STOCK_PEER_SPAWN_DEFAULTS,
     mergePeerSpawnDefaults,
     resolvePeerSpawnConfig,
     resolvePermissionModeForFlavor
 } from './peerSpawnDefaults'
 
 describe('resolvePermissionModeForFlavor', () => {
-    it('maps stock yolo to bypassPermissions for claude', () => {
+    it('maps explicit yolo to bypassPermissions for claude', () => {
         expect(resolvePermissionModeForFlavor('yolo', 'claude')).toBe('bypassPermissions')
     })
 
@@ -38,14 +37,11 @@ describe('resolvePermissionModeForFlavor', () => {
 })
 
 describe('mergePeerSpawnDefaults', () => {
-    it('returns stock when hub settings are unset', () => {
-        expect(mergePeerSpawnDefaults(null)).toEqual({
-            ...STOCK_PEER_SPAWN_DEFAULTS,
-            permissionMode: 'bypassPermissions'
-        })
-        expect(mergePeerSpawnDefaults(undefined)).toEqual({
-            ...STOCK_PEER_SPAWN_DEFAULTS,
-            permissionMode: 'bypassPermissions'
+    it.each([null, undefined])('uses default permissions and no model overrides when settings are %s', (settings) => {
+        expect(mergePeerSpawnDefaults(settings)).toEqual({
+            agent: 'claude',
+            permissionMode: 'default',
+            models: {}
         })
     })
 
@@ -55,11 +51,8 @@ describe('mergePeerSpawnDefaults', () => {
             models: { cursor: 'auto' }
         })).toEqual({
             agent: 'cursor',
-            permissionMode: 'yolo',
-            models: {
-                claude: 'sonnet',
-                cursor: 'auto'
-            }
+            permissionMode: 'default',
+            models: { cursor: 'auto' }
         })
     })
 })
@@ -82,7 +75,7 @@ describe('resolvePeerSpawnConfig', () => {
             { models: { claude: 'opus' } }
         )).toEqual({
             agent: 'claude',
-            permissionMode: 'bypassPermissions',
+            permissionMode: 'default',
             model: 'opus'
         })
     })
@@ -90,12 +83,11 @@ describe('resolvePeerSpawnConfig', () => {
     it('uses stock defaults when hub settings are unavailable', () => {
         expect(resolvePeerSpawnConfig({})).toEqual({
             agent: 'claude',
-            permissionMode: 'bypassPermissions',
-            model: 'sonnet'
+            permissionMode: 'default'
         })
     })
 
-    it('re-maps stock yolo permission when agent override differs from hub default agent', () => {
+    it('re-maps a configured permission mode when agent override differs from hub default agent', () => {
         expect(resolvePeerSpawnConfig(
             { agent: 'cursor' },
             { agent: 'claude', permissionMode: 'yolo' }
@@ -105,21 +97,20 @@ describe('resolvePeerSpawnConfig', () => {
         })
     })
 
-    it('preserves auto-approval when hub returns resolved Claude bypassPermissions and agent overrides to codex', () => {
+    it('uses default permissions when no launch policy is configured and the agent is overridden', () => {
         expect(resolvePeerSpawnConfig(
             { agent: 'codex' },
             mergePeerSpawnDefaults(null)
         )).toEqual({
             agent: 'codex',
-            permissionMode: 'yolo'
+            permissionMode: 'default'
         })
     })
 
     it('forwards explicit effort', () => {
         expect(resolvePeerSpawnConfig({ effort: 'high' })).toEqual({
             agent: 'claude',
-            permissionMode: 'bypassPermissions',
-            model: 'sonnet',
+            permissionMode: 'default',
             effort: 'high'
         })
     })
