@@ -167,6 +167,55 @@ describe.skipIf(process.env.HAPI_RUN_SHARED_CODEX_TESTS !== '1')('installed Code
                 expect.objectContaining({ codexSessionId: runtime.sessions[sessionId].threadId, hostStartMarker: BOOTSTRAP_START_MARKER }));
         } finally { abort.abort(); await running.catch(() => {}); await rm(home, { recursive: true, force: true, maxRetries: 3 }); }
     }, 30_000);
+    it('binds a fresh CLI launch while another runtime is still awaiting its creation response', async () => {
+        const home = await mkdtemp('/tmp/hapi-shared-parallel-'); state.home = home;
+        const ch = join(home, 'codex'); await mkdir(ch);
+        const firstCwd = join(home, 'first'); await mkdir(firstCwd);
+        const secondCwd = join(home, 'second'); await mkdir(secondCwd);
+        await writeFile(join(ch, 'config.toml'), 'model = "mock-model"\nmodel_provider = "mock"\n[model_providers.mock]\nname = "No model calls"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n[analytics]\nenabled = false\n[feedback]\nenabled = false\n');
+        vi.stubEnv('CODEX_HOME', ch); vi.stubEnv('HOME', home);
+        const { runSharedRuntime } = await import('./runtime');
+        const abort = new AbortController();
+        const firstResponse = Promise.withResolvers<void>();
+        const releaseFirst = Promise.withResolvers<void>();
+        const originalRequest = CodexAppServerClient.prototype.request;
+        const requests = vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(async function<T>(
+            this: CodexAppServerClient, method: string, params?: unknown
+        ): Promise<T> {
+            const response = await originalRequest.call(this, method, params) as T;
+            if (method === 'thread/start' && record(params).cwd === firstCwd) {
+                firstResponse.resolve();
+                await releaseFirst.promise;
+            }
+            return response;
+        });
+        const start = (workingDirectory: string) => {
+            const ready = Promise.withResolvers<import('./runtime').RuntimeReady>();
+            const running = runSharedRuntime({ workingDirectory }, ready.resolve, abort.signal);
+            const stopped = running.then(() => { throw new Error('Runtime stopped before ready'); });
+            return { running, readiness: Promise.race([ready.promise, stopped]) };
+        };
+        const first = start(firstCwd);
+        let second: ReturnType<typeof start> | undefined;
+        try {
+            await Promise.race([firstResponse.promise, first.readiness]);
+            second = start(secondCwd);
+            const next = await second.readiness;
+            releaseFirst.resolve();
+            const initial = await first.readiness;
+            const initialThread = state.sessions.get(initial.sessionId)?.metadata.codexSessionId;
+            const nextThread = state.sessions.get(next.sessionId)?.metadata.codexSessionId;
+            expect(initialThread).toBeTruthy();
+            expect(nextThread).toBeTruthy();
+            expect(nextThread).not.toBe(initialThread);
+        } finally {
+            releaseFirst.resolve();
+            abort.abort();
+            await Promise.allSettled([first.running, second?.running]);
+            requests.mockRestore();
+            await rm(home, { recursive: true, force: true, maxRetries: 3 });
+        }
+    }, 30_000);
     it('binds empty roots, exchanges messages, isolates /new, and archives only the selected root', async () => {
         const home = await mkdtemp('/tmp/hapi-shared-test-'); state.home = home;
         const ch = join(home, 'codex'); const cwd = join(home, 'work'); await mkdir(ch); await mkdir(cwd);

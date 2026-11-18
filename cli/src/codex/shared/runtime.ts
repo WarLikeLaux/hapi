@@ -10,7 +10,7 @@ import { notifyRunnerSessionStarted } from '@/runner/controlClient';
 import { getProcessStartMarker, killProcessByChildProcess } from '@/utils/process';
 import { logger } from '@/ui/logger';
 import { CodexAppServerClient, isIndeterminateError } from '../codexAppServerClient';
-import { codexHome, saveRuntime, runtimeDirectory, runtimeAuthHash, findColdBinding, withThreadOwnership, type CodexRuntimeRecord } from './registry';
+import { codexHome, saveRuntime, runtimeDirectory, runtimeAuthHash, findColdBinding, withRuntimeOwnershipLock, withThreadOwnership, type CodexRuntimeRecord } from './registry';
 import { startCodexGateway, record, string, type Envelope } from './gateway';
 import { resolveSharedCodex, sharedLaunchConfig, initializeSharedClient, checkSharedCapabilities, takeReservedSessionId, type SharedLaunchOptions } from './launch';
 import { SharedCodexRoot } from './root';
@@ -214,14 +214,20 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
         runtime.sessions[root.session.sessionId] = { threadId, namespace: root.bootstrap.sessionInfo.namespace, active: true };
         runtime.pendingCreations = runtime.pendingCreations?.filter(sid => sid !== root.session.sessionId); await persist();
     };
-    const reserve = async (root: SharedCodexRoot, threadId: string) => withThreadOwnership(home, threadId, id, () => reserveRecord(root, threadId));
+    const markPendingCreation = (root: SharedCodexRoot) => withRuntimeOwnershipLock(home, async () => {
+        // Publish before dispatch and under the same lock as a cold resume's
+        // preflight and reservation. A resume then sees the pending or bound ID.
+        assertRunning();
+        runtime.pendingCreations = [...runtime.pendingCreations ?? [], root.session.sessionId];
+        await persist();
+    });
     const bind = async (root: SharedCodexRoot, response: Record<string, unknown>, subscribe: boolean, initialOptions?: SharedLaunchOptions, newThread = false) => {
         assertRunning();
         const threadId = string(record(response.thread).id);
         if (!threadId) throw new Error('Codex lifecycle response has no thread ID');
         const reserved = runtime.sessions[root.session.sessionId];
         if (reserved && reserved.threadId !== threadId) throw new Error('Codex retargeted a reserved thread');
-        if (!reserved) await reserve(root, threadId);
+        if (!reserved) await withThreadOwnership(home, { createdThreadId: threadId }, id, () => reserveRecord(root, threadId));
         // No fake user turn/name. Metadata write materializes an empty legacy rollout for native resume.
         await control.request('thread/metadata/update', { threadId, gitInfo: gitInfo(string(record(response.thread).cwd) ?? root.bootstrap.workingDirectory) });
         assertRunning();
@@ -244,7 +250,7 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
         const root = await prepare(string(params.cwd) ?? launch.cwd, undefined, parent);
         let nativeSucceeded = false;
         try {
-            runtime.pendingCreations = [...runtime.pendingCreations ?? [], root.session.sessionId]; await persist();
+            await markPendingCreation(root);
             const response = record(await root.client.request(method, root.config({ ...params, ...(method === 'thread/fork' ? { deferGoalContinuation: true, excludeTurns: true } : {}) })));
             nativeSucceeded = true;
             await bind(root, response, true, initialOptions, method === 'thread/start'); return root;
@@ -269,6 +275,7 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
         if (request.id === undefined) throw new Error('Lifecycle operations require a JSON-RPC request ID');
         if (params.history || params.path) throw new Error('Use a native thread ID to resume through HAPI');
         const threadId = string(params.threadId);
+        if (request.method === 'thread/resume' && !threadId) throw new Error('Use a native thread ID to resume through HAPI');
         let existing = threadId ? roots.get(threadId) : undefined;
         if (threadId && !existing) {
             let candidate = threadId; const visited = new Set<string>();
@@ -293,11 +300,10 @@ export async function runSharedRuntime(options: SharedLaunchOptions, onReady?: (
                 await reserveRecord(root, threadId); return root;
             }) : await prepare(cwd, undefined, request.method === 'thread/fork' ? existing : undefined);
         try {
-            if (request.method !== 'thread/resume') {
-                runtime.pendingCreations = [...runtime.pendingCreations ?? [], root.session.sessionId]; await persist();
-            }
+            const configured = root.config({ ...params, ...(request.method === 'thread/fork' ? { deferGoalContinuation: true } : {}) });
+            if (request.method !== 'thread/resume') await markPendingCreation(root);
             reservations.set(key(connection, request), { root, resumeId: request.method === 'thread/resume' ? threadId : undefined });
-            return { ...request, params: root.config({ ...params, ...(request.method === 'thread/fork' ? { deferGoalContinuation: true } : {}) }) };
+            return { ...request, params: configured };
         } catch (error) { prepared.delete(root); await root.close(true); throw error; }
     });
     const after = (request: Envelope, response: Envelope, connection: string): Promise<void | Envelope[]> => operation(async () => {
