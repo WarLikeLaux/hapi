@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { MessageBuffer } from '@/ui/ink/messageBuffer';
 import type { OpencodeMode, PermissionMode } from './types';
+import { OpenCodeRuntimeGate } from './rewind';
 
 const harness = vi.hoisted(() => ({
     servePid: null as number | null,
@@ -416,6 +417,7 @@ function createSessionStub(
     const thinkingChangeCalls: boolean[] = [];
 
     const client = {
+        sessionId: 'hapi-opencode-test',
         getMetadata: vi.fn(() => null),
         updateMetadata: vi.fn(),
         rpcHandlerManager: {
@@ -443,6 +445,7 @@ function createSessionStub(
         logPath: '/tmp/hapi-opencode-test/test.log',
         client,
         queue,
+        runtimeGate: new OpenCodeRuntimeGate(),
         sessionId: null as string | null,
         thinking: false,
         model: null as string | null,
@@ -2690,6 +2693,27 @@ describe('opencodeRemoteLauncher v2 flavor wiring', () => {
         const backendModuleFns = backendModule as unknown as Record<string, ReturnType<typeof vi.fn>>;
         for (const name of ['createOpencodeBackend', 'detectOpencodeFlavorVersion', 'discoverOpencodeV2RestPort', 'listLoopbackListeners']) {
             backendModuleFns[name]?.mockClear();
+        }
+    });
+
+    it('delivers the first prompt that arrived during remote startup', async () => {
+        harness.detectedVersion = 'v2';
+        const { session } = createSessionStub([], { keepOpen: true });
+        session.runtimeGate = new OpenCodeRuntimeGate(true);
+        void session.runtimeGate.waitUntilOpen().then(() => {
+            session.queue.push('first prompt', createMode());
+            session.queue.close();
+        });
+        const launch = opencodeRemoteLauncher(session as never);
+        try {
+            await vi.waitFor(() => expect(harness.promptCount).toBe(1));
+            expect(harness.promptContents.at(-1)).toContainEqual({
+                type: 'text',
+                text: expect.stringMatching(/first prompt$/)
+            });
+        } finally {
+            session.queue.close();
+            await launch;
         }
     });
 
