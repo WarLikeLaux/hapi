@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
+import { useLowRateAnimation } from '@/hooks/useLowRateAnimation'
 
 export const SESSION_LIST_ITEM_CLASS = 'session-list-item group/session-row flex w-full flex-col gap-1 py-2 pl-0 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] select-none rounded-lg'
 
@@ -35,8 +36,11 @@ export function SessionRowLayout(props: {
 }
 
 export function SessionWorkingIcon() {
+    const ref = useRef<SVGSVGElement>(null)
+    useLowRateAnimation(ref, 'spin')
+
     return (
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0 animate-spin-slow text-[var(--app-badge-success-text)]">
+        <svg ref={ref} aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0 text-[var(--app-badge-success-text)]">
             <line x1="12" y1="2" x2="12" y2="6" />
             <line x1="12" y1="18" x2="12" y2="22" />
             <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
