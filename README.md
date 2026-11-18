@@ -2,31 +2,34 @@
 
 # HAPI custom fork
 
-This is a maintained downstream fork of [HAPI](https://github.com/tiann/hapi) for a local-first agent workflow shared between a desktop terminal and a phone through the Web/PWA client. It keeps the upstream agent, Hub, and Web/PWA architecture while adapting session navigation, project launching, review tools, and messaging.
+This maintained fork of [tiann/hapi](https://github.com/tiann/hapi) is for running coding agents on your own machines and managing their work from a desktop browser or a phone. It builds on HAPI’s CLI, Hub and Web/PWA with tools for working across projects, coordinating agents and reviewing changes from a phone.
 
-For the complete product overview, supported agents, and architecture, read the **[canonical upstream README](https://github.com/tiann/hapi#readme)**. This page documents only the differences and operational rules of this fork.
+The `custom` branch includes the upstream 0.36.5 merge and subsequent fork fixes. For the original product overview, use the [upstream README](https://github.com/tiann/hapi#readme), [upstream documentation](https://hapi.run/docs/) and [0.36.5 release notes](https://github.com/tiann/hapi/releases/tag/v0.36.5). Use the instructions below to install and open the fork.
 
-## What this fork changes
+## What this fork adds
 
-| Area | Fork behavior | Practical effect |
-| --- | --- | --- |
-| Session navigation | Separate Working, Active, keepalive-only Idle, and Recent sections; stable activity-based ordering; unread state shared between desktop Web and phone PWA, with a confirmed mark-all-as-read action; project/global pins, with freshly created empty sessions pinned to the top of Active; inactive-session filtering; project and Git-branch labels; and project-wide HAPI session cleanup that retains local agent transcripts. | The sessions that need attention stay visible with enough project context, unread attention stays tied to agents that are actually working, and quiet connected processes and old sessions do not obscure current work. |
-| Projects and new sessions | Searchable, sortable, pinnable workspace roots, manual folder selection, continuation of an existing session in another allowed folder, Codex first in the picker, and the first configured workspace root as the initial directory. | A runner scoped to a multi-project directory can launch or continue Codex in any allowed project without source-code path constants. |
-| Files and review | The Files screen separates search in changed files from project-wide directory search. Changes can show the working tree, the last commit, or the current branch against its detected base branch, either per file or as one full diff. Agent responses can include their workspace changes, and attached merge requests appear in the session header. | A phone can inspect pending work, each response's edits, the complete branch delta, and a merge request without opening every file individually. |
-| Agent defaults and lifecycle | New Codex sessions initially use YOLO mode; explicit later choices are remembered. Stop, reopen, restart, cold-start recovery, and Codex history sync preserve clearer lifecycle and activity timestamps. Supported agents are prompted to keep Russian task titles aligned with the current objective; explicit agent title changes update the visible session name, and Codex titles can also be regenerated from the session menu. Kimi model choices are discovered from the selected project's configured providers for both new and running sessions. Antigravity receives session-scoped HAPI title and media tools without replacing user-managed MCP servers, and headless Antigravity sessions load the project's skills and `AGENTS.md` context. Cursor sessions mirror the Cursor dashboard quota percent as a weighted estimate. | Starting work is faster, switching between HAPI and a local agent is less disruptive, and long-running chats remain identifiable. Project-specific Kimi aliases are available without maintaining a static model list. **Codex YOLO disables sandbox restrictions and routine tool-call approval prompts, but explicit execpolicy `prompt` rules and MCP flows that require user input still reach HAPI.** |
-| Chat and mobile UI | Intermediate reasoning and tool activity are grouped behind one `Show work` action. Mobile Enter inserts a newline, the send control is touch-friendly, active chats stay pinned to the latest messages, and background replies are prefetched. Composer drafts are persisted when the app is backgrounded. Working and delivery indicators recover from stale external turns. External HTTP(S) links have a Display setting for opening in a new tab; fork-specific file, session, and custom-protocol link protections remain in place. HTML artifacts sent through HAPI open in a new browser tab inside a sandboxed preview instead of requiring a download first. The composer collapses model and effort pickers into a display-only pill, and a PWA cache reset button with no-store shell headers lets the installed client pick up fresh builds immediately. | The transcript stays compact and current, phone input behaves like a messaging app, drafts survive mobile app switching, and generated diagrams or reports are one tap away without receiving access to HAPI's authenticated origin. |
-| Telegram account chats | An opt-in MTProto connector adds selected Telegram dialogs to a dedicated Chats screen. It supports live text and media, avatars and grouping, aliases, reactions, delivery/read indicators, and synchronized inbox read state. | HAPI can act as a focused Telegram client without copying every dialog into Hub storage. This uses a Telegram user account and is separate from bot notifications. |
-| Telegram bot notifications | Notifications link directly to the agent session and are suppressed only while that exact chat is visibly open. | Alerts still arrive from the session list, another chat, or a backgrounded app without duplicating the chat currently being watched. |
-| Maintenance and releases | Upstream is reviewed and merged into `custom` with a real merge commit. Syncing never authorizes publishing, signing, deployment, or a force-push. | Fork behavior and security boundaries are reviewed instead of being overwritten by upstream updates. |
-| Client scope | The upstream `ios/` and `android/` projects, their CI/release workflows, and native-app build guide are intentionally removed. | This fork is Web/PWA-only and does not download or build mobile SDK projects. |
+| Area | What you can do |
+| --- | --- |
+| **Session list** | Find chats by project, branch or message text. Working sessions follow your activity, while Active and Recent follow agent activity. Keepalive-only and parked sessions can appear in Idle. Pins, muted chats and Hub-synced read state help you manage the same list on desktop and phone. You can mark everything read in one action or delete a project’s HAPI sessions while keeping the agents’ local transcripts. |
+| **Projects and groups** | Search, sort and pin projects, choose a workspace directory and launch one or several independent chats with shared or per-chat prompts. Named chat groups have ordered, pinnable tabs and can be parked when idle. Supported agents can discover projects, launch other agents into groups and coordinate through HAPI’s MCP tools. |
+| **Agent settings and lifecycle** | Save project and model preferences and select effort or speed where the agent supports them. Codex offers Fast and Ultrafast when the model and account allow them. Kimi can use models from the selected project’s configured providers. Supported agents can keep Russian task titles current, and users can protect titles by renaming them. Stop, reopen and restart controls let you manage sessions from Web/PWA. |
+| **Chat and phone workflow** | Expand intermediate tool calls and reasoning with **Show work**. On a phone, Enter inserts a newline by default and drafts survive switching apps. Codex’s live non-blocking questions can be answered or dismissed in a panel above the composer. Starting a newer turn clears stale questions from that panel. |
+| **Files and review** | Search changed files or the whole project. Review the working tree, the last commit or the branch against its detected base as a full diff or file by file. See file changes in Codex patch cards and follow attached review links. Open generated HTML in a sandboxed browser preview. |
+| **Messaging** | Connect personal Telegram or Yandex Messenger accounts to the **Chats** screen and choose which dialogs to show. Telegram bot notifications for agent activity link to the session and are suppressed while that exact chat is visibly open. |
+| **Usage** | See runner-reported account limits in **Settings → Limits**, including on-demand Claude Code plan refresh. **Settings → Usage** shows recorded token totals for the Hub owner. Cursor quota percentages are estimates. |
 
-This fork keeps **Settings → Limits** for runner-reported account limits and **Settings → Usage** for recorded session tokens. Claude Code plan windows can be refreshed on demand from Limits. See [Usage and quotas](docs/guide/usage-and-quotas.md).
+See the fork’s [Web client guide](web/README.md), [agents](docs/guide/agents.md), [peer sessions](docs/guide/peer-sessions.md) and [usage and quotas](docs/guide/usage-and-quotas.md) for details.
 
-The important operational difference is distribution: upstream npm packages, release downloads, and self-update instructions install upstream HAPI, not this fork. Upstream native-app build instructions do not apply here.
+## Upstream features and fork limits
+
+- **Clients.** The fork ships its own Web/PWA and retains the Telegram Mini App. The upstream iOS and Android source trees, build and store workflows, and native-app guide are intentionally omitted. Some companion API and push support remains in the Hub. Use the Web/PWA served by your fork Hub to get the fork’s interface. The public relay’s sign-in link and QR code point to the upstream hosted Web app by default. [Web/PWA](docs/guide/pwa.md) · [Remote access and self-hosted tunnels](docs/guide/deployment.md)
+- **Sign-in and title generation.** Use the Hub access token for browser sign-in. Upstream passkey sign-in is unavailable in this tree. The Hub can request a title on demand when a title provider is configured. That action sends recent conversation text to the provider. Automatic first-turn Hub title requests are disabled by fork policy. Agents can still name their sessions, and Codex can regenerate a title from the session menu. [Fork synchronization policy](FORK_SYNC.md)
+- **Conversation history.** Terminal/Web shared Codex sessions are available with Codex 0.154.0 or newer. Upstream’s `hapi attach` for external Codex runtimes and cross-agent/model branching are unavailable in this tree. The fork keeps its own conversation fork actions where supported. Its non-blocking question panel is a Web feature. [Codex shared sessions](docs/guide/codex-shared-sessions.md) · [Local history import](docs/guide/import-local-sessions.md)
+- **Hidden and retired controls.** Work/Lab/Chill context controls are hidden. The list shows every context and retains stored assignments. Date filtering is in expanded search. The separate unread-only button and DIFIT integration were removed. MAX account chats are paused, with saved accounts and history kept. [Fork synchronization policy](FORK_SYNC.md) · [MAX account chats](hub/README.md#max-account-chats-temporarily-disabled)
 
 ## Install and run this fork
 
-The default branch is `custom`. Build from source with Bun 1.4.4:
+Build from the default branch `custom` with Bun 1.4.4. The build downloads the `tunwg` relay helper and embeds the Web client. Install and authenticate at least one supported agent separately.
 
 ```bash
 git clone --branch custom https://github.com/WarLikeLaux/hapi.git
@@ -35,37 +38,43 @@ bun install --frozen-lockfile
 bun run build:single-exe
 ```
 
-Do **not** use `npx @twsxtd/hapi` or upstream release binaries when you expect the custom behavior described above. Runner version handoff can activate a custom binary that you installed, but it does not download fork updates.
-
-For an existing Linux user-systemd installation configured to run the custom binary, this repository includes a guarded local deployment command:
+The executable is under `cli/dist-exe/<target>/hapi` (`hapi.exe` on Windows). Put it on your `PATH` and make sure `hapi` resolves to that executable. The upstream npm package `@twsxtd/hapi`, Homebrew tap, release downloads and update instructions serve upstream HAPI.
 
 ```bash
-bun run deploy:local-hub
+hapi hub --no-relay
 ```
 
-It type-checks and tests the Hub, builds the embedded web client, HAPI executable, and Telegram connector, keeps the previous binaries for rollback, restarts the Hub, and pins future runner launches to the same custom executable. This path requires Go as well as Bun. Its defaults expect `hapi-hub.service`, `hapi-runner.service`, and `~/.local/lib/hapi-custom/current/hapi`; override them with `HAPI_SERVICE_NAME`, `HAPI_RUNNER_SERVICE_NAME`, and `HAPI_INSTALL_PATH`. Review [the deployment script](scripts/deploy-local-hub.sh) before using it on another machine.
+Open the Hub’s local Web URL (by default `http://127.0.0.1:3006`) and sign in with the access token printed on first launch. In another terminal, run `hapi` to choose an agent or `hapi codex` to start Codex directly. To launch sessions from the browser, start a Runner on the machine with your agent and projects, for example `hapi runner start --workspace-root ~/projects`. On a separate machine, configure the same Hub URL and access token. [Configuration](docs/guide/configuration.md) · [CLI and Runner](cli/README.md) · [Notifications](docs/guide/notifications.md)
 
-General upstream configuration still applies: [installation and environment](docs/guide/installation.md), [agents](docs/guide/agents.md), [Web/PWA](docs/guide/pwa.md), and [notifications](docs/guide/notifications.md).
+### Updating an installed fork
 
-### Optional Telegram account chats
+In the fork checkout on `custom`, run `git pull --ff-only origin custom`, then repeat the install and build commands above. Replace the installed executable and update the Hub, Runner and CLI on each machine together. Back up your Hub data before updating. Runner version handoff can switch to a compatible executable you installed locally.
 
-The Chats screen uses a separate MTProto sidecar, not the Telegram bot used for agent notifications. Build it with `bun run build:telegram-connector` and place `connectors/telegram/hapi-telegram-connector` beside the installed HAPI executable; `deploy:local-hub` does this automatically. The UI then asks for an API ID and hash from [my.telegram.org](https://my.telegram.org/apps), followed by the account's phone, login code, and optional 2FA password.
+For an existing Linux user-systemd installation, use `bun run deploy:local-hub` from the main checkout on `custom`. It requires Go 1.25 or newer as well as Bun. It builds and installs the executable and Telegram connector, keeps the previous binaries and restarts the Hub. By default it also type-checks and tests the Hub. If the Runner unit exists, the script pins future launches to the installed executable and restarts an active Runner only with `KillMode=process`. Defaults are `hapi-hub.service`, `hapi-runner.service` and `~/.local/lib/hapi-custom/current/hapi`. Set `HAPI_SERVICE_NAME`, `HAPI_RUNNER_SERVICE_NAME` or `HAPI_INSTALL_PATH` to match your configuration. The Hub unit’s `ExecStart` must already point to the install path. [Deployment script](scripts/deploy-local-hub.sh)
 
-The connector stores credentials and its MTProto session with owner-only permissions below the HAPI data directory. Only dialogs explicitly selected in the UI are cached by HAPI. See the [connector guide](connectors/telegram/README.md) for development and custom binary paths.
+### Optional account chats
 
-## Security and private configuration
+For Telegram, build the MTProto connector with `bun run build:telegram-connector` (Go 1.25 or newer). Place `connectors/telegram/hapi-telegram-connector` beside the installed HAPI executable, adding the `.exe` suffix to the connector on Windows. The Linux deployment command does this for you. In **Chats**, connect with an API ID and hash, then complete phone, login code and optional 2FA prompts. Yandex Messenger uses the signed-in account’s messenger cookies. Treat both connectors’ credentials as account secrets. The Hub caches the dialogs you select. Bot notifications use their own bot token. [Telegram connector guide](connectors/telegram/README.md) · [Telegram API credentials](https://my.telegram.org/apps)
 
-- Keep Hub tokens, Telegram bot tokens, Telegram API credentials and sessions, public/private hostnames, and local filesystem paths outside Git.
-- Workspace browsing is restricted to roots explicitly supplied with `hapi runner start --workspace-root <path>`; without them it falls back to the runner user's home directory rather than the whole filesystem.
-- Treat YOLO mode as dangerous: it bypasses the agent's normal approval and sandbox protections except for explicit execpolicy `prompt` rules and MCP flows that require actual user input.
-- Exposing the Hub or enabling Telegram still requires the authentication, TLS, tunnel, and `HAPI_PUBLIC_URL` guidance from upstream; a local deployment does not make the Hub safely public by itself.
+## Local development
 
-See [SECURITY.md](SECURITY.md) and the [fork synchronization policy](FORK_SYNC.md) before changing authentication, namespaces, command execution, notifications, file access, runner control, external links, or release workflows.
+Use the same clone and dependency installation as above, plus Node.js 22.12 or newer for the Web dev server. From the repository root, start the Hub and Vite with development data in a separate directory.
 
-## Updating from upstream
+```bash
+export HAPI_HOME="$HOME/.hapi-dev"
+bun run dev
+```
 
-The permanent policy is documented in [FORK_SYNC.md](FORK_SYNC.md). In short, upstream changes are reviewed and merged from `upstream/main` into `custom` with `--no-ff`; fork features, security boundaries, restricted release workflows, and tests must survive the merge. Do not rebase or force-push the maintained branch.
+Open the Vite URL printed in the terminal and sign in with the dev Hub’s access token. Vite proxies API requests to the Hub on port 3006 by default. If another Hub is already listening there, set `HAPI_LISTEN_PORT` and set `VITE_HUB_PROXY` to the matching local URL before starting development. To run the source CLI against the dev Hub, use the same `HAPI_HOME` in another terminal and run `bun run --cwd cli dev codex`. Set `HAPI_API_URL` there if you changed the port. [Contributing](CONTRIBUTING.md) · [Hub development](hub/README.md#running) · [Web development](web/README.md#development) · [Pitbox and UI previews](scripts/tooling/README.md)
 
-## License and upstream credit
+## Security and maintenance
 
-HAPI means “哈皮”, a Chinese transliteration of [Happy](https://github.com/slopus/happy). The original HAPI project and its contributors remain the source of the product; this repository maintains a focused downstream adaptation.
+- Check permissions when creating a Codex session in Web. The default for a fresh Codex launch form is YOLO. YOLO disables the agent sandbox and routine tool approvals. Explicit execpolicy prompts and MCP requests that need your input can still appear.
+- Explicit Runner workspace roots constrain browsing and spawning. Without roots, directory lookups are scoped to the Runner user’s home, and manual spawning can still access other paths available to that user. Workspace roots are separate from agent sandbox permissions.
+- Keep tokens, messenger credentials and machine-specific settings out of Git. For remote use, configure authentication and HTTPS. Set `HAPI_PUBLIC_URL` to your public HTTPS origin for the Telegram Mini App. [Security policy](SECURITY.md) · [Namespaces](docs/guide/namespace.md) · [Remote access](docs/guide/deployment.md)
+
+Maintainers review changes from `upstream/main` and make a real `--no-ff` merge into `custom`. The fork runs **Test** in CI and checks **fixtures** when the relevant paths change. Keep the workflow restrictions and retain the merged history without rebasing or force-pushing. Publishing, signing and deployment require separate authorization. [Fork synchronization policy](FORK_SYNC.md) · [Repository workflow](AGENTS.md)
+
+## License and credits
+
+HAPI comes from [tiann/hapi](https://github.com/tiann/hapi) and builds on [Happy](https://github.com/slopus/happy). This fork is licensed under [AGPL-3.0](LICENSE).
