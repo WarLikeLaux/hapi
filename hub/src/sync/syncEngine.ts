@@ -2662,7 +2662,7 @@ export class SyncEngine {
             if (!session?.metadata || session.namespace !== namespace) throw new Error('OpenCode fork child disappeared')
             if (!session.metadata.opencodeForkPending) return
             const result = this.store.sessions.updateSessionMetadata(sessionId,
-                { ...session.metadata, opencodeForkPending: undefined }, session.metadataVersion, namespace, { touchUpdatedAt: false })
+                { ...session.metadata, opencodeForkPending: null }, session.metadataVersion, namespace, { touchUpdatedAt: false })
             if (result.result === 'success') {
                 this.sessionCache.refreshSession(sessionId)
                 return

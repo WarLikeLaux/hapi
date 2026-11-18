@@ -1396,6 +1396,7 @@ describe('Codex Desktop import routes', () => {
         store.messages.addMessage(engineSession.id, { type: 'text', text: 'engine-only message' }, 'engine-1')
         const engine = {
             getSessionsByNamespace: () => [engineSession],
+            transferAttachedJobs: () => {},
             deleteSession: async (sessionId: string) => {
                 store.sessions.deleteSession(sessionId, 'default')
             },

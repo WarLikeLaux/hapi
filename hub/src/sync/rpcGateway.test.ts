@@ -56,11 +56,11 @@ function createGateway() {
 }
 
 describe('RpcGateway RPC timeouts', () => {
-    it('allows Codex startup and preflight to finish before the outer RPC expires', async () => {
+    it('allows agent startup to finish before the outer spawn RPC expires', async () => {
         const { gateway, timeouts } = createGateway()
         await gateway.spawnSession('machine-1', 'C:\\workspace', 'codex')
         await gateway.spawnSession('machine-1', 'C:\\workspace', 'claude')
-        expect(timeouts).toEqual([130_000, 30_000])
+        expect(timeouts).toEqual([130_000, 130_000])
     })
 
     it('uses the archive stop budget without putting timeout options on the wire', async () => {

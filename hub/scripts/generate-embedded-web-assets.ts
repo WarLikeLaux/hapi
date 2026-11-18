@@ -85,7 +85,11 @@ function main(): void {
         const mimeType = resolveMimeType(filePath);
 
         imports.push(`import ${importName} from '${importPath}' assert { type: 'file' };`);
-        manifestLines.push(`    { path: '${requestPath}', sourcePath: ${importName}, mimeType: '${mimeType}' },`);
+        // Bun's file loader yields a path even when TypeScript resolves a JSON module as an object.
+        const sourcePath = extname(filePath).toLowerCase() === '.json'
+            ? `${importName} as unknown as string`
+            : importName;
+        manifestLines.push(`    { path: '${requestPath}', sourcePath: ${sourcePath}, mimeType: '${mimeType}' },`);
     });
 
     const output = [

@@ -242,7 +242,7 @@ export function deleteScratchlistEntry(
  *      (`mergeSessionHistory`) symmetric and avoids leaving stale
  *      duplicates on the old row when it stays alive.
  *
- * Wrapped in BEGIN/COMMIT so the move is atomic w.r.t. concurrent
+ * Runs in a transaction so the move is atomic with respect to concurrent
  * writers. Returns counts so the caller can decide whether to fire
  * SSE patches.
  */
@@ -255,8 +255,7 @@ export function transferScratchlistEntries(
         return { moved: 0, collided: 0 }
     }
 
-    try {
-        db.exec('BEGIN')
+    return db.transaction(() => {
         const before = db.prepare(
             'SELECT COUNT(*) AS n FROM session_scratchlist WHERE session_id = ?'
         ).get(fromSessionId) as { n: number } | undefined
@@ -270,10 +269,6 @@ export function transferScratchlistEntries(
                 'DELETE FROM session_scratchlist WHERE session_id = ?'
             ).run(fromSessionId)
         }
-        db.exec('COMMIT')
         return { moved, collided }
-    } catch (error) {
-        db.exec('ROLLBACK')
-        throw error
-    }
+    })()
 }

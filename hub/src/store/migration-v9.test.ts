@@ -241,13 +241,15 @@ describe('Store V9: scheduled_at store operations', () => {
         const session = store.sessions.getOrCreateSession('test', { path: '/tmp' }, null, 'default')
         const now = Date.now()
 
+        const userMessage = (text: string) => ({ role: 'user', content: { type: 'text', text } })
+
         // Immediate queued (no scheduledAt) — included
-        const immediate = store.messages.addMessage(session.id, 'immediate', 'local-imm')
+        const immediate = store.messages.addMessage(session.id, userMessage('immediate'), 'local-imm')
         // Mature scheduled — must be excluded so the mature-scan path can deliver it
         // with the no-stamp + re-emit-until-ack contract.
-        store.messages.addMessage(session.id, 'mature', 'local-mature', now - 1000)
+        store.messages.addMessage(session.id, userMessage('mature'), 'local-mature', now - 1000)
         // Future scheduled — must be excluded
-        store.messages.addMessage(session.id, 'future', 'local-future', now + 60_000)
+        store.messages.addMessage(session.id, userMessage('future'), 'local-future', now + 60_000)
 
         const results = store.messages.getImmediateQueuedLocalMessages(session.id)
         const ids = results.map(m => m.id)
@@ -259,7 +261,7 @@ describe('Store V9: scheduled_at store operations', () => {
         const session = store.sessions.getOrCreateSession('test', { path: '/tmp' }, null, 'default')
         const now = Date.now()
 
-        const msg = store.messages.addMessage(session.id, 'q', 'local-q')
+        const msg = store.messages.addMessage(session.id, { role: 'user', content: { type: 'text', text: 'q' } }, 'local-q')
         store.messages.markMessagesInvoked(session.id, ['local-q'], now)
 
         const results = store.messages.getImmediateQueuedLocalMessages(session.id)

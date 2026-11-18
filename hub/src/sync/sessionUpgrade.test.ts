@@ -140,7 +140,7 @@ describe('upgrading session processes', () => {
             engine.handleMachineAlive({ machineId, time: Date.now() })
             await Promise.race([resumed, Bun.sleep(1_000).then(() => { throw new Error('Expected session to resume') })])
             expect(rpcCalls.filter(call => call.method.endsWith(':' + RPC_METHODS.KillSession))).toEqual([
-                { method: `${stale.id}:${RPC_METHODS.KillSession}`, params: {} },
+                { method: `${stale.id}:${RPC_METHODS.KillSession}`, params: { requireAcknowledgement: true } },
             ])
             expect(rpcCalls.at(-1)).toMatchObject({
                 method: `${machineId}:${RPC_METHODS.SpawnHappySession}`,

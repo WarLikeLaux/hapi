@@ -1704,11 +1704,9 @@ export function mergeSessionMessages(
         return { moved: 0, oldMaxSeq: 0, newMaxSeq: 0 }
     }
 
-    const oldMaxSeq = getMaxSeq(db, fromSessionId)
-    const newMaxSeq = getMaxSeq(db, toSessionId)
-
-    try {
-        db.exec('BEGIN')
+    return runInTransaction(db, () => {
+        const oldMaxSeq = getMaxSeq(db, fromSessionId)
+        const newMaxSeq = getMaxSeq(db, toSessionId)
 
         if (newMaxSeq > 0 && oldMaxSeq > 0) {
             prepareCached(db,
@@ -1773,12 +1771,8 @@ export function mergeSessionMessages(
             bumpMessageEpoch(db, toSessionId)
         }
 
-        db.exec('COMMIT')
         return { moved: result.changes, oldMaxSeq, newMaxSeq }
-    } catch (error) {
-        db.exec('ROLLBACK')
-        throw error
-    }
+    })
 }
 
 /**

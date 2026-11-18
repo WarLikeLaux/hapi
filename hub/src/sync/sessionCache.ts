@@ -2196,41 +2196,61 @@ export class SessionCache {
                 throw new Error('Resumed chat already belongs to another group')
             }
         }
-        const movedMessages = this.store.messages.mergeSessionMessages(oldSessionId, newSessionId)
+        // Keep the data and job redirects on the source if metadata cannot be
+        // preserved or if any of the synchronous transfers fails.
+        const { movedMessages, movedScratchlist, movedJobs } = this.store.runInTransaction(() => {
+            let metadataTransferred = false
+            for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
+                const latest = this.store.sessions.getSessionByNamespace(newSessionId, namespace)
+                if (!latest) throw new Error('Resumed session not found during metadata transfer')
+                const source = this.store.sessions.getSessionByNamespace(oldSessionId, namespace) ?? oldStored
+                const mergedMetadata = this.mergeSessionMetadata(source.metadata, latest.metadata)
+                if (mergedMetadata === null || mergedMetadata === latest.metadata) {
+                    metadataTransferred = true
+                    break
+                }
+                const result = this.store.sessions.updateSessionMetadata(
+                    newSessionId,
+                    mergedMetadata,
+                    latest.metadataVersion,
+                    namespace,
+                    { touchUpdatedAt: false, titleOperation: 'transfer' }
+                )
+                if (result.result === 'success') {
+                    metadataTransferred = true
+                    break
+                }
+                if (result.result === 'error') {
+                    throw new Error('Failed to preserve session metadata during merge')
+                }
+            }
+            if (!metadataTransferred) {
+                throw new Error('Failed to preserve session metadata during merge: concurrent changes')
+            }
+
+            const movedMessages = this.store.messages.mergeSessionMessages(oldSessionId, newSessionId)
+            if (options.deleteOldSession) {
+                this.store.workGraph.reassignNotifySession(namespace, oldSessionId, newSessionId)
+            }
+            if (movedMessages.moved > 0) this.store.usage.transferSession(oldSessionId, newSessionId)
+            const movedScratchlist = this.store.scratchlist.transfer(oldSessionId, newSessionId)
+            // A session reclaiming its jobs must drop its previous outgoing redirect.
+            const targetWasRedirectedToSource =
+                this.resolveAttachedJobSessionId(newSessionId, namespace) === oldSessionId
+            const movedJobs = this.persistAttachedJobRedirects(
+                oldSessionId, newSessionId, namespace, targetWasRedirectedToSource
+            )
+            return { movedMessages, movedScratchlist, movedJobs }
+        })
         this.syncReadState(newSessionId)
         if (!options.deleteOldSession) this.syncReadState(oldSessionId)
-        // mergeSessions deletes the source. mergeSessionHistory keeps it alive
-        // with the original socket, so its notify chain must stay on that id.
-        if (options.deleteOldSession) {
-            this.store.workGraph.reassignNotifySession(namespace, oldSessionId, newSessionId)
-        }
         if (movedMessages.moved > 0) {
-            this.store.usage.transferSession(oldSessionId, newSessionId)
             if (!options.deleteOldSession) {
                 this.publisher.emit({ type: 'messages-invalidated', sessionId: oldSessionId, namespace })
             }
             this.publisher.emit({ type: 'messages-invalidated', sessionId: newSessionId, namespace })
         }
 
-        // tiann/hapi#920: transfer scratchlist rows BEFORE the
-        // deleteSession() call below fires `ON DELETE CASCADE` on
-        // `session_scratchlist.session_id`. Without this step every
-        // dedup (#448 agent-id collision) and every resume-of-inactive
-        // path (`syncEngine.resumeSession` -> here) silently destroys
-        // the operator's per-session notes, contradicting the v2.0
-        // promise that scratchlist survives reloads.
-        const movedScratchlist = this.store.scratchlist.transfer(oldSessionId, newSessionId)
-        // Snapshot before transfer: if newSessionId previously redirected its
-        // jobs to oldSessionId (A→B history, then B→A reclaim), clear that
-        // stale outgoing pointer so the reclaimed owner resolves to itself.
-        const targetWasRedirectedToSource =
-            this.resolveAttachedJobSessionId(newSessionId, namespace) === oldSessionId
-        const movedJobs = this.persistAttachedJobRedirects(
-            oldSessionId,
-            newSessionId,
-            namespace,
-            targetWasRedirectedToSource
-        )
         // Redirect metadata is in SQLite now, but resolveAttachedJobSessionId
         // still reads the in-memory SessionCache. Refresh before any await
         // (scratchlist attachment I/O) so a concurrent heartbeat/terminal
@@ -2296,39 +2316,6 @@ export class SessionCache {
             this.emitScratchlistChanged(oldSessionId)
         }
 
-        let metadataTransferred = false
-        for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const latest = this.store.sessions.getSessionByNamespace(newSessionId, namespace)
-            if (!latest) throw new Error('Resumed session not found during metadata transfer')
-            const source = this.store.sessions.getSessionByNamespace(oldSessionId, namespace) ?? oldStored
-            const mergedMetadata = this.mergeSessionMetadata(source.metadata, latest.metadata)
-            if (mergedMetadata === null || mergedMetadata === latest.metadata) {
-                metadataTransferred = true
-                break
-            }
-            const result = this.store.sessions.updateSessionMetadata(
-                newSessionId,
-                mergedMetadata,
-                latest.metadataVersion,
-                namespace,
-                { touchUpdatedAt: false, titleOperation: 'transfer' }
-            )
-            if (result.result === 'success') {
-                metadataTransferred = true
-                break
-            }
-            if (result.result === 'error') {
-                throw new Error('Failed to transfer session metadata')
-            }
-        }
-        if (!metadataTransferred) {
-            throw new Error('Session was modified concurrently during metadata transfer')
-        }
-
-        // Acceptor list AFTER metadata merge (writing before clobbers when
-        // mergeSessionMetadata rebuilds from the stale pre-merge snapshot).
-        // Source transfer pointer was installed immediately after job transfer.
-        this.recordJobsAcceptedFromSession(newSessionId, oldSessionId, namespace)
         if (newStored.model === null && oldStored.model !== null) {
             const updated = this.store.sessions.setSessionModel(newSessionId, oldStored.model, namespace, {
                 touchUpdatedAt: false
@@ -2594,7 +2581,7 @@ export class SessionCache {
                 ? { ...(latest.metadata as Record<string, unknown>) }
                 : {}) as Record<string, unknown>
             if (typeof meta.jobsTransferredToSessionId !== 'string') return true
-            delete meta.jobsTransferredToSessionId
+            meta.jobsTransferredToSessionId = null
             const result = this.store.sessions.updateSessionMetadata(
                 sessionId,
                 meta,
@@ -2675,7 +2662,7 @@ export class SessionCache {
                 && nextKeys.every((k) => (prevRaw as Record<string, unknown> | undefined)?.[k] === next[k])
             if (unchanged) return true
             if (nextKeys.length === 0) {
-                delete meta.jobKeyRedirects
+                meta.jobKeyRedirects = null
             } else {
                 meta.jobKeyRedirects = next
             }
