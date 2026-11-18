@@ -47,6 +47,7 @@ export type SocketServerDeps = {
     onSessionEnd?: (payload: { sid: string; time: number }) => void
     onMachineAlive?: (payload: { machineId: string; time: number; health?: unknown }) => void
     onQuotaUpdate?: (machineId: string, report: { capturedAt: number; quotas: QuotaWindow[]; unavailable: QuotaUnavailable[] }) => void
+    onSessionChildExited?: (payload: { machineId: string; sid: string; pid: number; processStartMarker?: string; time: number; namespace: string }) => void
     onBackgroundTasks?: (sessionId: string, tasks: BackgroundTask[]) => void
     onBackgroundTaskDelta?: (sessionId: string, delta: { started: number; completed: number }) => void
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
@@ -139,6 +140,7 @@ export function createSocketServer(deps: SocketServerDeps): {
         onSessionEnd: deps.onSessionEnd,
         onMachineAlive: deps.onMachineAlive,
         onQuotaUpdate: deps.onQuotaUpdate,
+        onSessionChildExited: deps.onSessionChildExited,
         onWebappEvent: deps.onWebappEvent,
         onBackgroundTasks: deps.onBackgroundTasks,
         onBackgroundTaskDelta: deps.onBackgroundTaskDelta,

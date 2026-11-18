@@ -1,7 +1,12 @@
 import { useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { MACHINE_CAPABILITIES } from '@hapi/protocol/runnerCapabilities'
 import type { MachineQuotaSnapshot, QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
-import { SettingsPageContent, SettingsSection } from '@/components/settings/SettingsPrimitives'
+import type { ApiClient } from '@/api/client'
+import { SettingsPageContent, SettingsRow, SettingsSection } from '@/components/settings/SettingsPrimitives'
 import { useAppContext } from '@/lib/app-context'
+import { queryKeys } from '@/lib/query-keys'
+import { useMachines } from '@/hooks/queries/useMachines'
 import { useQuotas } from '@/hooks/queries/useQuotas'
 import { useTranslation } from '@/lib/use-translation'
 
@@ -32,12 +37,12 @@ export function sortQuotaWindows<T extends { source: string }>(windows: T[]): T[
     })
 }
 
-const LIGHT_EMOJI = { green: '🟢', yellow: '🟡', red: '🔴' } as const
 const LIGHT_BAR = { green: 'bg-green-500', yellow: 'bg-amber-500', red: 'bg-red-500' } as const
 
 const PROVIDER_LABEL_KEYS: Record<string, string> = {
     zai: 'settings.limits.source.zai',
     codex: 'settings.limits.source.codex',
+    claude: 'settings.limits.source.claude',
     cursor: 'settings.limits.source.cursor',
     agy: 'settings.limits.source.agy',
     minimax: 'settings.limits.source.minimax',
@@ -130,7 +135,7 @@ export function QuotaRow(props: { quotaWindow: QuotaWindow }) {
         <div className="px-3 py-3">
             <div className="flex items-center justify-between gap-3 text-sm">
                 <span className="min-w-0 truncate font-medium text-[var(--app-fg)]">
-                    {LIGHT_EMOJI[light]} {sourceLabel(props.quotaWindow.source, t)}
+                    {sourceLabel(props.quotaWindow.source, t)}
                 </span>
                 <span className="shrink-0 text-[var(--app-hint)]">{usedLabel}</span>
             </div>
@@ -212,6 +217,10 @@ export default function SettingsLimitsPage() {
     const { api } = useAppContext()
     const { t } = useTranslation()
     const query = useQuotas({ api })
+    const { machines } = useMachines(api, true)
+    const claudeMachines = machines.filter(machine =>
+        machine.active && machine.metadata?.capabilities?.includes(MACHINE_CAPABILITIES.AgentQuotas)
+    )
 
     const snapshots = useMemo(
         () => [...query.snapshots].sort((a, b) => (a.displayName ?? a.machineId).localeCompare(b.displayName ?? b.machineId)),
@@ -226,9 +235,51 @@ export default function SettingsLimitsPage() {
             {!query.isLoading && !query.error && snapshots.map((snapshot) => (
                 <MachineQuotaSection key={snapshot.machineId} snapshot={snapshot} />
             ))}
-            {!query.isLoading && !query.error && !hasContent ? (
+            {api && claudeMachines.map(machine => (
+                <ClaudeQuotaSection key={machine.id} api={api} machineId={machine.id}
+                    machineName={machine.metadata?.displayName ?? machine.metadata?.host ?? machine.id} />
+            ))}
+            {!query.isLoading && !query.error && !hasContent && claudeMachines.length === 0 ? (
                 <SettingsSection><div className="px-3 py-4 text-sm text-[var(--app-hint)]">{t('settings.limits.empty')}</div></SettingsSection>
             ) : null}
         </SettingsPageContent>
+    )
+}
+
+function ClaudeQuotaSection(props: { api: ApiClient; machineId: string; machineName: string }) {
+    const { t } = useTranslation()
+    const query = useQuery({
+        queryKey: queryKeys.machineAgentQuotas(props.machineId),
+        queryFn: () => props.api.getMachineAgentQuotas(props.machineId, true),
+        enabled: false,
+        retry: false,
+    })
+    const account = query.data?.accounts.find(entry => entry.agent === 'claude')
+    const statusText = query.isError ? t('settings.usage.quotas.status.error')
+        : account?.status === 'unauthenticated' ? t('settings.usage.quotas.status.unauthenticated')
+        : account?.status === 'custom_provider' ? t('settings.usage.quotas.status.custom_provider')
+        : account && account.buckets.length === 0 ? t('settings.usage.quotas.status.error')
+        : undefined
+    return (
+        <SettingsSection>
+            <SettingsRow
+                label={`Claude · ${props.machineName}`}
+                description={statusText}
+                trailing={
+                    <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}
+                        className="rounded-md border border-[var(--app-border)] px-2 py-1 text-sm disabled:opacity-50">
+                        {t(query.isFetching ? 'settings.usage.quotas.refreshing' : 'settings.usage.quotas.refresh')}
+                    </button>
+                }
+            />
+            {account?.buckets.map(bucket => (
+                <QuotaRow key={bucket.id} quotaWindow={{
+                    source: `claude:${bucket.window ?? bucket.id}`,
+                    usedPercent: bucket.usedPercent,
+                    measuredAt: account.updatedAt / 1000,
+                    resetsAt: bucket.resetsAt == null ? null : bucket.resetsAt / 1000,
+                }} />
+            ))}
+        </SettingsSection>
     )
 }

@@ -31,7 +31,7 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
     private happyServer: { stop: () => void } | null = null;
     private abortController = new AbortController();
     private activeTurn: MinimaxTurn | null = null;
-    private abortInFlight: Promise<void> | null = null;
+    private minimaxAbortInFlight: Promise<void> | null = null;
     private needsBackendRestart = false;
     private acpMcpServers: McpServerStdio[] = [];
     private displayModel: string | null = null;
@@ -87,7 +87,7 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
             this.steerQueuedMessage(payload));
 
         while (!this.shouldExit) {
-            await this.abortInFlight;
+            await this.minimaxAbortInFlight;
             if (this.needsBackendRestart) {
                 await this.initializeBackend(true);
                 this.needsBackendRestart = false;
@@ -98,7 +98,7 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
                 if (waitSignal.aborted && !this.shouldExit) continue;
                 break;
             }
-            await this.abortInFlight;
+            await this.minimaxAbortInFlight;
             if (this.shouldExit) break;
             if (this.needsBackendRestart) {
                 await this.initializeBackend(true);
@@ -147,7 +147,7 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
                 finishTurn();
                 // Stop may be reconnecting a stuck runtime. Do not dispatch the
                 // next message or report ready while cancellation is unfinished.
-                await this.abortInFlight;
+                await this.minimaxAbortInFlight;
                 session.onThinkingChange(false);
                 await this.permissionHandler?.cancelAll('Prompt finished');
                 if (!this.needsBackendRestart) this.publishModelCatalog(backend, acpSessionId);
@@ -166,7 +166,7 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
             session.client,
             backend,
             () => session.getPermissionMode() as PermissionMode | undefined,
-            (message) => this.handleAgentMessage(message)
+            { onMessage: (message) => this.handleAgentMessage(message) }
         );
 
         backend.onStderrError((error) => {
@@ -451,6 +451,7 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
                 this.messageBuffer.addMessage('Tool result received', 'result');
                 break;
             case 'usage':
+            case 'round_summary':
                 break;
             case 'plan':
                 this.messageBuffer.addMessage('Plan updated', 'status');
@@ -483,13 +484,13 @@ class MinimaxRemoteLauncher extends RemoteLauncherBase {
     }
 
     private handleAbort(): Promise<void> {
-        if (this.abortInFlight) return this.abortInFlight;
+        if (this.minimaxAbortInFlight) return this.minimaxAbortInFlight;
         const turn = this.activeTurn;
         const backend = this.backend;
         this.abortController.abort();
         this.abortController = new AbortController();
-        this.abortInFlight = this.stopTurn(backend, turn).finally(() => { this.abortInFlight = null; });
-        return this.abortInFlight;
+        this.minimaxAbortInFlight = this.stopTurn(backend, turn).finally(() => { this.minimaxAbortInFlight = null; });
+        return this.minimaxAbortInFlight;
     }
 
     private async stopTurn(backend: ReturnType<typeof createMinimaxBackend> | null, turn: MinimaxTurn | null): Promise<void> {

@@ -1,6 +1,7 @@
 export const HUB_OWNED_SESSION_METADATA_KEYS = [
     'supersededBySessionId', 'opencodeClearOperation', 'promptTitle',
-    'codexArchivedFork', 'codexResumePending'
+    'codexArchivedFork', 'codexResumePending', 'opencodeRewind', 'opencodeForkPending',
+    'jobsAcceptedFromSessionIds', 'jobsTransferredToSessionId', 'jobKeyRedirects'
 ] as const
 
 /** CLI metadata can carry these fields back, but only the Hub can change them. */
@@ -19,6 +20,14 @@ export function preserveHubOwnedSessionMetadata(
     for (const key of HUB_OWNED_SESSION_METADATA_KEYS) {
         if (Object.prototype.hasOwnProperty.call(existing, key)) next[key] = existing[key]
         else delete next[key]
+    }
+    const rewind = existing.opencodeRewind
+    if (rewind && typeof rewind === 'object' && 'phase' in rewind
+        && (rewind.phase === 'reserved' || rewind.phase === 'prepared' || rewind.phase === 'unknown')) {
+        for (const key of ['opencodeHistoryCheckpoint', 'conversationHistoryIndexes', 'conversationHistoryPoints']) {
+            if (Object.prototype.hasOwnProperty.call(existing, key)) next[key] = existing[key]
+            else delete next[key]
+        }
     }
     return next
 }

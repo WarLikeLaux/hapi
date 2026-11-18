@@ -22,8 +22,13 @@ export type RoundModelUsage = {
     cacheCreationInputTokens?: number
 }
 
+export type AgyUsage = Partial<Record<
+    'input_tokens' | 'output_tokens' | 'thinking_tokens' | 'cache_read_tokens' | 'total_tokens', number
+>>
+
 export type RoundSummary = {
-    provider?: 'codex'
+    provider?: 'codex' | 'agy'
+    agyUsage?: AgyUsage
     turnId?: string
     usageScope?: 'round' | 'last-request'
     usage?: UsageData
@@ -33,6 +38,8 @@ export type RoundSummary = {
     numTurns?: number
     durationMs?: number
     workspaceChanges?: WorkspaceChanges
+    generationMs?: number
+    generationOutputTokens?: number
 }
 
 export type AgentEvent =
@@ -44,7 +51,7 @@ export type AgentEvent =
     | { type: 'limit-warning'; /** 0–1 ratio (e.g. 0.9 = 90%), integer-precision via CLI pipe format */ utilization: number; endsAt: number; limitType: string }
     | { type: 'ready' }
     | { type: 'api-error'; retryAttempt: number; maxRetries: number; error: unknown }
-    | { type: 'turn-duration'; durationMs: number; targetMessageId?: string; provider?: 'codex'; turnId?: string }
+    | { type: 'turn-duration'; durationMs: number; targetMessageId?: string; provider?: 'codex'; turnId?: string; generationMs?: number; generationOutputTokens?: number }
     | { type: 'turn-summary'; summary: RoundSummary }
     | { type: 'workspace-changes'; changes: WorkspaceChanges }
     | { type: 'token-count'; info: unknown; provider?: 'codex'; turnId?: string; model?: string | null }
@@ -246,6 +253,8 @@ export type UserTextBlock = {
 export type AgentTextBlock = {
     kind: 'agent-text'
     id: string
+    /** Raw HAPI message ids represented by a coalesced streaming block. */
+    sourceMessageIds?: string[]
     localId: string | null
     createdAt: number
     invokedAt?: number | null
@@ -261,6 +270,8 @@ export type AgentTextBlock = {
 export type AgentReasoningBlock = {
     kind: 'agent-reasoning'
     id: string
+    /** Raw HAPI message ids represented by a coalesced streaming block. */
+    sourceMessageIds?: string[]
     localId: string | null
     createdAt: number
     invokedAt?: number | null

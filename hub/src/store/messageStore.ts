@@ -2,11 +2,14 @@ import type { Database } from 'bun:sqlite'
 
 import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import { decodeMessageContent } from './contentCodec'
+import { prepareCached } from './statementCache'
 
 import type { StoredMessage } from './types'
 import {
     addMessage,
     addMessageWithStatus,
+    upsertToolCallMessage,
+    getLiveToolWork,
     syncNativeQueuedMessage,
     addImportedMessage,
     cancelQueuedMessage,
@@ -36,6 +39,7 @@ import {
     countMessages,
     markMessagesInvoked,
     markMessagesIndeterminate,
+    markDispatchingMessagesIndeterminate,
     setMessagesDeliveryState,
     markUninvokedImmediateMessages,
     mergeSessionMessages,
@@ -47,18 +51,24 @@ import {
     getMessagesAfterSeq,
     getMinSeq,
     getMessageSeqById,
+    getMessageById,
     truncateMessagesFromLocalId,
+    truncateOpenCodeRewind,
     type CancelQueuedMessageResult,
     type LookupQueuedMessageResult,
     type LocalMessageState,
     type MessagePosition,
+    type UpsertToolCallResult,
 } from './messages'
-
 export class MessageStore {
     private readonly db: Database
 
     constructor(db: Database) {
         this.db = db
+    }
+
+    truncateOpenCodeRewind(sessionId: string, cutoffSeq: number, boundaryId: string): number {
+        return truncateOpenCodeRewind(this.db, sessionId, cutoffSeq, boundaryId)
     }
 
     addMessage(sessionId: string, content: unknown, localId?: string, scheduledAt?: number | null, createdAt?: number): StoredMessage {
@@ -73,6 +83,16 @@ export class MessageStore {
         createdAt?: number
     ): { message: StoredMessage; inserted: boolean } {
         return addMessageWithStatus(this.db, sessionId, content, localId, scheduledAt, createdAt)
+    }
+
+    upsertToolCallMessage(sessionId: string, content: unknown, callId: string, localId?: string, createdAt?: number): UpsertToolCallResult {
+        return upsertToolCallMessage(this.db, sessionId, content, callId, localId, createdAt)
+    }
+
+    /** Whether the session tail still holds unsettled tool work (see
+     *  getLiveToolWork in messages.ts for the liveness contract). */
+    getLiveToolWork(sessionId: string): boolean {
+        return getLiveToolWork(this.db, sessionId)
     }
 
     syncNativeQueuedMessage(sessionId: string, localId: string, text: string): StoredMessage {
@@ -116,6 +136,10 @@ export class MessageStore {
 
     getSeqById(sessionId: string, messageId: string): number | null {
         return getMessageSeqById(this.db, sessionId, messageId)
+    }
+
+    getMessageById(sessionId: string, messageId: string): StoredMessage | null {
+        return getMessageById(this.db, sessionId, messageId)
     }
 
     getMessages(sessionId: string, limit: number = 200): StoredMessage[] {
@@ -193,16 +217,25 @@ export class MessageStore {
 
     // ponytail: scans through leading bookkeeping; index content if that prefix becomes costly.
     hasConversationContent(sessionId: string): boolean {
-        const query = this.db.prepare<{ content: string | Uint8Array }, [string]>(
-            'SELECT content FROM messages WHERE session_id = ? ORDER BY seq ASC'
+        const statement = prepareCached(
+            this.db,
+            'SELECT seq, content FROM messages WHERE session_id = ? AND seq > ? ORDER BY seq ASC LIMIT 16'
         )
-        try {
-            for (const row of query.iterate(sessionId)) {
-                if (hasConversationMessageContent(decodeMessageContent(row.content))) return true
+        let afterSeq = -1
+        while (true) {
+            const rows = statement.all(sessionId, afterSeq) as Array<{ seq: number; content: string | Uint8Array }>
+            if (rows.length === 0) {
+                return false
             }
-            return false
-        } finally {
-            query.finalize()
+            for (const row of rows) {
+                if (hasConversationMessageContent(decodeMessageContent(row.content))) {
+                    return true
+                }
+            }
+            if (rows.length < 16) {
+                return false
+            }
+            afterSeq = rows[rows.length - 1]!.seq
         }
     }
 
@@ -259,6 +292,10 @@ export class MessageStore {
 
     markMessagesInvoked(sessionId: string, localIds: string[], invokedAt: number): number {
         return markMessagesInvoked(this.db, sessionId, localIds, invokedAt)
+    }
+
+    markDispatchingMessagesIndeterminate(sessionId: string): string[] {
+        return markDispatchingMessagesIndeterminate(this.db, sessionId)
     }
 
     markMessagesIndeterminate(sessionId: string, localIds: string[]): number {

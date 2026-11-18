@@ -244,6 +244,7 @@ export function QueuedMessagesBar({
     canSteer,
     canInterrupt,
     steerHeadRef,
+    deliveryActive = canSteer,
     compactionPendingMessageIds,
 }: {
     sessionId: string
@@ -264,6 +265,8 @@ export function QueuedMessagesBar({
      * message into the active turn through native steering.
      */
     canSteer?: boolean
+    /** Allow an in-flight dispatch to confirm after closing Steer admission. */
+    deliveryActive?: boolean
     /** Stop the current Antigravity turn and prioritize this saved prompt. */
     canInterrupt?: boolean
     /**
@@ -443,7 +446,9 @@ export function QueuedMessagesBar({
                         const localId = msg.localId ?? msg.id
                         const waitingForCompaction = msg.deliveryState === 'indeterminate'
                             && compactionPendingMessageIds?.includes(localId) === true
-                        const isPending = cancelMutation.isPending || queuedOperationPending
+                        const deliveryPending = msg.deliveryPending === true && deliveryActive === true
+                        const needsResolution = msg.deliveryState === 'indeterminate' && !deliveryPending
+                        const isPending = cancelMutation.isPending || queuedOperationPending || deliveryPending
                         const canCancel = computeCanCancel({ id: msg.id, localId: msg.localId, isPending })
 
                         const handleCancel = () => {
@@ -476,7 +481,8 @@ export function QueuedMessagesBar({
                             && canCancel
                         )
                         const steerPending = steerMutation.isPending
-                            && steerMutation.variables?.messageId === msg.id
+                            && steerMutation.variables?.sessionId === sessionId
+                            && steerMutation.variables.messageId === msg.id
                         const handleSteer = () => {
                             if (!canSteerRow) return
                             const token = beginQueuedOperation(sessionId)
@@ -510,7 +516,7 @@ export function QueuedMessagesBar({
                         const retryPending = retryMutation.isPending
                             && retryMutation.variables?.messageId === msg.id
                         const handleRetry = () => {
-                            if (msg.deliveryState !== 'indeterminate' || !canCancel) return
+                            if (!needsResolution || !canCancel) return
                             const token = beginQueuedOperation(sessionId)
                             if (!token) return
                             void retryMutation.mutateAsync({
@@ -632,9 +638,18 @@ export function QueuedMessagesBar({
                                             {text}
                                         </span>
                                     ) : null}
+                                    {steerPending && msg.deliveryState !== 'indeterminate' ? (
+                                        <div className="mt-1 flex items-center gap-1 text-xs text-[var(--app-hint)]">
+                                            <svg className="h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                                <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                                                <path d="M12 2a10 10 0 0 1 10 10" />
+                                            </svg>
+                                            {t('queuedMessages.steerRequesting')}
+                                        </div>
+                                    ) : null}
                                     {msg.deliveryState === 'indeterminate' ? (
                                         <div className={`mt-1 text-xs ${waitingForCompaction ? 'text-[var(--app-hint)]' : 'text-[var(--app-warning-text)]'}`}>
-                                            {t(waitingForCompaction ? 'queuedMessages.compactionPending' : 'queuedMessages.steerOutcomeUnknown')}
+                                            {t(waitingForCompaction ? 'queuedMessages.compactionPending' : deliveryPending ? 'queuedMessages.deliveryPending' : 'queuedMessages.steerOutcomeUnknown')}
                                         </div>
                                     ) : null}
                                     {hasAttachments ? (
@@ -672,7 +687,7 @@ export function QueuedMessagesBar({
                                     ) : null}
                                 </div>
                                 <div className="flex shrink-0 items-center gap-1">
-                                    {msg.deliveryState === 'indeterminate' && !waitingForCompaction ? (
+                                    {needsResolution && !waitingForCompaction ? (
                                         <button
                                             type="button"
                                             aria-label={t('queuedMessages.retryOutcome')}

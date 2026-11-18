@@ -29,6 +29,8 @@ export function usesNativePermissionSelect(flavor: string | null | undefined): b
     return flavor === 'claude'
         || flavor === 'grok'
         || flavor === 'minimax'
+        || flavor === 'cursor'
+        || flavor === 'agy'
         || usesCodexFamilyPermissionModes(flavor)
 }
 
@@ -49,4 +51,4 @@ export function usesSharedPermissionModeState(flavor: string | null | undefined)
  * once into the native mode it mapped to; flavors that moved earlier already
  * settled on 'default' and are intentionally left alone.
  */
-export const LEGACY_YOLO_BRIDGE_AGENTS: readonly AgentFlavor[] = ['codex', 'claude']
+export const LEGACY_YOLO_BRIDGE_AGENTS: readonly AgentFlavor[] = ['codex', 'claude', 'cursor', 'agy']

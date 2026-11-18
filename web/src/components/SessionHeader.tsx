@@ -1,3 +1,4 @@
+import { useMinuteTick } from '@/hooks/useMinuteTick'
 import { useGroupPin } from '@/hooks/useGroupPin'
 import { isSessionBusy, toSessionSummary } from '@hapi/protocol'
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
@@ -9,6 +10,7 @@ import { sessionArchiveMutationKey, sessionModelMutationKey, useSessionActions }
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
+import { LinkPrDialog } from '@/components/LinkPrDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ArchiveSessionDialog } from '@/components/ArchiveSessionDialog'
@@ -30,6 +32,13 @@ import { getSessionProjectLabel, getSessionProjectPath } from '@/lib/sessionProj
 import { useToast } from '@/lib/toast-context'
 import { queryKeys } from '@/lib/query-keys'
 import { markCodexSessionsImported } from '@/lib/codexImportedSessions'
+import { useFeatures } from '@/hooks/queries/useFeatures'
+import {
+    DEFAULT_PR_CHIP_DISPLAY,
+    getPrimaryGithubPrRef,
+    resolveGithubPrChipDisplay
+} from '@hapi/protocol'
+import { formatGithubPrChipDetailParts } from '@/components/SessionPrChip'
 import { useMachines } from '@/hooks/queries/useMachines'
 import { useMachineLabels } from '@/hooks/useMachineLabels'
 import { useSessionHeaderMetadata } from '@/hooks/useSessionHeaderMetadata'
@@ -102,6 +111,27 @@ function OutlineIcon(props: { className?: string }) {
     )
 }
 
+function ConciseViewIcon(props: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={props.className}
+        >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            <path d="M8 9h8" />
+            <path d="M8 13h5" />
+        </svg>
+    )
+}
+
 function headerToggleClass(active: boolean): string {
     return `flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
         active
@@ -154,6 +184,8 @@ export function SessionHeader(props: {
     filesActive?: boolean
     onToggleOutline?: () => void
     outlineActive?: boolean
+    onToggleConciseView?: () => void
+    conciseViewActive?: boolean
     onToggleTerminal?: () => void
     terminalActive?: boolean
     api: ApiClient | null
@@ -315,6 +347,7 @@ export function SessionHeader(props: {
     const menuId = useId()
     const menuAnchorRef = useRef<HTMLButtonElement | null>(null)
     const [renameOpen, setRenameOpen] = useState(false)
+    const [linkPrOpen, setLinkPrOpen] = useState(false)
     const [exportOpen, setExportOpen] = useState(false)
     const [archiveOpen, setArchiveOpen] = useState(false)
     const [parkOpen, setParkOpen] = useState(false)
@@ -322,8 +355,26 @@ export function SessionHeader(props: {
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [isSyncingCodex, setIsSyncingCodex] = useState(false)
     const [isSyncingPi, setIsSyncingPi] = useState(false)
+    const { features } = useFeatures(api)
+    const githubPrAwarenessEnabled = Boolean(features?.githubPrAwareness.enabled)
+    const prChipDisplay = features?.prChipDisplay
+    const primaryPrRef = getPrimaryGithubPrRef(session.metadata?.externalRefs)
+    const prClockTick = useMinuteTick(githubPrAwarenessEnabled && Boolean(primaryPrRef))
+    const linkedPr = useMemo(() => {
+        if (!githubPrAwarenessEnabled || !primaryPrRef) return null
+        void prClockTick
+        const nowMs = Date.now()
+        const profile = prChipDisplay ?? DEFAULT_PR_CHIP_DISPLAY
+        const display = resolveGithubPrChipDisplay(primaryPrRef, profile, nowMs)
+        const parts = formatGithubPrChipDetailParts(primaryPrRef, display, t)
+        return {
+            glyph: parts.glyph,
+            detail: parts.detail,
+            href: primaryPrRef.url
+        }
+    }, [githubPrAwarenessEnabled, primaryPrRef, prChipDisplay, prClockTick, t])
 
-    const { archiveSession, parkSession, reopenSession, restartSession, renameSession, suggestSessionTitle, updateSessionSummary, setMuted, setPinMode, deleteSession, isPending: isActionPending } = useSessionActions(
+    const { archiveSession, parkSession, reopenSession, restartSession, renameSession, upsertExternalRef, removePrimaryExternalRef, suggestSessionTitle, updateSessionSummary, setMuted, setPinMode, deleteSession, isPending: isActionPending } = useSessionActions(
         api,
         session.id,
         session.metadata?.flavor ?? null
@@ -713,6 +764,8 @@ export function SessionHeader(props: {
                 onToggleGroupPin={groupPin.toggle}
                 sessionGlobalPinned={Boolean(session.globalPinned)}
                 onRename={() => setRenameOpen(true)}
+                onLinkPr={githubPrAwarenessEnabled ? () => setLinkPrOpen(true) : undefined}
+                linkedPr={linkedPr}
                 onMarkUnread={() => markSessionUnread(session.id, session.readState)}
                 onSetPinMode={api ? (mode) => void handleSetPinMode(mode) : undefined}
                 onExport={() => setExportOpen(true)}
@@ -763,6 +816,15 @@ export function SessionHeader(props: {
                 onRename={renameSession}
                 onSuggestTitle={api && props.titleSuggestionAvailable ? suggestSessionTitle : undefined}
                 onUpdateSummary={api && props.titleSuggestionAvailable ? updateSessionSummary : undefined}
+                isPending={isPending}
+            />
+
+            <LinkPrDialog
+                isOpen={linkPrOpen}
+                onClose={() => setLinkPrOpen(false)}
+                currentPrimaryLabel={primaryPrRef ? `${primaryPrRef.repo}#${primaryPrRef.number}` : null}
+                onUpsert={upsertExternalRef}
+                onRemovePrimary={primaryPrRef ? removePrimaryExternalRef : undefined}
                 isPending={isPending}
             />
 

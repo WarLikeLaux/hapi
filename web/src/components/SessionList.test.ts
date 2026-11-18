@@ -41,6 +41,8 @@ function makeSession(overrides: Partial<SessionSummary> & { id: string }): Sessi
         agentStateVersion: 0,
         todosUpdatedAt: 0,
         todoProgress: null,
+        attachedJob: null,
+        attachedJobUpdatedAt: 0,
         pendingRequestsCount: 0,
         pendingRequestKinds: [],
         pendingRequests: [],

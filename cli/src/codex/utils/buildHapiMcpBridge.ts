@@ -49,6 +49,10 @@ export interface HapiMcpBridgeOptions {
     exportSessionEnv?: boolean;
     emitTitleSummary?: boolean;
     enableChangeTitle?: boolean;
+    enableLinkPr?: boolean;
+    onChangeTitle?: (title: string) => void;
+    /** Session project cwd for relative spawn_peer directories (Codex --cd aware). */
+    workingDirectory?: string;
     skillLookup?: {
         workingDirectory: string;
         flavor: string;
@@ -83,6 +87,9 @@ export async function buildHapiMcpBridge(
     const happyServer = await startHappyServer(client, {
         emitTitleSummary: options.emitTitleSummary,
         enableChangeTitle: options.enableChangeTitle,
+        enableLinkPr: options.enableLinkPr,
+        onChangeTitle: options.onChangeTitle,
+        workingDirectory: options.workingDirectory ?? options.skillLookup?.workingDirectory,
         skillLookup: options.skillLookup
     });
     // Stamp the hub row id so orphanReap can find MCP helpers after the agent
@@ -112,6 +119,14 @@ export async function buildHapiMcpBridge(
             approval_mode: 'approve'
         };
     }
+    // Prompt — not approve: link_pr mutates session metadata. Native
+    // pre-approval would bypass BasePermissionHandler's read-only guard.
+    if (happyServer.toolNames.includes('link_pr')) {
+        tools.link_pr = {
+            approval_mode: 'prompt'
+        };
+    }
+
     // Discovery shortlist only - same trust as skill_lookup / change_title.
     if (!isPeerToolsDisabled()) {
         tools.list_groups = { approval_mode: 'approve' };
@@ -119,6 +134,10 @@ export async function buildHapiMcpBridge(
         tools.list_launch_options = { approval_mode: 'approve' };
         tools.list_peers = { approval_mode: 'approve' };
     }
+    // Own-session progress meter (tiann/hapi#1404) — hub REST, not peer inject.
+    tools.session_job = {
+        approval_mode: 'approve'
+    };
     // launch_agent / ping_peer / inspect_peer use the caller's approval policy.
     // They are registered on the HTTP MCP server / stdio
     // bridge, but are not auto-approved: they target another session (resume +

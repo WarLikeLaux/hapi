@@ -14,6 +14,7 @@ import { getSessionTitle } from '@/lib/sessionTitle'
 import { useTranslation } from '@/lib/use-translation'
 import { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
 import { useMinuteTick } from '@/hooks/useMinuteTick'
+import { attachedJobFraction, formatAttachedJobProgress, isAttachedJobStale } from '@/lib/attachedJob'
 
 function GitBranchIcon() {
     return (
@@ -214,6 +215,9 @@ export function SessionRowSummary(props: {
         s.metadata?.flavor === 'codex' ? getCodexImportedAt(s.metadata.agentSessionId) : null
     ), () => null)
     const timeLabel = getSessionTimeLabel(s, t, activityTimeBasis, importedAt)
+    const activeJob = s.attachedJob?.status === 'running' ? s.attachedJob : null
+    const jobFraction = activeJob ? attachedJobFraction(activeJob) : null
+    const jobStale = activeJob ? isAttachedJobStale(activeJob) : false
 
     return (
         <SessionRowLayout
@@ -375,6 +379,28 @@ export function SessionRowSummary(props: {
                         : undefined}
                 >
                     {worktreeLabel ?? s.metadata?.path ?? s.id}
+                </div>
+            ) : null}
+            {activeJob ? (
+                <div
+                    className={`flex min-w-0 items-center gap-2 text-xs ${jobStale ? 'text-[var(--app-badge-warning-text)]' : 'text-[var(--app-hint)]'}`}
+                    title={activeJob.detail ?? activeJob.label}
+                >
+                    <span className="min-w-0 flex-1 truncate">
+                        {activeJob.label} · {formatAttachedJobProgress(activeJob, Date.now(), {
+                            left: t('session.item.attachedJob.left'),
+                            running: t('session.item.attachedJob.running'),
+                            noHeartbeat: t('session.item.attachedJob.noHeartbeat'),
+                        })}
+                    </span>
+                    {jobFraction !== null ? (
+                        <progress
+                            aria-label={activeJob.label}
+                            value={jobFraction}
+                            max={1}
+                            className="h-1 w-12 shrink-0 accent-[var(--app-link)]"
+                        />
+                    ) : null}
                 </div>
             ) : null}
         </SessionRowLayout>

@@ -1,3 +1,4 @@
+import { sendAgyTranscriptEntry } from '../agy/legacyStreamJson/agyTranscript'
 import { describe, expect, it, vi } from 'vitest'
 import type { Session } from './types'
 import type { Metadata } from './types'
@@ -898,7 +899,7 @@ describe('ApiSessionClient agy transcript messages', () => {
         if (!socket) throw new Error('expected socket')
 
         // The shape agy actually writes for every terminal-typed message.
-        client.sendAgySessionMessage({
+        sendAgyTranscriptEntry(client, {
             step_index: 0,
             source: 'USER_EXPLICIT',
             type: 'USER_INPUT',

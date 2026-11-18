@@ -82,7 +82,7 @@ describe('StatusBar context details popover', () => {
         rerender(view(false, true))
         expect(screen.getByText('offline')).toBeVisible()
         rerender(view(true, true, { requests: { approval: { tool: 'Bash', arguments: {} } } }))
-        expect(screen.getByText('permission required')).toBeVisible()
+        expect(screen.getByText('Permission required')).toBeVisible()
     })
 
     it.each(['fast', 'priority'])('shows a separate Fast label beside Yolo for %s and removes it when disabled', (tier) => {

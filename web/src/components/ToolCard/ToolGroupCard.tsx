@@ -353,7 +353,6 @@ export function ToolGroupCard(props: {
                                     startedAt={groupTiming.startedAt}
                                     completedAt={groupTiming.completedAt}
                                     durationMs={groupTiming.durationMs}
-                                    typography="group"
                                 />
                                 <div className="flex flex-wrap items-center gap-1.5">
                             {summaryBadgeText ? (

@@ -17,6 +17,8 @@ import { PushStore } from './pushStore'
 import { FcmStore } from './fcmStore'
 import { ScratchlistStore } from './scratchlistStore'
 import { SessionStore } from './sessionStore'
+import { SessionJobsStore } from './sessionJobsStore'
+import { SessionRedirectStore } from './sessionRedirectStore'
 import { UserStore } from './userStore'
 import { TurnStore } from './turnStore'
 import { UsageStore } from './usageStore'
@@ -46,6 +48,8 @@ export { PushStore } from './pushStore'
 export { FcmStore } from './fcmStore'
 export { ScratchlistStore } from './scratchlistStore'
 export { SessionStore } from './sessionStore'
+export { SessionJobsStore } from './sessionJobsStore'
+export { SessionRedirectStore } from './sessionRedirectStore'
 export { UserStore } from './userStore'
 export { TurnStore } from './turnStore'
 export type { SessionTurn, SessionTurnEndReason, SessionTurnTrigger } from './turns'
@@ -57,7 +61,7 @@ export {
     WorkGraphValidationError
 } from './workGraph'
 
-const SCHEMA_VERSION: number = 49
+const SCHEMA_VERSION: number = 50
 const REQUIRED_TABLES = [
     'session_launch_requests',
     'session_groups',
@@ -81,7 +85,9 @@ const REQUIRED_TABLES = [
     'model_preferences',
     'project_preferences',
     'browser_titles',
-    'session_turns'
+    'session_turns',
+    'session_jobs',
+    'session_redirects'
 ] as const
 
 export class Store {
@@ -92,6 +98,8 @@ export class Store {
     readonly groups: SessionGroupStore
     readonly launches: SessionLaunchStore
     readonly sessions: SessionStore
+    readonly sessionJobs: SessionJobsStore
+    readonly sessionRedirects: SessionRedirectStore
     readonly machines: MachineStore
     readonly messengers: MessengerStore
     readonly messages: MessageStore
@@ -157,6 +165,8 @@ export class Store {
         this.groups = new SessionGroupStore(this.db)
         this.launches = new SessionLaunchStore(this.db)
         this.sessions = new SessionStore(this.db)
+        this.sessionJobs = new SessionJobsStore(this.db)
+        this.sessionRedirects = new SessionRedirectStore(this.db)
         this.machines = new MachineStore(this.db)
         this.messengers = new MessengerStore(this.db)
         this.messages = new MessageStore(this.db)
@@ -449,6 +459,7 @@ export class Store {
             46: () => this.migrateSessionReadState(),
             47: () => createSessionGroupTables(this.db),
             48: () => createBrowserTitleTable(this.db),
+            49: () => this.createSessionJobsAndRedirects(),
         })
 
         if (currentVersion === 0) {
@@ -492,6 +503,42 @@ export class Store {
         }
 
         this.assertRequiredTablesPresent()
+    }
+
+    private createSessionJobsAndRedirects(): void {
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS session_jobs (
+                session_id TEXT NOT NULL,
+                job_key TEXT NOT NULL,
+                label TEXT NOT NULL,
+                status TEXT NOT NULL,
+                done REAL,
+                total REAL,
+                remaining REAL,
+                unit TEXT,
+                detail TEXT,
+                run_id TEXT,
+                wake_on_terminal INTEGER NOT NULL DEFAULT 0,
+                wake_prompt TEXT,
+                wake_emitted_run_id TEXT,
+                heartbeat_at INTEGER NOT NULL,
+                started_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (session_id, job_key),
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_jobs_session_status_updated
+                ON session_jobs(session_id, status, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS session_redirects (
+                old_id TEXT PRIMARY KEY,
+                new_id TEXT NOT NULL,
+                namespace TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_redirects_namespace_new
+                ON session_redirects(namespace, new_id);
+        `)
     }
 
     private createSchema(): void {
@@ -796,6 +843,7 @@ export class Store {
                 ON session_turns(session_id)
                 WHERE ended_at IS NULL;
         `)
+        this.createSessionJobsAndRedirects()
     }
 
     private migrateFromV27ToV28(): void {

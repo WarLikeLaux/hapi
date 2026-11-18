@@ -7,6 +7,8 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/use-translation'
+import { useFue } from '@/lib/use-fue'
+import { FueCallout, FueDot } from '@/components/Fue'
 
 type RenameSessionDialogProps = {
     isOpen: boolean

@@ -358,6 +358,8 @@ export function HappyComposer(props: {
     activity?: AgentActivity | null
     turnMetrics?: import('@/chat/turnMetrics').TurnMetrics | null
     awaitingStart?: boolean
+    attachmentsEnabled?: boolean
+    onPendingRequestClick?: (requestId: string) => void
     contextSize?: number
     contextCacheRead?: number
     contextWindow?: number | null
@@ -2218,6 +2220,7 @@ export function HappyComposer(props: {
                         activity={props.activity}
                         turnMetrics={props.turnMetrics}
                         awaitingStart={props.awaitingStart}
+                        onPendingRequestClick={props.onPendingRequestClick}
                         contextSize={contextSize}
                         contextCacheRead={contextCacheRead}
                         contextWindow={contextWindow}
@@ -2378,6 +2381,7 @@ export function HappyComposer(props: {
                             <ComposerButtons
                                 isTouch={isTouch}
                                 canSend={canSend}
+                                attachmentsEnabled={props.attachmentsEnabled}
                                 controlsDisabled={controlsDisabled}
                                 showSettingsButton={showSettingsButton}
                                 settingsButtonRef={settingsButtonRef}
@@ -2429,6 +2433,7 @@ export function HappyComposer(props: {
                             <UnifiedButton
                                 isTouch={isTouch}
                                 canSend={canSend}
+                                attachmentsEnabled={props.attachmentsEnabled}
                                 voiceStatus={effectiveVoiceStatus}
                                 voiceEnabled={voiceEnabled}
                                 dictationEnabled={dictationActive}

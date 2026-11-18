@@ -15,7 +15,7 @@ export const INLINE_MEDIA_SHELL_FALLBACK = trimIdent(`
 `);
 
 /**
- * Title + display_image / display_video / display_media instructions for OpenCode first-prompt /
+ * Title instructions for OpenCode first-prompt /
  * hapi-instructions.md. Cursor uses native MCP overlay + tool descriptions instead
  * (no user-turn prepend — that path was prompt-taint).
  */
@@ -24,8 +24,4 @@ export const HAPI_MCP_TITLE_INSTRUCTION = trimIdent(`
 `);
 
 export const HAPI_MCP_BRIDGE_PROMPT = trimIdent(`
-    ${HAPI_MCP_TITLE_INSTRUCTION}
-    ${DISPLAY_IMAGE_PROMPT_HAPI_MCP}
-    ${DISPLAY_VIDEO_PROMPT_HAPI_MCP}
-    ${DISPLAY_MEDIA_PROMPT_HAPI_MCP}
 `);

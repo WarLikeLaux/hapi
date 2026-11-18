@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const harness = vi.hoisted(() => ({
     spawnCwd: undefined as string | undefined,
     sessionCwd: undefined as string | undefined,
+    sendExtensionRequest: vi.fn(async () => undefined),
     disconnect: vi.fn(async () => {}),
 }))
 
@@ -15,6 +16,7 @@ vi.mock('@/agent/backends/acp/AcpSdkBackend', () => ({
         getSessionModelsMetadata() {
             return { availableModels: [{ modelId: '["provider","model"]', name: 'DSH model' }], currentModelId: '["provider","model"]' }
         }
+        sendExtensionRequest = harness.sendExtensionRequest
         disconnect = harness.disconnect
     },
 }))
@@ -29,6 +31,8 @@ describe('machine-level DSH model discovery', () => {
         expect(response.success).toBe(true)
         expect(harness.spawnCwd).toBe(homedir())
         expect(harness.sessionCwd).toBe(homedir())
+        expect(harness.sendExtensionRequest).toHaveBeenCalledWith('session/close', { sessionId: 'catalog-probe' }, { timeoutMs: 5000 })
+        expect(harness.sendExtensionRequest).toHaveBeenCalledBefore(harness.disconnect)
         expect(harness.disconnect).toHaveBeenCalledOnce()
     })
 })

@@ -7,7 +7,7 @@ import type { ApiClient } from '@/api/client'
 import type { HappyRuntimeExtras } from '@/lib/assistant-runtime'
 import type { Session, SessionMetadataSummary } from '@/types/api'
 import type { ConversationOutlineItem } from '@/chat/outline'
-import { getConversationMessageAnchorId } from '@/chat/outline'
+import { findConversationMessageAnchor, getConversationMessageAnchorId } from '@/chat/outline'
 import { formatMessageTimestampTitle, formatOutlineTimestamp } from '@/chat/presentation'
 import {
     HappyChatProvider,
@@ -563,6 +563,7 @@ export function HappyThread(props: {
     metadata: SessionMetadataSummary | null
     disabled: boolean
     allowInactiveFork?: boolean
+    assistantForkPoints?: ReadonlyMap<string, string>
     onRefresh: () => void
     onContinuePlan?: () => void
     onRetryMessage?: (localId: string) => void
@@ -588,6 +589,11 @@ export function HappyThread(props: {
     outlineItems: readonly ConversationOutlineItem[]
     onOutlineOpenChange: (open: boolean) => void
     onOutlineItemClick?: (item: ConversationOutlineItem) => void
+    initialTargetMessageId?: string
+    initialTargetMessageQuery?: string
+    searchRequestId?: number
+    onInitialTargetConsumed?: () => void
+    onSearchTargetDismissed?: () => void
 }) {
     const { t, locale } = useTranslation()
     const { preferences: headerMetadata } = useSessionHeaderMetadata()
@@ -1684,6 +1690,59 @@ export function HappyThread(props: {
         return grew
     }, [loadOlderFromConsumer])
 
+    const targetCallbacksRef = useRef({
+        consumed: props.onInitialTargetConsumed,
+        dismissed: props.onSearchTargetDismissed,
+    })
+    targetCallbacksRef.current = {
+        consumed: props.onInitialTargetConsumed,
+        dismissed: props.onSearchTargetDismissed,
+    }
+    useEffect(() => {
+        const id = props.initialTargetMessageId
+        if (!id || props.isSyncingTail || props.rawMessagesCount === 0) return
+        let cancelled = false
+        const findInViewport = () => {
+            const element = findConversationMessageAnchor(id, props.initialTargetMessageQuery)
+            return element && viewportRef.current?.contains(element) ? element : null
+        }
+        void (async () => {
+            let element = findInViewport()
+            if (!element) {
+                for (let attempt = 0; attempt < 20 && !cancelled && hasMoreMessagesRef.current; attempt++) {
+                    if (!await loadOlderForOutline()) break
+                    element = findInViewport()
+                    if (element) break
+                }
+            }
+            if (cancelled) return
+            if (!element) {
+                targetCallbacksRef.current.dismissed?.()
+                return
+            }
+            initialScrollDeadlineRef.current = 0
+            clearInitialScrollTimers()
+            restoredHistoryAnchorRef.current = null
+            tailScrollInProgressRef.current = false
+            autoScrollEnabledRef.current = false
+            atBottomRef.current = false
+            onViewModeChangeRef.current('history')
+            element.scrollIntoView({ block: 'center', behavior: 'instant' })
+            if (typeof element.animate === 'function'
+                && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                element.animate(
+                    [{ backgroundColor: 'var(--app-subtle-bg)' }, { backgroundColor: 'transparent' }],
+                    { duration: 1200 },
+                )
+            }
+            targetCallbacksRef.current.consumed?.()
+        })()
+        return () => { cancelled = true }
+    }, [
+        props.initialTargetMessageId, props.initialTargetMessageQuery, props.searchRequestId,
+        props.isSyncingTail, props.rawMessagesCount === 0, clearInitialScrollTimers, loadOlderForOutline,
+    ])
+
     const handleOutlineSelect = useCallback(async (item: ConversationOutlineItem) => {
         restoredHistoryAnchorRef.current = null
         clearInitialScrollTimers()
@@ -1929,6 +1988,7 @@ export function HappyThread(props: {
             onRetryMessage: props.onRetryMessage,
             historyActionPending: props.historyActionPending,
             allowInactiveFork: props.allowInactiveFork,
+            assistantForkPoints: props.assistantForkPoints,
             onForkConversation: props.onForkConversation,
             onRewindConversation: props.onRewindConversation,
             isLatestCompletedBoundary: props.isLatestCompletedBoundary,

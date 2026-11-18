@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
+import { downloadBlob } from '@/lib/file-download'
+import { exportSettings, importSettings } from '@/lib/settingsTransfer'
 import { useTranslation } from '@/lib/use-translation'
 import { resetAppCaches } from '@/lib/appCacheReset'
-import { SettingsPageContent } from '@/components/settings/SettingsPrimitives'
+import { SettingsPageContent, SettingsRow, SettingsSection } from '@/components/settings/SettingsPrimitives'
 import gojoLaptop from '@/assets/illustrations/gojo-launch-laptop.webp'
 import gojoUpToDate from '@/assets/illustrations/gojo-up-to-date.webp'
 import gojoUpdateAvailable from '@/assets/illustrations/gojo-update-available.webp'
+
+const buttonClassName = 'cursor-pointer rounded-lg bg-[var(--app-button)] px-3 py-2 text-sm font-medium text-[var(--app-button-text)]'
 
 function UpdateIcon({ status }: { status: 'checking' | 'current' | 'available' | 'unavailable' | 'updating' }) {
     return (
@@ -46,6 +50,28 @@ export async function prepareAbout(): Promise<UpdateResult> {
 
 export default function SettingsAboutPage({ initialUpdateResult }: { initialUpdateResult?: UpdateResult } = {}) {
     const { t } = useTranslation()
+    const [importError, setImportError] = useState(false)
+
+    const handleExport = () => {
+        const file = exportSettings()
+        const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' })
+        downloadBlob(`hapi-settings-${file.exportedAt.slice(0, 10)}.json`, blob)
+    }
+
+    const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
+        const selected = event.target.files?.[0]
+        event.target.value = ''
+        if (!selected) return
+        try {
+            importSettings(await selected.text())
+        } catch {
+            setImportError(true)
+            return
+        }
+        // Hooks cache their values on mount; reload so every setting is re-read.
+        window.location.reload()
+    }
+
     const [cacheResetting, setCacheResetting] = useState(false)
     const [illustration, setIllustration] = useState<string | null>(initialUpdateResult ? illustrations[initialUpdateResult] : null)
     const [updateStatus, setUpdateStatus] = useState<'checking' | UpdateResult | 'updating'>(initialUpdateResult ?? 'checking')
@@ -144,6 +170,21 @@ export default function SettingsAboutPage({ initialUpdateResult }: { initialUpda
                     {cacheResetting ? t('settings.about.resetCache.busy') : t('settings.about.resetCache.action')}
                 </button>
             </section>
+            <SettingsSection>
+                <SettingsRow label={t('settings.about.backup.title')} description={t('settings.about.backup.description')} trailing={
+                    <div className="flex gap-2">
+                        <button type="button" onClick={handleExport} className={buttonClassName}>
+                            {t('settings.about.backup.exportButton')}
+                        </button>
+                        <label className={`${buttonClassName} focus-within:ring-2 focus-within:ring-[var(--app-link)]`}>
+                            {t('settings.about.backup.importButton')}
+                            <input type="file" accept="application/json,.json" className="sr-only" onChange={(event) => void handleImport(event)} />
+                        </label>
+                    </div>
+                }>
+                    {importError ? <div role="alert" className="mt-0.5 text-xs text-red-600 dark:text-red-400">{t('settings.about.backup.importError')}</div> : null}
+                </SettingsRow>
+            </SettingsSection>
         </SettingsPageContent>
     )
 }
