@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMemo, type ReactNode } from 'react'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { MACHINE_CAPABILITIES } from '@hapi/protocol/runnerCapabilities'
 import type { MachineQuotaSnapshot, QuotaUnavailable, QuotaWindow } from '@hapi/protocol/quotas'
 import type { ApiClient } from '@/api/client'
@@ -184,31 +184,32 @@ export function UnavailableRow(props: { unavailable: QuotaUnavailable }) {
     )
 }
 
-function MachineQuotaSection(props: { snapshot: MachineQuotaSnapshot }) {
+function MachineQuotaSection(props: { label: string; snapshot?: MachineQuotaSnapshot; children?: ReactNode }) {
     const { t } = useTranslation()
-    const label = props.snapshot.displayName ?? props.snapshot.machineId
-    const staleForMs = Date.now() - props.snapshot.receivedAt
+    const { snapshot } = props
     const statusParts: string[] = []
-    if (!props.snapshot.online) statusParts.push(t('settings.limits.offline'))
-    if (staleForMs > STALE_AFTER_MS) statusParts.push(t('settings.limits.stale', { ago: formatAge(staleForMs, t) }))
+    if (snapshot) {
+        const staleForMs = Date.now() - snapshot.receivedAt
+        if (!snapshot.online) statusParts.push(t('settings.limits.offline'))
+        if (staleForMs > STALE_AFTER_MS) statusParts.push(t('settings.limits.stale', { ago: formatAge(staleForMs, t) }))
+    }
 
     const windows = useMemo(
-        () => sortQuotaWindows(props.snapshot.quotas),
-        [props.snapshot.quotas]
+        () => snapshot ? sortQuotaWindows(snapshot.quotas) : [],
+        [snapshot]
     )
     return (
         <SettingsSection
-            title={label}
+            title={props.label}
             description={statusParts.length > 0 ? statusParts.join(' · ') : undefined}
         >
-            <div className="divide-y divide-[var(--app-divider)]">
-                {windows.map((quotaWindow) => (
-                    <QuotaRow key={quotaWindow.source} quotaWindow={quotaWindow} />
-                ))}
-                {props.snapshot.unavailable.map((unavailable) => (
-                    <UnavailableRow key={unavailable.source} unavailable={unavailable} />
-                ))}
-            </div>
+            {windows.map((quotaWindow) => (
+                <QuotaRow key={quotaWindow.source} quotaWindow={quotaWindow} />
+            ))}
+            {snapshot?.unavailable.map((unavailable) => (
+                <UnavailableRow key={unavailable.source} unavailable={unavailable} />
+            ))}
+            {props.children}
         </SettingsSection>
     )
 }
@@ -217,36 +218,47 @@ export default function SettingsLimitsPage() {
     const { api } = useAppContext()
     const { t } = useTranslation()
     const query = useQuotas({ api })
-    const { machines } = useMachines(api, true)
-    const claudeMachines = machines.filter(machine =>
+    const { machines, isLoading: machinesLoading } = useMachines(api, true)
+    const candidates = machines.filter(machine =>
         machine.active && machine.metadata?.capabilities?.includes(MACHINE_CAPABILITIES.AgentQuotas)
+            && machine.metadata.capabilities.includes(MACHINE_CAPABILITIES.AgentAvailability)
     )
+    const availability = useQueries({ queries: api ? candidates.map(({ id }) => ({
+        queryKey: queryKeys.machineAgentAvailability(id),
+        queryFn: () => api.getMachineAgentAvailability(id),
+        staleTime: 30_000,
+        retry: false,
+    })) : [] })
+    const claudeMachines = new Set(candidates.filter((_, index) =>
+        availability[index]?.isSuccess && availability[index].data.agents.some(agent => agent.agent === 'claude' && agent.available)
+    ).map(machine => machine.id))
 
-    const snapshots = useMemo(
-        () => [...query.snapshots].sort((a, b) => (a.displayName ?? a.machineId).localeCompare(b.displayName ?? b.machineId)),
-        [query.snapshots]
-    )
-    const hasContent = snapshots.some((snapshot) => snapshot.quotas.length > 0 || snapshot.unavailable.length > 0)
+    const snapshots = new Map(query.snapshots.map(snapshot => [snapshot.machineId, snapshot]))
+    const machineNames = new Map(machines.map(({ id, metadata }) => [id, metadata?.displayName ?? metadata?.host]))
+    const sections = [...new Set([...snapshots.keys(), ...claudeMachines])].map(id => ({
+        id,
+        label: snapshots.get(id)?.displayName ?? machineNames.get(id) ?? id,
+        snapshot: snapshots.get(id),
+    })).sort((a, b) => a.label.localeCompare(b.label))
+    const isLoading = query.isLoading || (sections.length === 0 && (machinesLoading || availability.some(result => result.isPending)))
 
     return (
         <SettingsPageContent description={t('settings.limits.description')}>
-            {query.isLoading ? <SettingsSection><div className="px-3 py-4 text-sm text-[var(--app-hint)]">{t('settings.limits.loading')}</div></SettingsSection> : null}
+            {isLoading ? <SettingsSection><div className="px-3 py-4 text-sm text-[var(--app-hint)]">{t('settings.limits.loading')}</div></SettingsSection> : null}
             {query.error ? <SettingsSection><div className="px-3 py-4 text-sm text-[var(--app-hint)]">{t('settings.limits.error')}</div></SettingsSection> : null}
-            {!query.isLoading && !query.error && snapshots.map((snapshot) => (
-                <MachineQuotaSection key={snapshot.machineId} snapshot={snapshot} />
+            {sections.map(({ id, label, snapshot }) => (
+                <MachineQuotaSection key={id} label={label} snapshot={snapshot}>
+                    {api && claudeMachines.has(id) ? <ClaudeQuotaRows api={api} machineId={id} /> : null}
+                </MachineQuotaSection>
             ))}
-            {api && claudeMachines.map(machine => (
-                <ClaudeQuotaSection key={machine.id} api={api} machineId={machine.id}
-                    machineName={machine.metadata?.displayName ?? machine.metadata?.host ?? machine.id} />
-            ))}
-            {!query.isLoading && !query.error && !hasContent && claudeMachines.length === 0 ? (
+            {!isLoading && !query.error && sections.length === 0 ? (
                 <SettingsSection><div className="px-3 py-4 text-sm text-[var(--app-hint)]">{t('settings.limits.empty')}</div></SettingsSection>
             ) : null}
         </SettingsPageContent>
     )
 }
 
-function ClaudeQuotaSection(props: { api: ApiClient; machineId: string; machineName: string }) {
+function ClaudeQuotaRows(props: { api: ApiClient; machineId: string }) {
     const { t } = useTranslation()
     const query = useQuery({
         queryKey: queryKeys.machineAgentQuotas(props.machineId),
@@ -255,15 +267,14 @@ function ClaudeQuotaSection(props: { api: ApiClient; machineId: string; machineN
         retry: false,
     })
     const account = query.data?.accounts.find(entry => entry.agent === 'claude')
-    const statusText = query.isError ? t('settings.usage.quotas.status.error')
+    const statusText = query.isError || account?.status === 'error' || account?.status === 'unavailable' ? t('settings.usage.quotas.status.error')
         : account?.status === 'unauthenticated' ? t('settings.usage.quotas.status.unauthenticated')
         : account?.status === 'custom_provider' ? t('settings.usage.quotas.status.custom_provider')
-        : account && account.buckets.length === 0 ? t('settings.usage.quotas.status.error')
         : undefined
     return (
-        <SettingsSection>
+        <>
             <SettingsRow
-                label={`Claude · ${props.machineName}`}
+                label={t('settings.limits.source.claude')}
                 description={statusText}
                 trailing={
                     <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}
@@ -280,6 +291,6 @@ function ClaudeQuotaSection(props: { api: ApiClient; machineId: string; machineN
                     resetsAt: bucket.resetsAt == null ? null : bucket.resetsAt / 1000,
                 }} />
             ))}
-        </SettingsSection>
+        </>
     )
 }
