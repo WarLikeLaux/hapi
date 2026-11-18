@@ -47,6 +47,9 @@ describe('explicit Codex model catalog configuration', () => {
     it('normalizes and preserves an inline shared launch override', () => {
         vi.stubEnv('HAPI_CODEX_MODEL_CATALOG_JSON', '/ignored.json');
         const launch = sharedLaunchConfig({ codexArgs: ['--config=model_catalog_json="explicit.json"'] }, process.cwd());
-        expect(launch.serverArgs).toEqual(['--config', 'model_catalog_json="explicit.json"']);
+        expect(launch.serverArgs).toEqual([
+            '--config', 'model_catalog_json="explicit.json"',
+            '-c', 'features.default_mode_request_user_input=true'
+        ]);
     });
 });

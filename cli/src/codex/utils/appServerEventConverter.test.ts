@@ -71,7 +71,7 @@ describe('AppServerEventConverter', () => {
         })).toEqual([]);
         expect(converter.handleNotification('item/completed', {
             item: { id: 'truncated', type: 'agentMessage', text: 'Working.\nAGENT_NOTIFY_SUMMARY {"status":"done', phase: 'commentary' }
-        })).toEqual([{ type: 'agent_message', message: 'Working.' }]);
+        })).toEqual([{ type: 'agent_message', message: 'Working.', phase: 'commentary' }]);
     });
 
     it('maps thread/started', () => {

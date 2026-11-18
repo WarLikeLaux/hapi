@@ -5,6 +5,11 @@ const { spawnSyncMock } = vi.hoisted(() => ({
     spawnSyncMock: vi.fn()
 }))
 
+vi.mock('node:os', async (importOriginal) => ({
+    ...await importOriginal<typeof import('node:os')>(),
+    uptime: () => Date.now() / 1000
+}))
+
 vi.mock('cross-spawn', () => ({
     default: {
         sync: spawnSyncMock
@@ -44,7 +49,7 @@ function unavailable(command: string) {
 describe('preparation signal deadline on POSIX', () => {
     beforeEach(() => {
         setPlatform('linux')
-        vi.useFakeTimers()
+        vi.useFakeTimers({ now: 10_000 })
         spawnSyncMock.mockReset()
         spawnSyncMock.mockReturnValue({ status: 1, stdout: '', stderr: '' })
         vi.spyOn(process, 'kill').mockReturnValue(true)
@@ -305,7 +310,7 @@ describe('killProcess on Windows (orphanReap / stopSession)', () => {
     beforeEach(() => {
         setPlatform('win32')
         spawnSyncMock.mockReset()
-        vi.useFakeTimers()
+        vi.useFakeTimers({ now: 10_000 })
     })
 
     afterEach(() => {
@@ -339,7 +344,7 @@ describe('killProcess on Windows (orphanReap / stopSession)', () => {
         let delayed = false
         spawnSyncMock.mockImplementation((cmd: string) => {
             if (cmd === 'tasklist') {
-                if (!delayed) { delayed = true; vi.advanceTimersByTime(100) }
+                if (!delayed) { delayed = true; vi.advanceTimersByTime(1000) }
                 return completed('hapi.exe 5544 Console')
             }
             return completed('')
@@ -354,7 +359,7 @@ describe('killProcess on Windows (orphanReap / stopSession)', () => {
         const deadline = monotonicTimeMs() + 100
         spawnSyncMock.mockImplementation((cmd: string) => {
             if (cmd === 'tasklist') return completed('hapi.exe 5544 Console')
-            if (cmd === 'taskkill') { vi.advanceTimersByTime(100); return completed('', 1) }
+            if (cmd === 'taskkill') { vi.advanceTimersByTime(1000); return completed('', 1) }
             return completed('')
         })
         const stopped = killProcess(5544, false, deadline)

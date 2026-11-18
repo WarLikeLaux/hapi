@@ -219,7 +219,7 @@ export class AcpPermissionHandler extends BasePermissionHandler<PermissionRespon
             const decision = response.decision ?? (response.approved ? 'approved' : 'denied')
             this.endUserWait(response.id)
             const answers = response.answers && Object.fromEntries(
-                Object.entries(response.answers).map(([key, value]) => [key, value.answers])
+                Object.entries(response.answers).map(([key, value]) => [key, Array.isArray(value) ? value : value.answers])
             )
             question(answers ? { decision, answers } : { decision })
             pending.resolve()

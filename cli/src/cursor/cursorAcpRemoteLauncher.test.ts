@@ -827,7 +827,7 @@ describe('cursorAcpRemoteLauncher', () => {
     });
 
     it('waits for remote launcher teardown when the session is killed while idle', async () => {
-        const session = makeSession(null, { keepQueueOpen: false });
+        const session = makeSession(null, { keepQueueOpen: true });
         const running = cursorAcpRemoteLauncher(session);
         try {
             await vi.waitFor(() => expect(harness.newSessionCalled).toBe(true));

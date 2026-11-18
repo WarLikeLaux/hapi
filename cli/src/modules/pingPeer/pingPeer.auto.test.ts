@@ -59,12 +59,17 @@ function transport(initial: PingPeerSessionSummary, options: {
 }
 
 describe.each(flavors)('auto delivery to %s', (flavor) => {
-    it.each([undefined, 'auto'] as const)('steers an eligible active turn with mode %s using one ordinary queued row', async (deliveryMode) => {
+    it.each([undefined, 'auto'] as const)('delivers an eligible active turn in mode %s using one ordinary queued row', async (deliveryMode) => {
         const t = transport(target(flavor))
         const result = await pingPeer({ ...t.input, deliveryMode })
-        expect(result.delivery).toBe('steered')
         expect(t.rows).toEqual([{ text: t.input.message, localId: result.localId }])
-        expect(t.steers).toEqual([`http://hub.test/api/sessions/${sessionId}/messages/${result.localId}/steer`])
+        if (flavor === 'codex') {
+            expect(result.delivery).toBe('steered')
+            expect(t.steers).toEqual([`http://hub.test/api/sessions/${sessionId}/messages/${result.localId}/steer`])
+        } else {
+            expect(result.delivery).toBe('accepted')
+            expect(t.steers).toEqual([])
+        }
     })
 
     it('queues an idle target without a steer request', async () => {
@@ -133,30 +138,6 @@ describe.each(flavors)('auto delivery to %s', (flavor) => {
     })
 
     it.each([
-        [{ status: 200, data: { status: 'failed', error: 'Session not found', localId: null } }, 'steer rejected by hub: Session not found', 'stays queued'],
-        [{ status: 409, data: { error: 'Session became inactive' } }, 'steer rejected by hub: Session became inactive', 'stays queued'],
-        [{ status: 200, data: { status: 'failed', error: 'RPC timeout: steer-queued-message', localId: 'ping-peer-x' } },
-            'steer not confirmed; delivery unresolved: RPC timeout: steer-queued-message', 'delivery unresolved'],
-        [{ status: 200, data: { status: 'failed', error: 'Steer outcome is being reconciled', localId: 'ping-peer-x' } },
-            'steer not confirmed; delivery unresolved: Steer outcome is being reconciled', 'delivery unresolved'],
-        [{ status: 500, data: { error: 'Hub unavailable' } }, 'steer not confirmed; delivery unresolved: Hub unavailable', 'delivery unresolved'],
-        [new Error('Synthetic steer ACK lost'), 'steer not confirmed; delivery unresolved: Synthetic steer ACK lost', 'delivery unresolved']
-    ] as const)('retains the one accepted row and words the steer outcome by its evidence: %j', async (steer, steerNote, progressTail) => {
-        const t = transport(target(flavor), { steer })
-        const progress: string[] = []
-        const result = await pingPeer({ ...t.input, deliveryMode: 'auto', onProgress: (m) => progress.push(m) })
-        expect(result.delivery).toBe('accepted')
-        expect(result.steerNote).toBe(steerNote)
-        expect(t.rows).toEqual([{ text: t.input.message, localId: result.localId }])
-        expect(t.steers).toEqual([`http://hub.test/api/sessions/${sessionId}/messages/${result.localId}/steer`])
-        expect(t.http.post.mock.calls).toHaveLength(3)
-        const line = progress.find((m) => m.startsWith(steerNote))
-        expect(line).toBeDefined()
-        expect(line).toContain(progressTail)
-        if (progressTail === 'delivery unresolved') expect(line).not.toContain('stays queued')
-    })
-
-    it.each([
         { status: 500, data: { error: 'Synthetic hub failure' } },
         { status: 409, data: { error: 'Session is inactive' } }
     ])('does not hide a non-2xx initial submission or attempt a steer: %j', async (send) => {
@@ -175,14 +156,6 @@ describe.each(flavors)('auto delivery to %s', (flavor) => {
         expect(t.rows).toEqual([{ text: t.input.message, localId: result.localId }])
         expect(t.steers).toEqual([])
         expect(t.http.post.mock.calls.filter(([url]) => url.endsWith('/resume'))).toHaveLength(0)
-    })
-
-    it('keeps authoritative consumption instead of claiming a queue fallback', async () => {
-        const t = transport(target(flavor), { steer: { status: 200, data: { status: 'invoked' } } })
-        const result = await pingPeer({ ...t.input, deliveryMode: 'auto' })
-        expect(result.delivery).toBe('invoked')
-        expect(t.rows).toHaveLength(1)
-        expect(t.steers).toHaveLength(1)
     })
 
     it('does not hide an unconfirmed initial message submission or attempt a steer', async () => {
@@ -206,6 +179,40 @@ describe.each(flavors)('auto delivery to %s', (flavor) => {
         expect(result.delivery).toBe('accepted')
         expect(t.rows).toEqual([{ text: t.input.message, localId: result.localId }])
         expect(t.steers).toEqual([])
+    })
+})
+
+describe('auto steer outcomes for Codex', () => {
+    it.each([
+        [{ status: 200, data: { status: 'failed', error: 'Session not found', localId: null } }, 'steer rejected by hub: Session not found', 'stays queued'],
+        [{ status: 409, data: { error: 'Session became inactive' } }, 'steer rejected by hub: Session became inactive', 'stays queued'],
+        [{ status: 200, data: { status: 'failed', error: 'RPC timeout: steer-queued-message', localId: 'ping-peer-x' } },
+            'steer not confirmed; delivery unresolved: RPC timeout: steer-queued-message', 'delivery unresolved'],
+        [{ status: 200, data: { status: 'failed', error: 'Steer outcome is being reconciled', localId: 'ping-peer-x' } },
+            'steer not confirmed; delivery unresolved: Steer outcome is being reconciled', 'delivery unresolved'],
+        [{ status: 500, data: { error: 'Hub unavailable' } }, 'steer not confirmed; delivery unresolved: Hub unavailable', 'delivery unresolved'],
+        [new Error('Synthetic steer ACK lost'), 'steer not confirmed; delivery unresolved: Synthetic steer ACK lost', 'delivery unresolved']
+    ] as const)('retains the one accepted row and words the steer outcome by its evidence: %j', async (steer, steerNote, progressTail) => {
+        const t = transport(target('codex'), { steer })
+        const progress: string[] = []
+        const result = await pingPeer({ ...t.input, deliveryMode: 'auto', onProgress: (m) => progress.push(m) })
+        expect(result.delivery).toBe('accepted')
+        expect(result.steerNote).toBe(steerNote)
+        expect(t.rows).toEqual([{ text: t.input.message, localId: result.localId }])
+        expect(t.steers).toEqual([`http://hub.test/api/sessions/${sessionId}/messages/${result.localId}/steer`])
+        expect(t.http.post.mock.calls).toHaveLength(3)
+        const line = progress.find((m) => m.startsWith(steerNote))
+        expect(line).toBeDefined()
+        expect(line).toContain(progressTail)
+        if (progressTail === 'delivery unresolved') expect(line).not.toContain('stays queued')
+    })
+
+    it('keeps authoritative consumption instead of claiming a queue fallback', async () => {
+        const t = transport(target('codex'), { steer: { status: 200, data: { status: 'invoked' } } })
+        const result = await pingPeer({ ...t.input, deliveryMode: 'auto' })
+        expect(result.delivery).toBe('invoked')
+        expect(t.rows).toHaveLength(1)
+        expect(t.steers).toHaveLength(1)
     })
 })
 

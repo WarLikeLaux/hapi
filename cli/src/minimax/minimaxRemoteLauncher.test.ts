@@ -53,7 +53,7 @@ function startSession(backend = makeBackend()) {
     const handlers = new Map<string, (payload?: unknown) => Promise<unknown>>();
     const client = {
         rpcHandlerManager: { registerHandler: (method: string, handler: (payload?: unknown) => Promise<unknown>) => handlers.set(method, handler) },
-        setHapiTitleToolAvailable: vi.fn(), updateMetadata: vi.fn(), keepAlive: vi.fn(),
+        getMetadata: vi.fn(() => null), setHapiTitleToolAvailable: vi.fn(), updateMetadata: vi.fn(), keepAlive: vi.fn(),
         sendSessionEvent: vi.fn(), sendAgentMessage: vi.fn(),
         emitMessagesConsumed: vi.fn(), emitSteerIndeterminate: vi.fn(),
         setSteerDeliveryState: vi.fn(async () => true)

@@ -62,6 +62,12 @@ vi.mock('@/modules/common/permission/AcpPermissionHandler', () => ({
     }
 }))
 
+vi.mock('@/codex/utils/buildHapiMcpBridge', () => ({
+    buildHapiMcpBridge: vi.fn(async () => ({
+        server: { stop: vi.fn(async () => {}) },
+        mcpServers: { hapi: { command: '/tmp/hapi', args: ['mcp'] } }
+    }))
+}))
 vi.mock('@/ui/ink/RemoteModeDisplay', () => ({ RemoteModeDisplay: () => null }))
 vi.mock('@/ui/logger', () => ({ logger: { debug: vi.fn(), warn: vi.fn() } }))
 
@@ -77,9 +83,13 @@ function createSessionWithBatches(batches: Array<[string, DshMode]>) {
     return {
         path: '/tmp/dsh-test',
         logPath: '/tmp/dsh-test/hapi.log',
-        client: { rpcHandlerManager: { registerHandler: vi.fn() } },
+        client: {
+            rpcHandlerManager: { registerHandler: vi.fn() },
+            flushMetadata: vi.fn(async () => true)
+        },
         queue,
         sessionId: null as string | null,
+        onSessionFound: vi.fn(),
         getPermissionMode: () => 'default' as const,
         onThinkingChange: vi.fn(),
         sendAgentMessage: vi.fn(),
@@ -117,7 +127,7 @@ describe('DshRemoteLauncher', () => {
         })
     })
 
-    it('creates a fresh ACP session without MCP injection and forwards text prompts', async () => {
+    it('creates a fresh ACP session with the HAPI MCP bridge and forwards text prompts', async () => {
         const session = createSession()
         const launcher = new DshRemoteLauncher(session as never)
 
@@ -125,7 +135,7 @@ describe('DshRemoteLauncher', () => {
 
         expect(harness.backend?.newSession).toHaveBeenCalledWith({
             cwd: '/tmp/dsh-test',
-            mcpServers: []
+            mcpServers: [{ name: 'hapi', command: '/tmp/hapi', args: ['mcp'], env: [] }]
         })
         expect(harness.prompts).toEqual([[{ type: 'text', text: 'first' }]])
         expect(session.sendAgentMessage).toHaveBeenCalledWith({

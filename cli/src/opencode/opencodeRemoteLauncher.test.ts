@@ -416,6 +416,8 @@ function createSessionStub(
     const thinkingChangeCalls: boolean[] = [];
 
     const client = {
+        getMetadata: vi.fn(() => null),
+        updateMetadata: vi.fn(),
         rpcHandlerManager: {
             registerHandler(method: string, handler: (params: unknown) => unknown) {
                 rpcHandlers.set(method, handler);
@@ -1811,7 +1813,7 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         ]);
     });
 
-    it('injects the skill lookup instruction only on the first prompt', async () => {
+    it('injects HAPI tool instructions only on the first prompt', async () => {
         const { session } = createSessionStub([
             { message: 'first', mode: createMode() },
             { message: 'second', mode: createMode() }
@@ -1822,7 +1824,8 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         expect(JSON.stringify(harness.promptContents[0])).toContain('$name');
         expect(JSON.stringify(harness.promptContents[0])).toContain('skill_lookup');
         expect(JSON.stringify(harness.promptContents[0])).toContain('hapi_display_image');
-        expect(JSON.stringify(harness.promptContents[0])).not.toContain('hapi_change_title');
+        expect(JSON.stringify(harness.promptContents[0])).toContain('hapi_change_title');
+        expect(JSON.stringify(harness.promptContents[1])).not.toContain('hapi_change_title');
         expect(JSON.stringify(harness.promptContents[1])).not.toContain('skill_lookup');
     });
 
@@ -2198,7 +2201,7 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         expect(content[0]?.text).toContain('You are in plan mode');
         expect(content[0]?.text).toContain('Do not execute tools');
         expect(content[0]?.text).toContain('design the fix');
-        expect(content[0]?.text).not.toContain('hapi_change_title');
+        expect(content[0]?.text).toContain('hapi_change_title');
     });
 
     it('registers a listOpencodeModels RPC handler that returns the backend cache', async () => {
@@ -2571,7 +2574,7 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         event('message.updated', { info: { id: 'answer', role: 'assistant', sessionID: 'acp-session-1' } });
         event('message.part.updated', { part: { id: 'stream-1', messageID: 'answer', sessionID: 'acp-session-1', type: 'text', text: 'partial' } });
         event('message.part.updated', { part: { id: 'stream-1', messageID: 'answer', sessionID: 'acp-session-1', type: 'text', text: 'partial settled', time: { end: 1 } } });
-        expect(agentMessages).toContainEqual({ type: 'message', message: 'partial', id: 'stream-1', streamSnapshot: true });
+        expect(agentMessages).toContainEqual({ type: 'message', message: 'partial', id: 'stream-1', streamSnapshot: true, live: true });
         expect(agentMessages).toContainEqual({ type: 'message', message: 'partial settled', id: 'stream-1', streamSnapshot: true });
         expect(agentMessages.some((message: unknown) => JSON.stringify(message).includes('unclassified ACP summary'))).toBe(false);
         expect(addMessage).not.toHaveBeenCalledWith('partial', 'assistant');

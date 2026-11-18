@@ -57,14 +57,14 @@ describe('OpenCode ACP title and peer instructions', () => {
 })
 
 describe('OpenCode media tool discovery', () => {
-    it('keeps media delivery out of the local and ACP prompt injections', async () => {
+    it('names the media tools in the local and ACP prompt injections', async () => {
         const dir = await mkdtemp(join(tmpdir(), 'hapi-opencode-display-'))
         try {
             const { instructionsPath } = ensureOpencodeConfig(dir, { command: 'hapi', args: ['mcp'] }, getTitleInstruction({}))
             for (const prompt of [await readFile(instructionsPath, 'utf8'), getOpencodeNativeToolInstruction({})]) {
-                expect(prompt).not.toContain('display_image')
-                expect(prompt).not.toContain('display_video')
-                expect(prompt).not.toContain('display_media')
+                expect(prompt).toContain('hapi_display_image')
+                expect(prompt).toContain('hapi_display_video')
+                expect(prompt).toContain('hapi_display_media')
                 expect(prompt).toContain('hapi_change_title')
                 expect(prompt).toContain('skill_lookup')
             }

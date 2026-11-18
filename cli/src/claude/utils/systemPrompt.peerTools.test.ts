@@ -50,14 +50,13 @@ describe('peer-tools citation steer across flavors', () => {
         }
     })
 
-    it('leaves media delivery to tool contracts across flavors', async () => {
+    it('keeps media tools discoverable in each flavor instructions', async () => {
         const { claude, codex, opencode, restore } = await importFlavorPrompts(false)
         try {
             for (const prompt of [claude.getSystemPrompt(), codex.getCodexSystemPrompt({}), opencode.getTitleInstruction({}), opencode.getOpencodeNativeToolInstruction({})]) {
-                expect(prompt).not.toContain('display_image')
-                expect(prompt).not.toContain('display_video')
-                expect(prompt).not.toContain('display_media')
-                expect(prompt).not.toContain('Web/PWA')
+                expect(prompt).toContain('display_image')
+                expect(prompt).toContain('display_video')
+                expect(prompt).toContain('display_media')
                 expect(prompt).toContain('change_title')
                 expect(prompt).toContain('hapi job run')
             }

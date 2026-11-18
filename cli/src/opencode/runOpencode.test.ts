@@ -1,3 +1,4 @@
+import type { OpenCodeRuntimeGate } from './rewind';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildCliArgs } from '@/runner/run';
 import { parseRemoteAgentCommandOptions } from '@/commands/agentCommandOptions';
@@ -36,6 +37,7 @@ const harness = vi.hoisted(() => ({
     listSlashCommands: vi.fn(async (..._args: unknown[]) => [] as Array<unknown>),
     session: {
         sessionId: 'source-session',
+        getMetadata: vi.fn(() => null),
         onUserMessage: vi.fn(),
         onCancelQueuedMessage: vi.fn(),
         sendAgentMessage: vi.fn(),
@@ -78,6 +80,9 @@ vi.mock('./loop', () => ({
         if (onSessionReady) {
             onSessionReady(mockOpencodeSession);
         }
+        const gate = options.runtimeGate as OpenCodeRuntimeGate;
+        const entryFence = gate.takeInitialEntryFence();
+        if (entryFence) gate.releaseEntryFence(entryFence);
         if (harness.triggerClear) {
             const onClearRequested = options.onClearRequested as (() => void) | undefined;
             await onClearRequested?.();
@@ -164,12 +169,6 @@ async function createRealUploadImage(sessionKey: string, filename: string, bytes
     const imagePath = join(uploadDir, filename);
     await writeFile(imagePath, Buffer.from(bytes));
     return { imagePath, uploadDir };
-}
-
-async function drainUserMessageChain(): Promise<void> {
-    for (let i = 0; i < 5; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-    }
 }
 
 describe('runOpencode set-session-config handler', () => {
@@ -496,10 +495,9 @@ describe('runOpencode set-session-config handler', () => {
                     ]
                 }
             }, 'local-image');
-            await drainUserMessageChain();
+            await vi.waitFor(() => expect(messageQueue.queue).toHaveLength(1));
 
             expect(harness.session.sendAgentMessage).not.toHaveBeenCalled();
-            expect(messageQueue.queue).toHaveLength(1);
             expect(messageQueue.queue[0].mode.images).toEqual([
                 { path: imagePath, type: 'image', mimeType: 'image/png', data: 'iVBORw==' }
             ]);
@@ -527,7 +525,7 @@ describe('runOpencode set-session-config handler', () => {
                 attachments: [{ id: 'bad', filename: 'missing.png', mimeType: 'image/png', size: 1, path: '/missing/image.png' }]
             }
         }, 'missing-image');
-        await drainUserMessageChain();
+        await vi.waitFor(() => expect(harness.session.emitMessagesConsumed).toHaveBeenCalledWith(['missing-image'], { clearQueuedThinkingGrace: true }));
 
         expect(harness.session.sendAgentMessage).toHaveBeenCalledWith({
             type: 'message',
@@ -535,7 +533,6 @@ describe('runOpencode set-session-config handler', () => {
             id: expect.any(String)
         });
         expect(messageQueue.queue).toEqual([]);
-        expect(harness.session.emitMessagesConsumed).toHaveBeenCalledWith(['missing-image'], { clearQueuedThinkingGrace: true });
     });
 
     it('never batches prompts carrying different image attachments together', async () => {
@@ -556,7 +553,7 @@ describe('runOpencode set-session-config handler', () => {
 
             userMessageHandler!({ content: { text: 'first', attachments: imageAttachment(first.imagePath) } }, 'img-a');
             userMessageHandler!({ content: { text: 'second', attachments: imageAttachment(second.imagePath) } }, 'img-b');
-            await drainUserMessageChain();
+            await vi.waitFor(() => expect(messageQueue.queue).toHaveLength(2));
 
             // Different image sets must not share a batch (collectBatch keeps
             // only the first item's mode, so the second image would drop).
@@ -569,7 +566,7 @@ describe('runOpencode set-session-config handler', () => {
             // Identical image sets still batch like plain text prompts.
             userMessageHandler!({ content: { text: 'third', attachments: imageAttachment(first.imagePath) } }, 'img-c');
             userMessageHandler!({ content: { text: 'fourth', attachments: imageAttachment(first.imagePath) } }, 'img-d');
-            await drainUserMessageChain();
+            await vi.waitFor(() => expect(messageQueue.queue).toHaveLength(2));
             const batchC = await messageQueue.waitForMessagesAndGetAsString();
             expect(batchC?.items.map((item) => item.message)).toEqual(['third', 'fourth']);
         } finally {
