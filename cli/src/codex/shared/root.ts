@@ -83,6 +83,7 @@ export class SharedCodexRoot {
     private publishedPlanId: string | null | undefined;
     private submittingPlan = false;
     private steeringActive: boolean | undefined;
+    private publishedPausedQueueHeadId: string | null | undefined;
     private turnRevision = 0;
     private settingsRevision = 0;
     private refreshing?: Promise<void>;
@@ -201,6 +202,7 @@ export class SharedCodexRoot {
             // Replay final native history with stable IDs after every reconnect.
             this.projection?.reset();
             this.steeringActive = undefined;
+            this.publishedPausedQueueHeadId = undefined;
             this.publishedPlanId = undefined;
             this.publishedCompactionIds = undefined;
             void this.refresh().then(() => this.refreshChildren(false)).then(() => this.queue.replay())
@@ -323,10 +325,13 @@ export class SharedCodexRoot {
     }
     private publishSteering(): void {
         this.publishCompaction();
-        const active = Boolean(this.currentTurn) && !this.stopping && !this.closed && !this.reconnecting && this.client.isInitialized();
-        if (this.steeringActive === active) return;
+        const available = !this.stopping && !this.closed && !this.reconnecting && this.client.isInitialized();
+        const active = available && Boolean(this.currentTurn);
+        const pausedHeadId = available && !active && this.interrupted ? this.queue?.headId ?? null : null;
+        if (this.steeringActive === active && this.publishedPausedQueueHeadId === pausedHeadId) return;
         this.steeringActive = active;
-        this.session.updateAgentState(state => ({ ...state, steeringActive: active }));
+        this.publishedPausedQueueHeadId = pausedHeadId;
+        this.session.updateAgentState(state => ({ ...state, steeringActive: active, codexPausedQueueHeadId: pausedHeadId }));
     }
     private publishCompaction(): void {
         const active = this.compactingTurn && this.compactingTurn === this.currentTurn
@@ -828,6 +833,13 @@ export class SharedCodexRoot {
                 codexDismissedAsyncQuestions: { ...metadata.codexDismissedAsyncQuestions, [request.questionId]: Date.now() }
             }));
             this.projection.dismissAsyncQuestion(request.questionId);
+            return { ok: true };
+        });
+        rpc.registerHandler(RPC_METHODS.StartCodexQueuedMessage, async raw => {
+            const { localId } = z.object({ localId: z.string().min(1) }).parse(raw);
+            if (this.queue.state(localId) === 'consumed') return { ok: true };
+            if (!this.interrupted || this.currentTurn || this.reconnecting) throw new Error('Codex queue is no longer paused');
+            await this.queue.startHead(localId);
             return { ok: true };
         });
         rpc.registerHandler(RPC_METHODS.SteerQueuedMessage, async raw => {

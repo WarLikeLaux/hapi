@@ -2395,6 +2395,17 @@ export class SyncEngine {
         return { status: 'failed', error: failure, localId }
     }
 
+    async startCodexQueuedMessage(sessionId: string, messageId: string): Promise<void> {
+        const session = this.getSession(sessionId)
+        if (session?.metadata?.flavor !== 'codex') throw new Error('This action requires a Codex session')
+        const lookup = this.store.messages.lookupQueuedMessage(sessionId, messageId)
+        if (lookup.status === 'invoked') return
+        if (lookup.status !== 'queued' || !lookup.localId || lookup.scheduledAt != null) {
+            throw new Error('Message is no longer available in the immediate queue')
+        }
+        await this.rpcGateway.startCodexQueuedMessage(sessionId, lookup.localId)
+    }
+
     async interruptQueuedMessage(sessionId: string, messageId: string): Promise<InterruptQueuedMessageResponse> {
         const session = this.getSession(sessionId)
         if (session?.metadata?.flavor !== 'agy' || session.agentState?.controlledByUser === true) {

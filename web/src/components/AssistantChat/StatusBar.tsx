@@ -210,7 +210,9 @@ export function StatusBar(props: {
     const awaitingStart = props.active && props.awaitingStart && !props.thinking
         && Object.keys(props.agentState?.requests ?? {}).length === 0 && props.voiceStatus !== 'connecting'
     const displayedStatus = awaitingStart
-        ? { text: 'Ожидает запуска…', color: 'text-[#007AFF]', dotColor: 'bg-[#007AFF]', isPulsing: true }
+        ? props.agentState?.codexPausedQueueHeadId
+            ? { text: t('queuedMessages.paused'), color: 'text-[var(--app-hint)]', dotColor: 'bg-[var(--app-hint)]', isPulsing: false }
+            : { text: 'Ожидает запуска…', color: 'text-[#007AFF]', dotColor: 'bg-[#007AFF]', isPulsing: true }
         : connectionStatus
     const contextHeuristicModel = props.contextModel ?? props.model
     const contextWarning = useMemo(

@@ -18,6 +18,7 @@ export class SharedCodexQueue {
     private entries: Record<string, Entry> = {};
     private operations: Promise<unknown> = Promise.resolve();
     private writes = Promise.resolve();
+    headId: string | undefined;
     constructor(private readonly client: Pick<CodexAppServerClient, 'request'>, readonly threadId: string,
         private readonly file: string, private readonly consumed: (ids: string[], steered?: boolean, invokedAt?: number) => void,
         private readonly uncertain: (ids: string[]) => void,
@@ -85,7 +86,9 @@ export class SharedCodexQueue {
     reconcile(reportUncertainty = true): Promise<string[]> { return this.serial(() => this.reconcileNow(reportUncertainty)); }
     private async reconcileNow(reportUncertainty = true): Promise<string[]> {
         const present = new Set<string>();
-        for (const item of await this.list()) {
+        const queued = await this.list();
+        this.headId = queued[0]?.clientUserMessageId;
+        for (const item of queued) {
             const id = item.clientUserMessageId; present.add(id);
             const entry = this.entries[id] ??= { input: item.input, state: 'queued' };
             if (entry.state !== 'consumed' && entry.state !== 'canceled') {
@@ -196,6 +199,18 @@ export class SharedCodexQueue {
                 }
                 throw error;
             }
+        });
+    }
+
+    startHead(id: string): Promise<void> {
+        return this.serial(async () => {
+            if (this.state(id) === 'consumed') return;
+            const [head] = await this.list();
+            if (this.state(id) === 'consumed') return;
+            if (head?.clientUserMessageId !== id) throw new Error('Message is no longer at the front of the Codex queue');
+            // Native start checks that the thread is idle and targets this submission.
+            // A retry can never recreate the input or start a different message.
+            await this.client.request('thread/queue/start', { threadId: this.threadId, queuedSubmissionId: head.id });
         });
     }
 
