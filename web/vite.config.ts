@@ -137,7 +137,7 @@ export default defineConfig({
             // would bypass the indicator.
             registerType: 'prompt',
             injectRegister: false,
-            includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png', 'mask-icon.svg', 'icon.png'],
+            includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png', 'mask-icon.svg', 'icon.png', 'notification-badge.png'],
             strategies: 'injectManifest',
             srcDir: 'src',
             filename: 'sw.ts',

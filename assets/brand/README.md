@@ -1,51 +1,9 @@
 # HAPI brand assets
 
-Canonical HAPI icon source used by the web, documentation, website, Android,
-and iOS applications.
+[`svg/hapi-mark.svg`](svg/hapi-mark.svg) is the master for the white helmet with a dark visor and two lavender lights. The [Windows tray icon](hapi-tray.ico) uses the helmet on a transparent background, with 16–128 px frames. The website, docs, and web app use an aubergine backplate so the white helmet reads against light backgrounds. Maskable PWA icons reserve more space around the helmet for platform cropping. [Safari pinned tabs](svg/hapi-monochrome.svg) use a single-color version.
 
-## Design decisions
-
-- Face, symmetric eyes, smile, coral palette, and rounded robot frame retained.
-- Side nodes become mirrored angle-bracket ports: `< HAPI >`.
-- The brackets carry two meanings without touching the face: developer/code
-  context and local ↔ remote handoff direction.
-- Directional negative space changes the port structure, rather than merely
-  swapping a circle for another primitive.
-- Endpoint cutouts are true transparency and survive monochrome use.
-- The PWA maskable master reuses the same optical geometry at a uniform smaller
-  scale so every handoff port remains inside the maskable safe area.
-- iOS and installed PWA surfaces retain the robot mark while using its existing
-  small-size optical corrections: slightly stronger frame, eyes, smile, and
-  handoff ports, without the eye highlights that refract on iOS 26.
-- The iOS 26 Icon Composer package renders the coral mark as one flat,
-  non-glass foreground over Warm White; it does not introduce a second logo.
-- 16 px uses simplified solid brackets; 32 px and above retain the negative
-  angle-bracket ports.
-- Horizontal lockup canvas remains tightened; no terminal-cursor treatment.
-
-## Palette
-
-- HAPI Coral: `#F25562`
-- Warm White: `#FFF8F8`
-- White: `#FFFFFF`
-- Ink: `#17181C`
-
-## Source SVGs
-
-- `svg/hapi-mark.svg` — transparent primary brand mark.
-- `svg/hapi-app-icon.svg` — full-bleed app icon master.
-- `svg/hapi-tiny.svg` — simplified 16 px favicon master.
-- `svg/hapi-small.svg` — optically corrected 24–64 px master.
-- `svg/hapi-maskable.svg` — safe-area-scaled PWA optical master.
-- `svg/hapi-monochrome.svg` — one-color mark.
-- `svg/hapi-lockup-horizontal.svg` — tightened horizontal lockup.
-
-## Sync platform assets
+Run the export from the repository root after editing a master. It requires ImageMagick and DejaVu Sans Bold for the numbered tab favicons.
 
 ```bash
 ./assets/brand/export.sh
 ```
-
-The script renders into a temporary directory, then updates only the files used
-by `web/`, `docs/`, and `website/`. Generated intermediates are deliberately
-not stored in the repository.

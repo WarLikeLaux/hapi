@@ -1,16 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
-    <title id="title">HAPI small handoff icon</title>
-    <rect width="512" height="512" rx="104" fill="#FFF8F8" />
-    <g fill="#F25562">
-        <rect x="67" y="240" width="47" height="16" rx="8" />
-        <rect x="398" y="240" width="47" height="16" rx="8" />
-        <path fill-rule="evenodd" d="M41 224H61A14 14 0 0 1 75 238V258A14 14 0 0 1 61 272H41A14 14 0 0 1 27 258V238A14 14 0 0 1 41 224ZM58 235L39 248L58 261H66L48 248L66 235Z" />
-        <path transform="translate(512 0) scale(-1 1)" fill-rule="evenodd" d="M41 224H61A14 14 0 0 1 75 238V258A14 14 0 0 1 61 272H41A14 14 0 0 1 27 258V238A14 14 0 0 1 41 224ZM58 235L39 248L58 261H66L48 248L66 235Z" />
-        <path fill-rule="evenodd" d="M160 84H352A86 86 0 0 1 438 170V338A86 86 0 0 1 352 424H160A86 86 0 0 1 74 338V170A86 86 0 0 1 160 84ZM160 122H352A48 48 0 0 1 400 170V338A48 48 0 0 1 352 386H160A48 48 0 0 1 112 338V170A48 48 0 0 1 160 122Z" />
-        <circle cx="190" cy="228" r="29" />
-        <circle cx="322" cy="228" r="29" />
-        <path d="M142 308Q256 414 370 308L342 308Q256 368 170 308Z" />
-        <circle cx="156" cy="308" r="14" />
-        <circle cx="356" cy="308" r="14" />
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+    <title id="title">HAPI helmet</title>
+    <rect width="256" height="256" rx="54" fill="#302345" />
+    <g id="helmet" transform="translate(11.52 11.52) scale(.91)">
+        <path fill="#FFF8F8" d="M128 16C72 16 31 55 20 101C12 103 8 109 8 118V148C8 158 14 165 23 166C35 186 54 197 65 218C73 234 81 240 96 240H160C175 240 183 234 191 218C202 197 221 186 233 166C242 165 248 158 248 148V118C248 109 244 103 236 101C225 55 184 16 128 16Z" />
+        <rect x="29" y="91" width="198" height="93" rx="31" fill="#251635" />
+        <g fill="#A986FF">
+            <rect x="73" y="124" width="45" height="23" rx="11.5" />
+            <rect x="138" y="124" width="45" height="23" rx="11.5" />
+        </g>
     </g>
 </svg>

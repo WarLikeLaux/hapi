@@ -6,7 +6,7 @@ export function setFavicon(href: string): void {
         return
     }
 
-    const links = document.querySelectorAll<HTMLLinkElement>("link[rel*='icon']")
+    const links = document.querySelectorAll<HTMLLinkElement>("link[rel='icon']")
     if (links.length > 0) {
         links.forEach((link) => {
             link.type = 'image/png'
