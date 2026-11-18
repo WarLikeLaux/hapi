@@ -1,7 +1,7 @@
 import React, { StrictMode, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { createBrowserHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
-import { ImagePreview } from '../src/components/ImagePreview'
+import { ImagePreview, ImagePreviewProvider } from '../src/components/ImagePreview'
 import { MessageAttachments } from '../src/components/AssistantChat/messages/MessageAttachments'
 import { getScrollRestorationKey } from '../src/lib/scrollRestorationKey'
 import '../src/index.css'
@@ -53,4 +53,10 @@ const router = createRouter({
 
 // Use real browser history and the production scroll-restoration policy.
 // StrictMode also exercises blocker registration and cleanup twice.
-ReactDOM.createRoot(document.getElementById('root')!).render(<StrictMode><RouterProvider router={router} /></StrictMode>)
+ReactDOM.createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+        <ImagePreviewProvider history={router.history}>
+            <RouterProvider router={router} />
+        </ImagePreviewProvider>
+    </StrictMode>
+)

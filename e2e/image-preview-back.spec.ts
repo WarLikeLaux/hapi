@@ -82,11 +82,14 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 
             await expect(page.getByRole('heading', { name: 'Session list' })).toBeVisible()
         })
 
-        test('unmounting an open draft removes its navigation blocker', async ({ page }) => {
+        test('Back dismisses the preview after its draft attachment is removed', async ({ page }) => {
             await page.getByRole('region', { name: 'Composer images' }).getByTitle('Click to zoom').click()
             await expect(page.getByRole('dialog')).toBeVisible()
             await page.getByTestId('remove-draft').evaluate((element: HTMLButtonElement) => element.click())
+            await expect(page.getByRole('dialog')).toBeVisible()
+            await page.goBack()
             await expect(page.getByRole('dialog')).toBeHidden()
+            await expectConversation(page)
             await page.goBack()
             await expect(page.getByRole('heading', { name: 'Session list' })).toBeVisible()
         })

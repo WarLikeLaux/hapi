@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type SyntheticEvent } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
+import type { RouterHistory } from '@tanstack/react-router'
 import { ArrowLeftIcon, ArrowRightIcon, CloseIcon, MinusIcon, PlusIcon } from '@/components/icons'
 import { formatFileSize } from '@/lib/file-metadata'
 
@@ -46,7 +47,7 @@ type PreviewSelection = {
 const ImagePreviewContext = createContext<((images: PreviewImage[], index: number, trigger: HTMLButtonElement) => void) | null>(null)
 
 /** Own the open image independently of chat rows, attachment uploads, and route errors. */
-export function ImagePreviewProvider({ children }: { children: ReactNode }) {
+export function ImagePreviewProvider({ children, history }: { children: ReactNode; history?: RouterHistory }) {
     const [selection, setSelection] = useState<PreviewSelection | null>(null)
     const [revision, setRevision] = useState(0)
     const open = useCallback((images: PreviewImage[], index: number, trigger: HTMLButtonElement) => {
@@ -62,7 +63,7 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
     return (
         <ImagePreviewContext.Provider value={open}>
             {children}
-            {selection ? <ImageViewer key={revision} selection={selection} onClose={close} /> : null}
+            {selection ? <ImageViewer key={revision} selection={selection} onClose={close} history={history} /> : null}
         </ImagePreviewContext.Provider>
     )
 }
@@ -177,13 +178,12 @@ function parseFileSize(value: string | undefined): number | undefined {
     return Number.isFinite(fileSize) && fileSize >= 0 ? fileSize : undefined
 }
 
-function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }) {
+function ImageViewer(props: { selection: PreviewSelection; onClose: () => void; history?: RouterHistory }) {
     const [previewImages, setPreviewImages] = useState(props.selection.images)
     const [previewIndex, setPreviewIndex] = useState(props.selection.index)
     const [imageDimensions, setImageDimensions] = useState<{ src: string; width: number; height: number } | null>(null)
     const [scale, setScale] = useState(1)
     const [offset, setOffset] = useState({ x: 0, y: 0 })
-    const surfaceRef = useRef<HTMLDivElement>(null)
     const closeRef = useRef<HTMLButtonElement>(null)
     const scaleRef = useRef(scale)
     const offsetRef = useRef(offset)
@@ -240,6 +240,28 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
         resetView()
     }, [props.onClose, resetView])
 
+    useEffect(() => {
+        const history = props.history
+        if (!history) return
+        const pathname = history.location.pathname
+        // Back dismisses the preview without leaving the chat or adding a history entry.
+        const unblock = history.block({
+            blockerFn: ({ action }) => {
+                if (action !== 'BACK') return false
+                closeViewer()
+                return true
+            },
+            enableBeforeUnload: false,
+        })
+        const unsubscribe = history.subscribe(({ location }) => {
+            if (location.pathname !== pathname) closeViewer()
+        })
+        return () => {
+            unblock()
+            unsubscribe()
+        }
+    }, [closeViewer, props.history])
+
     const showPreview = useCallback((index: number) => {
         setPreviewIndex(index)
         resetView()
@@ -256,8 +278,7 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
         zoomBy(delta)
     }, [zoomBy])
 
-    useEffect(() => {
-        const surface = surfaceRef.current
+    const attachWheelHandler = useCallback((surface: HTMLDivElement | null) => {
         if (!surface) return
         surface.addEventListener('wheel', handleWheel, { passive: false })
         return () => surface.removeEventListener('wheel', handleWheel)
@@ -493,7 +514,7 @@ function ImageViewer(props: { selection: PreviewSelection; onClose: () => void }
                     </div>
                     <div
                         className="relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden active:cursor-grabbing"
-                        ref={surfaceRef}
+                        ref={attachWheelHandler}
                         onPointerDown={handlePointerDown}
                         onPointerMove={handlePointerMove}
                         onPointerUp={handlePointerUp}

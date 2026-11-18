@@ -61,7 +61,7 @@ async function bootstrap() {
         <React.StrictMode>
             <I18nProvider>
                 <QueryClientProvider client={queryClient}>
-                    <ImagePreviewProvider>
+                    <ImagePreviewProvider history={router.history}>
                         <RouterProvider router={router} />
                     </ImagePreviewProvider>
                     {import.meta.env.DEV ? <ReactQueryDevtools initialIsOpen={false} /> : null}
