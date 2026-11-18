@@ -6,7 +6,8 @@ import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
 
-import { hasUnreadMessageContent, getLiveReasoningStreamId } from '@hapi/protocol/messages'
+import { hasUnreadMessageContent, getLiveReasoningStreamId, getToolCallId, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
+import { AGENT_MESSAGE_PAYLOAD_TYPE } from '@hapi/protocol'
 
 import type { StoredMessage } from './types'
 import { decodeMessageContent, encodeMessageContent, truncateOversizedMessageContent } from './contentCodec'
@@ -29,6 +30,13 @@ type DbMessageRow = {
     invoked_at: number | null
     scheduled_at: number | null
     delivery_state: string | null
+}
+
+// Message-store methods can be called directly or composed inside a Store-level
+// transaction. Reuse an existing transaction so canonical rows and derived
+// derived state always commit or roll back together.
+function runInTransaction<T>(db: Database, operation: () => T): T {
+    return db.inTransaction ? operation() : db.transaction(operation)()
 }
 
 export type MessagePosition = {
@@ -91,12 +99,12 @@ export function addImportedMessage(
         if (previousHead && stampedAt < previousHead.at) bumpMessageEpoch(db, sessionId)
         const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
         if (!row) throw new Error('Failed to create imported message')
+        invalidateLiveTail(db, sessionId)
         const message = toStoredMessage(row)
         recordMessageUsage(db, message, getMessageEpoch(db, sessionId))
         return { message, inserted: true }
     })()
 }
-
 function toStoredMessage(row: DbMessageRow): StoredMessage {
     return {
         id: row.id,
@@ -108,7 +116,8 @@ function toStoredMessage(row: DbMessageRow): StoredMessage {
         localId: row.local_id,
         invokedAt: row.invoked_at ?? null,
         scheduledAt: row.scheduled_at ?? null,
-        ...(row.delivery_state && row.delivery_state !== 'queued' ? { deliveryState: 'indeterminate' as const } : {})
+        ...(row.delivery_state && row.delivery_state !== 'queued' ? { deliveryState: 'indeterminate' as const } : {}),
+        ...(row.delivery_state === 'dispatching' ? { deliveryPending: true as const } : {})
     }
 }
 
@@ -198,6 +207,7 @@ export function addMessageWithStatus(
         if (previousHead && positionAt < previousHead.at) bumpMessageEpoch(db, sessionId)
         const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
         if (!row) throw new Error('Failed to create message')
+        updateLiveTailAfterAppend(db, sessionId, row.id, row.seq, canonicalContent)
         const message = toStoredMessage(row)
         recordMessageUsage(db, message, getMessageEpoch(db, sessionId))
         return { message, inserted: true }
@@ -213,6 +223,477 @@ export function addMessage(
     createdAt?: number
 ): StoredMessage {
     return addMessageWithStatus(db, sessionId, content, localId, scheduledAt, createdAt).message
+}
+
+/**
+ * How far back to look for the live row of one ACP tool call.
+ *
+ * The CLI re-emits a tool call under a stable callId on every state tick, so
+ * the previous tick of the same call always sits among the newest rows of its
+ * session. A bounded tail scan keeps the lookup off the hot path on sessions
+ * with tens of thousands of messages; anything older is left alone, which
+ * errs toward inserting a fresh row (the pre-upsert behavior).
+ */
+const TOOL_CALL_UPSERT_LOOKBACK = 200
+
+/** `tool-call` payload fields merged newest-wins-when-non-null. */
+const TOOL_CALL_MERGE_FIELDS = ['name', 'input', 'nativeTitle', 'nativeKind', 'nativeName', 'nativeArgs'] as const
+
+/** Status progression rank for one tool call: pending < in_progress <
+ *  completed/failed. A merged row may only advance the state — agents
+ *  normalize a missing/unknown status to `pending` (cli normalizeStatus), so
+ *  permission rounds re-emit pending after the call already ran, and that
+ *  re-send must not overwrite `in_progress` and never a terminal state.
+ *  `completed`/`failed` share the terminal tier; ties keep the newer value. */
+const TOOL_CALL_STATUS_RANK: Record<string, number> = {
+    pending: 0,
+    in_progress: 1,
+    completed: 2,
+    failed: 2
+}
+
+function toolCallStatusRank(status: unknown): number | null {
+    return typeof status === 'string' && status in TOOL_CALL_STATUS_RANK
+        ? TOOL_CALL_STATUS_RANK[status]
+        : null
+}
+
+function mergeToolCallStatus(stored: unknown, incoming: unknown): unknown {
+    if (incoming === null || incoming === undefined) return stored
+    const storedRank = toolCallStatusRank(stored)
+    const incomingRank = toolCallStatusRank(incoming)
+    // Unrecognized status strings rank below every known state so an unknown
+    // value can never regress a known one; two unknowns keep the newer.
+    if (incomingRank === null) return storedRank === null ? incoming : stored
+    if (storedRank === null) return incoming
+    return incomingRank >= storedRank ? incoming : stored
+}
+
+export type UpsertToolCallResult = {
+    message: StoredMessage
+    /** True when an existing tool-call row was updated in place. */
+    updated: boolean
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** The callId of a stored `tool-call-result` row, or null. The result shares
+ *  the call's callId but is a distinct row that must never be merged into. */
+function toolCallResultCallId(value: unknown): string | null {
+    const record = unwrapRoleWrappedRecordEnvelope(value)
+    if (record?.role !== 'agent' || !isRecord(record.content)) return null
+    if (record.content.type !== AGENT_MESSAGE_PAYLOAD_TYPE) return null
+    const data = isRecord(record.content.data) ? record.content.data : null
+    if (!data || data.type !== 'tool-call-result') return null
+    const callId = data.callId
+    return typeof callId === 'string' && callId.trim().length > 0 ? callId : null
+}
+
+function isUserMessageRow(value: unknown): boolean {
+    const record = unwrapRoleWrappedRecordEnvelope(value)
+    return record?.role === 'user'
+}
+
+type TailRowMeta = {
+    id: string
+    seq: number
+    reasoningStreamId: string | null
+    toolCallId: string | null
+    toolResultCallId: string | null
+    isUser: boolean
+}
+
+type SessionLiveTail = {
+    headId: string | null
+    headSeq: number
+    tailRows: TailRowMeta[]
+    liveToolCalls: Map<string, string>
+    reasoningSnapshots: Map<string, Set<string>>
+}
+
+const liveTailByDb = new WeakMap<Database, Map<string, SessionLiveTail>>()
+
+function getCurrentTailHead(db: Database, sessionId: string): { id: string | null; seq: number } {
+    const row = prepareCached(db,
+        'SELECT id, seq FROM messages WHERE session_id = ? ORDER BY seq DESC LIMIT 1'
+    ).get(sessionId) as { id: string; seq: number } | undefined
+    return row ? { id: row.id, seq: row.seq } : { id: null, seq: 0 }
+}
+
+function invalidateLiveTail(db: Database, sessionId: string): void {
+    liveTailByDb.get(db)?.delete(sessionId)
+}
+
+function classifyTailRow(id: string, seq: number, decoded: unknown): TailRowMeta {
+    const reasoningStreamId = getLiveReasoningStreamId(decoded)
+    const callId = getToolCallId(decoded)
+    const resultCallId = callId ? null : toolCallResultCallId(decoded)
+    const isUser = !callId && !resultCallId && isUserMessageRow(decoded)
+    return { id, seq, reasoningStreamId, toolCallId: callId, toolResultCallId: resultCallId, isUser }
+}
+
+function rebuildTailIndexes(entry: SessionLiveTail): void {
+    entry.liveToolCalls.clear()
+    entry.reasoningSnapshots.clear()
+    const closedCallIds = new Set<string>()
+    let toolCallScanStopped = false
+    const total = entry.tailRows.length
+    for (let i = total - 1; i >= 0; i -= 1) {
+        const row = entry.tailRows[i]!
+        const distFromHead = total - 1 - i
+        if (distFromHead < REASONING_SNAPSHOT_LOOKBACK && row.reasoningStreamId) {
+            let ids = entry.reasoningSnapshots.get(row.reasoningStreamId)
+            if (!ids) {
+                ids = new Set()
+                entry.reasoningSnapshots.set(row.reasoningStreamId, ids)
+            }
+            ids.add(row.id)
+        }
+        if (!toolCallScanStopped && distFromHead < TOOL_CALL_UPSERT_LOOKBACK) {
+            if (row.toolCallId) {
+                if (!closedCallIds.has(row.toolCallId) && !entry.liveToolCalls.has(row.toolCallId)) {
+                    entry.liveToolCalls.set(row.toolCallId, row.id)
+                }
+            } else if (row.toolResultCallId) {
+                closedCallIds.add(row.toolResultCallId)
+            } else if (row.isUser) {
+                toolCallScanStopped = true
+            }
+        }
+    }
+}
+
+function warmLiveTail(db: Database, sessionId: string, head: { id: string | null; seq: number }): SessionLiveTail {
+    let sessions = liveTailByDb.get(db)
+    if (!sessions) {
+        sessions = new Map()
+        liveTailByDb.set(db, sessions)
+    }
+
+    const lookback = Math.max(TOOL_CALL_UPSERT_LOOKBACK, REASONING_SNAPSHOT_LOOKBACK)
+    const rows = prepareCached(db, `
+        SELECT id, seq, content FROM messages
+        WHERE session_id = ?
+        ORDER BY seq DESC
+        LIMIT ?
+    `).all(sessionId, lookback) as Array<Pick<DbMessageRow, 'id' | 'seq' | 'content'>>
+
+    const tailRowsAsc: TailRowMeta[] = []
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+        const row = rows[i]!
+        tailRowsAsc.push(classifyTailRow(row.id, row.seq, decodeMessageContent(row.content)))
+    }
+
+    const entry: SessionLiveTail = {
+        headId: head.id,
+        headSeq: head.seq,
+        tailRows: tailRowsAsc,
+        liveToolCalls: new Map(),
+        reasoningSnapshots: new Map()
+    }
+    rebuildTailIndexes(entry)
+    sessions.set(sessionId, entry)
+    return entry
+}
+
+function getOrWarmLiveTail(db: Database, sessionId: string): SessionLiveTail {
+    const head = getCurrentTailHead(db, sessionId)
+    const cached = liveTailByDb.get(db)?.get(sessionId)
+    if (cached && cached.headId === head.id && cached.headSeq === head.seq) {
+        return cached
+    }
+    return warmLiveTail(db, sessionId, head)
+}
+
+function updateLiveTailAfterAppend(
+    db: Database,
+    sessionId: string,
+    id: string,
+    seq: number,
+    content: unknown
+): void {
+    const entry = liveTailByDb.get(db)?.get(sessionId)
+    if (!entry) return
+    if (seq <= entry.headSeq) {
+        invalidateLiveTail(db, sessionId)
+        return
+    }
+    entry.headId = id
+    entry.headSeq = seq
+
+    const meta = classifyTailRow(id, seq, content)
+    if (meta.reasoningStreamId) {
+        let ids = entry.reasoningSnapshots.get(meta.reasoningStreamId)
+        if (!ids) {
+            ids = new Set()
+            entry.reasoningSnapshots.set(meta.reasoningStreamId, ids)
+        }
+        ids.add(id)
+    }
+
+    if (meta.toolCallId) {
+        entry.liveToolCalls.set(meta.toolCallId, id)
+    } else if (meta.toolResultCallId) {
+        entry.liveToolCalls.delete(meta.toolResultCallId)
+    } else if (meta.isUser) {
+        entry.liveToolCalls.clear()
+    }
+
+    entry.tailRows.push(meta)
+    if (entry.tailRows.length > REASONING_SNAPSHOT_LOOKBACK) {
+        const exitedReasoning = entry.tailRows[entry.tailRows.length - 1 - REASONING_SNAPSHOT_LOOKBACK]
+        if (exitedReasoning?.reasoningStreamId) {
+            const set = entry.reasoningSnapshots.get(exitedReasoning.reasoningStreamId)
+            if (set) {
+                set.delete(exitedReasoning.id)
+                if (set.size === 0) {
+                    entry.reasoningSnapshots.delete(exitedReasoning.reasoningStreamId)
+                }
+            }
+        }
+    }
+    const maxLookback = Math.max(TOOL_CALL_UPSERT_LOOKBACK, REASONING_SNAPSHOT_LOOKBACK)
+    if (entry.tailRows.length > maxLookback) {
+        const evicted = entry.tailRows.shift()
+        if (evicted?.toolCallId && entry.liveToolCalls.get(evicted.toolCallId) === evicted.id) {
+            entry.liveToolCalls.delete(evicted.toolCallId)
+        }
+    }
+}
+
+/** Merge an incoming tool-call snapshot into the stored one.
+ *
+ *  A non-null new value wins for the payload fields the CLI updates
+ *  independently; a null/absent one keeps the stored value, so a later
+ *  status-only tick cannot erase the input or title an earlier tick carried.
+ *  `status` merges by progression rank so a re-emitted pending never regresses
+ *  a running or terminal call. `progress` follows the web's latest-wins
+ *  rendering of that transient (reducerTools.ensureToolBlock). */
+function mergeToolCallContent(stored: unknown, incoming: unknown): unknown {
+    const envelope = unwrapRoleWrappedRecordEnvelope(stored)
+    const incomingEnvelope = unwrapRoleWrappedRecordEnvelope(incoming)
+    if (!envelope || !incomingEnvelope || !isRecord(envelope.content) || !isRecord(incomingEnvelope.content)) {
+        return incoming
+    }
+    const storedData = isRecord(envelope.content.data) ? envelope.content.data : {}
+    const incomingData = isRecord(incomingEnvelope.content.data) ? incomingEnvelope.content.data : {}
+    const mergedData: Record<string, unknown> = { ...storedData }
+    for (const field of TOOL_CALL_MERGE_FIELDS) {
+        const next = incomingData[field]
+        if (next !== null && next !== undefined) mergedData[field] = next
+    }
+    const mergedStatus = mergeToolCallStatus(storedData.status, incomingData.status)
+    if (mergedStatus !== null && mergedStatus !== undefined) mergedData.status = mergedStatus
+    if (incomingData.progress !== null && incomingData.progress !== undefined) {
+        mergedData.progress = incomingData.progress
+    }
+    return { ...envelope, content: { ...envelope.content, data: mergedData } }
+}
+
+/** Find the live tool-call row for one callId, scanning the session tail.
+ *
+ *  The scan stops at a `tool-call-result` with the same callId or at a user
+ *  message row: both mean the call has completed or a new turn started, so an
+ *  incoming message with that callId is a NEW call, not an update. */
+function findLiveToolCallRow(db: Database, sessionId: string, callId: string): DbMessageRow | null {
+    const tail = getOrWarmLiveTail(db, sessionId)
+    const rowId = tail.liveToolCalls.get(callId)
+    if (!rowId) return null
+    const full = prepareCached(db, 'SELECT * FROM messages WHERE id = ? AND session_id = ?').get(rowId, sessionId) as DbMessageRow | undefined
+    if (!full) {
+        invalidateLiveTail(db, sessionId)
+        return null
+    }
+    return full
+}
+
+/** The `data` record of a Claude-SDK passthrough row
+ *  (`{ role: 'agent', content: { type: 'output', data } }`), or null. */
+function claudeOutputData(value: unknown): Record<string, unknown> | null {
+    const record = unwrapRoleWrappedRecordEnvelope(value)
+    if (record?.role !== 'agent' || !isRecord(record.content)) return null
+    if (record.content.type !== 'output') return null
+    return isRecord(record.content.data) ? record.content.data : null
+}
+
+/** Claude passthrough rows the chat never renders (meta / compact summaries /
+ *  subagent sidechains). Their tool traffic has no settlement contract in the
+ *  main thread, so the liveness sweep must ignore them on both sides. */
+function isHiddenClaudeOutput(data: Record<string, unknown>): boolean {
+    return data.isMeta === true || data.isCompactSummary === true || data.isSidechain === true
+}
+
+/** The `message.content` block array of a Claude passthrough row, or null. */
+function claudeMessageBlocks(data: Record<string, unknown>): unknown[] | null {
+    const message = isRecord(data.message) ? data.message : null
+    return Array.isArray(message?.content) ? message.content : null
+}
+
+/** Collect `tool_result` tool_use_ids from a Claude user passthrough row.
+ *  Returns whether the row carried any tool_result at all — a user row
+ *  without one is a human prompt, which starts a new turn. */
+function collectClaudeToolResultIds(data: Record<string, unknown>, into: Set<string>): boolean {
+    const blocks = claudeMessageBlocks(data)
+    if (!blocks) return false
+    let found = false
+    for (const block of blocks) {
+        if (!isRecord(block) || block.type !== 'tool_result') continue
+        if (typeof block.tool_use_id === 'string' && block.tool_use_id.length > 0) {
+            into.add(block.tool_use_id)
+            found = true
+        }
+    }
+    return found
+}
+
+/** Whether a Claude assistant passthrough row holds a `tool_use` block whose
+ *  result has not settled yet (work the agent is still waiting on). */
+function claudeAssistantHasOpenToolUse(data: Record<string, unknown>, settledToolUseIds: Set<string>): boolean {
+    const blocks = claudeMessageBlocks(data)
+    if (!blocks) return false
+    for (const block of blocks) {
+        if (!isRecord(block) || block.type !== 'tool_use') continue
+        if (typeof block.id === 'string' && block.id.length > 0 && !settledToolUseIds.has(block.id)) {
+            return true
+        }
+    }
+    return false
+}
+
+/** Whether a stored ACP `tool-call` row already reports a terminal status.
+ *  Flavors that settle a call through its status (instead of a separate
+ *  `tool-call-result` row) must not read as open work. */
+function isTerminalToolCallRow(value: unknown): boolean {
+    const record = unwrapRoleWrappedRecordEnvelope(value)
+    if (!record || !isRecord(record.content) || record.content.type !== AGENT_MESSAGE_PAYLOAD_TYPE) return false
+    const data = isRecord(record.content.data) ? record.content.data : null
+    if (!data || data.type !== 'tool-call') return false
+    return toolCallStatusRank(data.status) === TOOL_CALL_STATUS_RANK.completed
+}
+
+/** Whether the session tail still holds tool work that started but never
+ *  settled — the transcript-derived "the agent is demonstrably working"
+ *  signal for the hub's work-scoped liveness sweep.
+ *
+ *  Scans the same bounded tail window as `findLiveToolCallRow` and shares its
+ *  liveness contract (which the toolCallRowCache also keys on): a settled
+ *  call is closed by a later result row, and every live call of the session
+ *  is closed by a later human turn. Walking newest-first:
+ *
+ *  - ACP flavors: an unsettled, non-terminal `tool-call` row means open work.
+ *  - Claude passthrough: an assistant `tool_use` block with no later user
+ *    `tool_result` for its id means open work. Tool-result carriers do NOT
+ *    close the turn (the agent loop continues through them); a user row with
+ *    no tool_result is a human prompt and does.
+ *
+ *  Anything older than the window reads as no work — the same err-closed
+ *  bias the upsert scan uses for ancient rows. */
+export function getLiveToolWork(db: Database, sessionId: string): boolean {
+    const rows = prepareCached(db, `
+        SELECT id, content FROM messages
+        WHERE session_id = ?
+        ORDER BY seq DESC
+        LIMIT ?
+    `).all(sessionId, TOOL_CALL_UPSERT_LOOKBACK) as Array<Pick<DbMessageRow, 'id' | 'content'>>
+
+    const settledAcpCallIds = new Set<string>()
+    const settledClaudeToolUseIds = new Set<string>()
+    for (const row of rows) {
+        const decoded = decodeMessageContent(row.content)
+        // A human turn (web prompt, native user row) starts a new round and
+        // closes every tool call older than it — stop, nothing is open.
+        if (isUserMessageRow(decoded)) return false
+
+        const claudeData = claudeOutputData(decoded)
+        if (claudeData !== null) {
+            if (isHiddenClaudeOutput(claudeData)) continue
+            if (claudeData.type === 'user') {
+                if (!collectClaudeToolResultIds(claudeData, settledClaudeToolUseIds)) return false
+                continue
+            }
+            if (claudeData.type === 'result') {
+                // Turn-end marker: everything newer was walked already, so the
+                // calls of this finished turn are settled. Idle sessions end
+                // here, which keeps the sweep's every-tick scan to one row.
+                return false
+            }
+            if (claudeData.type === 'assistant'
+                && claudeAssistantHasOpenToolUse(claudeData, settledClaudeToolUseIds)) {
+                return true
+            }
+            continue
+        }
+
+        const resultCallId = toolCallResultCallId(decoded)
+        if (resultCallId !== null) {
+            settledAcpCallIds.add(resultCallId)
+            continue
+        }
+        const callId = getToolCallId(decoded)
+        if (callId !== null && !settledAcpCallIds.has(callId) && !isTerminalToolCallRow(decoded)) {
+            return true
+        }
+    }
+    return false
+}
+
+/** Merge an incoming tool-call snapshot into a known live row. Shared by the
+ *  cache-hit path and the tail-scan path so both produce identical rows. */
+function mergeIntoToolCallRow(db: Database, existing: DbMessageRow, content: unknown): UpsertToolCallResult {
+    const storedContent = decodeMessageContent(existing.content)
+    const mergedContent = truncateOversizedMessageContent(mergeToolCallContent(storedContent, content))
+    // A re-emitted tick that changes nothing must not rewrite the row:
+    // only observable content changes touch the database.
+    if (isDeepStrictEqual(mergedContent, storedContent)) {
+        return { message: toStoredMessage(existing), updated: true }
+    }
+    const encoded = encodeMessageContent(mergedContent)
+    // Same in-place content swap as the queued-message edit path
+    // (syncNativeQueuedMessage): no new seq, no content_revision bump.
+    prepareCached(db, 'UPDATE messages SET content = ?, search_text = ? WHERE id = ?').run(encoded, messageSearchText(mergedContent), existing.id)
+    const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(existing.id) as DbMessageRow | undefined
+    if (!row) throw new Error('Failed to update tool-call message')
+    return { message: toStoredMessage(row), updated: true }
+}
+
+/** Store one ACP `tool-call` agent message, updating the call's existing row
+ *  in place when the same callId is still live in the session tail.
+ *
+ *  ACP agents re-emit the same call for every state tick; storing each tick as
+ *  its own row filled history pages with duplicates the web then folded back
+ *  into one card. Updating the single row keeps history pages honest. The
+ *  row's id/seq/createdAt/localId never move, so live clients can merge the
+ *  rebroadcast by id and stored ordering stays stable. */
+export function upsertToolCallMessage(
+    db: Database,
+    sessionId: string,
+    content: unknown,
+    callId: string,
+    localId?: string,
+    createdAt?: number
+): UpsertToolCallResult {
+    return db.transaction(() => {
+        const existing = findLiveToolCallRow(db, sessionId, callId)
+        if (!existing) {
+            return { message: addMessage(db, sessionId, content, localId, undefined, createdAt), updated: false }
+        }
+        const storedContent = decodeMessageContent(existing.content)
+        const mergedContent = truncateOversizedMessageContent(mergeToolCallContent(storedContent, content))
+        // A re-emitted tick that changes nothing must not rewrite the row:
+        // only observable content changes touch the database.
+        if (isDeepStrictEqual(mergedContent, storedContent)) {
+            return { message: toStoredMessage(existing), updated: true }
+        }
+        const encoded = encodeMessageContent(mergedContent)
+        // Same in-place content swap as the queued-message edit path
+        // (syncNativeQueuedMessage): no new seq, no content_revision bump.
+        prepareCached(db, 'UPDATE messages SET content = ?, search_text = ? WHERE id = ?').run(encoded, messageSearchText(mergedContent), existing.id)
+        const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(existing.id) as DbMessageRow | undefined
+        if (!row) throw new Error('Failed to update tool-call message')
+        return { message: toStoredMessage(row), updated: true }
+    })()
 }
 
 /** Shared engines own pending native text. Never overwrite an invoked row. */
@@ -236,63 +717,64 @@ export function copyMessageToSession(
     sessionId: string,
     message: CopyStoredMessageInput
 ): StoredMessage {
-    const createdAt = Number.isFinite(message.createdAt) ? message.createdAt : Date.now()
-    const nextSeq = getMaxSeq(db, sessionId) + 1
+    return runInTransaction(db, () => {
+        const createdAt = Number.isFinite(message.createdAt) ? message.createdAt : Date.now()
+        const nextSeq = getMaxSeq(db, sessionId) + 1
 
-    let localId = message.localId
-    if (localId) {
-        const collision = prepareCached(db,
-            'SELECT 1 FROM messages WHERE session_id = ? AND local_id = ? LIMIT 1'
-        ).get(sessionId, localId) as { 1: number } | undefined
-        if (collision) {
-            // 中文注释：重复会话合并时如果 localId 撞车，给复制进目标会话的消息生成一个新 localId，避免误判成同一条已存在消息。
-            localId = `${localId}:merged:${randomUUID().slice(0, 8)}`
+        let localId = message.localId
+        if (localId) {
+            const collision = prepareCached(db,
+                'SELECT 1 FROM messages WHERE session_id = ? AND local_id = ? LIMIT 1'
+            ).get(sessionId, localId) as { 1: number } | undefined
+            if (collision) {
+                // 中文注释：重复会话合并时如果 localId 撞车，给复制进目标会话的消息生成一个新 localId，避免误判成同一条已存在消息。
+                localId = `${localId}:merged:${randomUUID().slice(0, 8)}`
+            }
         }
-    }
 
-    if (message.scheduledAt != null && !localId && message.invokedAt === null) {
-        // 中文注释：未来计划消息仍需要 ack 路径；异常情况下若源数据缺少 localId，这里补一个稳定可写的新值以保留调度语义。
-        localId = `merged-scheduled:${randomUUID()}`
-    }
+        if (message.scheduledAt != null && !localId && message.invokedAt === null) {
+            // 中文注释：未来计划消息仍需要 ack 路径；异常情况下若源数据缺少 localId，这里补一个稳定可写的新值以保留调度语义。
+            localId = `merged-scheduled:${randomUUID()}`
+        }
 
-    const invokedAt = localId ? message.invokedAt : (message.invokedAt ?? createdAt)
-    const id = randomUUID()
-    prepareCached(db, `
-        INSERT INTO messages (
-            id, session_id, content, search_text, created_at, seq, local_id, invoked_at, scheduled_at, delivery_state
-        ) VALUES (
-            @id, @session_id, @content, @search_text, @created_at, @seq, @local_id, @invoked_at, @scheduled_at, @delivery_state
-        )
-    `).run({
-        id,
-        session_id: sessionId,
-        // Lossless re-encode only — copies move existing history between
-        // sessions, so no truncation here even for pre-codec oversized rows.
-        content: encodeMessageContent(message.content),
-        search_text: messageSearchText(message.content),
-        created_at: createdAt,
-        seq: nextSeq,
-        local_id: localId ?? null,
-        invoked_at: invokedAt ?? null,
-        scheduled_at: message.scheduledAt ?? null,
-        delivery_state: message.deliveryState ?? 'queued'
+        const invokedAt = localId ? message.invokedAt : (message.invokedAt ?? createdAt)
+        const id = randomUUID()
+        prepareCached(db, `
+            INSERT INTO messages (
+                id, session_id, content, search_text, created_at, seq, local_id, invoked_at, scheduled_at, delivery_state
+            ) VALUES (
+                @id, @session_id, @content, @search_text, @created_at, @seq, @local_id, @invoked_at, @scheduled_at, @delivery_state
+            )
+        `).run({
+            id,
+            session_id: sessionId,
+            // Lossless re-encode only — copies move existing history between
+            // sessions, so no truncation here even for pre-codec oversized rows.
+            content: encodeMessageContent(message.content),
+            search_text: messageSearchText(message.content),
+            created_at: createdAt,
+            seq: nextSeq,
+            local_id: localId ?? null,
+            invoked_at: invokedAt ?? null,
+            scheduled_at: message.scheduledAt ?? null,
+            delivery_state: message.deliveryState ?? 'queued'
+        })
+
+        const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
+        if (!row) {
+            throw new Error('Failed to copy message into target session')
+        }
+        recordUserMessage(db, sessionId, message.content, createdAt)
+
+        // Copies preserve the source display timestamp, so a new high-seq row can
+        // still land behind a Web client's cached composite tail cursor. Mark the
+        // target history as structurally changed so incremental readers reset.
+        bumpMessageEpoch(db, sessionId)
+        const stored = toStoredMessage(row)
+        recordMessageUsage(db, stored, getMessageEpoch(db, sessionId))
+        return stored
     })
-
-    const row = prepareCached(db, 'SELECT * FROM messages WHERE id = ?').get(id) as DbMessageRow | undefined
-    if (!row) {
-        throw new Error('Failed to copy message into target session')
-    }
-    recordUserMessage(db, sessionId, message.content, createdAt)
-
-    // Copies preserve the source display timestamp, so a new high-seq row can
-    // still land behind a Web client's cached composite tail cursor. Mark the
-    // target history as structurally changed so incremental readers reset.
-    bumpMessageEpoch(db, sessionId)
-    const stored = toStoredMessage(row)
-    recordMessageUsage(db, stored, getMessageEpoch(db, sessionId))
-    return stored
 }
-
 /**
  * Batch-hydrate a fork child: one transaction, contiguous seq allocation,
  * single epoch bump. Avoids O(n) max-seq lookups and epoch writes.
@@ -403,6 +885,17 @@ export function getMessageSeqById(
     return row ? row.seq : null
 }
 
+export function getMessageById(
+    db: Database,
+    sessionId: string,
+    messageId: string
+): StoredMessage | null {
+    const row = db.prepare(
+        'SELECT * FROM messages WHERE id = ? AND session_id = ?'
+    ).get(messageId, sessionId) as DbMessageRow | undefined
+    return row ? toStoredMessage(row) : null
+}
+
 export function getFirstMessages(
     db: Database,
     sessionId: string,
@@ -471,23 +964,66 @@ export function deleteLiveReasoningSnapshots(
     streamId: string,
     keepMessageId?: string
 ): number {
-    const rows = prepareCached(db, `
-        SELECT id, content FROM messages
-        WHERE session_id = ?
-        ORDER BY seq DESC
-        LIMIT ?
-    `).all(sessionId, REASONING_SNAPSHOT_LOOKBACK) as Array<Pick<DbMessageRow, 'id' | 'content'>>
+    if (db.inTransaction) {
+        invalidateLiveTail(db, sessionId)
+        const rows = prepareCached(db, `
+            SELECT id, content FROM messages
+            WHERE session_id = ?
+            ORDER BY seq DESC
+            LIMIT ?
+        `).all(sessionId, REASONING_SNAPSHOT_LOOKBACK) as Array<Pick<DbMessageRow, 'id' | 'content'>>
 
-    const staleIds = rows
-        .filter((row) => row.id !== keepMessageId
-            && getLiveReasoningStreamId(decodeMessageContent(row.content)) === streamId)
-        .map((row) => row.id)
+        const staleIds = rows
+            .filter((row) => row.id !== keepMessageId
+                && getLiveReasoningStreamId(decodeMessageContent(row.content)) === streamId)
+            .map((row) => row.id)
+        if (staleIds.length === 0) return 0
+
+        const placeholders = staleIds.map(() => '?').join(', ')
+        const result = prepareCached(db,
+            `DELETE FROM messages WHERE session_id = ? AND id IN (${placeholders})`
+        ).run(sessionId, ...staleIds)
+        return Number(result.changes)
+    }
+
+    const tail = getOrWarmLiveTail(db, sessionId)
+    const streamIds = tail.reasoningSnapshots.get(streamId)
+    if (!streamIds || streamIds.size === 0) return 0
+
+    const staleIds = Array.from(streamIds).filter((id) => id !== keepMessageId)
     if (staleIds.length === 0) return 0
 
     const placeholders = staleIds.map(() => '?').join(', ')
     const result = prepareCached(db,
         `DELETE FROM messages WHERE session_id = ? AND id IN (${placeholders})`
     ).run(sessionId, ...staleIds)
+
+    const staleSet = new Set(staleIds)
+    tail.tailRows = tail.tailRows.filter((row) => !staleSet.has(row.id))
+    const lookback = Math.max(TOOL_CALL_UPSERT_LOOKBACK, REASONING_SNAPSHOT_LOOKBACK)
+    if (tail.tailRows.length < lookback) {
+        const oldestSeq = tail.tailRows[0]?.seq ?? (tail.headSeq + 1)
+        if (oldestSeq > 1) {
+            const olderRows = prepareCached(db, `
+                SELECT id, seq, content FROM messages
+                WHERE session_id = ? AND seq < ?
+                ORDER BY seq DESC
+                LIMIT ?
+            `).all(sessionId, oldestSeq, lookback - tail.tailRows.length) as Array<Pick<DbMessageRow, 'id' | 'seq' | 'content'>>
+            if (olderRows.length > 0) {
+                const prefix: TailRowMeta[] = []
+                for (let i = olderRows.length - 1; i >= 0; i -= 1) {
+                    const row = olderRows[i]!
+                    prefix.push(classifyTailRow(row.id, row.seq, decodeMessageContent(row.content)))
+                }
+                tail.tailRows = [...prefix, ...tail.tailRows]
+            }
+        }
+    }
+    rebuildTailIndexes(tail)
+    if (tail.headId && staleSet.has(tail.headId)) {
+        invalidateLiveTail(db, sessionId)
+    }
     return Number(result.changes)
 }
 
@@ -578,6 +1114,7 @@ export function getMessageEpoch(db: Database, sessionId: string): number {
 }
 
 export function bumpMessageEpoch(db: Database, sessionId: string): number {
+    invalidateLiveTail(db, sessionId)
     prepareCached(db, `
         INSERT INTO message_epochs (session_id, epoch)
         VALUES (?, 1)
@@ -665,6 +1202,22 @@ export function getMatureScheduledMessages(
  *  CLI session that ended before the runner consumed them, so they cannot ever
  *  be delivered and must be force-invoked to clear the floating bar.
  *
+ *  Scoped to role='user' on purpose. Some agent session events (the opencode
+ *  compaction ":started" status) also carry a durable localId but have no ack
+ *  path — nothing ever flips their invoked_at — so without this scope they
+ *  matched "queued prompt" selections forever: the session-end sweep would
+ *  force-invoke them at reopen time, restamping their display position
+ *  (COALESCE(invoked_at, created_at)) to "now" and resurfacing days-old events
+ *  at the bottom of the thread as if they had just arrived. Session events are
+ *  already stored and rendered; they are never deliverable prompts and must
+ *  keep their original position. The check unwraps role-wrapped envelopes via
+ *  unwrapRoleWrappedRecordEnvelope, the same helper the delivery/export paths
+ *  use (isQueuedUserMessage), so both sides agree on what a queued user prompt
+ *  is even if a row stores the role inside an envelope. It runs on the decoded
+ *  content rather than json_extract in SQL because compressed rows store
+ *  content as a zstd BLOB, which SQLite's JSON functions reject ("malformed
+ *  JSON").
+ *
  *  Scheduled rows (scheduled_at IS NOT NULL) are *deliberately excluded*, mature
  *  or not.  The mature-scan path (releaseMatureScheduledMessages) is the sole
  *  emit channel for scheduled rows and it does not write invoked_at — the CLI
@@ -686,6 +1239,7 @@ export function getImmediateQueuedLocalMessages(
         ORDER BY seq ASC
     `).all(sessionId) as DbMessageRow[]
     return rows.map(toStoredMessage)
+        .filter((message) => unwrapRoleWrappedRecordEnvelope(message.content)?.role === 'user')
 }
 
 /**
@@ -950,7 +1504,6 @@ export function deleteQueuedMessageById(
         return false
     })()
 }
-
 /** Mark messages as invoked at the given server timestamp.
  *  Only updates rows whose local_id is in localIds.
  *  First-write-wins: rows with a non-NULL invoked_at are not updated.  A duplicate
@@ -972,7 +1525,6 @@ export function markMessagesInvoked(
            AND invoked_at IS NULL`
     ).run(invokedAt, sessionId, ...localIds).changes
 }
-
 /** Move an uninvoked steer through its durable delivery states. */
 export function setMessagesDeliveryState(
     db: Database,
@@ -997,6 +1549,17 @@ export function setMessagesDeliveryState(
     ).run(state, sessionId, ...localIds).changes
 }
 
+/** Release confirmation-only state when the owning OpenCode worker ends or is replaced. */
+export function markDispatchingMessagesIndeterminate(db: Database, sessionId: string): string[] {
+    const rows = prepareCached(db, `
+        UPDATE messages SET delivery_state = 'indeterminate'
+        WHERE session_id = ? AND delivery_state = 'dispatching'
+          AND invoked_at IS NULL AND local_id IS NOT NULL
+        RETURNING local_id
+    `).all(sessionId) as Array<{ local_id: string }>
+    return rows.map(row => row.local_id)
+}
+
 /** Hold an ambiguous steer out of automatic replay without claiming delivery. */
 export function markMessagesIndeterminate(
     db: Database,
@@ -1013,29 +1576,37 @@ export function markUninvokedImmediateMessages(
     sessionId: string,
     invokedAt: number
 ): string[] {
-    const rows = prepareCached(db, `
-        SELECT local_id FROM messages
-        WHERE session_id = ?
-          AND local_id IS NOT NULL
-          AND scheduled_at IS NULL
-          AND invoked_at IS NULL
-          AND delivery_state = 'queued'
-        ORDER BY seq ASC
-    `).all(sessionId) as Array<{ local_id: string }>
-    if (rows.length === 0) return []
+    return runInTransaction(db, () => {
+        const rows = prepareCached(db, `
+            SELECT local_id FROM messages
+            WHERE session_id = ?
+              AND local_id IS NOT NULL
+              AND scheduled_at IS NULL
+              AND invoked_at IS NULL
+              AND delivery_state = 'queued'
+            ORDER BY seq ASC
+        `).all(sessionId) as Array<{ local_id: string }>
+        if (rows.length === 0) return []
 
-    prepareCached(db, `
-        UPDATE messages
-        SET invoked_at = ?
-        WHERE session_id = ?
-          AND local_id IS NOT NULL
-          AND scheduled_at IS NULL
-          AND invoked_at IS NULL
-          AND delivery_state = 'queued'
-    `).run(invokedAt, sessionId)
-    return rows.map((row) => row.local_id)
+        prepareCached(db, `
+            UPDATE messages
+            SET invoked_at = ?
+            WHERE session_id = ?
+              AND local_id IS NOT NULL
+              AND scheduled_at IS NULL
+              AND invoked_at IS NULL
+              AND delivery_state = 'queued'
+        `).run(invokedAt, sessionId)
+        const invokedRows = prepareCached(db, `
+            SELECT id, session_id, content, created_at, seq, invoked_at
+            FROM messages
+            WHERE session_id = ? AND local_id IS NOT NULL AND scheduled_at IS NULL AND invoked_at = ?
+        `).all(sessionId, invokedAt) as DbMessageRow[]
+        for (const row of invokedRows) {
+        }
+        return rows.map((row) => row.local_id)
+    })
 }
-
 /**
  * Reassign only uninvoked scheduled rows when an archived OpenCode session
  * is replaced by /clear. The transaction preserves ids/localIds so the normal
@@ -1211,10 +1782,30 @@ export function mergeSessionMessages(
 }
 
 /**
- * Truncate transcript at/after the message with `localId`, optionally replacing
- * the removed suffix with `replacement` messages. Bumps message epoch so web
- * clients reset their window.
+ * Truncate the invocation-ordered suffix at the boundary identified by seq.
+ * Bumps message epoch so web clients reset their window.
  */
+export function truncateOpenCodeRewind(db: Database, sessionId: string, cutoffSeq: number, boundaryId: string): number {
+    return db.transaction(() => {
+        const target = prepareCached(db, `
+            SELECT seq, COALESCE(invoked_at, created_at) AS position_at
+            FROM messages WHERE session_id = ? AND id = ? AND seq = ?
+        `).get(sessionId, boundaryId, cutoffSeq) as { seq: number; position_at: number } | undefined
+        if (!target) throw new Error('Rewind boundary not found')
+        prepareCached(db, `
+            DELETE FROM messages WHERE session_id = ? AND (
+                COALESCE(invoked_at, created_at) > ?
+                OR (COALESCE(invoked_at, created_at) = ? AND seq >= ?)
+            )
+        `).run(sessionId, target.position_at, target.position_at, target.seq)
+        prepareCached(db, `UPDATE sessions SET read_revision = content_revision, read_state_version = read_state_version + 1
+            WHERE id = ? AND read_revision < content_revision AND NOT EXISTS (
+                SELECT 1 FROM messages WHERE session_id = sessions.id AND content_revision > sessions.read_revision
+            )`).run(sessionId)
+        return bumpMessageEpoch(db, sessionId)
+    })()
+}
+
 export function truncateMessagesFromLocalId(
     db: Database,
     sessionId: string,

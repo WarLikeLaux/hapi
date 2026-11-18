@@ -1,28 +1,46 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MessageQueue2 } from '@/utils/MessageQueue2'
 import type { KimiMode } from './types'
+import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 
 const harness = vi.hoisted(() => ({
-    prompts: [] as unknown[][]
+    prompts: [] as unknown[][],
+    configCalls: [] as unknown[][],
+    backends: [] as Array<Record<string, ReturnType<typeof vi.fn>>>,
+    deferSetModel: null as null | Promise<void>,
+    thinking: 'on'
 }))
 
 vi.mock('./utils/kimiBackend', () => ({
-    createKimiBackend: vi.fn(() => ({
-        initialize: vi.fn(async () => {}),
-        newSession: vi.fn(async () => 'kimi-session-1'),
-        loadSession: vi.fn(async () => 'kimi-session-1'),
-        setModel: vi.fn(async () => {}),
-        prompt: vi.fn(async (_sessionId: string, content: unknown[]) => {
-            harness.prompts.push(content)
-        }),
-        cancelPrompt: vi.fn(async () => {}),
-        respondToPermission: vi.fn(async () => {}),
-        onStderrError: vi.fn(),
-        setSessionInfoUpdateListener: vi.fn(),
-        refreshSessionInfo: vi.fn(async () => {}),
-        onPermissionRequest: vi.fn(),
-        disconnect: vi.fn(async () => {})
-    }))
+    createKimiBackend: vi.fn(() => {
+        const backend = {
+            initialize: vi.fn(async () => {}),
+            newSession: vi.fn(async () => 'kimi-session-1'),
+            loadSession: vi.fn(async () => 'kimi-session-1'),
+            // Mimics config_option_update: a new model reports its own level.
+            setModel: vi.fn(async (_sessionId: string, model: string) => {
+                if (model === 'kimi-k3') harness.thinking = 'medium'
+                if (model === 'kimi-k3' && harness.deferSetModel) await harness.deferSetModel
+            }),
+            getThoughtLevelConfigOption: vi.fn(() => ({ id: 'thinking', currentValue: harness.thinking, options: [] })),
+            setConfigOption: vi.fn(async (...args: unknown[]) => {
+                harness.configCalls.push(args)
+                harness.thinking = args[2] as string
+            }),
+            prompt: vi.fn(async (_sessionId: string, content: unknown[]) => {
+                harness.prompts.push(content)
+            }),
+            cancelPrompt: vi.fn(async () => {}),
+            respondToPermission: vi.fn(async () => {}),
+            onStderrError: vi.fn(),
+            setSessionInfoUpdateListener: vi.fn(),
+            refreshSessionInfo: vi.fn(async () => {}),
+            onPermissionRequest: vi.fn(),
+            disconnect: vi.fn(async () => {})
+        }
+        harness.backends.push(backend)
+        return backend
+    })
 }))
 
 vi.mock('@/codex/utils/buildHapiMcpBridge', () => ({
@@ -45,10 +63,13 @@ vi.mock('@/ui/logger', () => ({
 
 import { kimiRemoteLauncher } from './kimiRemoteLauncher'
 
-function createSession() {
+function createSession(modes: KimiMode[] = [
+    { permissionMode: 'default', model: 'kimi-k2' },
+    { permissionMode: 'default', model: 'kimi-k2' }
+]) {
     const queue = new MessageQueue2<KimiMode>((mode) => JSON.stringify(mode))
-    queue.pushIsolateAndClear('first', { permissionMode: 'default', model: 'kimi-k2' })
-    queue.push('second', { permissionMode: 'default', model: 'kimi-k2' })
+    queue.pushIsolateAndClear('first', modes[0])
+    queue.push('second', modes[1])
     queue.close()
 
     const session = {
@@ -57,6 +78,8 @@ function createSession() {
         client: {
             rpcHandlerManager: { registerHandler: vi.fn() },
             sendAgentMessage: vi.fn(),
+            getMetadata: vi.fn(() => null),
+            updateMetadata: vi.fn(),
             sendSessionEvent: vi.fn()
         },
         queue,
@@ -65,7 +88,9 @@ function createSession() {
         onSessionFound(id: string) { session.sessionId = id },
         onThinkingChange: vi.fn(),
         sendAgentMessage: vi.fn(),
-        sendSessionEvent: vi.fn()
+        sendSessionEvent: vi.fn(),
+        setEffort: vi.fn(),
+        pushKeepAlive: vi.fn()
     }
     return session
 }
@@ -73,6 +98,196 @@ function createSession() {
 describe('kimiRemoteLauncher skill lookup instruction', () => {
     afterEach(() => {
         harness.prompts = []
+        harness.configCalls = []
+        harness.thinking = 'on'
+    })
+
+    it('requeues the hub-ACKed batch when a plain Stop lands during the queued model apply', async () => {
+        const queue = new MessageQueue2<KimiMode>((mode) => JSON.stringify(mode))
+        queue.push('first', { permissionMode: 'default', model: 'kimi-k3' })
+        const session = {
+            path: '/tmp/kimi-test',
+            logPath: '/tmp/kimi-test/test.log',
+            client: {
+                rpcHandlerManager: { registerHandler: vi.fn() },
+                sendAgentMessage: vi.fn(),
+                getMetadata: vi.fn(() => null),
+                updateMetadata: vi.fn(),
+                sendSessionEvent: vi.fn()
+            },
+            queue,
+            sessionId: null as string | null,
+            getPermissionMode: () => 'default' as const,
+            onSessionFound(id: string) { session.sessionId = id },
+            onThinkingChange: vi.fn(),
+            sendAgentMessage: vi.fn(),
+            sendSessionEvent: vi.fn(),
+            setEffort: vi.fn(),
+            pushKeepAlive: vi.fn()
+        }
+        let releaseModel!: () => void
+        harness.deferSetModel = new Promise<void>(resolve => { releaseModel = resolve })
+        const launchPromise = kimiRemoteLauncher(session as never, { model: 'kimi-k2' })
+        let releaseCancel: (() => void) | undefined
+        try {
+            await vi.waitFor(() => {
+                const backend = harness.backends.at(-1)!;
+                expect((backend.setModel as ReturnType<typeof vi.fn>).mock.calls
+                    .some((call: unknown[]) => call[1] === 'kimi-k3')).toBe(true);
+            })
+            const backend = harness.backends.at(-1)!
+            backend.cancelPrompt.mockImplementationOnce(() => new Promise<void>(resolve => { releaseCancel = resolve }))
+            const abort = (session.client.rpcHandlerManager.registerHandler as ReturnType<typeof vi.fn>)
+                .mock.calls.find((call: unknown[]) => call[0] === RPC_METHODS.Abort)![1] as () => Promise<unknown>
+            const stop = abort()
+            await vi.waitFor(() => expect(releaseCancel).toBeTypeOf('function'))
+            releaseModel()
+            await new Promise<void>(resolve => setImmediate(resolve))
+            await new Promise<void>(resolve => setImmediate(resolve))
+            // The batch was dequeued but never hub-ACKed (the ACK is
+            // deferred to the dispatch commit); the Stop must preserve it
+            // behind the in-flight teardown instead of dispatching a
+            // cancelled turn.
+            expect(harness.prompts).toHaveLength(0)
+            releaseCancel?.()
+            await stop
+            await vi.waitFor(() => expect(harness.prompts).toHaveLength(1))
+            queue.close()
+            await launchPromise
+        } finally {
+            releaseModel?.()
+            releaseCancel?.()
+            queue.close()
+            await launchPromise.catch(() => {})
+        }
+    })
+
+    it('captures the switched model effort baseline when a plain Stop bails during the queued model apply', async () => {
+        // Round-7 Minor 4: the abort bail-out used to precede the baseline
+        // capture, so the requeued batch never took the NEW model's baseline.
+        const queue = new MessageQueue2<KimiMode>((mode) => JSON.stringify(mode))
+        queue.push('first', { permissionMode: 'default', model: 'kimi-k3' })
+        const session = {
+            path: '/tmp/kimi-test',
+            logPath: '/tmp/kimi-test/test.log',
+            client: {
+                rpcHandlerManager: { registerHandler: vi.fn() },
+                sendAgentMessage: vi.fn(),
+                getMetadata: vi.fn(() => null),
+                updateMetadata: vi.fn(),
+                sendSessionEvent: vi.fn()
+            },
+            queue,
+            sessionId: null as string | null,
+            getPermissionMode: () => 'default' as const,
+            onSessionFound(id: string) { session.sessionId = id },
+            onThinkingChange: vi.fn(),
+            sendAgentMessage: vi.fn(),
+            sendSessionEvent: vi.fn(),
+            setEffort: vi.fn(),
+            pushKeepAlive: vi.fn()
+        }
+        let releaseModel!: () => void
+        harness.deferSetModel = new Promise<void>(resolve => { releaseModel = resolve })
+        // Pin THIS launcher's backend by index: earlier tests leave backends
+        // (with kimi-k3 setModel calls) in the shared harness, which would
+        // satisfy the waitFor before this launcher registers its handlers.
+        const backendsBefore = harness.backends.length
+        const launchPromise = kimiRemoteLauncher(session as never, { model: 'kimi-k2' })
+        let releaseCancel: (() => void) | undefined
+        try {
+            await vi.waitFor(() => {
+                const backend = harness.backends.at(backendsBefore)!;
+                expect((backend.setModel as ReturnType<typeof vi.fn>).mock.calls
+                    .some((call: unknown[]) => call[1] === 'kimi-k3')).toBe(true);
+            })
+            const backend = harness.backends.at(backendsBefore)!
+            const tlc = backend.getThoughtLevelConfigOption as ReturnType<typeof vi.fn>
+            const baselineCalls = tlc.mock.calls.length
+            backend.cancelPrompt.mockImplementationOnce(() => new Promise<void>(resolve => { releaseCancel = resolve }))
+            const abort = (session.client.rpcHandlerManager.registerHandler as ReturnType<typeof vi.fn>)
+                .mock.calls.find((call: unknown[]) => call[0] === RPC_METHODS.Abort)![1] as () => Promise<unknown>
+            const stop = abort()
+            await vi.waitFor(() => expect(releaseCancel).toBeTypeOf('function'))
+            releaseModel()
+            // The bail requeues the batch, but the switched model's baseline
+            // must be captured before the bail (pre-fix the retry sees the
+            // model as already applied and never re-reads the level).
+            for (let i = 0; i < 20 && tlc.mock.calls.length === baselineCalls; i += 1) {
+                await new Promise<void>(resolve => setTimeout(resolve, 50))
+            }
+            expect(tlc.mock.calls.length).toBe(baselineCalls + 1)
+            releaseCancel?.()
+            await stop
+            await vi.waitFor(() => expect(harness.prompts).toHaveLength(1))
+            queue.close()
+            await launchPromise
+        } finally {
+            releaseModel?.()
+            releaseCancel?.()
+            queue.close()
+            await launchPromise.catch(() => {})
+        }
+    })
+
+    it('an idle switch teardown does not consume a newly arrived row', async () => {
+        const queue = new MessageQueue2<KimiMode>((mode) => JSON.stringify(mode))
+        const consumed = vi.fn()
+        queue.onBatchConsumed = consumed
+        const session = {
+            path: '/tmp/kimi-test',
+            logPath: '/tmp/kimi-test/test.log',
+            client: {
+                rpcHandlerManager: { registerHandler: vi.fn() },
+                sendAgentMessage: vi.fn(),
+                getMetadata: vi.fn(() => null),
+                updateMetadata: vi.fn(),
+                sendSessionEvent: vi.fn()
+            },
+            queue,
+            sessionId: null as string | null,
+            getPermissionMode: () => 'default' as const,
+            onSessionFound(id: string) { session.sessionId = id },
+            onThinkingChange: vi.fn(),
+            sendAgentMessage: vi.fn(),
+            sendSessionEvent: vi.fn(),
+            setEffort: vi.fn(),
+            pushKeepAlive: vi.fn()
+        }
+        const launchPromise = kimiRemoteLauncher(session as never, { model: 'kimi-k2' })
+        let releaseCancel: (() => void) | undefined
+        try {
+            // Wait until the loop is parked: the Switch handler is registered
+            // immediately before the drain loop starts.
+            await vi.waitFor(() => {
+                expect((session.client.rpcHandlerManager.registerHandler as ReturnType<typeof vi.fn>)
+                    .mock.calls.some((call: unknown[]) => call[0] === RPC_METHODS.Switch)).toBe(true)
+            })
+            const switchHandler = (session.client.rpcHandlerManager.registerHandler as ReturnType<typeof vi.fn>)
+                .mock.calls.find((call: unknown[]) => call[0] === RPC_METHODS.Switch)![1] as () => Promise<unknown>
+            const backend = harness.backends.at(-1)!
+            backend.cancelPrompt.mockImplementationOnce(() => new Promise<void>(resolve => { releaseCancel = resolve }))
+            const switchPromise = switchHandler()
+            await vi.waitFor(() => expect(releaseCancel).toBeTypeOf('function'))
+            queue.push('late', { permissionMode: 'default', model: 'kimi-k3' }, 'late')
+            await new Promise<void>(resolve => setImmediate(resolve))
+            await new Promise<void>(resolve => setImmediate(resolve))
+            // Pre-fix the dequeue signal stayed live during the teardown: the
+            // row was dequeued+ACKed and its model applied on the closing
+            // backend. The teardown must abort the signal at entry instead.
+            expect(consumed).not.toHaveBeenCalled()
+            expect((backend.setModel as ReturnType<typeof vi.fn>).mock.calls
+                .some((call: unknown[]) => call[1] === 'kimi-k3')).toBe(false)
+            releaseCancel?.()
+            await switchPromise
+            expect(queue.pendingLocalIds()).toEqual([])
+            queue.close()
+            await launchPromise
+        } finally {
+            releaseCancel?.()
+            queue.close()
+            await launchPromise.catch(() => {})
+        }
     })
 
     it('does not prepend skill_lookup instructions onto user turns', async () => {
@@ -83,5 +298,29 @@ describe('kimiRemoteLauncher skill lookup instruction', () => {
         expect(JSON.stringify(harness.prompts[0])).not.toContain('skill_lookup')
         expect(JSON.stringify(harness.prompts[0])).not.toContain('$name')
         expect(JSON.stringify(harness.prompts[1])).not.toContain('skill_lookup')
+    })
+
+    it('applies the queued effort and resets to the agent default', async () => {
+        await kimiRemoteLauncher(createSession([
+            { permissionMode: 'default', model: 'kimi-k2', effort: 'high' },
+            { permissionMode: 'default', model: 'kimi-k2', effort: null }
+        ]) as never, { model: 'kimi-k2' })
+
+        expect(harness.configCalls).toEqual([
+            ['kimi-session-1', 'thinking', 'high'],
+            ['kimi-session-1', 'thinking', 'on']
+        ])
+    })
+
+    it('re-applies the selected effort after a model switch changes the agent level', async () => {
+        await kimiRemoteLauncher(createSession([
+            { permissionMode: 'default', model: 'kimi-k2', effort: 'high' },
+            { permissionMode: 'default', model: 'kimi-k3', effort: 'high' }
+        ]) as never, { model: 'kimi-k2' })
+
+        expect(harness.configCalls).toEqual([
+            ['kimi-session-1', 'thinking', 'high'],
+            ['kimi-session-1', 'thinking', 'high']
+        ])
     })
 })

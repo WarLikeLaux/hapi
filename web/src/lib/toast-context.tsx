@@ -8,6 +8,8 @@ export type Toast = {
     sessionId: string
     url: string
     dedupeKey?: string
+    /** Optional inline action, e.g. reopening a just-archived session. */
+    action?: { label: string; onClick: () => void }
 }
 
 export type ToastContextValue = {

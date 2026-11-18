@@ -3227,7 +3227,7 @@ describe('NewSession fork launch defaults', () => {
 
         fireEvent.click(screen.getByTestId('create'))
         await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('fork-session', true))
-        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model, yolo: true, serviceTier: undefined }))
+        expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'cursor', model, permissionMode: 'yolo', serviceTier: undefined }))
     })
 
 

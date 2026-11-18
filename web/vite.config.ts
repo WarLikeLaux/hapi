@@ -64,6 +64,9 @@ function getVendorChunkName(id: string): string | undefined {
         return undefined
     }
 
+    const grammar = id.match(/\/node_modules\/@shikijs\/(?:langs|themes)\/dist\/([^/]+)\.mjs$/)
+    if (grammar) return `shiki-${grammar[1]}`
+
     if (id.includes('/node_modules/@xterm/')) {
         return 'vendor-terminal'
     }
@@ -249,10 +252,11 @@ export default defineConfig({
             },
             injectManifest: {
                 globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-                // The SPA entry contains the complete multi-agent control surface.
-                // Keep it available offline after adding Pi history import instead
-                // of silently dropping the entry chunk from the PWA precache.
-                maximumFileSizeToCacheInBytes: 3 * 1024 * 1024
+                // Optional syntax grammars are cached after use, not during PWA installation.
+                globIgnores: ['**/shiki-*.js'],
+                // The multi-agent SPA entry is about 3.2 MB after minification.
+                // Keep it in the offline shell precache.
+                maximumFileSizeToCacheInBytes: 4 * 1024 * 1024
             },
             devOptions: {
                 enabled: true,

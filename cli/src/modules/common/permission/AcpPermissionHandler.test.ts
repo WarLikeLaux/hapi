@@ -54,7 +54,7 @@ async function createHarness() {
     } as unknown as ApiSessionClient;
     const backend = new AcpSdkBackend({ command: process.execPath, args: ['--input-type=module', '-e', peer], flavor: 'minimax' });
     backends.push(backend);
-    const handler = new AcpPermissionHandler(session, backend, () => 'yolo', (message) => messages.push(message));
+    const handler = new AcpPermissionHandler(session, backend, () => 'yolo', { onMessage: (message) => messages.push(message) });
     await backend.initialize();
     await backend.newSession({ cwd: process.cwd(), mcpServers: [] });
     return {

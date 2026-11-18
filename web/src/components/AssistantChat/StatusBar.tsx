@@ -1,3 +1,4 @@
+import { getPendingRequestDetail, getPendingRequestEntries, getPendingRequestStatusText, type PendingRequestEntry } from '@/lib/pendingRequests'
 import {
     getCodexCollaborationModeLabel,
     getCopilotAgentModeLabel,
@@ -30,21 +31,20 @@ const CONTEXT_DANGER_THRESHOLD_PERCENT = 90
 function getConnectionStatus(
     active: boolean,
     thinking: boolean,
-    agentState: AgentState | null | undefined,
+    pendingRequests: readonly PendingRequestEntry[],
     voiceStatus: ConversationStatus | undefined,
     backgroundTaskCount: number,
     activity: AgentActivity | null | undefined,
     t: (key: string) => string
-): { text: string; color: string; dotColor: string; isPulsing: boolean } {
-    const hasPermissions = agentState?.requests && Object.keys(agentState.requests).length > 0
-
+): { text: string; color: string; dotColor: string; isPulsing: boolean; hasPendingRequests: boolean } {
     // Voice connecting takes priority
     if (voiceStatus === 'connecting') {
         return {
             text: t('voice.connecting'),
             color: 'text-[#007AFF]',
             dotColor: 'bg-[#007AFF]',
-            isPulsing: true
+            isPulsing: true,
+            hasPendingRequests: false
         }
     }
 
@@ -53,16 +53,19 @@ function getConnectionStatus(
             text: t('misc.offline'),
             color: 'text-[#999]',
             dotColor: 'bg-[#999]',
-            isPulsing: false
+            isPulsing: false,
+            hasPendingRequests: false
         }
     }
 
-    if (hasPermissions) {
+    const pendingText = getPendingRequestStatusText(pendingRequests, t)
+    if (pendingText) {
         return {
-            text: t('misc.permissionRequired'),
-            color: 'text-[#FF9500]',
-            dotColor: 'bg-[#FF9500]',
-            isPulsing: true
+            text: pendingText,
+            color: 'text-[var(--app-badge-warning-text)]',
+            dotColor: 'bg-[var(--app-badge-warning-text)]',
+            isPulsing: true,
+            hasPendingRequests: true
         }
     }
 
@@ -71,7 +74,8 @@ function getConnectionStatus(
             text: activity ? AGENT_ACTIVITY_LABELS[activity] : 'Работает…',
             color: 'text-[#007AFF]',
             dotColor: 'bg-[#007AFF]',
-            isPulsing: true
+            isPulsing: true,
+            hasPendingRequests: false
         }
     }
 
@@ -80,7 +84,8 @@ function getConnectionStatus(
             text: `${backgroundTaskCount} background task${backgroundTaskCount > 1 ? 's' : ''} running`,
             color: 'text-[#007AFF]',
             dotColor: 'bg-[#007AFF]',
-            isPulsing: true
+            isPulsing: true,
+            hasPendingRequests: false
         }
     }
 
@@ -88,7 +93,8 @@ function getConnectionStatus(
         text: 'Готов',
         color: 'text-[#34C759]',
         dotColor: 'bg-[#34C759]',
-        isPulsing: false
+        isPulsing: false,
+        hasPendingRequests: false
     }
 }
 
@@ -157,6 +163,8 @@ export function getContextUsageDetails(
 
 export function StatusBar(props: {
     active: boolean
+    /** Session machine; enables the plan-quota readout next to the context meter. */
+    machineId?: string | null
     thinking: boolean
     agentState: AgentState | null | undefined
     backgroundTaskCount?: number
@@ -182,6 +190,7 @@ export function StatusBar(props: {
     copilotAgentMode?: import('@hapi/protocol').CopilotAgentMode
     agentFlavor?: string | null
     voiceStatus?: ConversationStatus
+    onPendingRequestClick?: (requestId: string) => void
 }) {
     const { t } = useTranslation()
     const [now, setNow] = useState(() => Date.now())
@@ -191,9 +200,11 @@ export function StatusBar(props: {
         const timer = window.setInterval(() => setNow(Date.now()), 1000)
         return () => window.clearInterval(timer)
     }, [props.active, props.thinking, props.turnMetrics?.startedAt])
+    const [pendingMenuOpen, setPendingMenuOpen] = useState(false)
+    const pendingRequests = useMemo(() => getPendingRequestEntries(props.agentState?.requests), [props.agentState?.requests])
     const connectionStatus = useMemo(
-        () => getConnectionStatus(props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount ?? 0, props.activity, t),
-        [props.active, props.thinking, props.agentState, props.voiceStatus, props.backgroundTaskCount, props.activity, t]
+        () => getConnectionStatus(props.active, props.thinking, pendingRequests, props.voiceStatus, props.backgroundTaskCount ?? 0, props.activity, t),
+        [props.active, props.thinking, pendingRequests, props.voiceStatus, props.backgroundTaskCount, props.activity, t]
     )
 
     const awaitingStart = props.active && props.awaitingStart && !props.thinking
@@ -264,6 +275,97 @@ export function StatusBar(props: {
     return (
         <div className="flex min-w-0 items-center justify-between gap-2 px-2 pb-1">
             <div className="flex min-w-0 items-center gap-2">
+                {connectionStatus.hasPendingRequests && props.onPendingRequestClick ? (
+                    pendingRequests.length === 1 ? (
+                        <button
+                            type="button"
+                            className="relative top-px flex shrink-0 cursor-pointer items-center gap-1.5 rounded-sm bg-transparent p-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-link)] sm:top-0.5"
+                            aria-label={connectionStatus.text}
+                            title={connectionStatus.text}
+                            onClick={() => props.onPendingRequestClick?.(pendingRequests[0]!.id)}
+                        >
+                            <span
+                                aria-hidden="true"
+                                className={`h-2 w-2 rounded-full ${connectionStatus.dotColor} ${connectionStatus.isPulsing ? 'animate-pulse' : ''}`}
+                            />
+                            <span className={`whitespace-nowrap text-xs ${connectionStatus.color}`}>
+                                {connectionStatus.text}
+                            </span>
+                        </button>
+                    ) : (
+                        <Popover.Root open={pendingMenuOpen} onOpenChange={setPendingMenuOpen}>
+                            <Popover.Trigger asChild>
+                                <button
+                                    type="button"
+                                    className="relative top-px flex shrink-0 cursor-pointer items-center gap-1.5 rounded-sm bg-transparent p-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-link)] sm:top-0.5"
+                                    aria-label={connectionStatus.text}
+                                    title={connectionStatus.text}
+                                >
+                                    <span
+                                        aria-hidden="true"
+                                        className={`h-2 w-2 rounded-full ${connectionStatus.dotColor} ${connectionStatus.isPulsing ? 'animate-pulse' : ''}`}
+                                    />
+                                    <span className={`whitespace-nowrap text-xs ${connectionStatus.color}`}>
+                                        {connectionStatus.text}
+                                    </span>
+                                </button>
+                            </Popover.Trigger>
+                            <Popover.Portal>
+                                <Popover.Content
+                                    side="top"
+                                    align="start"
+                                    alignOffset={-8}
+                                    sideOffset={6}
+                                    collisionPadding={12}
+                                    className="z-50 w-[calc(100vw-1.5rem)] rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] p-1 shadow-lg sm:w-fit sm:min-w-[14rem] sm:max-w-[28rem]"
+                                >
+                                    <div className="flex flex-col">
+                                        {pendingRequests.map((request) => {
+                                            const detail = getPendingRequestDetail(request)
+                                            const label = request.kind === 'input'
+                                                ? t('misc.inputRequired')
+                                                : t('misc.permissionRequired')
+                                            const moreLabel = detail.moreCount > 0
+                                                ? t('misc.moreQuestions', { count: detail.moreCount })
+                                                : null
+                                            const accessibleDetail = moreLabel
+                                                ? `${detail.text} ${moreLabel}`
+                                                : detail.text
+                                            return (
+                                                <button
+                                                    key={request.id}
+                                                    type="button"
+                                                    aria-label={`${label} ${accessibleDetail}`}
+                                                    title={accessibleDetail}
+                                                    className="flex min-h-12 w-full min-w-0 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-[var(--app-subtle-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-link)]"
+                                                    onClick={() => {
+                                                        setPendingMenuOpen(false)
+                                                        props.onPendingRequestClick?.(request.id)
+                                                    }}
+                                                >
+                                                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                                        <span className="font-medium text-[var(--app-fg)]">
+                                                            {label}
+                                                        </span>
+                                                        <span className="flex min-w-0 items-baseline gap-1.5 text-[11px] text-[var(--app-hint)]">
+                                                            <span className={`min-w-0 truncate ${request.kind === 'permission' ? 'font-mono' : ''}`}>
+                                                                {detail.text}
+                                                            </span>
+                                                            {moreLabel ? (
+                                                                <span className="shrink-0 whitespace-nowrap">{moreLabel}</span>
+                                                            ) : null}
+                                                        </span>
+                                                    </span>
+                                                    <span aria-hidden="true" className="shrink-0 text-base text-[var(--app-hint)]">›</span>
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                </Popover.Content>
+                            </Popover.Portal>
+                        </Popover.Root>
+                    )
+                ) : (
                 <div className="flex shrink-0 items-center gap-1.5">
                     <span
                         className={`h-2 w-2 rounded-full ${displayedStatus.dotColor} ${displayedStatus.isPulsing ? 'animate-pulse' : ''}`}
@@ -280,6 +382,7 @@ export function StatusBar(props: {
                         </span>
                     ) : <span className={`whitespace-nowrap text-xs ${displayedStatus.color}`}>{displayedStatus.text}</span>}
                 </div>
+                )}
                 {contextUsageLabel ? (
                     <Popover.Root>
                         <Popover.Trigger asChild>

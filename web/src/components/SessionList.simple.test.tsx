@@ -20,7 +20,7 @@ function session(id: string, parked: boolean, index: number): SessionSummary {
         id, active: false, thinking: false, activeAt: 0, updatedAt: 10_000 - index,
         lastAgentMessageAt: 10_000 - index, contentRevision: 1, hasConversationContent: true,
         metadata: { path: '/work/project-hidden', name: id, lifecycleState: parked ? 'parked' : 'archived' },
-        metadataVersion: 0, agentStateVersion: 0, todosUpdatedAt: 0, todoProgress: null,
+        metadataVersion: 0, agentStateVersion: 0, todosUpdatedAt: 0, todoProgress: null, attachedJob: null, attachedJobUpdatedAt: 0,
         pendingRequestsCount: 0, pendingRequestKinds: [], pendingRequests: [], backgroundTaskCount: 0,
         futureScheduledMessageCount: 0, nextScheduledAt: null, model: null, effort: null,
     }

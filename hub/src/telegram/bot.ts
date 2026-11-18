@@ -14,8 +14,14 @@ import {
     formatReadyNotification,
     formatSessionNotification
 } from './sessionView'
-import { getAgentName } from '../notifications/sessionInfo'
-import type { NotificationChannel, TaskNotification } from '../notifications/notificationTypes'
+import { getAgentName, getSessionName } from '../notifications/sessionInfo'
+import type {
+    ModelErrorNotification,
+    ModelErrorSendOutcome,
+    NotificationChannel, TaskNotification
+} from '../notifications/notificationTypes'
+import type { NotificationSendContext } from '../notifications/notificationSendContext'
+import { formatModelErrorBody, formatModelErrorTitle } from '../notifications/modelErrorCopy'
 import type { Store } from '../store'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 
@@ -304,6 +310,42 @@ export class HappyBot implements NotificationChannel {
                 console.error(`[HAPIBot] Failed to send task notification to chat ${chatId}:`, error)
             }
         }
+    }
+
+    async sendModelError(
+        session: Session,
+        notification: ModelErrorNotification,
+        _ctx?: NotificationSendContext
+    ): Promise<ModelErrorSendOutcome> {
+        if (this.shouldSuppress(session)) return 'unavailable'
+
+        const agentName = getAgentName(session)
+        const sessionName = getSessionName(session)
+        const title = formatModelErrorTitle(notification.kind)
+        const body = formatModelErrorBody(notification, { agentName, sessionName })
+        // Plain text (no parse_mode): sessionName can contain
+        // Markdown metacharacters; Telegram drops the whole message on parse errors.
+        const text = `\u{1F6A8} Model error - ${title}\n\n${body}`
+        const url = buildSessionLink(this.publicUrl, session.id)
+        const keyboard = new InlineKeyboard().webApp('Open Session', url)
+
+        const chatIds = this.getBoundChatIds(session.namespace)
+        if (chatIds.length === 0) {
+            return 'unavailable'
+        }
+
+        let delivered = 0
+        for (const chatId of chatIds) {
+            try {
+                await this.bot.api.sendMessage(chatId, text, {
+                    reply_markup: keyboard
+                })
+                delivered++
+            } catch (error) {
+                console.error(`[HAPIBot] Failed to send model-error notification to chat ${chatId}:`, error)
+            }
+        }
+        return delivered > 0 ? 'delivered' : 'failed'
     }
 
     private shouldSuppress(session: Session): boolean {

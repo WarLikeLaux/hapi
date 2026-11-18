@@ -26,7 +26,7 @@ async function runDshModelsProbe(): Promise<ListDshModelsForMachineResponse> {
     // The catalog is machine-global. Do not load project configuration from
     // the directory in which the long-lived runner happened to start.
     const cwd = homedir()
-    const backend = createDshBackend(process.env, cwd)
+    const backend = createDshBackend(process.env, { spawnCwd: cwd })
     let timeout: ReturnType<typeof setTimeout> | undefined
     try {
         const result = await Promise.race([
@@ -36,6 +36,14 @@ async function runDshModelsProbe(): Promise<ListDshModelsForMachineResponse> {
                     cwd,
                     mcpServers: []
                 })
+                // dsh sessions are durable on disk and session/new always
+                // flushes: without an explicit session/close (advertised
+                // under sessionCapabilities), every probe would leave one
+                // throwaway durable session behind in ~/.dsh. Best effort —
+                // a close failure must not mask the probe result, and the
+                // disconnect below still tears the child down.
+                await backend.sendExtensionRequest('session/close', { sessionId }, { timeoutMs: 5000 })
+                    .catch(() => {})
                 const metadata = backend.getSessionModelsMetadata(sessionId)
                 if (!metadata || metadata.availableModels.length === 0) {
                     return {

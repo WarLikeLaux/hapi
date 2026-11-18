@@ -1,4 +1,5 @@
-import { ComposerPrimitive } from '@assistant-ui/react'
+import { AttachmentPicker } from './AttachmentPicker'
+import { ComposerPrimitive, useAui } from '@assistant-ui/react'
 import type { ConversationStatus } from '@/realtime/types'
 import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
@@ -7,7 +8,7 @@ import { ScheduleTimePicker } from './ScheduleTimePicker'
 import type { PendingSchedule } from './ScheduleTimePicker'
 import { useFue } from '@/lib/use-fue'
 import { FueCallout } from '@/components/Fue'
-import { Children, isValidElement, useRef, useState, type ReactElement, type ReactNode, type Ref } from 'react'
+import { Children, isValidElement, useCallback, useRef, useState, type ReactElement, type ReactNode, type Ref } from 'react'
 import { useComposerToolbarLayout, type ComposerToolbarItemId, type ComposerToolbarLayout } from '@/hooks/useComposerToolbarLayout'
 import { useNarrowViewport } from '@/hooks/useNarrowViewport'
 import type { ComposerSendIntent } from '@/lib/messageDelivery'
@@ -598,6 +599,7 @@ export function UnifiedButton(props: {
      */
     routesToScratchlist?: boolean
     isTouch?: boolean
+    attachmentsEnabled?: boolean
 }) {
     const { t } = useTranslation()
 
@@ -748,8 +750,26 @@ export function DictationButton(props: {
     )
 }
 
+/**
+ * Start every selected file immediately so inactive-session attachment handoff
+ * can coalesce one multi-file selection into a single transfer.
+ */
+export async function addSelectedAttachments(
+    addAttachment: (file: File) => Promise<void>,
+    files: readonly File[],
+): Promise<void> {
+    await Promise.all(files.map(async (file) => {
+        try {
+            await addAttachment(file)
+        } catch (error) {
+            console.error('Error adding selected attachment:', error)
+        }
+    }))
+}
+
 export function ComposerButtons(props: {
     isTouch?: boolean
+    attachmentsEnabled?: boolean
     canSend: boolean
     controlsDisabled: boolean
     showSettingsButton: boolean
@@ -826,6 +846,12 @@ export function ComposerButtons(props: {
     const hasAttachments = props.hasAttachments ?? false
     const toolbarJustifyContent = getComposerToolbarJustifyContent(layout.mode)
 
+    const assistantUi = useAui()
+    const handleAttachmentFiles = useCallback(async (files: readonly File[]) => {
+        const composer = assistantUi.composer()
+        await addSelectedAttachments(file => composer.addAttachment(file), files)
+    }, [assistantUi])
+
     return (
         <div className="flex shrink-0 items-center gap-1 px-2 pb-2">
             <div
@@ -835,14 +861,21 @@ export function ComposerButtons(props: {
             >
                 <OrderedToolbarItems layout={effectiveLayout}>
                 <ToolbarItemSlot item="attachment">
-                <ComposerPrimitive.AddAttachment
-                    aria-label={t('composer.attach')}
-                    title={t('composer.attach')}
-                    disabled={props.controlsDisabled || hasSchedule}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-fg)]/60 transition-colors hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    <AttachmentIcon />
-                </ComposerPrimitive.AddAttachment>
+                {isNarrowViewport ? (
+                    <AttachmentPicker
+                        disabled={props.controlsDisabled || hasSchedule || props.attachmentsEnabled === false}
+                        onFilesSelected={handleAttachmentFiles}
+                    />
+                ) : (
+                    <ComposerPrimitive.AddAttachment
+                        aria-label={t('composer.attach')}
+                        title={t('composer.attach')}
+                        disabled={props.controlsDisabled || hasSchedule || props.attachmentsEnabled === false}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-fg)]/60 transition-colors hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        <AttachmentIcon />
+                    </ComposerPrimitive.AddAttachment>
+                )}
                 </ToolbarItemSlot>
 
                 <ToolbarItemSlot item="settings">

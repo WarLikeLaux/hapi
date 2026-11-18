@@ -24,7 +24,7 @@ afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks() })
 function chat(id: string, overrides: Partial<SessionSummary> = {}): SessionSummary {
     return { id, active: true, thinking: true, activeAt: 1000, updatedAt: 2000, lastAgentMessageAt: 2000, contentRevision: overrides.contentRevision ?? overrides.lastAgentMessageAt ?? 2000,
         metadata: { path: '/work', name: id, flavor: 'codex' }, metadataVersion: 1, agentStateVersion: 1,
-        todosUpdatedAt: 0, todoProgress: null, pendingRequestsCount: 0, pendingRequestKinds: [], pendingRequests: [],
+        todosUpdatedAt: 0, todoProgress: null, attachedJob: null, attachedJobUpdatedAt: 0, pendingRequestsCount: 0, pendingRequestKinds: [], pendingRequests: [],
         backgroundTaskCount: 0, futureScheduledMessageCount: 0, nextScheduledAt: null, model: null, effort: null, ...overrides }
 }
 

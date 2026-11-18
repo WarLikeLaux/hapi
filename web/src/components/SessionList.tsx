@@ -950,11 +950,13 @@ function SessionDateRangePicker(props: {
 
 export function SessionListSearch(props: {
     value: string
+    excludeMatches?: boolean
+    onExcludeMatchesChange?: (exclude: boolean) => void
     onChange: (value: string) => void
-    customStart: string
-    customEnd: string
-    sessionActivityDates: ReadonlySet<string>
-    onDateRangeChange: (start: string, end: string) => void
+    customStart?: string
+    customEnd?: string
+    sessionActivityDates?: ReadonlySet<string>
+    onDateRangeChange?: (start: string, end: string) => void
     expanded: boolean
     onExpandedChange: (expanded: boolean) => void
     /** Minimum width of search + clear. Query text may shrink; these may not. */
@@ -993,7 +995,7 @@ export function SessionListSearch(props: {
     // targets are min 48x48 so the clear is no longer a ~14px absolute X.
     // Date button only — picker mounts on the search-group container so
     // left-0 / right-0 stay viewport-safe (not a 48px button containing block).
-    const renderDateButton = () => (
+    const renderDateButton = () => props.onDateRangeChange ? (
         <div className="flex shrink-0 items-stretch">
             <button
                 ref={dateButtonRef}
@@ -1024,9 +1026,9 @@ export function SessionListSearch(props: {
                 ) : null}
             </button>
         </div>
-    )
+    ) : null
 
-    const datePicker = datePickerOpen ? (
+    const datePicker = datePickerOpen && props.onDateRangeChange && props.sessionActivityDates ? (
         <>
             <button
                 type="button"
@@ -1038,12 +1040,12 @@ export function SessionListSearch(props: {
                 }}
             />
             <SessionDateRangePicker
-                start={props.customStart}
-                end={props.customEnd}
+                start={props.customStart ?? ''}
+                end={props.customEnd ?? ''}
                 sessionActivityDates={props.sessionActivityDates}
                 onChange={props.onDateRangeChange}
                 onClear={() => {
-                    props.onDateRangeChange('', '')
+                    props.onDateRangeChange?.('', '')
                     // The footer Clear button unmounts once the range is
                     // empty; return focus so it does not drop to <body>.
                     returnDateFocus()
@@ -1163,6 +1165,19 @@ export function SessionListSearch(props: {
                     title={searchLabel}
                     className="min-w-0 flex-1 appearance-none bg-transparent px-2 py-1.5 text-sm text-[var(--app-fg)] outline-none placeholder:text-[var(--app-hint)] [text-overflow:ellipsis] [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
                 />
+                {props.onExcludeMatchesChange ? (
+                    <button
+                        type="button"
+                        aria-pressed={props.excludeMatches}
+                        onClick={() => props.onExcludeMatchesChange?.(!props.excludeMatches)}
+                        className={cn(
+                            'min-h-12 shrink-0 border-l border-[var(--app-border)] px-2 text-xs',
+                            props.excludeMatches ? 'text-[var(--app-link)]' : 'text-[var(--app-hint)]'
+                        )}
+                    >
+                        {t('sessions.search.scope.exclude')}
+                    </button>
+                ) : null}
                 {renderDateButton()}
                 {props.value ? (
                     <button
@@ -1491,7 +1506,9 @@ export function SessionList(props: {
         actionsObserverRef.current = ro
         publishActions(node.clientWidth || node.getBoundingClientRect().width)
     }, [])
+    const [excludeMatches, setExcludeMatches] = useState(false)
     const normalizedQuery = normalizeSearch(searchQuery)
+    const excluding = excludeMatches && normalizedQuery.length > 0
     const timeRange = getSessionTimeRange(customStart, customEnd)
     const isFiltering = normalizedQuery.length > 0 || timeRange !== null
 
@@ -1591,7 +1608,7 @@ export function SessionList(props: {
     const [searchResultSelection, setSearchResultSelection] = useState<'chats' | 'messages' | null>(null)
     // Lifted here so the messages tab badge shows the match count while the
     // chats tab is the active one.
-    const messageSearchState = useMessageSearch(api, normalizedQuery)
+    const messageSearchState = useMessageSearch(api, excluding ? '' : normalizedQuery)
     // Fresh messenger chats interleaved between the active sessions. The window
     // is per-device (localStorage); unread chats always stay visible and only
     // already-read chats age out after the grace window.
@@ -1629,10 +1646,10 @@ export function SessionList(props: {
         [contextFilteredSessions, timeRange?.start, timeRange?.end] // eslint-disable-line react-hooks/exhaustive-deps
     )
     const searchScoreIndex = useMemo(
-        () => hasTextQuery
+        () => hasTextQuery && !excluding
             ? buildSessionSearchScoreIndex(projectTimeScopedSessions, normalizedQuery, resolveMachineLabel)
             : null,
-        [hasTextQuery, projectTimeScopedSessions, normalizedQuery, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
+        [hasTextQuery, excluding, projectTimeScopedSessions, normalizedQuery, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
     )
     const visibleSessions = useMemo(
         () => {
@@ -1644,14 +1661,14 @@ export function SessionList(props: {
                         session,
                         normalizedQuery,
                         resolveMachineLabel(session.metadata?.machineId ?? null)
-                    )
+                    ) !== excluding
                 ))
             if (hasTextQuery && searchScoreIndex) {
                 return sortSessionsBySearchRelevance(matched, searchScoreIndex)
             }
             return matched
         },
-        [allSessions, hasTextQuery, isFiltering, normalizedQuery, searchScoreIndex, timeScopedSessions, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
+        [allSessions, excluding, hasTextQuery, isFiltering, normalizedQuery, searchScoreIndex, timeScopedSessions, machineLabelsById] // eslint-disable-line react-hooks/exhaustive-deps
     )
     const allGroups = useMemo(
         () => showProjectGroups ? groupSessionsByDirectory(contextFilteredSessions, projectDisplayNames) : [],
@@ -1701,7 +1718,9 @@ export function SessionList(props: {
                     projectTimeScopedSessions.filter((session) => searchScoreIndex.matchedIds.has(session.id)),
                     searchScoreIndex
                 )
-                : projectTimeScopedSessions
+                : projectTimeScopedSessions.filter(session => !excluding || !sessionMatchesQuery(
+                    session, normalizedQuery, resolveMachineLabel(session.metadata?.machineId ?? null)
+                ))
             : contextFilteredSessions
         return activeMachineFilter === null
             ? searched
@@ -1711,6 +1730,7 @@ export function SessionList(props: {
     }, [
         activeMachineFilter,
         contextFilteredSessions,
+        excluding,
         hasTextQuery,
         isFiltering,
         machineLabelsById,
@@ -1813,20 +1833,21 @@ export function SessionList(props: {
         const presented = (props.sessionGroups ?? []).map(group => ({ group, state: presentSessionGroup(group, byId, getSessionLastSeenAt, getSessionManualUnreadAt) }))
             .sort((a, b) => b.state.activityAt - a.state.activityAt)
         for (const { group, state } of presented) {
-            if (normalizedQuery && !group.name.toLocaleLowerCase().includes(normalizedQuery)
-                && !state.chats.some(session => sessionMatchesQuery(session, normalizedQuery, resolveMachineLabel(session.metadata?.machineId ?? null)))) continue
+            const matches = group.name.toLocaleLowerCase().includes(normalizedQuery)
+                || state.chats.some(session => sessionMatchesQuery(session, normalizedQuery, resolveMachineLabel(session.metadata?.machineId ?? null)))
+            if (normalizedQuery && matches === excluding) continue
             if (timeRange && !state.chats.some(session => sessionMatchesTimeRange(session, timeRange))) continue
             if (activeMachineFilter !== null && !state.chats.some(session => session.metadata?.machineId === activeMachineFilter)) continue
             sections[group.pinned ? 'pinned' : state.section].push(group)
         }
         return sections
-    }, [props.sessionGroups, props.groupedSessions, lastSeenVersion, normalizedQuery, timeRange?.start, timeRange?.end, activeMachineFilter, machineLabelsById])
+    }, [props.sessionGroups, props.groupedSessions, lastSeenVersion, excluding, normalizedQuery, timeRange?.start, timeRange?.end, activeMachineFilter, machineLabelsById])
     const matchingChatGroupCount = Object.values(chatGroupSections).reduce((count, groups) => count + groups.length, 0)
     const chatsHaveNoMatches = normalizedQuery.length >= 2 && searchScoreIndex?.matchedIds.size === 0 && matchingChatGroupCount === 0
     const searchResultTabOrder: ('chats' | 'messages')[] = chatsHaveNoMatches
         ? ['messages', 'chats']
         : ['chats', 'messages']
-    const searchResultTab = searchResultSelection ?? (chatsHaveNoMatches ? 'messages' : 'chats')
+    const searchResultTab = excluding ? 'chats' : searchResultSelection ?? (chatsHaveNoMatches ? 'messages' : 'chats')
     const showSessionSections = !hasTextQuery || searchResultTab === 'chats'
     const renderChatGroups = (chatGroups: ChatGroup[]) => <SessionGroupRows key={chatGroups[0]?.id} groups={chatGroups} sessions={props.groupedSessions ?? []}
         selectedGroupId={props.selectedGroupId} search="" onOpen={group => props.onSelectGroup?.(group)}
@@ -2471,6 +2492,11 @@ export function SessionList(props: {
                     {showSearch ? (
                         <SessionListSearch
                             value={searchQuery}
+                            excludeMatches={excludeMatches}
+                            onExcludeMatchesChange={(exclude) => {
+                                setExcludeMatches(exclude)
+                                setSearchResultSelection(null)
+                            }}
                             onChange={(value) => {
                                 setSearchQuery(value)
                                 setSearchResultSelection(null)
@@ -2672,7 +2698,7 @@ export function SessionList(props: {
                     />
                 ) : null}
 
-                {hasTextQuery ? (
+                {hasTextQuery && !excluding ? (
                     <div
                         className="mx-3 mb-1 flex items-center gap-1 rounded-lg bg-[var(--app-secondary-bg)] p-0.5"
                         role="tablist"

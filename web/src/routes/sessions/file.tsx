@@ -14,6 +14,8 @@ import { useTranslation } from '@/lib/use-translation'
 import { decodeBase64 } from '@/lib/utils'
 import { ImagePreview } from '@/components/ImagePreview'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
+import { HtmlFilePreview } from '@/components/HtmlFilePreview'
+import { isHtmlFile } from '@/lib/file-html-preview'
 import { ExpandableErrorMessage } from '@/components/ExpandableErrorMessage'
 import { formatFileMetadata } from '@/lib/file-metadata'
 import {
@@ -203,6 +205,8 @@ export default function FilePage() {
     const fileName = filePath.split('/').pop() || filePath || t('file.page.fallbackName')
     const imageMimeType = useMemo(() => resolveImageMimeType(filePath), [filePath])
     const markdownFile = useMemo(() => isMarkdownFile(filePath), [filePath])
+    const htmlFile = useMemo(() => isHtmlFile(filePath), [filePath])
+    const previewableFile = markdownFile || htmlFile
 
     const diffQuery = useQuery({
         queryKey: queryKeys.gitFileDiff(sessionId, filePath, staged, comparison),
@@ -458,7 +462,7 @@ export default function FilePage() {
                 </div>
             </div>
 
-            {diffContent || (markdownFile && displayMode === 'file') ? (
+            {diffContent || (previewableFile && displayMode === 'file') ? (
                 <div className="bg-[var(--app-bg)]">
                     <div className="mx-auto w-full max-w-content px-3 py-2 flex items-center gap-2 border-b border-[var(--app-divider)]">
                         {diffContent ? (
@@ -479,7 +483,7 @@ export default function FilePage() {
                                 </button>
                             </>
                         ) : null}
-                        {markdownFile && displayMode === 'file' ? (
+                        {previewableFile && displayMode === 'file' ? (
                             <>
                                 {diffContent ? <span className="mx-1 h-4 w-px bg-[var(--app-divider)]" aria-hidden="true" /> : null}
                                 <button
@@ -540,7 +544,9 @@ export default function FilePage() {
                             </div>
                         ) : (
                             decodedContent ? (
-                                markdownFile && !showMarkdownSource ? (
+                                htmlFile && !showMarkdownSource ? (
+                                    <HtmlFilePreview sessionId={sessionId} filePath={filePath} html={decodedContent} />
+                                ) : markdownFile && !showMarkdownSource ? (
                                     <div className="markdown-content">
                                         {canCopyContent ? (
                                             <div className="mb-3 overflow-hidden rounded-md">

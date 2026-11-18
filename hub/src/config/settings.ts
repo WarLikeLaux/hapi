@@ -23,6 +23,8 @@ export interface Settings {
     listenPort?: number
     publicUrl?: string
     corsOrigins?: string[]
+    /** Opt-in GitHub PR awareness for sessions (tiann/hapi#1162). Default off. */
+    githubPrAwareness?: boolean
     // Push delivery (FCM + iOS/APNs) — persisted from env like the rest of
     // this section; interpreted by fcmConfig.ts / iosPushConfig.ts.
     androidPushMode?: string
@@ -41,6 +43,8 @@ export interface Settings {
      * into supported flavor system / developer instructions. Default off.
      */
     sessionSummaryContract?: boolean
+    /** Hub-wide defaults for MCP/CLI spawn_peer (Layer 0 A2A). */
+    peerSpawnDefaults?: import('@hapi/protocol/peerSpawnDefaults').PeerSpawnDefaults
     /**
      * When true, web chat shows a compact AGENT_NOTIFY_SUMMARY row.
      * Default off: render/copy strip the footer; store stays raw.
@@ -59,6 +63,11 @@ export interface Settings {
     sessionContextOverrides?: Record<string, 'work' | 'lab' | 'chill'>
     /** Manual per-project context tags shared across web clients. */
     projectContextOverrides?: Record<string, 'work' | 'lab' | 'chill'>
+    /**
+     * When true, Cursor CLI sessions auto-enqueue a one-shot bridge after a
+     * transient model error. Default off. Survives hub/CLI restarts.
+     */
+    autoBridgeTransientModelErrors?: boolean
     /**
      * Hub-side provider API keys / endpoints managed from Settings.
      * Env vars still win when set at process start (ops override).

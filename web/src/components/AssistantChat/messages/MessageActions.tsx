@@ -21,6 +21,7 @@ type MessageActionsProps = {
     copyText?: string
     metadata?: Omit<MessageMetadataProps, 'className'>
     messageElementId?: string
+    onBranch?: () => void
     showFork?: boolean
     allowForkWhileRunning?: boolean
     showRewind?: boolean
@@ -52,6 +53,7 @@ export function MessageActions({
     copyText,
     metadata,
     messageElementId,
+    onBranch,
     showFork = false,
     allowForkWhileRunning = false,
     showRewind = false,
@@ -65,11 +67,7 @@ export function MessageActions({
     const threadIsRunning = useAuiState((state) => selectThreadIsRunning(state))
     const canCopy = Boolean(copyText)
     const hasMetadata = metadata ? buildMessageMetadataLabels(metadata).length > 0 : false
-    const [forkOpen, setForkOpen] = useState(false)
-    const [rewindOpen, setRewindOpen] = useState(false)
-    const [forkPending, setForkPending] = useState(false)
-    const [rewindPending, setRewindPending] = useState(false)
-    const actionsLocked = historyActionPending || forkPending || rewindPending
+    const actionsLocked = historyActionPending
 
     const shareButton = messageElementId ? (
         <ShareTurnButton
@@ -80,10 +78,16 @@ export function MessageActions({
 
     const historyButtons = !actionsLocked ? (
         <>
+            {onBranch && !threadIsRunning ? (
+                <MessageActionButton label={t('branch.title')} onClick={onBranch} className="w-auto gap-1 px-1">
+                    <ForkIcon className="h-3.5 w-3.5" />
+                    <span className="text-[10px]">{t('branch.options')}</span>
+                </MessageActionButton>
+            ) : null}
             {showRewind && onRewind && !threadIsRunning ? (
                 <MessageActionButton
                     label={t('message.rewind')}
-                    onClick={() => setRewindOpen(true)}
+                    onClick={() => { void onRewind() }}
                 >
                     <RewindIcon className="h-3.5 w-3.5" />
                 </MessageActionButton>
@@ -91,7 +95,8 @@ export function MessageActions({
             {showFork && onFork && (!threadIsRunning || allowForkWhileRunning) ? (
                 <MessageActionButton
                     label={t('message.fork')}
-                    onClick={() => setForkOpen(true)}
+                    data-testid="message-fork"
+onClick={() => { void onFork() }}
                 >
                     <ForkIcon className="h-3.5 w-3.5" />
                 </MessageActionButton>
@@ -127,53 +132,6 @@ export function MessageActions({
                 {align === 'start' && hasMetadata && metadata ? <MessageInfoPopover metadata={metadata} /> : null}
                 {align === 'start' && showTimestamp ? <DesktopTimestamp /> : null}
             </div>
-
-            <ConfirmDialog
-                isOpen={forkOpen}
-                onClose={() => {
-                    if (!forkPending) setForkOpen(false)
-                }}
-                title={t('message.fork.confirmTitle')}
-                description={t('message.fork.confirmDescription')}
-                confirmLabel={t('message.fork')}
-                confirmingLabel={t('message.fork.confirming')}
-                isPending={forkPending}
-                centerTitle
-                onConfirm={async () => {
-                    if (!onFork) return
-                    setForkPending(true)
-                    try {
-                        await onFork()
-                        setForkOpen(false)
-                    } finally {
-                        setForkPending(false)
-                    }
-                }}
-            />
-
-            <ConfirmDialog
-                isOpen={rewindOpen}
-                onClose={() => {
-                    if (!rewindPending) setRewindOpen(false)
-                }}
-                title={t('message.rewind.confirmTitle')}
-                description={t('message.rewind.confirmDescription')}
-                confirmLabel={t('message.rewind')}
-                confirmingLabel={t('message.rewind.confirming')}
-                isPending={rewindPending}
-                destructive
-                centerTitle
-                onConfirm={async () => {
-                    if (!onRewind) return
-                    setRewindPending(true)
-                    try {
-                        await onRewind()
-                        setRewindOpen(false)
-                    } finally {
-                        setRewindPending(false)
-                    }
-                }}
-            />
         </>
     )
 }

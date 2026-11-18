@@ -3378,7 +3378,10 @@ describe('codexRemoteLauncher', () => {
 
         await codexRemoteLauncher(session as never);
 
-        expect(harness.bridgeOptions).toEqual([{ emitTitleSummary: false }]);
+        expect(harness.bridgeOptions).toEqual([{
+            emitTitleSummary: false,
+            workingDirectory: '/tmp/hapi-update',
+        }]);
         expect(summaryMessages).toEqual([]);
         expect(getMetadata().name).toBe('Parent Title');
         expect(getMetadata().nameLock).toBe(pin ? 'agent' : undefined);

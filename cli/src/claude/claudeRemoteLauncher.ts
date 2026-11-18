@@ -135,6 +135,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
         try {
             await native.send(text, {
                 onAccepted: () => {
+                    this.permissionHandler?.denyPendingForSteer();
                     if (queue.commitReservation(reservation)) {
                         this.messageBuffer.addMessage(reservation.item.message, 'user');
                         client.emitMessagesConsumed([localId], { steered: true });

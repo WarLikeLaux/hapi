@@ -22,7 +22,7 @@ const chats = (thinking: boolean, extra: Partial<SessionSummary> = {}): SessionS
     id, active: true, thinking: id === 'worker' && thinking, lastAgentMessageAt: 2000, updatedAt: 2000,
     contentRevision: extra.contentRevision ?? 2000,
     metadata: { path: '/work', name: id, flavor: 'codex' }, metadataVersion: 1, agentStateVersion: 1,
-    activeAt: 1, todosUpdatedAt: 0, todoProgress: null, pendingRequestsCount: 0, pendingRequestKinds: [], pendingRequests: [],
+    activeAt: 1, todosUpdatedAt: 0, todoProgress: null, attachedJob: null, attachedJobUpdatedAt: 0, pendingRequestsCount: 0, pendingRequestKinds: [], pendingRequests: [],
     backgroundTaskCount: 0, futureScheduledMessageCount: 0, nextScheduledAt: null, model: null, effort: null,
     ...(id === 'worker' ? extra : {}),
 }))

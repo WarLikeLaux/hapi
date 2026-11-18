@@ -1,3 +1,7 @@
+---
+description: "Find and organize HAPI sessions: presence badges, project grouping, search by details or message text, sort and filter, unread handling and row actions."
+---
+
 # Session list
 
 HAPI's Web session list combines live session state, project grouping, search,
@@ -19,7 +23,10 @@ The default REST list has its own deterministic user-input ordering. The Web cli
 
 ## Text search
 
-The search field on the Web session list searches session metadata, including:
+The search field has two scopes. The icon at its left edge switches between
+them.
+
+**Session details** (the default) searches session metadata, including:
 
 - the displayed title (name, summary, path, or ID fallback);
 - worktree labels and paths;
@@ -27,7 +34,18 @@ The search field on the Web session list searches session metadata, including:
 - agent flavor and machine label; and
 - the session ID.
 
-Plain-text matching is case-insensitive and supports partial substrings. A
+A **Default / Exclude** menu beside the field applies to this scope:
+**Exclude** inverts the match and shows only sessions that do *not* match the
+query.
+
+**Message text** searches the messages inside every session (at least 2
+characters). Matching sessions are listed with a snippet of the matching
+message; opening a result jumps to that message. Very long messages are
+truncated for indexing, so the list notes when results may be incomplete. The
+status and **Unread only** filters still apply. Inside a chat, the same
+message-text search is available for the current session.
+
+In the session-details scope, plain-text matching is case-insensitive and supports partial substrings. A
 multi-word query uses AND semantics: every term must match at least one
 searchable field. Queries containing `*` or `?` use wildcard matching, where
 `*` matches any sequence and `?` matches one character.
@@ -53,10 +71,26 @@ matching rows.
 - **Active sessions only** hides inactive sessions but keeps the selected
   session visible.
 - **Session preview limit** controls how many rows are initially visible within
-  each project group. Sessions with pending requests and the selected session
-  can remain visible; a project can reveal more rows in batches.
-- **Session-list status** controls whether rows show the standard or detailed
-  attention/status presentation.
+  each project group. Unread sessions, sessions with pending requests, and the
+  selected session can remain visible; a project can reveal more rows in
+  batches.
+- **Session list status hints** chooses Basic (runtime state) or Extended
+  (also permission, input, background-task, new-activity and scheduled-message
+  hints).
+
+## Row and group actions
+
+- **Session rows.** Hover a row (desktop) to archive it or unpin it directly.
+  The row menu also offers rename, global or project pin, and **Open in
+  separate window**.
+- **Status indicators.** The agent icon carries the presence badge. A spinner
+  beside the title combines running activity with unread state; an unread
+  session at rest shows a dot.
+- **Titles.** Agents name sessions automatically and may update the title as
+  work progresses. In the **Rename** dialog, the padlock locks a title so
+  agent activity cannot change it; tap it again to unlock.
+- **Project groups.** Right-click (or long-press) a project header to copy its
+  path, start a new session in that directory, or archive all of its sessions.
 
 Empty, inactive session stubs without conversation, an agent identity, or an
 explicit title signal are not shown in the normal sidebar. Duplicate rows
@@ -72,9 +106,9 @@ The other Web surfaces intentionally use related but different policies:
 The `/share` picker snapshots the session list when it opens so live SSE
 updates do not reshuffle the rows under the user's finger.
 
-- With no query or date range, it shows recent active sessions, sorted by
-  `updatedAt` and capped by the session preview limit.
-- With a text query or date range, it searches all matching sessions,
+- With no query, it shows recent active sessions, sorted by `updatedAt` and
+  capped by the session preview limit.
+- With a text query, it searches all matching sessions,
   including inactive sessions, and keeps `updatedAt` descending order.
 - It reuses the session metadata matching fields, but it does not apply the
   main sidebar's relevance ranking.
@@ -82,6 +116,8 @@ updates do not reshuffle the rows under the user's finger.
 ### `@` session suggestions
 
 Composer `@` suggestions only include sessions with conversation content.
-With an empty query they prefer active and recent sessions; after typing, they
-use a separate title/ID/active/recency ranking. Names, directories, and
-machine labels affect matching, but an empty stub is never a mention target.
+Active sessions appear first, followed by an inactive section that can be
+collapsed or expanded. The browser remembers that choice. Each group shows up
+to 20 matches, ordered by relevance and recency; names, directories, and
+machine labels affect matching. Empty stubs are never mention targets, and
+collapsing inactive sessions does not hide file suggestions.

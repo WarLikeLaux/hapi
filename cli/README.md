@@ -47,11 +47,14 @@ Choose a supported coding agent from your terminal and control its sessions remo
 - `hapi inspect-peer <session-id-or-prefix>` - Read-only peer metadata + message history (no resume). Prefer this or MCP `inspect_peer` when a user cites `[title](/sessions/<id>)` or Copy-reference `See session "…" (/sessions/<id>) for context`. `/sessions/<id>` is a hub path, not a local file. `--limit` counts text messages (tool calls skipped; default 30, max 200). Page further back with the `--before-at` / `--before-seq` pair from the previous run's "older page" footer.
 - `hapi usage [--since 24h|7d|<ISO>|<ms>] [--until …] [--json]` - When agents were working across every machine on the hub, from `GET /api/activity`. `--json` prints one `hapi.activity.v1` report for other tools (time trackers); errors go to stderr with exit codes 2 (arguments), 3 (no token or refused), 4 (hub too old), 1 (other).
 - `hapi set-mode <session-id-or-prefix> <mode>` - Change the permission mode of an existing session, like the web permission picker. Active sessions switch immediately; inactive ones use it on next resume. An invalid mode prints the modes allowed for that agent.
+- `hapi job set|update|clear|list|run` - Attach long-running outliving work to a session so the list UI shows progress while the agent is idle (`tiann/hapi#1404`). Prefer `"$HAPI_SESSION_ID"`. Heartbeat via `update` (or `run`); honest `--remaining` or `--done`/`--total` (omit counts if unknown — never invent a percent). Late-attach clock fix: `set --started-at <epoch-ms>` or clear+set. See `docs/guide/session-jobs.md` and `hapi job --help`.
 
-Peer messages default to `auto`: use the target's live state to steer an active
-Codex turn when steering is available; otherwise queue, resuming an inactive
-session if needed. Auto currently queues for all other agent flavors. Prefer
-auto for routine collaboration when queueing is an acceptable fallback.
+Peer messages default to `auto`: use the target's live capabilities and turn
+state to steer an active, eligible turn; otherwise queue. Inactive peers require explicit `wake: true`; awakened peers enter the ordinary queue. This applies to every steering-supported
+flavor: remote Claude, Pi, Codex, OpenCode, Antigravity on agy acp, and Cursor ACP.
+Unsupported agents and legacy Cursor sessions queue instead. Prefer auto for routine collaboration
+when queueing is an acceptable fallback.
+
 Use explicit `queue` for non-urgent updates that can wait. Use `steer` for
 important, time-sensitive findings the peer needs to know now, not after its
 current turn: a correction that invalidates its assumptions, a blocker, or a
@@ -66,20 +69,20 @@ hapi ping-peer <session-id> 'Run the next check' --delivery-mode queue
 hapi ping-peer <session-id> 'Use the corrected input path' --delivery-mode steer
 ```
 
-Queue success reports `accepted` with a `ping-peer-` localId, not confirmed
-delivery. Delivery is shown in the recipient chat only after its runtime
-acknowledges consumption. Steer messages retain the same peer identity prefix.
+Every submission retains one `ping-peer-` localId. Auto first stores an ordinary
+queued message, then tries the existing queued-message Steer action when the
+live target is eligible. A steer rejection or unconfirmed steer response retains
+that same accepted message without resending or retrying the action. The
+receipt and progress output say whether steering was not attempted, rejected by
+the Hub, or not confirmed with delivery unresolved. An
+`accepted` receipt proves Hub acceptance, not whether the message remains queued
+or has already been consumed. Actual runtime acknowledgements determine delivery.
 
-Steer rejects unsupported agents, idle targets, and inactive targets before
-sending. It reuses the queued-message Steer action: success reports `steered`,
-or `invoked` if the target consumed the message before the action arrived.
-Auto uses Codex's `steeringActive` state and control capabilities, not just
-`active` or `thinking`. If the turn changes after selection, auto uses the same
-safe error handling as explicit steer; it does not resend or silently retry.
-If steering fails after the message was accepted, the error includes its
-`localId`; it may still be queued or already consumed. Inspect the target
-before retrying; do not automatically resend the prompt. Steering does not
-abort the current turn.
+Steer success reports `steered`, or `invoked` when consumption won the race.
+Explicit steer still reports an error if steering cannot be confirmed after
+acceptance, including the original localId. Initial send failures or ACK loss
+are never converted into successful auto fallback. Inspect the target before
+retrying an unconfirmed send; do not automatically resend the prompt.
 
 The picker lists agents alphabetically by command name. Use Up/Down and Enter
 to choose; Esc or Ctrl-C cancels. It appears on every bare invocation, even
@@ -185,6 +188,27 @@ tail reload. Local transcript timing uses the original start and completion
 timestamps; imported history and turns without an observed live start do not
 receive a new duration.
 
+### Codex model catalog
+
+To use an existing static Codex model catalog, set
+`HAPI_CODEX_MODEL_CATALOG_JSON` on the CLI/runner machine to an absolute path
+or `~/...`. HAPI passes it as `-c model_catalog_json=...` to standalone and
+shared app-servers, including resumed sessions. This explicit HAPI setting
+has precedence over Codex configuration files; an explicit launch
+`-c 'model_catalog_json="/path/to/catalog.json"'` takes precedence over HAPI.
+
+When unset, HAPI adds no catalog override and Codex uses its normal configuration
+and discovery. You can also configure `model_catalog_json` directly in Codex's
+`config.toml`. HAPI does not inspect, generate, refresh or copy catalogs or
+credentials, and does not start extra processes to prepare them. Codex validates
+catalog contents during its normal startup and reports invalid files itself.
+Use a complete catalog appropriate for the current provider/account and update
+it when availability changes; a static catalog bypasses native discovery.
+
+Paths support macOS, Linux and Windows, including spaces. Restart the runner
+after changing its environment; existing servers use the new setting after
+they are safely stopped and resumed. Inference traffic is unaffected.
+
 ### Codex MCP servers
 
 Codex sessions keep the MCP servers configured in the user's Codex
@@ -230,12 +254,11 @@ export HAPI_DSH_ACP_COMMAND=pnpm
 export HAPI_DSH_ACP_ARGS_JSON='["--dir", "/path/to/deepseek-harness", "run", "demo:acp"]'
 ```
 
-The official ACP entrypoint is fresh-session-only and does not support native
-resume, MCP injection, or live tool/reasoning telemetry. Model selection is
-advertised for DSH: the composition's catalog is listed via the `ListDshModels`
-session RPC and applied per turn with ACP `session/set_config_option`. HAPI
-uses the standard chat and pending one-shot permission surfaces; the ACP
-composition owns the overall permission policy.
+The DSH ACP profile can restore native context through `session/resume` when
+advertised; Hub history remains the transcript source. A legacy server may
+fall back to a fresh session with a visible notice. Model catalogs are exposed
+through `ListDshModels` and selected per turn via `session/set_config_option`.
+DSH owns MCP injection, live tool/reasoning telemetry and permission policy.
 
 ### Required
 
@@ -366,6 +389,8 @@ Shared Codex sessions apply this side effect only from a live, successful tool r
 
 When changing agent bootstrap, handoff, or shared-session plumbing:
 
+- One conversation keeps one HAPI session id. `HAPI_SESSION_ID` is exported into the agent process at bootstrap and cannot change afterwards, so a resume must pick the HAPI session *before* the agent starts. Terminal `hapi claude --resume <id>` / `--continue` look up the owning session (`GET /cli/sessions/resume-target-by-agent`, which also matches rotated-away ids in `claudeSessionIdHistory`) and reopen it with `--existing-session-id`, handing an active remote session over first, asking the hub to clear a hub-authored archive on an inactive one (`POST /cli/sessions/:id/prepare-local-resume`; bootstrap still refuses hub-archived rows), and refusing one already controlled by another terminal; bare `--resume` uses the `hapi resume` picker filtered to Claude. `--fork-session` and conversations unknown to HAPI start a new session. Implementation: `src/claude/resumeIdentity.ts`, `src/commands/resume.ts` (`prepareLocalResume`).
+- Hub agent-id dedup remains the safety net for older CLIs and races. Every merge that deletes a row writes a `session_redirects` entry, so a merged-away id keeps resolving to the survivor for callers that rebind to the returned id: CLI REST always, web `/api` requests via the `x-hapi-follow-session-redirects: 1` opt-in (native clients omit it and get the plain 404). Sockets and job ownership use the strict lookup.
 - Handoff-capable integrations use `local` (terminal) and `remote` (web-controlled) ownership modes. Codex instead supports concurrent clients without ownership switching; see [Codex shared sessions](../docs/guide/codex-shared-sessions.md).
 - Ordinary wrappers export `HAPI_SESSION_ID` after bootstrap. Shared Codex uses a per-root MCP bridge and `shell_environment_policy.set.HAPI_SESSION_ID`; never put one root's ID into the shared app-server environment. Implementation: `src/codex/shared/root.ts`, `src/codex/shared/runtime.ts`.
 - Gemini remains a historical wire flavor, not a launchable integration. Use the [supported-agent guide](../docs/guide/agents.md) for the launchable set.

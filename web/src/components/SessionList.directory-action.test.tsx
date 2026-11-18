@@ -1,3 +1,4 @@
+import { ApiError } from '@/api/client'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -30,6 +31,8 @@ function makeSession(overrides: Partial<SessionSummary> & { id: string }): Sessi
         agentStateVersion: 0,
         todosUpdatedAt: 0,
         todoProgress: null,
+        attachedJob: null,
+        attachedJobUpdatedAt: 0,
         pendingRequestsCount: 0,
         pendingRequestKinds: [],
         pendingRequests: [],
@@ -447,6 +450,8 @@ describe('SessionList action menu parity', () => {
 })
 
 describe('SessionList fork session action', () => {
+    const forkPreview = async () => { throw new ApiError('Not Found', 404) }
+
     it('forks a supported active session from the menu and opens the child', async () => {
         const forkConversation = vi.fn(async () => ({ sessionId: 'child-session' }))
         const onSelect = vi.fn()
@@ -463,15 +468,15 @@ describe('SessionList fork session action', () => {
         })
         renderWithProviders(<SessionList sessions={[session]} selectedSessionId={session.id} onSelect={onSelect}
             onNewSession={vi.fn()} onRefresh={vi.fn()} isLoading={false} renderHeader={false}
-            api={{ forkConversation } as unknown as ApiClient} />)
+            api={{ forkConversation, forkPreview } as unknown as ApiClient} />)
 
         fireEvent.contextMenu(screen.getByRole('button', { name: /Source session/ }))
         fireEvent.click(screen.getByRole('menuitem', { name: 'Fork session' }))
-        const dialog = screen.getByRole('dialog')
+        const dialog = await screen.findByRole('dialog')
         expect(within(dialog).getByRole('heading', { name: 'Fork session' })).toBeInTheDocument()
         fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
 
-        await waitFor(() => expect(forkConversation).toHaveBeenCalledWith('source-session'))
+        await waitFor(() => expect(forkConversation).toHaveBeenCalledWith('source-session', undefined))
         expect(onSelect).toHaveBeenCalledWith('child-session')
     })
 
@@ -549,15 +554,15 @@ describe('SessionList fork session action', () => {
         })
         renderWithProviders(<SessionList sessions={[session]} selectedSessionId={null} onSelect={onSelect}
             onNewSession={vi.fn()} onRefresh={vi.fn()} isLoading={false} renderHeader={false}
-            api={{ forkConversation } as unknown as ApiClient} />)
+            api={{ forkConversation, forkPreview } as unknown as ApiClient} />)
 
         fireEvent.click(screen.getByTitle('/work/archived'))
         fireEvent.contextMenu(screen.getByRole('button', { name: /Archived source/ }))
         fireEvent.click(screen.getByRole('menuitem', { name: 'Fork session' }))
-        const dialog = screen.getByRole('dialog')
+        const dialog = await screen.findByRole('dialog')
         fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
 
-        await waitFor(() => expect(forkConversation).toHaveBeenCalledWith('archived-source'))
+        await waitFor(() => expect(forkConversation).toHaveBeenCalledWith('archived-source', undefined))
         expect(onSelect).toHaveBeenCalledWith('archived-child')
     })
 
@@ -576,11 +581,11 @@ describe('SessionList fork session action', () => {
         })
         renderWithProviders(<SessionList sessions={[session]} selectedSessionId={null} onSelect={onSelect}
             onNewSession={vi.fn()} onRefresh={vi.fn()} isLoading={false} renderHeader={false}
-            api={{ forkConversation } as unknown as ApiClient} />)
+            api={{ forkConversation, forkPreview } as unknown as ApiClient} />)
 
         fireEvent.contextMenu(screen.getByRole('button', { name: /Failing source/ }))
         fireEvent.click(screen.getByRole('menuitem', { name: 'Fork session' }))
-        const dialog = screen.getByRole('dialog')
+        const dialog = await screen.findByRole('dialog')
         fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
 
         await waitFor(() => expect(within(dialog).getByText('fork failed')).toBeInTheDocument())

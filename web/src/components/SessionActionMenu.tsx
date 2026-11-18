@@ -19,6 +19,14 @@ import { CodeIcon, CopyIcon, ForkIcon, GitLabIcon } from '@/components/icons'
 import { SESSION_CONTEXTS, type SessionContextId } from '@/lib/sessionContexts'
 import { buildSessionWindowPath } from '@/lib/sessionNavigation'
 
+export type SessionActionMenuLinkedPr = {
+    /** Chip glyph (emoji / `PR` / `?`) — leading the status explanation. */
+    glyph: string
+    /** Status line without glyph: `owner/repo#N · status · …` */
+    detail: string
+    href: string
+}
+
 type SessionActionMenuProps = {
     isOpen: boolean
     onClose: () => void
@@ -27,6 +35,9 @@ type SessionActionMenuProps = {
     sessionActive: boolean
     sessionLifecycleState?: string
     onRename: () => void
+    onLinkPr?: () => void
+    /** When linked, shown at the top of the long-press / more menu. */
+    linkedPr?: SessionActionMenuLinkedPr | null
     sessionPinned?: boolean
     sessionGroupPinned?: boolean
     onToggleGroupPin?: () => void
@@ -219,6 +230,9 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onRename,
         sessionGroupPinned = false,
         onToggleGroupPin,
+        onLinkPr,
+        linkedPr,
+        sessionPinned = false,
         sessionGlobalPinned = false,
         onSetPinMode,
         currentContext,
@@ -343,6 +357,10 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onRename()
     }
 
+    const handleLinkPr = () => {
+        onClose()
+        onLinkPr?.()
+    }
 
     const handleCopyReference = async () => {
         onClose()
@@ -425,6 +443,8 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const contextTriggerClassName =
         'flex w-full items-center gap-3 rounded-md py-2 pl-3 pr-2 text-left text-base transition-colors hover:bg-[var(--app-subtle-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
 
+    const linkedPrHeadingId = `${resolvedMenuId}-linked-pr`
+
     return (
         <div
             ref={menuRef}
@@ -446,6 +466,29 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                 }
             }}
         >
+            {linkedPr ? (
+                <div
+                    id={linkedPrHeadingId}
+                    className="border-b border-[var(--app-border)] px-3 py-2"
+                    data-testid="session-action-menu-linked-pr"
+                >
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--app-hint)]">
+                        {t('session.menu.linkedPr')}
+                    </div>
+                    <a
+                        href={linkedPr.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 flex items-start gap-2 whitespace-normal text-sm font-medium leading-snug text-[var(--app-link)] hover:underline"
+                        onClick={onClose}
+                    >
+                        <span className="shrink-0 text-base leading-snug" aria-hidden="true">
+                            {linkedPr.glyph}
+                        </span>
+                        <span className="min-w-0">{linkedPr.detail}</span>
+                    </a>
+                </div>
+            ) : null}
             <div
                 id={headingId}
                 className={ACTION_MENU_HEADING_CLASS}
@@ -614,6 +657,18 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     <EditIcon className="text-[var(--app-hint)]" />
                     {t('session.action.rename')}
                 </button>
+
+                {onLinkPr ? (
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={handleLinkPr}
+                    >
+                        <EditIcon className="text-[var(--app-hint)]" />
+                        {t('session.menu.linkPr')}
+                    </button>
+                ) : null}
 
                 <button
                     type="button"

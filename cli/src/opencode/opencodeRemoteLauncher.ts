@@ -1506,6 +1506,7 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                 this.messageBuffer.addMessage('Tool result received', 'result');
                 break;
             case 'usage':
+            case 'round_summary':
                 break;
             case 'plan':
                 this.messageBuffer.addMessage('Plan updated', 'status');

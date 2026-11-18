@@ -20,6 +20,8 @@ For the complete product overview, supported agents, and architecture, read the 
 | Maintenance and releases | Upstream is reviewed and merged into `custom` with a real merge commit. Syncing never authorizes publishing, signing, deployment, or a force-push. | Fork behavior and security boundaries are reviewed instead of being overwritten by upstream updates. |
 | Client scope | The upstream `ios/` and `android/` projects, their CI/release workflows, and native-app build guide are intentionally removed. | This fork is Web/PWA-only and does not download or build mobile SDK projects. |
 
+This fork keeps **Settings → Limits** for runner-reported account limits and **Settings → Usage** for recorded session tokens. Claude Code plan windows can be refreshed on demand from Limits. See [Usage and quotas](docs/guide/usage-and-quotas.md).
+
 The important operational difference is distribution: upstream npm packages, release downloads, and self-update instructions install upstream HAPI, not this fork. Upstream native-app build instructions do not apply here.
 
 ## Install and run this fork

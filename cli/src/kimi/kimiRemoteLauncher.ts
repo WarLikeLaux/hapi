@@ -1,5 +1,5 @@
 import React from 'react';
-import { registerAcpSessionTitleSync } from '@/agent/acpSessionTitle';
+import { createAcpSessionTitleSync, registerAcpSessionTitleSync } from '@/agent/acpSessionTitle';
 import { logger } from '@/ui/logger';
 import { buildHapiMcpBridge } from '@/codex/utils/buildHapiMcpBridge';
 import { convertAgentMessage } from '@/agent/messageConverter';
@@ -11,9 +11,12 @@ import type { PermissionMode } from './types';
 import { createKimiBackend } from './utils/kimiBackend';
 import { KimiPermissionHandler } from './utils/permissionHandler';
 import { resolveKimiRuntimeConfig } from './utils/config';
+import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 class KimiRemoteLauncher extends RemoteLauncherBase {
     private readonly session: KimiSession;
     private readonly model?: string;
+    private readonly onEffortRollback?: (effort: string | null) => void;
+    private readonly getQueuedModel?: () => string | null;
     private backend: ReturnType<typeof createKimiBackend> | null = null;
     private permissionHandler: KimiPermissionHandler | null = null;
     private happyServer: { stop: () => void } | null = null;
@@ -21,12 +24,21 @@ class KimiRemoteLauncher extends RemoteLauncherBase {
     private displayModel: string | null = null;
     private displayPermissionMode: PermissionMode | null = null;
     private currentBackendModel: string | null = null;
+    private currentBackendEffort: string | null = null;
+    private defaultBackendEffort: string | null = null;
     private setModelSupported: boolean | undefined = undefined;
     private lastDisplayedToolCall = new Map<string, string>();
-    constructor(session: KimiSession, opts: { model?: string }) {
+    constructor(session: KimiSession, opts: {
+        model?: string;
+        onEffortRollback?: (effort: string | null) => void;
+        /** Model the next queued turn will carry; differs from the backend's while a switch is pending. */
+        getQueuedModel?: () => string | null;
+    }) {
         super(process.env.DEBUG ? session.logPath : undefined);
         this.session = session;
         this.model = opts.model;
+        this.onEffortRollback = opts.onEffortRollback;
+        this.getQueuedModel = opts.getQueuedModel;
     }
 
     public async launch(): Promise<RemoteLauncherExitReason> {
@@ -44,7 +56,9 @@ class KimiRemoteLauncher extends RemoteLauncherBase {
         const session = this.session;
         const messageBuffer = this.messageBuffer;
 
+        const titleSync = createAcpSessionTitleSync(session.client);
         const { server: happyServer, mcpServers } = await buildHapiMcpBridge(session.client, {
+            onChangeTitle: () => titleSync.markManualTitle(),
             skillLookup: { workingDirectory: session.path, flavor: 'kimi' }
         });
         this.happyServer = happyServer;
@@ -53,7 +67,7 @@ class KimiRemoteLauncher extends RemoteLauncherBase {
 
         const backend = createKimiBackend();
         this.backend = backend;
-        registerAcpSessionTitleSync(backend, session.client);
+        registerAcpSessionTitleSync(backend, session.client, titleSync);
 
         backend.onStderrError((error) => {
             logger.debug('[kimi-remote] stderr error', error);
@@ -116,53 +130,125 @@ class KimiRemoteLauncher extends RemoteLauncherBase {
             messageBuffer.addMessage(`[MODEL:${effectiveModel}]`, 'system');
         }
         this.applyDisplayMode(session.getPermissionMode() as PermissionMode, effectiveModel ?? undefined);
+        this.captureEffortBaseline(acpSessionId);
+        session.client.rpcHandlerManager.registerHandler(RPC_METHODS.ListKimiReasoningEffortOptions, async () => {
+            // A model change is applied with the turn that carries it; until
+            // then (or after it failed) the cached levels belong to another model.
+            const queuedModel = this.getQueuedModel?.() ?? null;
+            if (queuedModel !== null && queuedModel !== this.currentBackendModel) {
+                return { success: false, error: 'Kimi model switch pending' };
+            }
+            const option = backend.getThoughtLevelConfigOption(acpSessionId);
+            return { success: true, options: option?.options ?? [], currentValue: option?.currentValue ?? null };
+        });
 
         this.setupAbortHandlers(session.client.rpcHandlerManager, {
             onAbort: () => this.handleAbort(),
             onSwitch: () => this.handleSwitchRequest()
-        });
+        }, () => this.abortController.abort(),
+        // A rejected cancel must not leave the loop on the aborted signal.
+        () => { if (this.abortController.signal.aborted) this.abortController = new AbortController(); });
 
         const sendReady = () => {
             session.sendSessionEvent({ type: 'ready' });
         };
 
         while (!this.shouldExit) {
-            const batch = await session.queue.waitForMessagesAndGetAsString(this.abortController.signal);
+            await this.waitForAbortBarrier();
+            if (this.shouldExit) break;
+            const waitSignal = this.abortController.signal;
+            // Defer hub ack until the dispatch commit point below: a batch
+            // dropped by a concurrent teardown must not be stamped `invoked`.
+            const batch = await session.queue.waitForDeferredBatch(waitSignal);
             if (!batch) {
-                if (this.abortController.signal.aborted && !this.shouldExit) {
+                if (waitSignal.aborted && !this.shouldExit) {
                     continue;
                 }
                 break;
             }
 
-            if (batch.mode.model && batch.mode.model !== this.currentBackendModel) {
-                if (!backend.setModel || this.setModelSupported === false) {
-                    batch.mode.model = this.currentBackendModel ?? undefined;
-                } else {
-                    logger.debug(`[kimi-remote] Switching model inline: ${this.currentBackendModel} -> ${batch.mode.model}`);
-                    try {
-                        await backend.setModel(acpSessionId, batch.mode.model);
-                        this.currentBackendModel = batch.mode.model;
-                        this.setModelSupported = true;
-                    } catch (error) {
-                        const message = error instanceof Error ? error.message : String(error);
-                        const methodNotFound = /method not found/i.test(message);
-                        if (methodNotFound && this.setModelSupported === undefined) {
-                            this.setModelSupported = false;
-                            logger.warn('[kimi-remote] Kimi CLI build does not support set_session_model; inline switching disabled for this session');
-                            session.sendSessionEvent({
-                                type: 'message',
-                                message: 'This Kimi CLI build does not support inline model switching. Restart the session to apply a different model.'
-                            });
-                        } else {
-                            logger.warn('[kimi-remote] Inline model switch failed', error);
-                            session.sendSessionEvent({
-                                type: 'message',
-                                message: `Failed to switch model to ${batch.mode.model}. Continuing with ${this.currentBackendModel}.`
-                            });
-                        }
+            let batchSettled = false;
+            const requeue = () => {
+                if (!session.queue.isClosed()) {
+                    session.queue.unshiftBatch(batch);
+                    batchSettled = true;
+                }
+            };
+            try {
+                if (this.shouldExit) {
+                    // Terminal teardown reset the queue while this batch sat in
+                    // the wait: drop it un-ACKed and end.
+                    break;
+                }
+
+                const modelBeforeBatch = this.currentBackendModel;
+                if (batch.mode.model && batch.mode.model !== this.currentBackendModel) {
+                    if (!backend.setModel || this.setModelSupported === false) {
                         batch.mode.model = this.currentBackendModel ?? undefined;
+                    } else {
+                        logger.debug(`[kimi-remote] Switching model inline: ${this.currentBackendModel} -> ${batch.mode.model}`);
+                        try {
+                            await backend.setModel(acpSessionId, batch.mode.model);
+                            this.currentBackendModel = batch.mode.model;
+                            this.setModelSupported = true;
+                        } catch (error) {
+                            const message = error instanceof Error ? error.message : String(error);
+                            const methodNotFound = /method not found/i.test(message);
+                            if (methodNotFound && this.setModelSupported === undefined) {
+                                this.setModelSupported = false;
+                                logger.warn('[kimi-remote] Kimi CLI build does not support set_session_model; inline switching disabled for this session');
+                                session.sendSessionEvent({
+                                    type: 'message',
+                                    message: 'This Kimi CLI build does not support inline model switching. Restart the session to apply a different model.'
+                                });
+                            } else {
+                                logger.warn('[kimi-remote] Inline model switch failed', error);
+                                session.sendSessionEvent({
+                                    type: 'message',
+                                    message: `Failed to switch model to ${batch.mode.model}. Continuing with ${this.currentBackendModel}.`
+                                });
+                            }
+                            batch.mode.model = this.currentBackendModel ?? undefined;
+                        }
+                        if (this.currentBackendModel !== modelBeforeBatch) {
+                            // Take the NEW model's effort baseline before any
+                            // bail-out: the requeued batch re-enters with the
+                            // model already applied and would otherwise keep the
+                            // previous model's baseline.
+                            this.captureEffortBaseline(acpSessionId);
+                        }
+                        if (this.shouldExit) {
+                            break;
+                        }
+                        if (waitSignal.aborted) {
+                            requeue();
+                            continue;
+                        }
                     }
+                }
+
+                await this.applyQueuedEffort(acpSessionId, batch.mode);
+                if (this.shouldExit) {
+                    // Terminal teardown reset the queue: drop the un-ACKed batch
+                    // and end.
+                    break;
+                }
+                if (waitSignal.aborted) {
+                    // A plain Stop preserves the queue, and this batch was never
+                    // hub-ACKed: put it back so it drains once the Stop settles
+                    // instead of dispatching a cancelled turn.
+                    requeue();
+                    continue;
+                }
+
+                // Dispatch commit point: every pre-dispatch bail-out above
+                // requeued the never-ACKed batch, so the hub ack only fires once
+                // the turn is really going out.
+                batchSettled = true;
+                session.queue.commitBatch(batch);
+            } finally {
+                if (!batchSettled) {
+                    session.queue.releaseBatch(batch);
                 }
             }
 
@@ -198,6 +284,35 @@ class KimiRemoteLauncher extends RemoteLauncherBase {
                     sendReady();
                 }
             }
+        }
+    }
+
+    /** The agent's level for the active model; "Default" resets to it. */
+    private captureEffortBaseline(sessionId: string): void {
+        this.currentBackendEffort = this.backend?.getThoughtLevelConfigOption(sessionId)?.currentValue ?? null;
+        this.defaultBackendEffort = this.currentBackendEffort;
+    }
+
+    private async applyQueuedEffort(sessionId: string, mode: { effort?: string | null }): Promise<void> {
+        const backend = this.backend;
+        const requested = mode.effort ?? this.defaultBackendEffort;
+        if (!backend || !requested || requested === this.currentBackendEffort) return;
+        const option = backend.getThoughtLevelConfigOption(sessionId);
+        try {
+            if (!option) throw new Error('no thinking option');
+            await backend.setConfigOption(sessionId, option.id, requested);
+            this.currentBackendEffort = requested;
+        } catch (error) {
+            logger.warn('[kimi-remote] Inline effort switch failed', error);
+            const effort = this.currentBackendEffort === this.defaultBackendEffort ? null : this.currentBackendEffort;
+            mode.effort = effort;
+            this.session.setEffort(effort);
+            this.session.pushKeepAlive();
+            this.onEffortRollback?.(effort);
+            this.session.sendSessionEvent({
+                type: 'message',
+                message: `Failed to switch Kimi effort to ${requested}.`
+            });
         }
     }
 
@@ -263,6 +378,8 @@ class KimiRemoteLauncher extends RemoteLauncherBase {
             case 'turn_complete':
                 this.messageBuffer.addMessage('Turn complete', 'status');
                 break;
+            case 'round_summary':
+                break;
             default: {
                 const _exhaustive: never = message;
                 return _exhaustive;
@@ -317,14 +434,27 @@ class KimiRemoteLauncher extends RemoteLauncherBase {
         }
     }
 
-    private async handleAbort(): Promise<void> {
+    private async handleAbort(leavingRemote = false): Promise<void> {
+        if (leavingRemote) {
+            // Terminal switch/exit must unpark a waiting loop iteration
+            // before the teardown's awaits: a batch arriving meanwhile would
+            // otherwise be dequeued and hub-ACKed against the still-live
+            // signal and dropped after the teardown resets the queue
+            // (mirrors dsh's entry abort-and-replace).
+            this.abortController.abort();
+            this.abortController = new AbortController();
+        }
         const backend = this.backend;
         if (backend && this.session.sessionId) {
             await backend.cancelPrompt(this.session.sessionId);
         }
         await this.permissionHandler?.cancelAll('User aborted');
         this.session.sendSessionEvent({ type: 'message', message: 'Session aborted' });
-        this.session.queue.reset();
+        // Plain Stop preserves the pending queue for the next drain; only
+        // terminal cleanup (exit / switch-to-local) resets it.
+        if (leavingRemote) {
+            this.session.queue.reset();
+        }
         this.session.onThinkingChange(false);
         this.abortController.abort();
         this.abortController = new AbortController();
@@ -332,15 +462,23 @@ class KimiRemoteLauncher extends RemoteLauncherBase {
     }
 
     private async handleExitFromUi(): Promise<void> {
-        await this.requestExit('exit', () => this.handleAbort());
+        await this.requestExit('exit', () => this.handleAbort(true));
     }
 
     private async handleSwitchFromUi(): Promise<void> {
-        await this.requestExit('switch', () => this.handleAbort());
+        await this.requestExit('switch', () => this.handleAbort(true));
     }
 
     private async handleSwitchRequest(): Promise<void> {
-        await this.requestExit('switch', () => this.handleAbort());
+        await this.requestExit('switch', () => this.handleAbort(true));
+    }
+
+    protected override onTerminalTeardownRejected(): void {
+        // A rejected terminal teardown still owes the queue reset and the
+        // dequeue-signal abort, or an idle waiter parks forever on the
+        // un-aborted signal and start() never reaches cleanup().
+        this.session.queue.reset();
+        this.abortController.abort();
     }
 }
 
@@ -355,7 +493,7 @@ function toAcpMcpServers(config: Record<string, { command: string; args: string[
 
 export async function kimiRemoteLauncher(
     session: KimiSession,
-    opts: { model?: string }
+    opts: ConstructorParameters<typeof KimiRemoteLauncher>[1]
 ): Promise<'switch' | 'exit'> {
     const launcher = new KimiRemoteLauncher(session, opts);
     return launcher.launch();

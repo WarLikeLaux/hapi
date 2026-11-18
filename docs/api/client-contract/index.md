@@ -1,3 +1,7 @@
+---
+description: "Overview of the client API contract that native HAPI clients (iOS, Android and others) implement against a hub."
+---
+
 # Native client contract
 
 **Audience:** Implementers of non-web HAPI clients that talk to a hub's client API. This fork does not ship the upstream iOS or Android projects; these pages retain the protocol specification for compatibility. Every claim is grounded in hub/web source, and each section names its source file so implementers can verify against code.

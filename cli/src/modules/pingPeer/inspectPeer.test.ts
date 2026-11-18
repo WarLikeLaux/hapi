@@ -497,6 +497,7 @@ describe('formatInspectPeerReport', () => {
             thinking: false,
             flavor: 'cursor',
             path: '/tmp/x',
+            machine: 'studio',
             lifecycleState: null,
             updatedAt: 1_700_000_000_000,
             messages: [
@@ -525,6 +526,7 @@ describe('formatInspectPeerReport', () => {
             lifecycleState: null,
             updatedAt: null,
             messages: [{ id: '1', role: 'user', text: 'hello', createdAt: 1 }],
+            machine: null,
             olderBeforeAt: 1791210000000,
             olderBeforeSeq: 1234
         })

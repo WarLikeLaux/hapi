@@ -84,16 +84,20 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             '--url',
             'http://127.0.0.1:43006',
             '--tools',
-            'change_title,display_image,display_video,display_media,skill_lookup'
+            'change_title,display_image,display_video,display_media,list_peers,ping_peer,inspect_peer,session_job,skill_lookup'
         ])
 
-        expect([...harness.tools.keys()]).toEqual([
+        expect([...harness.tools.keys()].sort()).toEqual([
             'change_title',
             'display_image',
-            'display_video',
             'display_media',
-            'skill_lookup'
-        ])
+            'display_video',
+            'inspect_peer',
+            'list_peers',
+            'ping_peer',
+            'session_job',
+            'skill_lookup',
+        ].sort())
 
         const handler = harness.tools.get('skill_lookup')
         expect(handler).toBeDefined()
@@ -137,6 +141,36 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
         })
     })
 
+    it('omits link_pr from standalone defaults (awareness opt-in)', async () => {
+        await runHappyMcpStdioBridge(['--url', 'http://127.0.0.1:43006'])
+
+        // Defaults include peer + session_job tools from upstream; link_pr stays opt-in.
+        expect([...harness.tools.keys()].sort()).toEqual([
+            'change_title',
+            'close_session',
+            'get_usage',
+            'add_group_chat',
+            'arrange_group_tabs',
+            'pin_group',
+            'create_group',
+            'get_group',
+            'list_groups',
+            'list_launch_options',
+            'launch_agent',
+            'read_title_state',
+            'unlock_title',
+            'display_image',
+            'display_media',
+            'display_video',
+            'inspect_peer',
+            'list_peers',
+            'ping_peer',
+            'session_job',
+            'spawn_peer',
+        ].sort())
+        expect(harness.tools.has('link_pr')).toBe(false)
+    })
+
     it('registers ping_peer when included in --tools', async () => {
         await runHappyMcpStdioBridge([
             '--url',
@@ -152,6 +186,24 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             'display_media',
             'ping_peer'
         ])
+    })
+
+    it('registers session_job when included in --tools', async () => {
+        await runHappyMcpStdioBridge([
+            '--url',
+            'http://127.0.0.1:43006',
+            '--tools',
+            'change_title,display_image,list_peers,ping_peer,inspect_peer,session_job'
+        ])
+
+        expect([...harness.tools.keys()].sort()).toEqual([
+            'change_title',
+            'display_image',
+            'inspect_peer',
+            'list_peers',
+            'ping_peer',
+            'session_job',
+        ].sort())
     })
 
     it.each(['auto', 'queue', 'steer'])('advertises and forwards ping_peer delivery mode %s', async (deliveryMode) => {
@@ -184,6 +236,23 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             'inspect_peer'
         ])
     })
+    it('registers spawn_peer when included in --tools', async () => {
+        await runHappyMcpStdioBridge([
+            '--url',
+            'http://127.0.0.1:43006',
+            '--tools',
+            'change_title,display_image,display_video,display_media,spawn_peer'
+        ])
+
+        expect([...harness.tools.keys()]).toEqual([
+            'change_title',
+            'display_image',
+            'display_video',
+            'display_media',
+            'spawn_peer'
+        ])
+    })
+
     it('registers list_peers when included in --tools', async () => {
         await runHappyMcpStdioBridge([
             '--url',
@@ -211,7 +280,7 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
                 '--url',
                 'http://127.0.0.1:43006',
                 '--tools',
-                'change_title,list_peers,ping_peer,inspect_peer'
+                'change_title,list_peers,ping_peer,inspect_peer,spawn_peer'
             ])
 
             expect([...harness.tools.keys()]).toEqual(['change_title'])

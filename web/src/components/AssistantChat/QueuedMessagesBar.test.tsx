@@ -48,6 +48,7 @@ vi.mock('@/lib/message-window-store', () => ({
     getMessageWindowState: () => mocks.messageWindowState,
     subscribeMessageWindow: () => () => {},
     markMessagesConsumed: mocks.markMessagesConsumed,
+    markMessagesDispatching: vi.fn(),
 }))
 
 vi.mock('@/hooks/mutations/useCancelQueuedMessage', () => ({

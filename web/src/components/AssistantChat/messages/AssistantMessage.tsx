@@ -100,7 +100,7 @@ function CompactionGroup({ indices, children }: PropsWithChildren<{ indices: num
                         <h3 className="min-w-0 truncate text-sm font-medium leading-tight text-[var(--app-fg)]">Compaction</h3>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-[var(--app-hint)]">
-                        <ToolTimingSummary startedAt={startedAt} completedAt={completedAt} durationMs={durationMs} typography="group" />
+                        <ToolTimingSummary startedAt={startedAt} completedAt={completedAt} durationMs={durationMs} />
                     </div>
                 </div>
             </button>
@@ -254,6 +254,10 @@ export function HappyAssistantMessage() {
         [compactParts, messageParts]
     )
     const elementId = getConversationMessageAnchorId(messageId)
+    const sourceMessageIds = useAuiState((s) => {
+        const custom = s.message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
+        return custom?.sourceMessageIds
+    })
     const isCliOutput = useAuiState((s) => {
         const custom = s.message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
         return custom?.kind === 'cli-output'
@@ -305,10 +309,18 @@ export function HappyAssistantMessage() {
     const metadata = { durationMs, usage, model: messageModel ?? null, turnCount, roundSummary }
 
     const history = ctx.metadata?.capabilities?.conversationHistory
+    const historicalForkLocalId = ctx.assistantForkPoints?.get(messageId)
     const showForkCurrent = Boolean(
         (history?.forkCurrent || ctx.allowInactiveFork)
         && ctx.isLatestCompletedBoundary?.(messageId)
         && (!ctx.disabled || ctx.allowInactiveFork === true)
+        && ctx.onForkConversation
+    )
+    const showHistoricalFork = Boolean(
+        !showForkCurrent
+        && history?.forkAtMessage
+        && historicalForkLocalId
+        && !ctx.disabled
         && ctx.onForkConversation
     )
 
@@ -325,6 +337,7 @@ export function HappyAssistantMessage() {
         <MessagePrimitive.Root
             id={elementId}
             data-hapi-message-role="assistant"
+            data-hapi-source-message-ids={sourceMessageIds?.join(' ') || undefined}
             className={`happy-message ${rootClass} scroll-mt-4`}
         >
             {isCliOutput
@@ -387,9 +400,11 @@ export function HappyAssistantMessage() {
                     copyText={visibleCopyText || undefined}
                     metadata={metadata}
                     messageElementId={elementId}
-                    showFork={showForkCurrent}
+                    showFork={showForkCurrent || showHistoricalFork}
                     historyActionPending={ctx.historyActionPending}
-                    onFork={showForkCurrent ? () => ctx.onForkConversation!() : undefined}
+                    onFork={showForkCurrent
+                        ? () => ctx.onForkConversation!()
+                        : showHistoricalFork ? () => ctx.onForkConversation!(historicalForkLocalId!) : undefined}
                 />
             ) : null}
         </MessagePrimitive.Root>

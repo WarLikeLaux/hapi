@@ -126,6 +126,14 @@ export class SharedCodexRoot {
                     completedTurnId = this.currentTurn;
                     this.pendingTurnCompletions.add(completedTurnId);
                     this.turnRevision++; this.currentTurn = undefined; this.interrupted = record(record(params).turn).status === 'interrupted';
+                    if (record(record(params).turn).status === 'completed') {
+                        this.session.updateMetadata(metadata => ({
+                            ...metadata,
+                            capabilities: { ...metadata.capabilities, conversationHistory: {
+                                ...metadata.capabilities?.conversationHistory, forkLatestCompleted: true
+                            } }
+                        }));
+                    }
                     this.publishSteering();
                 }
                 const p = record(params);
@@ -277,7 +285,8 @@ export class SharedCodexRoot {
             ...metadata.capabilities, concurrentClients: true, terminal: true,
             // In-place rewind needs a native + hub commit barrier. Do not
             // advertise a destructive operation we cannot make atomic yet.
-            conversationHistory: { forkCurrent: true, forkAtMessage: true, rewindToMessage: false }
+            conversationHistory: { forkCurrent: true, forkAtMessage: true, rewindToMessage: false, forkPreview: true,
+                forkLatestCompleted: metadata.capabilities?.conversationHistory?.forkLatestCompleted ?? false }
         } }));
         this.session.updateAgentState(state => ({ ...state, controlledByUser: false, startingMode: undefined, codexPlanProposalId: null, codexCompactionPendingMessageIds: [], requests: {},
             completedRequests: { ...state.completedRequests, ...Object.fromEntries(Object.entries(state.requests ?? {}).map(([id, request]) =>
@@ -831,7 +840,32 @@ export class SharedCodexRoot {
             const child = await this.newConversation(); return { sessionId: child.session.sessionId };
         });
         rpc.registerHandler(RPC_METHODS.ForkConversation, async raw => {
-            const { messageLocalId } = z.object({ messageLocalId: z.string().optional() }).parse(raw);
+            const { messageLocalId, latestCompleted, lastTurnId } = z.object({ messageLocalId: z.string().optional(), latestCompleted: z.boolean().optional(),
+                lastTurnId: z.string().optional() })
+                .refine(value => !(value.messageLocalId && value.latestCompleted))
+                .refine(value => !(value.messageLocalId && value.lastTurnId)).parse(raw);
+            if (latestCompleted || lastTurnId) {
+                const thread = await this.readThread(this.threadId, true);
+                const turns = (Array.isArray(thread.turns) ? thread.turns : []).map(record);
+                // An explicit inclusive native cutoff remains fixed even if the source advances.
+                // Shared children hydrate directly from native fork history, never a moving Hub tail.
+                const cutoff = lastTurnId ? this.verifyPinnedTurn(turns, lastTurnId) : latestCompletedForkCutoff(turns);
+                const child = await this.host.create('thread/fork', { ...this.freshParams(), threadId: this.threadId,
+                    lastTurnId: cutoff }, this);
+                try {
+                    const expected = turns.slice(0, turns.findIndex(turn => turn.id === cutoff) + 1).map(turn => string(turn.id));
+                    const inherited = await child.readThread(child.threadId, true);
+                    const actual = (Array.isArray(inherited.turns) ? inherited.turns : []).map(value => string(record(value).id));
+                    if (actual.length !== expected.length || actual.some((id, index) => id !== expected[index])) {
+                        throw new Error('Native fork history does not match the completed-turn cutoff');
+                    }
+                    await child.initialSettings({ collaborationMode: this.settings.collaborationMode });
+                    return { nativeSessionId: child.threadId, sessionId: child.session.sessionId, completedTurnId: cutoff };
+                } catch (error) {
+                    await this.host.end(child).catch(cleanup => logger.debug('[Codex shared] invalid fork cleanup failed', cleanup));
+                    throw error;
+                }
+            }
             if (this.currentTurn && !messageLocalId) throw new Error('Session is busy');
             const beforeTurnId = messageLocalId ? this.projection.turnFor(messageLocalId) : undefined;
             if (messageLocalId && !beforeTurnId) throw new Error('No native history point for this message');
@@ -852,6 +886,77 @@ export class SharedCodexRoot {
         rpc.registerHandler(RPC_METHODS.RewindConversation, async () => {
             throw new Error('In-place rewind is not supported for concurrent Codex clients; fork at the message instead');
         });
+        rpc.registerHandler(RPC_METHODS.PreviewForkBoundary, async raw => {
+            const { mode, messageLocalId } = z.object({ mode: z.enum(['current', 'message', 'latestCompleted']),
+                messageLocalId: z.string().optional() })
+                .refine(value => (value.mode === 'message') === Boolean(value.messageLocalId)).parse(raw);
+            if (mode === 'latestCompleted' || (mode === 'current' && this.currentTurn)) {
+                const thread = await this.readThread(this.threadId, true);
+                const turns = (Array.isArray(thread.turns) ? thread.turns : []).map(record);
+                // A plain current fork cannot run mid-turn: the honest answer is
+                // the last completed turn, which is also what a pinned fork uses.
+                const cutoff = latestCompletedForkCutoff(turns);
+                const index = turns.findIndex(turn => turn.id === cutoff);
+                return { nativeTurnId: cutoff, ...this.firstExcludedUserLocalId(turns, index + 1) };
+            }
+            if (mode === 'current') {
+                const thread = await this.readThread(this.threadId, true);
+                const turns = (Array.isArray(thread.turns) ? thread.turns : []).map(record);
+                if (!turns.length) return {};
+                // Confirm pins this turn and re-verifies its prefix, so offer
+                // the pin only when the confirm would accept it; a non-terminal
+                // prefix would otherwise preview a 200 that confirm always
+                // rejects. Without a valid pin both sides fall back to the
+                // unpinned whole-history cut the preview already showed.
+                const pinned = string(turns.at(-1)?.id);
+                if (!pinned) return {};
+                try {
+                    this.verifyPinnedTurn(turns, pinned);
+                } catch {
+                    return {};
+                }
+                return { nativeTurnId: pinned };
+            }
+            const beforeTurnId = this.projection.turnFor(messageLocalId!);
+            if (!beforeTurnId) throw new Error('No native history point for this message');
+            // Mirror ForkConversation's admission rule on the assertBoundary
+            // snapshot: a historical cut may not run through an unfinished
+            // turn, so the preview refuses exactly what the confirm would.
+            const boundaryThread = await this.assertBoundary(messageLocalId!, beforeTurnId);
+            const boundaryTurns = (Array.isArray(boundaryThread.turns) ? boundaryThread.turns : []).map(record);
+            const index = boundaryTurns.findIndex(turn => turn.id === beforeTurnId);
+            if (index < 0) throw new Error('No native history point for this message');
+            if (boundaryTurns.slice(0, index + 1).some(turn =>
+                !['completed', 'interrupted', 'failed'].includes(string(turn.status) ?? ''))) {
+                throw new Error('Historical fork requires a completed turn and history prefix');
+            }
+            const previous = index > 0 ? string(boundaryTurns[index - 1]?.id) : undefined;
+            return { ...(previous ? { nativeTurnId: previous } : {}), cutBeforeLocalId: messageLocalId };
+        });
+    }
+    /** Re-validate a preview-pinned turn before forking through it. */
+    private verifyPinnedTurn(turns: Record<string, unknown>[], pinnedTurnId: string): string {
+        const index = turns.findIndex(turn => turn.id === pinnedTurnId);
+        if (index < 0) throw new Error('The pinned fork turn is no longer part of the native history');
+        if (turns.slice(0, index + 1).some(turn => !['completed', 'interrupted', 'failed'].includes(string(turn.status) ?? ''))) {
+            throw new Error('The pinned fork turn no longer has a completed native history prefix');
+        }
+        return pinnedTurnId;
+    }
+    /** First hub localId at/after `startIndex`, the excluded side of the cut. */
+    private firstExcludedUserLocalId(turns: Record<string, unknown>[], startIndex: number): { cutBeforeLocalId?: string } {
+        for (const turn of turns.slice(Math.max(startIndex, 0))) {
+            const items = Array.isArray(turn.items) ? turn.items.map(record) : [];
+            const first = items.find(item => item.type === 'userMessage');
+            // Empty-text user messages never reach the hub transcript
+            // (projection.ts), so naming one as the cut would make the hub
+            // resolve a boundary row that does not exist.
+            if (!first || !inputText(first.content).trim()) continue;
+            const id = string(first.clientId ?? first.clientUserMessageId) ?? (first.id ? `codex:${this.threadId}:user:${string(first.id)}` : undefined);
+            if (id) return { cutBeforeLocalId: id };
+            return {};
+        }
+        return {};
     }
     private async answerAsyncQuestion(request: AnswerCodexAsyncQuestionRequest): Promise<void> {
         if (this.closed || this.stopping || this.reconnecting || !this.client.isInitialized()) throw new Error('Codex is unavailable');
@@ -975,4 +1080,17 @@ export class SharedCodexRoot {
             await this.session.flush(); this.session.close();
         })();
     }
+}
+
+export function latestCompletedForkCutoff(turns: Record<string, unknown>[]): string {
+    const ids = turns.map(turn => string(turn.id));
+    if (ids.some(id => !id) || new Set(ids).size !== ids.length) throw new Error('Native turn history is ambiguous');
+    let completed: string | undefined;
+    for (const turn of turns) {
+        if (turn.status === 'inProgress' || turn.status === 'in_progress') break;
+        if (!['completed', 'interrupted', 'failed'].includes(string(turn.status) ?? '')) throw new Error('Native history prefix is not complete');
+        if (turn.status === 'completed') completed = string(turn.id);
+    }
+    if (!completed) throw new Error('No completed turn is available to fork');
+    return completed;
 }

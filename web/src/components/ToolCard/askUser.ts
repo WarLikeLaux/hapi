@@ -69,7 +69,8 @@ export function parseAskUserInput(input: unknown): { title: string | null; quest
             header,
             question,
             options,
-            multiSelect
+            multiSelect,
+            allowFreeText: true
         })
     }
 

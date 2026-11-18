@@ -44,6 +44,10 @@ export function isRequestUserInputToolName(toolName: string): boolean {
     return toolName === 'request_user_input' || toolName === 'request_user_input_async'
 }
 
+export function isAsyncRequestUserInput(toolName: string, input: unknown): boolean {
+    return isRequestUserInputToolName(toolName) && isObject(input) && input.isBlocking === false
+}
+
 export function openRequestUserInputUrl(url: string): boolean {
     const opened = window.open('about:blank', '_blank')
     if (!opened) return false

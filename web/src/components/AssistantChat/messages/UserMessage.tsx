@@ -17,6 +17,10 @@ export function HappyUserMessage() {
     const messageId = useAuiState((s) => s.message.id)
     const threadIsRunning = useAuiState((s) => s.thread.isRunning)
     const elementId = getConversationMessageAnchorId(messageId)
+    const sourceMessageIds = useAuiState((s) => {
+        const custom = s.message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
+        return custom?.sourceMessageIds
+    })
     const text = useAuiState((s) => {
         if (s.message.role !== 'user') return ''
         return s.message.content.find((part): part is TextMessagePart => part.type === 'text')?.text ?? ''
@@ -31,6 +35,15 @@ export function HappyUserMessage() {
         const custom = s.message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
         return custom?.localId ?? null
     })
+    const invokedAt = useAuiState((s) => (
+        s.message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
+    )?.invokedAt)
+    const sourceMessageId = useAuiState((s) => (
+        s.message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
+    )?.sourceMessageId)
+    const isTranscriptEcho = useAuiState((s) => (
+        s.message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
+    )?.isTranscriptEcho === true)
     const attachments = useAuiState((s) => {
         if (s.message.role !== 'user') return undefined
         const custom = s.message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
@@ -39,6 +52,10 @@ export function HappyUserMessage() {
     const isCliOutput = useAuiState((s) => {
         const custom = s.message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
         return custom?.kind === 'cli-output'
+    })
+    const isSystemNote = useAuiState((s) => {
+        const custom = s.message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
+        return custom?.kind === 'system-note'
     })
     const steered = useAuiState(({ message }) => (
         message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
@@ -49,6 +66,23 @@ export function HappyUserMessage() {
         return s.message.content.find((part): part is TextMessagePart => part.type === 'text')?.text ?? ''
     })
     if (role !== 'user') return null
+    if (isSystemNote) {
+        return (
+            <MessagePrimitive.Root
+                id={elementId}
+                data-hapi-message-role="system-note"
+                className="happy-message scroll-mt-4 px-1"
+            >
+                <div className="mx-auto w-fit max-w-[92%] px-2 text-center text-xs text-[var(--app-hint)] opacity-80">
+                    <span className="inline-flex items-center gap-1">
+                        <span aria-hidden="true">•</span>
+                        <span className="whitespace-pre-wrap text-left">{text}</span>
+                        <MessageTimestamp className="text-[10px]" />
+                    </span>
+                </div>
+            </MessagePrimitive.Root>
+        )
+    }
     const canRetry = status === 'failed' && typeof localId === 'string' && Boolean(ctx.onRetryMessage)
     const onRetry = canRetry ? () => ctx.onRetryMessage!(localId) : undefined
     const showStatus = shouldShowMessageStatus(status)
@@ -91,6 +125,7 @@ export function HappyUserMessage() {
             <MessagePrimitive.Root
                 id={elementId}
                 data-hapi-message-role="user"
+                data-hapi-source-message-ids={sourceMessageIds?.join(' ') || undefined}
                 className="happy-message scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-hidden"
             >
                 <div className="ml-auto w-full max-w-[92%]">
@@ -107,6 +142,7 @@ export function HappyUserMessage() {
         <MessagePrimitive.Root
             id={elementId}
             data-hapi-message-role="user"
+            data-hapi-source-message-ids={sourceMessageIds?.join(' ') || undefined}
             className="happy-message flex flex-col items-end scroll-mt-4"
         >
             <div className={getUserBubbleClassName(status)}>

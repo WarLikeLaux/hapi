@@ -6,7 +6,7 @@ import type { SyncEvent } from '../../../sync/syncEngine'
 import type { TerminalRegistry } from '../../terminalRegistry'
 import type { CliSocketWithData, SocketServer } from '../../socketTypes'
 import type { AccessErrorReason, AccessResult } from './types'
-import { registerMachineHandlers } from './machineHandlers'
+import { registerMachineHandlers, type SessionChildExitedPayload } from './machineHandlers'
 import { registerRpcHandlers } from './rpcHandlers'
 import { registerSessionHandlers } from './sessionHandlers'
 import { cleanupTerminalHandlers, registerTerminalHandlers } from './terminalHandlers'
@@ -51,6 +51,7 @@ export type CliHandlersDeps = {
     onSessionEnd?: (payload: SessionEndPayload) => void
     onMachineAlive?: (payload: MachineAlivePayload) => void
     onQuotaUpdate?: (machineId: string, report: { capturedAt: number; quotas: QuotaWindow[]; unavailable: QuotaUnavailable[] }) => void
+    onSessionChildExited?: (payload: SessionChildExitedPayload & { namespace: string }) => void
     onWebappEvent?: (event: SyncEvent) => void
     onBackgroundTasks?: (sessionId: string, tasks: BackgroundTask[]) => void
     onBackgroundTaskDelta?: (sessionId: string, delta: { started: number; completed: number }) => void
@@ -89,7 +90,7 @@ const SESSION_ACCESS_CACHE_TTL_MS = 1_000
 const SESSION_ACCESS_CACHE_MAX_SESSIONS = 64
 
 export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlersDeps): void {
-    const { io, store, rpcRegistry, terminalRegistry, onSessionAlive, onSessionReady, onSessionBusy, onSessionIdle, onSessionEnd, onMachineAlive, onQuotaUpdate, onWebappEvent, onBackgroundTasks, onBackgroundTaskDelta, onSessionActivity, onAgentProgress, onSweepImmediateQueued, onMessagesConsumed } = deps
+    const { io, store, rpcRegistry, terminalRegistry, onSessionAlive, onSessionReady, onSessionBusy, onSessionIdle, onSessionEnd, onMachineAlive, onQuotaUpdate, onSessionChildExited, onWebappEvent, onBackgroundTasks, onBackgroundTaskDelta, onSessionActivity, onAgentProgress, onSweepImmediateQueued, onMessagesConsumed } = deps
     const terminalNamespace = io.of('/terminal')
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
 
@@ -198,6 +199,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
         emitAccessError,
         onMachineAlive,
         onQuotaUpdate,
+        onSessionChildExited,
         onWebappEvent
     })
     registerTerminalHandlers(socket, {

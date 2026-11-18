@@ -2,7 +2,11 @@ import type { CodexServiceTier } from '@hapi/protocol/schemas'
 import type { SessionGroupLifecycleResult, SessionGroup, UpdateSessionGroup, LaunchSessionRequest, LaunchSessionResult } from '@hapi/protocol'
 import type {
     AttachmentMetadata,
+    AbortChunkedUploadResponse,
     AuthResponse,
+    InitChunkedUploadRequest,
+    InitChunkedUploadResponse,
+    UploadChunkResponse,
     CodexLocalSessionsResponse,
     CodexDuplicateSessionsResponse,
     CodexMergeDuplicateSessionsResponse,
@@ -11,6 +15,8 @@ import type {
     CodexDesktopStatusResponse,
     CodexArchiveSessionResponse,
     DecryptedMessage,
+    ForkBoundary,
+    ForkPreviewResponse,
     CodexCollaborationMode,
     CopilotAgentMode,
     EditorOpenRequest,
@@ -18,7 +24,10 @@ import type {
     FileSearchResponse,
     MachinesResponse,
     MessageSearchResponse,
+    MessageContextResponse,
     MessagesResponse,
+    ClaudeImportSessionsResponse,
+    ClaudeLocalSessionsResponse,
     OpencodeImportSessionsResponse,
     OpencodeLocalSessionsResponse,
     PermissionMode,
@@ -34,12 +43,15 @@ import type {
     HapiSessionExportResponse,
     HubHealthResponse,
     SessionResponse,
+    SessionContentMatchesResponse,
     SessionTitleSuggestionResponse,
-    SessionsResponse
+    SessionsResponse,
+    SessionContentSearchResponse
 } from '@/types/api'
 import type {
     AgyModelsResponse,
     AgentAvailabilityResponse,
+    AgentQuotasResponse,
     CodexModelsResponse,
     CursorMigrateOutcome,
     CursorMigrateToAcpRequest,
@@ -57,6 +69,8 @@ import type {
     MinimaxModelsResponse,
     CopilotModelsResponse,
     GrokReasoningEffortResponse,
+    CopilotReasoningEffortResponse,
+    KimiReasoningEffortResponse,
     ListDirectoryResponse,
     MachineListDirectoryResponse,
     MachinePathsExistsResponse,
@@ -78,6 +92,7 @@ import type {
     WorkspaceTurnDiffResponse
 } from '@hapi/protocol/apiTypes'
 import { fetchThroughAuthProxy } from '@/api/authProxy'
+import { FOLLOW_SESSION_REDIRECTS_HEADER } from '@hapi/protocol'
 import type { SessionReadState, SessionReadStateRequest, AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { QuotasResponse } from '@hapi/protocol/quotas'
 import type { CancelMessageResponse, InterruptQueuedMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
@@ -178,6 +193,58 @@ export interface TranscriptionCredentialsUpdate {
     elevenLabsMaxDurationSeconds?: number | null
 }
 
+// Keep scoped content-search bodies comfortably below the Hub's 256 KiB
+// request limit. The remaining space covers the query, limit, and JSON body
+// framing; callers still get one merged result set for large visible scopes.
+const CONTENT_SEARCH_SCOPE_CHUNK_BYTES = 192 * 1024
+
+function chunkContentSearchSessionIds(sessionIds: readonly string[]): string[][] {
+    if (sessionIds.length === 0) return []
+
+    const encoder = new TextEncoder()
+    const chunks: string[][] = []
+    let current: string[] = []
+    let currentBytes = 2 // []
+
+    for (const sessionId of sessionIds) {
+        const itemBytes = encoder.encode(JSON.stringify(sessionId)).byteLength
+        const separatorBytes = current.length > 0 ? 1 : 0
+        if (
+            current.length > 0
+            && currentBytes + separatorBytes + itemBytes > CONTENT_SEARCH_SCOPE_CHUNK_BYTES
+        ) {
+            chunks.push(current)
+            current = []
+            currentBytes = 2
+        }
+
+        current.push(sessionId)
+        currentBytes += (current.length > 1 ? 1 : 0) + itemBytes
+    }
+
+    if (current.length > 0) chunks.push(current)
+    return chunks
+}
+
+function mergeContentSearchResponses(
+    responses: SessionContentSearchResponse[],
+    limit: number
+): SessionContentSearchResponse {
+    const results = responses
+        .flatMap(response => response.results)
+        .sort((a, b) => (
+            b.session.updatedAt - a.session.updatedAt
+            || b.match.seq - a.match.seq
+            || b.match.createdAt - a.match.createdAt
+            || a.session.id.localeCompare(b.session.id)
+        ))
+
+    return {
+        results: results.slice(0, limit),
+        hasPotentiallyIncompleteResults: responses.some(response => response.hasPotentiallyIncompleteResults)
+    }
+}
+
 type ApiClientOptions = {
     baseUrl?: string
     getToken?: () => string | null
@@ -198,6 +265,27 @@ function parseErrorCode(bodyText: string): string | undefined {
     } catch {
         return undefined
     }
+}
+
+function parseErrorDisplay(bodyText: string): string | undefined {
+    try {
+        const parsed = JSON.parse(bodyText) as ErrorPayload
+        if (typeof parsed.error === 'string' && parsed.error.trim().length > 0) return parsed.error
+        return undefined
+    } catch {
+        return undefined
+    }
+}
+
+/**
+ * User-facing message for a failed API call: unwrap the hub's human error
+ * string instead of leaking the raw `HTTP <status>: <body>` envelope.
+ */
+export function apiErrorMessage(error: unknown, fallback: string): string {
+    if (!(error instanceof ApiError)) {
+        return error instanceof Error && error.message.trim().length > 0 ? error.message : fallback
+    }
+    return parseErrorDisplay(error.body ?? '') ?? error.code?.trim() ?? fallback
 }
 
 export class ApiError extends Error {
@@ -253,6 +341,8 @@ export class ApiClient {
         if (authToken) {
             headers.set('authorization', `Bearer ${authToken}`)
         }
+        // The session route rebinds to a survivor's id (getMergedSessionRedirectId).
+        headers.set(FOLLOW_SESSION_REDIRECTS_HEADER, '1')
         if (init?.body !== undefined && !(init.body instanceof FormData) && !headers.has('content-type')) {
             headers.set('content-type', 'application/json')
         }
@@ -287,7 +377,9 @@ export class ApiClient {
         return await res.json() as T
     }
 
-    async authenticate(auth: { initData: string } | { accessToken: string }): Promise<AuthResponse> {
+    async authenticate(
+        auth: { initData: string } | { accessToken: string }
+    ): Promise<AuthResponse> {
         const res = await fetchThroughAuthProxy(this.buildUrl('/api/auth'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -709,6 +801,21 @@ export class ApiClient {
         })
     }
 
+    async getClaudeSessions(cwd?: string | null, machineId?: string | null): Promise<ClaudeLocalSessionsResponse> {
+        const params = new URLSearchParams()
+        if (cwd?.trim()) params.set('cwd', cwd.trim())
+        if (machineId?.trim()) params.set('machineId', machineId.trim())
+        const query = params.size ? `?${params.toString()}` : ''
+        return await this.request<ClaudeLocalSessionsResponse>(`/api/claude/sessions${query}`)
+    }
+
+    async importClaudeSessions(payload: { sessionIds: string[]; cwd?: string | null; machineId?: string | null; model?: string | null; effort?: string | null; permissionMode?: PermissionMode }): Promise<ClaudeImportSessionsResponse> {
+        return await this.request<ClaudeImportSessionsResponse>('/api/claude/import-sessions', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+    }
+
     async archiveCodexSession(sessionId: string, machineId?: string | null): Promise<CodexArchiveSessionResponse> {
         return await this.request<CodexArchiveSessionResponse>('/api/codex/archive-session', {
             method: 'POST',
@@ -831,6 +938,12 @@ export class ApiClient {
         } finally {
             clearTimeout(timeout)
         }
+    }
+
+    async getMessageContext(sessionId: string, messageId: string): Promise<MessageContextResponse | null> {
+        return await this.request<MessageContextResponse | null>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/context`
+        )
     }
 
     async searchMessages(
@@ -973,6 +1086,59 @@ export class ApiClient {
         })
     }
 
+    async initChunkedUpload(
+        sessionId: string,
+        payload: InitChunkedUploadRequest,
+        options?: { signal?: AbortSignal }
+    ): Promise<InitChunkedUploadResponse> {
+        return await this.request<InitChunkedUploadResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/uploads`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            signal: options?.signal
+        })
+    }
+
+    async uploadFileChunk(
+        sessionId: string,
+        uploadId: string,
+        index: number,
+        chunk: Blob | ArrayBuffer | Uint8Array,
+        options?: { signal?: AbortSignal }
+    ): Promise<UploadChunkResponse> {
+        return await this.request<UploadChunkResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/uploads/${encodeURIComponent(uploadId)}/chunk?index=${index}`,
+            {
+                method: 'POST',
+                headers: { 'content-type': 'application/octet-stream' },
+                body: chunk as BodyInit,
+                signal: options?.signal
+            }
+        )
+    }
+
+    async finalizeChunkedUpload(
+        sessionId: string,
+        uploadId: string,
+        options?: { signal?: AbortSignal }
+    ): Promise<UploadFileResponse> {
+        return await this.request<UploadFileResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/uploads/${encodeURIComponent(uploadId)}/finalize`,
+            {
+                method: 'POST',
+                signal: options?.signal
+            }
+        )
+    }
+
+    async abortChunkedUpload(sessionId: string, uploadId: string): Promise<AbortChunkedUploadResponse> {
+        return await this.request<AbortChunkedUploadResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/uploads/${encodeURIComponent(uploadId)}/abort`,
+            {
+                method: 'POST'
+            }
+        )
+    }
+
     async deleteUploadFile(sessionId: string, path: string): Promise<DeleteUploadResponse> {
         return await this.request<DeleteUploadResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/upload/delete`, {
             method: 'POST',
@@ -1092,22 +1258,36 @@ export class ApiClient {
         })
     }
 
-    async forkConversation(sessionId: string, messageLocalId?: string): Promise<{ sessionId: string }> {
+    async forkConversation(sessionId: string, messageLocalId?: string, latestCompleted = false, boundary?: ForkBoundary): Promise<{ sessionId: string }> {
         return await this.request<{ sessionId: string }>(
             `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
             {
                 method: 'POST',
-                body: JSON.stringify(messageLocalId ? { messageLocalId } : {})
+                body: JSON.stringify({
+                    ...(latestCompleted ? { latestCompleted: true } : {}),
+                    ...(messageLocalId ? { messageLocalId } : {}),
+                    ...(boundary ? { boundary } : {})
+                })
             }
         )
     }
 
-    async rewindConversation(sessionId: string, messageLocalId: string): Promise<{ success: true }> {
+    async forkPreview(sessionId: string, intent: 'current' | 'message' | 'rewind', messageLocalId?: string): Promise<ForkPreviewResponse> {
+        return await this.request<ForkPreviewResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/fork-preview`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ intent, ...(messageLocalId ? { messageLocalId } : {}) })
+            }
+        )
+    }
+
+    async rewindConversation(sessionId: string, messageLocalId: string, boundary?: ForkBoundary): Promise<{ success: true }> {
         return await this.request<{ success: true }>(
             `/api/sessions/${encodeURIComponent(sessionId)}/rewind`,
             {
                 method: 'POST',
-                body: JSON.stringify({ messageLocalId })
+                body: JSON.stringify({ messageLocalId, ...(boundary ? { boundary } : {}) })
             }
         )
     }
@@ -1134,6 +1314,86 @@ export class ApiClient {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/park`, {
             method: 'POST',
             body: JSON.stringify({})
+        })
+    }
+
+    async acknowledgeModelError(sessionId: string, eventId: string): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/model-error/acknowledge`, {
+            method: 'POST',
+            body: JSON.stringify({ eventId })
+        })
+    }
+
+    async bridgeModelError(sessionId: string, eventId: string): Promise<{ ok: boolean; reason?: string }> {
+        const path = `/api/sessions/${encodeURIComponent(sessionId)}/model-error/bridge`
+        const tryOnce = async (overrideToken: string | null): Promise<Response> => {
+            const headers = new Headers({ 'content-type': 'application/json' })
+            const liveToken = this.getToken ? this.getToken() : null
+            const authToken = overrideToken ?? liveToken ?? this.token
+            if (authToken) {
+                headers.set('authorization', `Bearer ${authToken}`)
+            }
+            return fetchThroughAuthProxy(this.buildUrl(path), {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ eventId })
+            })
+        }
+
+        let res = await tryOnce(null)
+        if (res.status === 401 && this.onUnauthorized) {
+            const refreshed = await this.onUnauthorized()
+            if (refreshed) {
+                this.token = refreshed
+                res = await tryOnce(refreshed)
+            }
+        }
+        if (res.status === 401) {
+            throw new Error('Session expired. Please sign in again.')
+        }
+
+        const text = await res.text()
+        let body: { ok?: boolean; reason?: string; error?: string } | null = null
+        try {
+            body = text ? JSON.parse(text) as { ok?: boolean; reason?: string; error?: string } : null
+        } catch {
+            body = null
+        }
+
+        if (res.status === 409 && body && typeof body.ok === 'boolean') {
+            return { ok: body.ok, reason: body.reason }
+        }
+
+        if (!res.ok) {
+            const detail = body?.error ?? text
+            throw new ApiError(
+                `HTTP ${res.status} ${res.statusText}: ${detail}`,
+                res.status,
+                undefined,
+                detail || undefined
+            )
+        }
+
+        // A 2xx that is not the hub's `{ ok }` envelope never reached the hub:
+        // an auth gateway can answer with an HTML sign-in page at status 200.
+        // Reporting ok:true there makes SessionChat latch the event as pending,
+        // leaving "Bridging…" disabled forever while no CLI request was made.
+        if (!body || typeof body.ok !== 'boolean') {
+            throw new ApiError(
+                `HTTP ${res.status} ${res.statusText}: unexpected bridge response`,
+                res.status,
+                undefined,
+                text || undefined
+            )
+        }
+
+        return { ok: body.ok, reason: body.reason }
+    }
+
+    async setModelErrorAutoBridge(sessionId: string, enabled: boolean): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/model-error/auto-bridge-setting`, {
+            method: 'POST',
+            body: JSON.stringify({ enabled })
         })
     }
 
@@ -1365,6 +1625,12 @@ export class ApiClient {
         return await this.request<UsageSummaryResponse>(`/api/usage/summary?${params.toString()}`)
     }
 
+    async getMachineAgentQuotas(machineId: string, refresh?: boolean): Promise<AgentQuotasResponse> {
+        return await this.request<AgentQuotasResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/agent-quotas${refresh ? '?refresh=1' : ''}`
+        )
+    }
+
     async restartMachineRunner(machineId: string): Promise<{ message: string }> {
         return await this.request<{ message: string }>(
             `/api/machines/${encodeURIComponent(machineId)}/restart-runner`,
@@ -1593,6 +1859,18 @@ export class ApiClient {
         })
     }
 
+    async getSessionCopilotReasoningEffortOptions(sessionId: string): Promise<CopilotReasoningEffortResponse> {
+        return await this.request<CopilotReasoningEffortResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/copilot-reasoning-effort-options`
+        )
+    }
+
+    async getSessionKimiReasoningEffortOptions(sessionId: string): Promise<KimiReasoningEffortResponse> {
+        return await this.request<KimiReasoningEffortResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/kimi-reasoning-effort-options`
+        )
+    }
+
     async getSessionGrokReasoningEffortOptions(sessionId: string): Promise<GrokReasoningEffortResponse> {
         return await this.request<GrokReasoningEffortResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/grok-reasoning-effort-options`
@@ -1621,6 +1899,51 @@ export class ApiClient {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
             method: 'PATCH',
             body: JSON.stringify({ name })
+        })
+    }
+
+    async getFeatures(): Promise<{
+        githubPrAwareness: { enabled: boolean; source: 'env' | 'file' | 'default' }
+        prChipDisplay: import('@hapi/protocol').PrChipDisplayProfile
+    }> {
+        return await this.request('/api/features')
+    }
+
+    async patchFeatures(patch: { githubPrAwareness?: boolean }): Promise<{
+        githubPrAwareness: { enabled: boolean; source: 'env' | 'file' | 'default' }
+        prChipDisplay: import('@hapi/protocol').PrChipDisplayProfile
+    }> {
+        return await this.request('/api/features', {
+            method: 'PATCH',
+            body: JSON.stringify(patch)
+        })
+    }
+
+    async setSessionExternalRefs(
+        sessionId: string,
+        externalRefs: import('@/types/api').ExternalRef[]
+    ): Promise<{ ok: true; externalRefs: import('@/types/api').ExternalRef[] }> {
+        return await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/external-refs`, {
+            method: 'PUT',
+            body: JSON.stringify({ externalRefs })
+        })
+    }
+
+    async upsertSessionExternalRef(
+        sessionId: string,
+        ref: import('@/types/api').ExternalRef
+    ): Promise<{ ok: true; externalRefs: import('@/types/api').ExternalRef[] }> {
+        return await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/external-refs/upsert`, {
+            method: 'POST',
+            body: JSON.stringify({ ref })
+        })
+    }
+
+    async removePrimarySessionExternalRef(
+        sessionId: string
+    ): Promise<{ ok: true; externalRefs: import('@/types/api').ExternalRef[] }> {
+        return await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/external-refs/remove-primary`, {
+            method: 'POST'
         })
     }
 
