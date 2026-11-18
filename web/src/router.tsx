@@ -507,23 +507,19 @@ function SessionsIndexPage() {
     return <EmptyChat />
 }
 
-/**
- * Classify a thrown send error into a {message, code} pair the composer can
- * render.  `code` lets the consumer attach a recovery affordance (Reopen on
- * `session_inactive`) without re-inspecting the raw error.
- *
- * `request<T>` in the api client throws `ApiError` for !res.ok with `status`
- * and `code` parsed from the JSON body.  Older / non-JSON failures arrive as
- * plain `Error`; we surface those by their message verbatim, falling back to
- * a localized default when nothing usable is present (e.g. an aborted fetch
- * that resolved with no message).
- */
 function classifySendError(
     error: unknown,
     t: (key: string) => string,
-): { message: string; code: string | null } {
+): { message: string | null; code: string | null } {
     if (error instanceof ApiError && error.status === 409 && error.code === 'session_inactive') {
         return { message: t('chat.sendError.sessionInactive'), code: 'session_inactive' }
+    }
+    // Keep the failed send available for draft recovery. Connection status
+    // belongs to the app banner, and a gateway response may contain raw HTML.
+    if ((error instanceof ApiError && !error.code && [502, 503, 504].includes(error.status))
+        || error instanceof TypeError
+        || (error instanceof DOMException && error.name === 'TimeoutError')) {
+        return { message: null, code: null }
     }
     if (error instanceof Error && error.message) {
         return { message: error.message, code: null }
@@ -588,7 +584,7 @@ function SessionPage() {
     type RawSendError = {
         id: number
         text: string
-        message: string
+        message: string | null
         code: string | null
         scheduledAt: number | null
         deliveryMode: MessageDeliveryMode
