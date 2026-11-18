@@ -1,8 +1,11 @@
-import { afterEach, beforeAll, describe, expect, it, mock } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { Hono } from 'hono'
 import { SyncEngine } from '../../sync/syncEngine'
-import { createConfiguration, getConfiguration } from '../../configuration'
+import * as configuration from '../../configuration'
 import { writeAutoBridgeTransientModelErrorsEnabled } from '../../config/autoBridgeTransientModelErrors'
 import { createCliRoutes } from './cli'
 import { SessionIdentityConflictError, machineSpawnPreallocTag } from '../../store/sessions'
@@ -21,10 +24,22 @@ function authHeaders() {
     }
 }
 
+let configHome: string | undefined
+let configSpy: { mockRestore(): void } | undefined
+
 beforeAll(async () => {
-    const config = await createConfiguration()
-    config._setCliApiToken('test-token', 'env', false)
-    await config.setGithubPrAwareness(true)
+    configHome = await mkdtemp(join(tmpdir(), 'hapi-cli-routes-'))
+    configSpy = spyOn(configuration, 'getConfiguration').mockReturnValue({
+        dataDir: configHome,
+        cliApiToken: 'test-token',
+        githubPrAwareness: true,
+        sources: { githubPrAwareness: 'file' }
+    } as ReturnType<typeof configuration.getConfiguration>)
+})
+
+afterAll(async () => {
+    configSpy?.mockRestore()
+    if (configHome) await rm(configHome, { recursive: true, force: true })
 })
 
 describe('cli shutdown preparation', () => {
@@ -507,11 +522,11 @@ describe('cli features and external-refs read', () => {
 
 describe('cli autoBridgeTransientModelErrors namespace gate', () => {
     afterEach(async () => {
-        await writeAutoBridgeTransientModelErrorsEnabled(getConfiguration().dataDir, false)
+        await writeAutoBridgeTransientModelErrorsEnabled(configuration.getConfiguration().dataDir, false)
     })
 
     it('returns hub auto-bridge only for the default namespace', async () => {
-        await writeAutoBridgeTransientModelErrorsEnabled(getConfiguration().dataDir, true)
+        await writeAutoBridgeTransientModelErrorsEnabled(configuration.getConfiguration().dataDir, true)
         const sessionId = '22222222-2222-4222-8222-222222222222'
         const app = createApp({
             getOrCreateSession: () => ({ id: sessionId }),

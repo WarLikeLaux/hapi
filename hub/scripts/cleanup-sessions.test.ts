@@ -19,7 +19,7 @@ function failSessionDelete(store: Store): void {
 }
 
 describe('cleanup session bulk deletion', () => {
-    it('removes derived content rows with the deleted sessions', () => {
+    it('removes messages from search when their sessions are deleted', () => {
         const store = new Store(':memory:')
         const first = makeSession(store, 'cleanup-script-first')
         const second = makeSession(store, 'cleanup-script-second')
@@ -32,12 +32,12 @@ describe('cleanup session bulk deletion', () => {
 
         const db = (store as unknown as { db: Database }).db
         expect(deleteSessions(db, [first.id, second.id])).toBe(2)
-        expect(store.messages.searchContent('cleanup script phrase', 'default')).toEqual([])
+        expect(store.messages.searchMessages('cleanup script phrase').hits).toEqual([])
         expect(store.sessions.getSession(first.id)).toBeNull()
         expect(store.sessions.getSession(second.id)).toBeNull()
     })
 
-    it('rolls back derived cleanup when canonical session deletion fails', () => {
+    it('keeps sessions and their search hits when bulk deletion fails', () => {
         const store = new Store(':memory:')
         const first = makeSession(store, 'cleanup-script-rollback-first')
         const second = makeSession(store, 'cleanup-script-rollback-second')
@@ -52,7 +52,7 @@ describe('cleanup session bulk deletion', () => {
         const db = (store as unknown as { db: Database }).db
         expect(() => deleteSessions(db, [first.id, second.id]))
             .toThrow('forced session delete failure')
-        expect(store.messages.searchContent('cleanup rollback phrase', 'default')).toHaveLength(2)
+        expect(store.messages.searchMessages('cleanup rollback phrase').hits).toHaveLength(2)
         expect(store.sessions.getSession(first.id)).not.toBeNull()
         expect(store.sessions.getSession(second.id)).not.toBeNull()
     })
