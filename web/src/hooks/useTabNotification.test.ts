@@ -17,7 +17,7 @@ function setVisibilityState(state: DocumentVisibilityState): void {
 }
 
 function getFaviconHref(): string | null {
-    const link = document.querySelector<HTMLLinkElement>("link[rel*='icon']")
+    const link = document.querySelector<HTMLLinkElement>("link[rel='icon']")
     return link ? link.getAttribute('href') : null
 }
 
@@ -70,7 +70,16 @@ describe('useTabNotification hook', () => {
 
     it('blinks title and favicon when document is hidden and unread count is greater than 0', () => {
         setVisibilityState('hidden')
+        document.head.insertAdjacentHTML('beforeend', `
+            <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
+            <link rel="mask-icon" href="/mask-icon.svg" />
+        `)
         renderHook(() => useTabNotification(1))
+
+        expect(document.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href'))
+            .toBe('/apple-touch-icon-180x180.png')
+        expect(document.querySelector('link[rel="mask-icon"]')?.getAttribute('href'))
+            .toBe('/mask-icon.svg')
 
         // Phase 1 immediately triggers on hidden with unread
         expect(document.title).toBe('1 new message')
