@@ -23,7 +23,7 @@ describe('OpenCode round model key isolation', () => {
         });
 
         expect(result?.summary?.modelUsage).toEqual({
-            '__proto__/__proto__': { inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
+            '__proto__/__proto__': { inputTokens: 1, outputTokens: 2, reasoningTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
         });
         expect(Object.prototype).not.toHaveProperty('inputTokens');
     });
