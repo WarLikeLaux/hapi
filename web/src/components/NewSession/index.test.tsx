@@ -1537,6 +1537,7 @@ describe('NewSession launch preferences', () => {
             { modelId: 'gemini-4-argon-high', name: 'Gemini 4 Argon (High)' },
             { modelId: 'gpt-oss-120b-medium', name: 'GPT-OSS 120B (Medium)' }
         ]
+        mocks.modelPreferences = [{ agent: 'agy', modelId: 'gemini-4-argon', pinned: true, alias: null }]
         const props = { initialAgent: 'agy' as const, api, machines: [machine], initialMachineId: 'machine-1', initialDirectory: 'C:\\repo', onSuccess: mocks.onSuccess, onCancel: () => {} }
         const view = render(<NewSession {...props} />)
         await act(async () => {})
@@ -1565,9 +1566,9 @@ describe('NewSession launch preferences', () => {
         expect(screen.queryByRole('button', { name: 'Gemini 3.8 Flash (High)' })).not.toBeInTheDocument()
     })
 
-    it('shows an enabled Antigravity model in All agents when Codex is selected', async () => {
+    it('shows a pinned Antigravity model with its catalog label in All agents when Codex is selected', async () => {
         mocks.agyModels = [{ modelId: 'gemini-4-argon-high', name: 'Gemini 4 Argon (High)' }]
-        mocks.modelPreferences = [{ agent: 'agy', modelId: 'gemini-4-argon', pinned: false, alias: null, showInAll: true }]
+        mocks.modelPreferences = [{ agent: 'agy', modelId: 'gemini-4-argon', pinned: true, alias: null, showInAll: true }]
         render(<NewSession initialAgent="codex" api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 4 Argon' })).toBeInTheDocument())
     })
@@ -1587,14 +1588,30 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-4-argon-low' })))
     })
 
-    it('launches an explicitly added Antigravity model', async () => {
-        render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
+    it('keeps a new Antigravity catalog model out of shortcuts until added and launches its chosen effort', async () => {
+        const props = { api, machines: [machine], initialMachineId: 'machine-1', initialDirectory: 'C:\\repo', onSuccess: mocks.onSuccess, onCancel: () => {} }
+        const view = render(<NewSession {...props} />)
         await act(async () => {})
         fireEvent.click(screen.getByRole('radio', { name: 'Antigravity' }))
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Gemini 3.6 Flash' })).toBeInTheDocument())
-        fireEvent.click(screen.getByRole('button', { name: 'Gemini 3.6 Flash' }))
+        expect(screen.getByRole('button', { name: /Gemini 3.8 Flash/ })).toHaveAttribute('aria-pressed', 'true')
+
+        mocks.agyModels = ['low', 'high'].map(effort => ({
+            modelId: `gemini-4-argon-${effort}`, name: `Gemini 4 Argon (${effort})`
+        }))
+        view.rerender(<NewSession {...props} />)
+        expect(screen.queryByRole('button', { name: 'Gemini 4 Argon' })).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Manage models' }))
+        fireEvent.change(screen.getByRole('combobox', { name: 'Choose a model' }), { target: { value: 'gemini-4-argon' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+        await screen.findByRole('button', { name: 'Remove Gemini 4 Argon' })
+        fireEvent.change(screen.getByRole('combobox', { name: 'Effort for Gemini 4 Argon' }), { target: { value: 'low' } })
+        await waitFor(() => expect(mocks.modelPreferences.find(row => row.modelId === 'gemini-4-argon')?.reasoningEffort).toBe('low'))
+        fireEvent.click(screen.getByRole('button', { name: 'Hide models' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Gemini 4 Argon' }))
+        expect(within(screen.getByRole('group', { name: 'newSession.effort' })).getByRole('button', { name: 'Low' })).toHaveAttribute('aria-pressed', 'true')
         fireEvent.click(screen.getByTestId('create'))
-        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-3.6-flash-low' })))
+        await waitFor(() => expect(mocks.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ agent: 'agy', model: 'gemini-4-argon-low' })))
     })
 
     it('shows the curated models directly, filters them by agent and has no Other menu', async () => {
@@ -3359,7 +3376,7 @@ describe('NewSession fork launch defaults', () => {
         render(<NewSession api={api} machines={[machine]} initialMachineId="machine-1" initialDirectory="C:\\repo" onSuccess={mocks.onSuccess} onCancel={() => {}} />)
         await act(async () => {})
         const choices = screen.getByRole('region', { name: 'newSession.model' })
-        expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['GPT-6.1 Terra', 'GPT-6 Sol', 'GPT-6.1 Sol', 'GPT-6 Luna', 'GLM 5.3 Flash', 'GLM 5.3', 'Gemini 4 Argon (High)', 'Muse Spark 1.3 (Medium)', 'DeepSeek V4.1 Flash (Max)', 'Gemini 3.8 Flash (High)', 'Gemini 3.6 Flash', 'Grok 4.7 Extra High', 'Composer 2.5', ...(minimaxAvailable ? ['MiniMax M3.1-Flash-Preview'] : [])])
+        expect(within(choices).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['GPT-6.1 Terra', 'GPT-6 Sol', 'GPT-6.1 Sol', 'GPT-6 Luna', 'GLM 5.3 Flash', 'GLM 5.3', 'Gemini 4 Argon (High)', 'Muse Spark 1.3 (Medium)', 'DeepSeek V4.1 Flash (Max)', 'Gemini 3.8 Flash (High)', 'Grok 4.7 Extra High', 'Composer 2.5', ...(minimaxAvailable ? ['MiniMax M3.1-Flash-Preview'] : [])])
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' })).toHaveAttribute('aria-pressed', 'true')
         expect(screen.getByRole('button', { name: 'GPT-6.1 Terra' }).querySelector('svg')).not.toBeNull()
         expect(screen.getByRole('button', { name: 'GPT-6 Luna' })).toBeVisible()
