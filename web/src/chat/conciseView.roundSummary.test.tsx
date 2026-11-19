@@ -92,11 +92,12 @@ describe('concise summary through reducer, reconcile, grouping and runtime metad
     it('shows OpenCode reasoning once and distinguishes Go allowance from client cost', () => {
         const result = pipeline(round('go', 'tool', {
             ...wireSummary,
+            generation_ms: 1530,
             usage: { ...wireSummary.usage, reasoning_output_tokens: 12 },
             modelUsage: { 'opencode-go/test-model': { inputTokens: 100, outputTokens: 30,
                 cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } }
         }))
-        expect(result.labels).toEqual([['Time: 9.0s', '20.0 tok/s']])
+        expect(result.labels).toEqual([['Time: 9.0s', 'TPS: 20 tok/s']])
         render(<MessageMetadata {...result.aggregates.values().next().value} />)
         const diagnostics = screen.getByRole('button', { name: 'Usage diagnostics' })
         expect(diagnostics.getAttribute('aria-expanded')).toBe('false')

@@ -45,9 +45,9 @@ describe('StatusBar context details popover', () => {
         </I18nProvider>
         const { rerender } = render(view(true, false))
         expect(screen.getByText('Ожидает запуска…')).toBeVisible()
-        expect(screen.queryByText('≈0.2 credits')).toBeNull()
+        expect(screen.queryByText('20 credits')).toBeNull()
         rerender(view(false, true))
-        expect(screen.getByText('≈0.2 credits')).toBeVisible()
+        expect(screen.getByText('20 credits')).toBeVisible()
     })
 
     it('shows the regular-rate estimate and its scope beside elapsed time', () => {
@@ -57,9 +57,9 @@ describe('StatusBar context details popover', () => {
         const metrics = screen.getByTestId('turn-metrics')
         expect(metrics).toHaveTextContent('3s')
         expect(metrics).not.toHaveTextContent('tokens')
-        const credits = screen.getByText('≈4.52 credits')
+        const credits = screen.getByText('450 credits')
         expect(credits).toBeVisible()
-        expect(credits).toHaveAttribute('title', 'Last request estimate at regular purchased-credit rates')
+        expect(credits).toHaveAttribute('title', 'Last request estimate at regular purchased-credit rates, scaled by 100 and rounded')
     })
 
     it('shows live activity only while working and preserves connection and permission priority', () => {

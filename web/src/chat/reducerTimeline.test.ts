@@ -359,8 +359,8 @@ describe('reduceTimeline', () => {
     })
 
     it.each([
-        ['fast', Date.UTC(2026, 10, 19), '2.4'],
-        ['ultrafast', Date.UTC(2026, 10, 19), '7.2']
+        ['fast', Date.UTC(2026, 10, 19), '240'],
+        ['ultrafast', Date.UTC(2026, 10, 19), '700']
     ] as const)('estimates credits at regular rates for a %s request at %s', (tier, timestamp, credits) => {
         const turn_id = 'new'
         const normalize = (id: string, data: object) => normalizeAgentRecord(id, null, timestamp, {
@@ -374,7 +374,7 @@ describe('reduceTimeline', () => {
         const { blocks } = reduceTimeline([makeUserMessage('user'), answer, sample], makeContext())
         const result = blocks.find(block => block.kind === 'agent-text')
         if (!result || result.kind !== 'agent-text') throw new Error('Missing Codex reply')
-        expect(buildMessageMetadataLabels({ roundSummary: result.roundSummary })).toContain(`Credits: ≈${credits} (last request)`)
+        expect(buildMessageMetadataLabels({ roundSummary: result.roundSummary })).toContain(`Credits: ${credits}`)
     })
 
     it('keeps the existing latest-usage model policy when a persisted duration is present', () => {
@@ -450,7 +450,7 @@ describe('reduceTimeline', () => {
             usage: { input_tokens: 100, output_tokens: 10 },
             modelUsage: { 'gpt-5.4': { inputTokens: 100, outputTokens: 10 } } } })
         expect(buildMessageMetadataLabels({ roundSummary: (blocks[0] as { roundSummary?: Record<string, unknown> }).roundSummary as never }))
-            .toContain('≈22.7 tok/s')
+            .toContain('TPS: 23 tok/s')
     })
 
     it('carries independent Codex TTFT and generation timing into the info popup', () => {
@@ -464,7 +464,7 @@ describe('reduceTimeline', () => {
         expect(blocks[0]).toMatchObject({ roundSummary: { provider: 'codex', turnId: 'turn',
             durationMs: 4_000, timeToFirstTokenMs: 1_125, generationMs: 2_200, generationOutputTokens: 50 } })
         expect(buildMessageMetadataLabels({ roundSummary: (blocks[0] as { roundSummary?: Record<string, unknown> }).roundSummary as never }))
-            .toEqual(expect.arrayContaining(['TTFT: 1.1s', '≈22.7 tok/s']))
+            .toEqual(expect.arrayContaining(['TTFT: 1.1s', 'TPS: 23 tok/s']))
     })
 
     it('rejects unmatched Codex metadata when the response has a different native turn ID', () => {

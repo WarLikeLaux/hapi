@@ -195,26 +195,34 @@ describe('shared history projection', () => {
         ]);
     });
 
-    it('attaches only the native first-output timing for the completed live turn', async () => {
+    it('measures a resumed turn from native first output through its final response without a usage baseline', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'codex-project-ttft-'));
         try {
             const path = join(directory, 'rollout.jsonl');
-            const nativeEvent = (type: string, turn_id: string, fields = {}) => ({
-                type: 'event_msg', payload: { type, turn_id, ...fields }
+            const timestamp = (ms: number) => new Date(ms).toISOString();
+            const nativeEvent = (type: string, turn_id: string, at: number, fields = {}) => ({
+                type: 'event_msg', timestamp: timestamp(at), payload: { type, turn_id, ...fields }
             });
             await writeFile(path, [
                 { type: 'session_meta', payload: { id: 'thread' } },
-                nativeEvent('task_complete', 'old', { time_to_first_token_ms: 81 }),
-                nativeEvent('task_started', 'turn'),
-                nativeEvent('task_complete', 'turn', { time_to_first_token_ms: 3477 })
+                nativeEvent('task_complete', 'old', 6000, { time_to_first_token_ms: 81 }),
+                nativeEvent('task_started', 'turn', 10_000),
+                { type: 'token_usage_record', timestamp: timestamp(13_492), payload: {
+                    thread_id: 'thread', turn_id: 'turn', turn_token_usage: { output_tokens: 9, reasoning_output_tokens: 2 }
+                } },
+                nativeEvent('task_complete', 'turn', 16_297, { time_to_first_token_ms: 3120 })
             ].map(event => JSON.stringify(event) + '\n').join(''));
             const send = vi.fn();
             const session = { getMetadata: () => ({}), updateAgentState: vi.fn(), sendAgentMessage: send } as unknown as ApiSessionClient;
             const projection = new SharedCodexProjection(session, 'thread', async () => {}, undefined, undefined, async () => ({ id: 'thread', path }));
             await projection.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } }, undefined, 10_000);
-            await projection.notification('turn/completed', { threadId: 'thread', turn: { id: 'turn', status: 'completed' } }, undefined, 16_483);
+            await projection.notification('thread/tokenUsage/updated', { threadId: 'thread', turnId: 'turn',
+                tokenUsage: { total: { outputTokens: 101_262 }, last: { outputTokens: 9 } }
+            }, undefined, 13_494);
+            await projection.notification('turn/completed', { threadId: 'thread', turn: { id: 'turn', status: 'completed' } }, undefined, 16_297);
             expect(send.mock.calls.map(([body]) => body).filter(body => body.type === 'turn_duration')).toEqual([
-                expect.objectContaining({ turn_id: 'turn', durationMs: 6483, timeToFirstTokenMs: 3477 })
+                expect.objectContaining({ turn_id: 'turn', durationMs: 6297, timeToFirstTokenMs: 3120,
+                    generationMs: 372, generationOutputTokens: 9 })
             ]);
         } finally { await rm(directory, { recursive: true, force: true }); }
     });

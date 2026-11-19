@@ -73,7 +73,7 @@ function buildRoundSummaryLabels(summary: RoundSummary): string[] {
     }
 
     const generation = getGenerationRate(summary)
-    if (generation) parts.push(`${generation.rate} tok/s`)
+    if (generation) parts.push(`${generation.rate.toFixed(1)} tok/s`)
 
     return parts
 }
@@ -81,7 +81,7 @@ function buildRoundSummaryLabels(summary: RoundSummary): string[] {
 function getGenerationRate({ generationMs, generationOutputTokens }: RoundSummary) {
     if (generationMs === undefined || !Number.isFinite(generationMs) || generationMs <= 0
         || !isTokenCount(generationOutputTokens) || generationOutputTokens === 0) return
-    return { duration: generationMs, tokens: generationOutputTokens, rate: (generationOutputTokens * 1000 / generationMs).toFixed(1) }
+    return { duration: generationMs, tokens: generationOutputTokens, rate: generationOutputTokens * 1000 / generationMs }
 }
 
 function compactRoundLabels(summary: RoundSummary): string[] {
@@ -91,15 +91,10 @@ function compactRoundLabels(summary: RoundSummary): string[] {
         const ttft = summary.timeToFirstTokenMs
         if (ttft !== undefined) parts.push(`TTFT: ${ttft > 0 && ttft < 50 ? '<0.1s' : `${(ttft / 1000).toFixed(1)}s`}`)
         const estimate = summary.purchasedCreditsEstimate
-        if (!estimate) parts.push('Credits: —')
-        else {
-            const amount = formatCodexCredits(estimate.amount)
-            const scope = estimate.scope === 'last-request' ? ' (last request)' : ''
-            parts.push(`Credits: ${amount}${scope}`)
-        }
+        parts.push(estimate ? `Credits: ${formatCodexCredits(estimate.amount)}` : 'Credits: —')
     }
     const generation = getGenerationRate(summary)
-    parts.push(generation ? `${summary.provider === 'opencode' ? '' : '≈'}${generation.rate} tok/s` : 'tok/s: —')
+    parts.push(generation ? `TPS: ${Math.round(generation.rate)} tok/s` : 'TPS: —')
     return parts
 }
 
@@ -133,7 +128,8 @@ function detailRows(summary: RoundSummary): { rows: MetricRow[]; note: string } 
     const generation = getGenerationRate(summary)
     if (generation) {
         const { duration, tokens } = generation
-        rows.push([isCodex || isAgy ? 'Time minus tools and waits' : 'Provider response time', duration < 100 ? `${duration} ms` : formatDuration(duration)])
+        const label = isCodex ? 'Generation window (estimate)' : isAgy ? 'Time minus tools and waits' : 'Provider response time'
+        rows.push([label, duration < (isCodex ? 1000 : 100) ? `${duration} ms` : formatDuration(duration)])
         addCount('Generated tokens counted', tokens)
     }
 
@@ -159,8 +155,10 @@ function detailRows(summary: RoundSummary): { rows: MetricRow[]; note: string } 
     else if (isTokenCount(output)) rows.push(['Reasoning', 'Unavailable'])
 
     if (isCodex) {
-        return { rows, note: summary.purchasedCreditsEstimate
-            ? 'Estimate at regular purchased-credit rates. See Codex Usage for actual charges and plan limits.'
+        const estimate = summary.purchasedCreditsEstimate
+        const estimateScope = estimate?.scope === 'last-request' ? 'Last request' : 'Turn'
+        return { rows, note: estimate
+            ? `${estimateScope} estimate at regular purchased-credit rates, scaled by 100 and rounded. See Codex Usage for actual charges and plan limits.`
             : 'See Codex Usage for actual charges and plan limits.' }
     }
     if (isAgy) {
