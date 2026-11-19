@@ -15,6 +15,7 @@ export function ActionButtons(props: {
     manageProjectsOpen?: boolean
     onManageModels?: () => void
     manageModelsOpen?: boolean
+    showManageModelsOnMobile?: boolean
 }) {
     const { t } = useTranslation()
 
@@ -24,7 +25,7 @@ export function ActionButtons(props: {
                 <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
                 {t('batch.addAnother')}
             </Button> : null}
-            {(!props.managing || props.manageModelsOpen) && props.onManageModels ? <Button variant="outline" onClick={props.onManageModels} aria-expanded={props.manageModelsOpen} className={props.manageModelsOpen ? 'max-sm:px-3' : 'max-sm:hidden'}>
+            {(!props.managing || props.manageModelsOpen) && props.onManageModels ? <Button variant="outline" onClick={props.onManageModels} aria-expanded={props.manageModelsOpen} className={props.manageModelsOpen || props.showManageModelsOnMobile ? 'max-sm:px-3' : 'max-sm:hidden'}>
                 {t(props.manageModelsOpen ? 'newSession.models.hide' : 'newSession.models.manage')}
             </Button> : null}
             <div className="flex items-center justify-end gap-2">

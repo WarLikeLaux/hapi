@@ -19,7 +19,8 @@ export const CODEX_HARDCODED_OPTIONS: ReadonlyArray<{ value: string; label: stri
 ]
 
 /** Antigravity launches Gemini 3.8 Flash at high effort. */
-export const AGY_HIGH_MODEL_ID = 'gemini-3.8-flash-high'
+export const AGY_QUICK_MODEL_ID = 'gemini-3.8-flash'
+export const AGY_HIGH_MODEL_ID = `${AGY_QUICK_MODEL_ID}-high`
 export const AGY_HIGH_MODEL_LABEL = 'Gemini 3.8 Flash (High)'
 
 /** Keep Flash as the native default; use a full id to bypass Claude aliases. */

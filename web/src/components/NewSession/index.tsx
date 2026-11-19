@@ -92,6 +92,7 @@ import {
 import {
     AGY_HIGH_MODEL_ID,
     AGY_HIGH_MODEL_LABEL,
+    AGY_QUICK_MODEL_ID,
     CLAUDE_GLM_HARDCODED_LABEL,
     CLAUDE_GLM_MODEL_ID,
     CLAUDE_GLM_MODEL_LABEL,
@@ -786,7 +787,12 @@ export function NewSession(props: {
             if (isRemovedAgyModel(entry.modelId)) continue
             const match = entry.modelId.match(/^(.*)-(low|medium|high|xhigh|max)$/)
             const base = match?.[1] ?? entry.modelId
-            const group = groups.get(base) ?? { value: base, label: (entry.name ?? base).replace(/\s*\([^)]*\)$/, ''), variants: [] }
+            const label = entry.name ?? base
+            const group = groups.get(base) ?? {
+                value: base,
+                label: match ? modelChoiceLabel(label) : label,
+                variants: []
+            }
             if (match) group.variants.push({ id: entry.modelId, effort: match[2] })
             groups.set(base, group)
         }
@@ -1607,7 +1613,8 @@ export function NewSession(props: {
             agyModelPickedByUserRef.current = choice.value !== 'auto'
             const group = agyGroups.find(item => item.value === choice.value)
             const saved = modelPreferences.preferences.find(row => row.agent === 'agy' && row.modelId === choice.value)?.reasoningEffort
-            setAgySelectedModel(group?.variants.find(item => item.effort === saved)?.id ?? group?.variants.find(item => item.effort === 'high')?.id ?? group?.variants[0]?.id ?? choice.value)
+            const fallback = choice.value === AGY_QUICK_MODEL_ID ? AGY_HIGH_MODEL_ID : choice.value
+            setAgySelectedModel(group?.variants.find(item => item.effort === saved)?.id ?? group?.variants.find(item => item.effort === 'high')?.id ?? group?.variants[0]?.id ?? fallback)
         } else if (choice.agent === 'opencode') {
             setOpencodeSelectedModel(choice.value === 'auto' ? null : choice.value)
         } else {
@@ -1617,6 +1624,10 @@ export function NewSession(props: {
     }
 
     const effectiveFilter = agentFilter !== 'all' && !availableAgents.includes(agentFilter) ? 'all' : agentFilter
+    const agyQuickModel = {
+        value: AGY_QUICK_MODEL_ID,
+        label: agyGroups.find(group => group.value === AGY_QUICK_MODEL_ID)?.label ?? AGY_HIGH_MODEL_LABEL
+    }
     const quickModels: Partial<Record<AgentType, readonly { value: string; label: string }[]>> = {
         codex: CODEX_HARDCODED_OPTIONS.map(option => ({
             ...option, label: resolveCodexModel(codexModelsState.models, option.value)?.displayName ?? option.value
@@ -1625,11 +1636,7 @@ export function NewSession(props: {
             { value: 'auto', label: CLAUDE_GLM_HARDCODED_LABEL },
             { value: CLAUDE_GLM_MODEL_ID, label: CLAUDE_GLM_MODEL_LABEL },
         ] : undefined,
-        agy: [
-            ...(!agyGroups.some(group => group.value === AGY_HIGH_MODEL_ID.replace(/-high$/, ''))
-                ? [{ value: AGY_HIGH_MODEL_ID.replace(/-high$/, ''), label: AGY_HIGH_MODEL_LABEL }] : []),
-            ...agyGroups.map(({ value, label }) => ({ value, label }))
-        ],
+        agy: [agyQuickModel],
         opencode: OPENCODE_HARDCODED_OPTIONS,
         cursor: [
             { value: CURSOR_GROK_XHIGH_WIRE, label: 'Grok 4.7 Extra High' },
@@ -1644,7 +1651,7 @@ export function NewSession(props: {
         : agent === 'cursor'
             ? [...(quickModels.cursor ?? []), ...cursorModelsState.availableModels.map(option => ({ value: option.modelId, label: option.name ?? option.modelId }))]
             : agent === 'agy'
-                ? [...(quickModels.agy ?? [])]
+                ? [agyQuickModel, ...agyGroups.filter(group => group.value !== AGY_QUICK_MODEL_ID)]
                 : [...(quickModels[agent] ?? []), ...launchModelOptions.filter(option => agent !== 'codex' || (option.value !== 'auto' && option.value !== 'gpt-6-astra'))]
     for (const preference of modelPreferences.preferences) {
         if (preference.agent === agent && !manageModelOptions.some(option => option.value === preference.modelId)) {
@@ -1668,10 +1675,11 @@ export function NewSession(props: {
         .flatMap(flavor => {
             const defaultName = agentAvailability.agents.find(entry => entry.agent === flavor)?.defaultModelName
             const savedForFlavor = modelPreferences.preferences.filter(row => row.agent === flavor)
+            const catalogOptions = flavor === agent ? manageModelOptions : flavor === 'agy' ? agyGroups : []
             const choicesForFlavor = [...(quickModels[flavor] ?? [])].filter(option => !savedForFlavor.some(row => row.modelId === option.value && row.hidden))
             for (const preference of savedForFlavor) {
                 if (preference.pinned && !preference.hidden && !choicesForFlavor.some(option => option.value === preference.modelId)) {
-                    const known = flavor === agent ? manageModelOptions.find(option => option.value === preference.modelId) : undefined
+                    const known = catalogOptions.find(option => option.value === preference.modelId)
                     choicesForFlavor.push({ value: preference.modelId, label: known?.label ?? preference.modelId })
                 }
             }
@@ -1688,7 +1696,7 @@ export function NewSession(props: {
                 const customLabel = savedForFlavor.find(row => row.modelId === displayedModel)?.alias
                 options.unshift({ value: displayedModel, customLabel: Boolean(customLabel), label: customLabel ?? (displayedModel === 'auto'
                     ? nativeDefaultModelName ?? t('newSession.model.default')
-                    : (agent === 'codex' ? resolveCodexModel(codexModelsState.models, displayedModel)?.displayName : undefined) ?? namedLaunchModelOptions.find(option => option.value === displayedModel)?.label ?? displayedModel) })
+                    : (agent === 'codex' ? resolveCodexModel(codexModelsState.models, displayedModel)?.displayName : undefined) ?? (flavor === 'agy' ? catalogOptions.find(option => option.value === displayedModel)?.label : undefined) ?? namedLaunchModelOptions.find(option => option.value === displayedModel)?.label ?? displayedModel) })
             }
             return options.map(option => ({ ...option, agent: flavor }))
         })
@@ -2514,6 +2522,7 @@ export function NewSession(props: {
                 onAddChat={props.onAddChat && !selectedCodexImportSession && !selectedPiImportSession ? handleAddChat : undefined}
                 onManageModels={modelManagerOpen || (effectiveFilter !== 'all' && effectiveFilter === agent && agent !== 'dsh' && showPiLaunchConfig) ? () => { setProjectManagerOpen(false); setModelManagerOpen(open => !open) } : undefined}
                 manageModelsOpen={modelManagerOpen}
+                showManageModelsOnMobile={agent === 'agy'}
             /> : null}
             <CodexSessionSyncDialog
                 isOpen={isCodexImportDialogOpen}
