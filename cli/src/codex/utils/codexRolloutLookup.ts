@@ -9,6 +9,19 @@ function record(value: unknown): Record<string, unknown> {
 function text(value: unknown): string | undefined { return typeof value === 'string' && value.length ? value : undefined; }
 
 export type CodexCompactionInfo = { summary?: string; estimatedTokensAfter?: number };
+export type CodexTurnTiming = {
+    timeToFirstTokenMs?: number;
+    generation?: { start: number; end: number; outputTokens: number };
+};
+
+function count(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function timestamp(value: unknown): number | undefined {
+    const ms = typeof value === 'string' ? Date.parse(value) : NaN;
+    return Number.isFinite(ms) ? ms : undefined;
+}
 
 type LookupOptions = { attempts?: number; sleep?: () => Promise<void> };
 
@@ -22,16 +35,19 @@ export class CodexRolloutLookup {
     private verified = false;
     private first = true;
     private turn?: string;
+    private turnStartedAt?: number;
+    private response?: { end: number; outputTokens: number };
     private pending?: { turn: string; info: CodexCompactionInfo; ambiguous: boolean; contextSeen: boolean; estimateAllowed: boolean; estimateCount: number };
     private work: Promise<unknown> = Promise.resolve();
-    private readonly firstOutputTimes = new Map<string, number | null>();
+    private readonly turnTimings = new Map<string, CodexTurnTiming>();
     private readonly compactions = new Map<string, CodexCompactionInfo | null>();
 
     constructor(private readonly threadId: string) {}
 
     private reset(): void {
         this.offset = 0; this.partial = Buffer.alloc(0); this.verified = false; this.first = true;
-        this.turn = undefined; this.pending = undefined; this.compactions.clear(); this.firstOutputTimes.clear();
+        this.turn = undefined; this.turnStartedAt = undefined; this.response = undefined;
+        this.pending = undefined; this.compactions.clear(); this.turnTimings.clear();
     }
 
     private line(line: string): void {
@@ -64,11 +80,27 @@ export class CodexRolloutLookup {
             this.pending.estimateAllowed = false;
             delete this.pending.info.estimatedTokensAfter;
         }
+        if (event.type === 'token_usage_record' && this.turn && payload.turn_id === this.turn && payload.thread_id === this.threadId) {
+            const end = timestamp(event.timestamp);
+            // Native per-turn output already includes reasoning and earlier responses in this turn.
+            const outputTokens = count(record(payload.turn_token_usage).output_tokens);
+            this.response = end !== undefined && outputTokens !== undefined ? { end, outputTokens } : undefined;
+        }
         if (event.type !== 'event_msg') return;
         if (payload.type === 'task_complete') {
             const id = text(payload.turn_id);
-            const timing = payload.time_to_first_token_ms;
-            if (id) this.firstOutputTimes.set(id, typeof timing === 'number' && Number.isSafeInteger(timing) && timing >= 0 ? timing : null);
+            const timeToFirstTokenMs = count(payload.time_to_first_token_ms);
+            if (id) {
+                const timing: CodexTurnTiming = { timeToFirstTokenMs };
+                const completedAt = timestamp(event.timestamp);
+                if (id === this.turn && this.turnStartedAt !== undefined && timeToFirstTokenMs !== undefined
+                    && this.response && completedAt !== undefined) {
+                    const start = this.turnStartedAt + timeToFirstTokenMs;
+                    const { end, outputTokens } = this.response;
+                    if (start < end && end <= completedAt && outputTokens > 0) timing.generation = { start, end, outputTokens };
+                }
+                this.turnTimings.set(id, timing);
+            }
         }
         if (this.pending && payload.type === 'token_count' && payload.info != null) {
             const info = record(payload.info); const last = record(info.last_token_usage);
@@ -87,7 +119,10 @@ export class CodexRolloutLookup {
                 delete this.pending.info.estimatedTokensAfter;
             }
         }
-        if (payload.type === 'task_started') { this.turn = text(payload.turn_id); this.pending = undefined; }
+        if (payload.type === 'task_started') {
+            this.turn = text(payload.turn_id); this.turnStartedAt = timestamp(event.timestamp);
+            this.response = undefined; this.pending = undefined;
+        }
         if (['task_complete', 'turn_aborted', 'task_failed'].includes(String(payload.type))) this.pending = undefined;
         if (payload.type !== 'item_completed') return;
         const item = record(payload.item);
@@ -132,9 +167,9 @@ export class CodexRolloutLookup {
         return this.lookup(thread, () => this.compactions.get(`${turnId}:${itemId}`), options);
     }
 
-    firstOutputTime(thread: unknown, turnId: string): Promise<number | null> {
+    turnTiming(thread: unknown, turnId: string): Promise<CodexTurnTiming | null> {
         if (!turnId) return Promise.resolve(null);
-        return this.lookup(thread, () => this.firstOutputTimes.get(turnId), {
+        return this.lookup(thread, () => this.turnTimings.get(turnId), {
             attempts: 3,
             sleep: () => new Promise(resolve => setTimeout(resolve, 40))
         });

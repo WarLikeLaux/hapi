@@ -272,8 +272,8 @@ export function StatusBar(props: {
     const creditEstimate = props.turnMetrics?.purchasedCreditsEstimate
     const creditLabel = creditEstimate ? `${formatCodexCredits(creditEstimate.amount)} credits` : null
     const creditTitle = creditEstimate?.scope === 'last-request'
-        ? 'Last request estimate at regular purchased-credit rates'
-        : 'Turn estimate at regular purchased-credit rates'
+        ? 'Last request estimate at regular purchased-credit rates, scaled by 100 and rounded'
+        : 'Turn estimate at regular purchased-credit rates, scaled by 100 and rounded'
     const durationSeconds = duration === undefined ? null : Math.floor(duration / 1000)
     const durationLabel = durationSeconds === null ? null : durationSeconds >= 3600
         ? `${Math.floor(durationSeconds / 3600)}h ${Math.floor((durationSeconds % 3600) / 60)}m`

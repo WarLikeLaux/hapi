@@ -196,13 +196,17 @@ export class SharedCodexProjection {
         if (liveRoot && method === 'turn/completed') {
             const completed = turn.status === 'completed';
             const duration = this.roundDuration.finish(turnId, receivedAt, completed);
-            const generation = this.generation.settle(turnId, receivedAt, completed);
+            let timing;
             if (duration) {
                 if (!string(record(this.summaryThread).path) && this.readSummaryThread) {
                     try { this.summaryThread = await this.readSummaryThread(); } catch { this.summaryThread = undefined; }
                 }
-                const timeToFirstTokenMs = await this.rollout.firstOutputTime(this.summaryThread, duration.turn_id);
-                this.send({ ...duration, ...generation, ...(timeToFirstTokenMs === null ? {} : { timeToFirstTokenMs }) }, `duration:${turnId}`);
+                timing = await this.rollout.turnTiming(this.summaryThread, duration.turn_id);
+            }
+            const generation = this.generation.settle(turnId, receivedAt, completed, timing ?? undefined);
+            if (duration) {
+                const timeToFirstTokenMs = timing?.timeToFirstTokenMs;
+                this.send({ ...duration, ...generation, ...(timeToFirstTokenMs === undefined ? {} : { timeToFirstTokenMs }) }, `duration:${turnId}`);
             }
         }
     }

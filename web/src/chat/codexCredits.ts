@@ -50,7 +50,8 @@ export function estimateCodexPurchasedCredits(
 }
 
 export function formatCodexCredits(credits: number): string {
-    return credits > 0 && credits < 0.01
-        ? '<0.01'
-        : `≈${credits.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+    const scaled = credits * 100
+    if (scaled > 0 && scaled < 1) return '1'
+    const step = scaled < 50 ? 1 : scaled < 100 ? 5 : scaled < 250 ? 10 : scaled < 1000 ? 50 : 100
+    return String(Math.round(scaled / step) * step)
 }

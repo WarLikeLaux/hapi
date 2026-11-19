@@ -1,15 +1,13 @@
 import { generationTimeMs, type GenerationIdleWindow } from '@/agent/generationClock';
+import type { CodexTurnTiming } from './codexRolloutLookup';
 
 /**
- * One Codex turn's tok/s bookkeeping, agy-style: the round minus the spans
- * spent running tools or waiting for the user, over the round's output-token
- * delta. Tool windows prefer Codex's own measurements (an item's
+ * Uses native turn output and the window from first token to final response when
+ * the rollout provides both. Tool and approval waits are subtracted. Tool windows prefer
+ * Codex's own measurements (an item's
  * startedAtMs/completedAtMs or a command's durationMs); HAPI receive moments
- * fill in when an item carries no native timing. The token numerator is the
- * thread-cumulative `total.output_tokens` delta across the round, so a turn
- * is only measurable when a pre-round usage snapshot exists — either the
- * app-server's attach-time usage replay for resumed and forked threads, or
- * the CLI's zero seed for a thread it created in this process. Turn
+ * fill in when an item carries no native timing. For older rollouts the fallback
+ * uses live duration and requires a pre-turn cumulative usage snapshot. Turn
  * identity mirrors CodexRoundDuration: only the started turn settles, and a
  * stale completion never disturbs the live round's state.
  */
@@ -97,12 +95,11 @@ export class CodexGenerationLedger {
     }
 
     /**
-     * The round's generation pair, or null when nothing measurable happened:
-     * no matching round, no pre-turn usage baseline, no token delta, or no
-     * time left once tools and waits are removed. Failed turns reset without
+     * The round's generation pair, or null when the timing or token count is
+     * unavailable or no time remains after removing waits. Failed turns reset without
      * a pair. A completion for another turn is ignored entirely.
      */
-    settle(turnId: string | null | undefined, completedAt: number, completed: boolean): { generationMs: number; generationOutputTokens: number } | null {
+    settle(turnId: string | null | undefined, completedAt: number, completed: boolean, timing?: CodexTurnTiming): { generationMs: number; generationOutputTokens: number } | null {
         if (!turnId || this.roundTurnId !== turnId) return null;
         const roundStart = this.roundStart;
         const baseline = this.outputBaseline;
@@ -112,9 +109,15 @@ export class CodexGenerationLedger {
         this.outputBaseline = null;
         this.toolWindows.clear();
         this.userWaitWindows.length = 0;
-        if (!completed || roundStart === null || baseline === null || this.outputTotal === null) return null;
+        if (!completed || roundStart === null) return null;
+        if (timing?.generation) {
+            const { start, end, outputTokens } = timing.generation;
+            const generationMs = generationTimeMs(start, end, windows);
+            return generationMs !== null && generationMs > 0 ? { generationMs, generationOutputTokens: outputTokens } : null;
+        }
+        if (baseline === null || this.outputTotal === null) return null;
         const generationOutputTokens = this.outputTotal - baseline;
-        const generationMs = generationTimeMs(roundStart, completedAt, windows);
+        const generationMs = generationTimeMs(roundStart + (timing?.timeToFirstTokenMs ?? 0), completedAt, windows);
         if (!(generationOutputTokens > 0) || generationMs === null || generationMs <= 0) return null;
         return { generationMs, generationOutputTokens };
     }

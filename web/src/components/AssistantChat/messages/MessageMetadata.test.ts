@@ -235,5 +235,5 @@ it.each(['fast', 'ultrafast'])('keeps %s compact when credits and speed are unav
         provider: 'codex', modelUsage: { 'gpt-6.2-sol': {} },
         usage: { input_tokens: 100, output_tokens: 10, service_tier: serviceTier }, durationMs: 3000
     } })
-    expect(parts).toEqual(['Time: 3.0s', 'Credits: —', 'tok/s: —'])
+    expect(parts).toEqual(['Time: 3.0s', 'Credits: —', 'TPS: —'])
 })
