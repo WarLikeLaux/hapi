@@ -6,8 +6,8 @@ import { AGY_BACKGROUND_COMMAND_RESULT } from './agyToolCards';
 
 type UsageMessage = Extract<AgentMessage, { type: 'usage' }>;
 
-function addOptional(a: number | undefined, b: number | undefined): number | undefined {
-    return a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
+function sumReportedCounts(a: number | undefined, b: number | undefined): number | undefined {
+    return a === undefined || b === undefined ? undefined : a + b;
 }
 
 /** Sums token counters across multiple model steps in a turn or wakeup. */
@@ -17,10 +17,10 @@ export function addAgyUsage(total: UsageMessage | null, next: UsageMessage): Usa
         type: 'usage',
         inputTokens: total.inputTokens + next.inputTokens,
         outputTokens: total.outputTokens + next.outputTokens,
-        totalTokens: addOptional(total.totalTokens, next.totalTokens),
-        thoughtTokens: addOptional(total.thoughtTokens, next.thoughtTokens),
-        cacheReadTokens: addOptional(total.cacheReadTokens, next.cacheReadTokens),
-        cacheCreationTokens: addOptional(total.cacheCreationTokens, next.cacheCreationTokens)
+        totalTokens: sumReportedCounts(total.totalTokens, next.totalTokens),
+        thoughtTokens: sumReportedCounts(total.thoughtTokens, next.thoughtTokens),
+        cacheReadTokens: sumReportedCounts(total.cacheReadTokens, next.cacheReadTokens),
+        cacheCreationTokens: sumReportedCounts(total.cacheCreationTokens, next.cacheCreationTokens)
     };
 }
 
@@ -1059,17 +1059,15 @@ export function convertAgyReactiveSteps(
             continue;
         }
 
-        if (typeof step.input_tokens === 'number' || typeof step.output_tokens === 'number') {
-            const inputTokens = step.input_tokens ?? 0;
-            const outputTokens = step.output_tokens ?? 0;
+        if (typeof step.input_tokens === 'number' && typeof step.output_tokens === 'number') {
+            const inputTokens = step.input_tokens;
+            const outputTokens = step.output_tokens;
             const thoughtTokens = step.thought_tokens;
             const cacheReadTokens = step.cache_read_tokens;
-            const totalTokens = inputTokens + outputTokens + (thoughtTokens ?? 0) + (cacheReadTokens ?? 0);
             usage = addAgyUsage(usage, {
                 type: 'usage',
                 inputTokens,
                 outputTokens,
-                totalTokens,
                 ...(thoughtTokens !== undefined ? { thoughtTokens } : {}),
                 ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {})
             });

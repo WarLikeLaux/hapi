@@ -13,7 +13,7 @@ const ReplySchema = z.object({
     answers: z.union([z.record(z.string(), z.array(z.string())), z.record(z.string(), z.object({ answers: z.array(z.string()) }))]).optional()
 });
 type Reply = z.infer<typeof ReplySchema>;
-type Pending = { nativeId: string | number; threadId: string; turnId?: string; toolCallId: string; userInput: boolean; input: unknown; submitted: boolean; answer(reply: Reply): void; cancel(error: Error): void };
+type Pending = { nativeId: string | number; threadId: string; turnId?: string; toolCallId: string; userInput: boolean; input: unknown; submitted: boolean; endWait?: (endedAt: number) => void; answer(reply: Reply): void; cancel(error: Error): void };
 
 /** No winner is inferred from submitting a Web candidate: only native resolution closes it. */
 export class SharedCodexPermissions {
@@ -35,7 +35,8 @@ export class SharedCodexPermissions {
         private readonly session: ApiSessionClient,
         private readonly client: CodexAppServerClient,
         private readonly generation: string,
-        private readonly getPermissionMode?: () => CodexPermissionMode | undefined
+        private readonly getPermissionMode?: () => CodexPermissionMode | undefined,
+        private readonly beginUserWait?: (threadId: string, turnId: string | undefined, startedAt: number) => ((endedAt: number) => void) | undefined
     ) {
         session.rpcHandlerManager.registerHandler(RPC_METHODS.Permission, async (raw: unknown) => {
             const reply = ReplySchema.parse(raw);
@@ -69,7 +70,10 @@ export class SharedCodexPermissions {
         const handlers = new Map<string, (params: unknown) => unknown>();
         const ask = (tool: string, input: unknown): Promise<Reply> => new Promise((answer, cancel) => {
             awaitsUserDecision = true;
-            const pending: Pending = { nativeId: request.id, threadId, turnId: string(record(request.params).turnId),
+            const turnId = string(record(request.params).turnId);
+            const createdAt = Date.now();
+            const pending: Pending = { nativeId: request.id, threadId, turnId,
+                endWait: this.beginUserWait?.(threadId, turnId, createdAt),
                 toolCallId: string(record(request.params).itemId) ?? key,
                 userInput: request.method === 'item/tool/requestUserInput', input, answer, cancel, submitted: false };
             this.pending.set(key, pending);
@@ -77,7 +81,7 @@ export class SharedCodexPermissions {
             // Persist its lifecycle so resolution cannot erase the question card.
             if (pending.userInput) this.questionEvent(pending);
             this.session.updateAgentState(state => ({ ...state, requests: { ...state.requests,
-                [key]: { tool, toolCallId: pending.toolCallId, arguments: input, createdAt: Date.now() }
+                [key]: { tool, toolCallId: pending.toolCallId, arguments: input, createdAt }
             } }));
         });
         registerAppServerPermissionHandlers({
@@ -121,6 +125,7 @@ export class SharedCodexPermissions {
         for (const [key, request] of this.pending) {
             if (request.threadId !== threadId || request.nativeId !== nativeId) continue;
             this.pending.delete(key);
+            request.endWait?.(Date.now());
             request.cancel(new Error('Resolved by Codex'));
             if (request.userInput) this.questionEvent(request, status);
             this.session.updateAgentState(state => {

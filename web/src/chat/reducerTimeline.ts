@@ -6,7 +6,7 @@ import { collectTitleChanges, ensureToolBlock, extractTitleFromChangeTitleInput,
 import { isSubagentToolName } from '@/chat/subagentTool'
 import { asString, isObject } from '@hapi/protocol'
 import type { WorkspaceChanges } from '@hapi/protocol'
-import { estimateCodexCredits } from '@/chat/codexCredits'
+import { estimateCodexPurchasedCredits } from '@/chat/codexCredits'
 
 /**
  * A question tool call's own input can predate what limits its answers (agy
@@ -99,6 +99,14 @@ function mapAgentRunStatusToToolState(status: string | null): ToolCallBlock['too
     ) return 'error'
     if (status === 'pending') return 'pending'
     return 'running'
+}
+
+function validTokenCount(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+}
+
+function tokenCountDelta(current?: number, previous?: number): number | undefined {
+    return current !== undefined && previous !== undefined && current >= previous ? current - previous : undefined
 }
 
 function attachCodexRoundSummaryToLatestGroup(blocks: ChatBlock[], summary: RoundSummary): void {
@@ -587,10 +595,10 @@ export function reduceTimeline(
         }
     }
 
-    let previousCodexTotal: { input: number; output: number; cached?: number } | undefined
+    let previousCodexTotal: { input: number; output: number; cached?: number; cacheWrite?: number; reasoning?: number } | undefined
     let previousCodexTurn: string | undefined
     const codexBaselines = new Map<string, typeof previousCodexTotal>()
-    const codexPricing = new Map<string, { model?: string; tier?: string; consistent: boolean }>()
+    const codexTurnPricing = new Map<string, { model: string | undefined; tier: string | undefined; consistent: boolean }>()
     for (const msg of messages) {
         if (msg.role === 'event') {
             if (msg.content.type === 'ready') {
@@ -610,36 +618,47 @@ export function reduceTimeline(
                     && msg.usage.scope_role !== 'child'
                 ) {
                     const model = tokenCount.model ?? undefined
+                    const tier = msg.usage.service_tier
+                    const turnId = tokenCount.turnId
+                    const priorPricing = turnId ? codexTurnPricing.get(turnId) : undefined
+                    const consistentPricing = !!model && !!tier && (!priorPricing
+                        || (priorPricing.consistent && priorPricing.model === model && priorPricing.tier === tier))
+                    if (turnId) codexTurnPricing.set(turnId, { model, tier, consistent: consistentPricing })
                     let usage = msg.usage
-                    let credits: number | undefined
-                    let usageScope: 'round' | 'last-request' = 'last-request'
-                    const tier = usage.service_tier
-                    const pricing = tokenCount.turnId ? codexPricing.get(tokenCount.turnId) : undefined
-                    const consistent = !!tokenCount.turnId && !!model && !!tier && (pricing?.consistent ?? true)
-                        && (!pricing?.model || pricing.model === model) && (!pricing?.tier || pricing.tier === tier)
-                    if (tokenCount.turnId) codexPricing.set(tokenCount.turnId, { model, tier, consistent })
+                    let usageScope: RoundSummary['usageScope'] = 'last-request'
                     const info = msg.content.info
                     const total = isObject(info) ? info.total ?? info.totalTokenUsage ?? info.total_token_usage : null
+                    const hasLastRequest = isObject(info) && isObject(info.last ?? info.lastTokenUsage ?? info.last_token_usage)
+                    if (isObject(total) && !hasLastRequest) usageScope = 'session'
                     if (tokenCount.turnId && isObject(total)) {
                         const input = total.inputTokens ?? total.input_tokens
                         const output = total.outputTokens ?? total.output_tokens
                         const cached = total.cachedInputTokens ?? total.cached_input_tokens
                         if (typeof input === 'number' && Number.isSafeInteger(input) && input >= 0
                             && typeof output === 'number' && Number.isSafeInteger(output) && output >= 0) {
-                            const current = { input, output, cached: typeof cached === 'number' && Number.isSafeInteger(cached) && cached >= 0 ? cached : undefined }
+                            const cacheWrite = total.cacheWriteInputTokens ?? total.cache_write_input_tokens
+                            const reasoning = total.reasoningOutputTokens ?? total.reasoning_output_tokens
+                            const current = {
+                                input, output,
+                                cached: validTokenCount(cached),
+                                cacheWrite: validTokenCount(cacheWrite),
+                                reasoning: validTokenCount(reasoning)
+                            }
                             if (!codexBaselines.has(tokenCount.turnId)) {
                                 codexBaselines.set(tokenCount.turnId, previousCodexTurn !== tokenCount.turnId ? previousCodexTotal : undefined)
                             }
                             const baseline = codexBaselines.get(tokenCount.turnId)
                             if (baseline && input >= baseline.input && output >= baseline.output) {
-                                const cache = current.cached !== undefined && baseline.cached !== undefined && current.cached >= baseline.cached
-                                    ? current.cached - baseline.cached : undefined
-                                usage = { ...usage, input_tokens: input - baseline.input, output_tokens: output - baseline.output,
-                                    cache_read_input_tokens: cache }
-                                usageScope = 'round'
-                                if (consistent && model && tier && cache !== undefined) {
-                                    credits = estimateCodexCredits(model, tier, usage.input_tokens, cache, usage.output_tokens)
+                                const cache = tokenCountDelta(current.cached, baseline.cached)
+                                usage = {
+                                    ...usage,
+                                    input_tokens: input - baseline.input,
+                                    output_tokens: output - baseline.output,
+                                    cache_read_input_tokens: cache,
+                                    cache_creation_input_tokens: tokenCountDelta(current.cacheWrite, baseline.cacheWrite),
+                                    reasoning_output_tokens: tokenCountDelta(current.reasoning, baseline.reasoning)
                                 }
+                                usageScope = 'round'
                             }
                             if (!previousCodexTotal || (input >= previousCodexTotal.input && output >= previousCodexTotal.output)) {
                                 previousCodexTotal = current
@@ -647,12 +666,20 @@ export function reduceTimeline(
                             }
                         }
                     }
+                    // Only price the whole turn when its cumulative delta has one known tariff.
+                    const priceRound = usageScope === 'round' && consistentPricing
+                    const pricedUsage = priceRound ? usage : hasLastRequest ? msg.usage : undefined
+                    const amount = model && tier && pricedUsage?.cache_read_input_tokens !== undefined
+                        ? estimateCodexPurchasedCredits(model, tier, pricedUsage.input_tokens,
+                            pricedUsage.cache_read_input_tokens, pricedUsage.output_tokens)
+                        : undefined
                     attachCodexRoundSummaryToLatestGroup(blocks, {
                         provider: 'codex',
-                        turnId: tokenCount.turnId,
+                        turnId,
                         usage,
                         usageScope,
-                        credits,
+                        purchasedCreditsEstimate: amount === undefined ? undefined
+                            : { amount, scope: priceRound ? 'round' : 'last-request' },
                         modelUsage: model
                             ? {
                                 [model]: {
@@ -718,9 +745,10 @@ export function reduceTimeline(
                     const generationOutputTokens = typeof durationContent.generationOutputTokens === 'number' ? durationContent.generationOutputTokens : undefined
                     const generation = generationMs !== undefined && generationOutputTokens !== undefined
                         ? { generationMs, generationOutputTokens } : {}
+                    const timeToFirstTokenMs = msg.content.timeToFirstTokenMs
                     attachCodexRoundSummaryToLatestGroup(blocks, {
                         provider: 'codex', turnId: msg.content.turnId as string, modelUsage: {}, numTurns: 1, durationMs: msg.content.durationMs as number,
-                        ...generation
+                        ...generation, ...(typeof timeToFirstTokenMs === 'number' ? { timeToFirstTokenMs } : {})
                     })
                     continue
                 }

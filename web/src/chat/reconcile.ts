@@ -32,6 +32,7 @@ function areUsageDataEqual(left?: UsageData, right?: UsageData): boolean {
     if (!left || !right) return false
     return left.input_tokens === right.input_tokens
         && left.output_tokens === right.output_tokens
+        && left.reasoning_output_tokens === right.reasoning_output_tokens
         && left.cache_creation_input_tokens === right.cache_creation_input_tokens
         && left.cache_read_input_tokens === right.cache_read_input_tokens
         && left.context_tokens === right.context_tokens
@@ -44,6 +45,7 @@ function areUsageDataEqual(left?: UsageData, right?: UsageData): boolean {
 function areRoundModelUsagesEqual(left: RoundModelUsage, right: RoundModelUsage): boolean {
     return left.inputTokens === right.inputTokens
         && left.outputTokens === right.outputTokens
+        && left.reasoningTokens === right.reasoningTokens
         && left.cacheReadInputTokens === right.cacheReadInputTokens
         && left.cacheCreationInputTokens === right.cacheCreationInputTokens
 }
@@ -72,12 +74,15 @@ function areRoundSummariesEqual(left?: RoundSummary, right?: RoundSummary): bool
         && left.agyUsage?.output_tokens === right.agyUsage?.output_tokens
         && left.agyUsage?.thinking_tokens === right.agyUsage?.thinking_tokens
         && left.agyUsage?.cache_read_tokens === right.agyUsage?.cache_read_tokens
+        && left.agyUsage?.cache_write_tokens === right.agyUsage?.cache_write_tokens
         && left.agyUsage?.total_tokens === right.agyUsage?.total_tokens
         && left.totalCostUsd === right.totalCostUsd
         && left.usageScope === right.usageScope
-        && left.credits === right.credits
+        && left.purchasedCreditsEstimate?.amount === right.purchasedCreditsEstimate?.amount
+        && left.purchasedCreditsEstimate?.scope === right.purchasedCreditsEstimate?.scope
         && left.numTurns === right.numTurns
         && left.durationMs === right.durationMs
+        && left.timeToFirstTokenMs === right.timeToFirstTokenMs
         && left.generationMs === right.generationMs
         && left.generationOutputTokens === right.generationOutputTokens
         && areUsageDataEqual(left.usage, right.usage)

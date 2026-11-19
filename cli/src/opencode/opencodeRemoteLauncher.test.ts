@@ -553,6 +553,43 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         }
     });
 
+    it('sends usage and response timing for the completed OpenCode prompt', async () => {
+        harness.detectedVersion = 'v2';
+        harness.servePid = 999;
+        harness.discoveredPort = 41234;
+        harness.discoveredPassword = 'pw-secret';
+        const { session, sentAgentMessages } = createSessionStub([{ message: 'Measure this reply', mode: createMode() }]);
+        const originalFetch = globalThis.fetch;
+        vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) => {
+            if (!String(args[0]).includes('/api/session/acp-session-1/message?')) return originalFetch(...args);
+            const data = [{ id: 'previous', type: 'idle' }];
+            if (harness.promptCount === 0) return Response.json({ data });
+            const [prompt] = harness.promptContents[0] as Array<{ text: string }>;
+            return Response.json({ data: [
+                { id: 'answer', type: 'assistant', model: { providerID: 'opencode-go', id: 'model' },
+                    tokens: { input: 10, output: 3, reasoning: 2, cache: { read: 7, write: 0 } },
+                    time: { created: 1000, streamed: 1500, completed: 9000 }, cost: 0 },
+                { id: 'request', type: 'user', text: prompt.text },
+                ...data
+            ] });
+        }));
+        try {
+            await opencodeRemoteLauncher(session as never);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+        expect(sentAgentMessages).toContainEqual(expect.objectContaining({
+            type: 'round-summary',
+            summary: expect.objectContaining({
+                provider: 'opencode',
+                usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 2,
+                    cache_read_input_tokens: 7, cache_creation_input_tokens: 0 },
+                generation_ms: 500,
+                generation_output_tokens: 5
+            })
+        }));
+    });
+
     it('positions an accepted steer at dispatch even when its response completes later', async () => {
         let finishSteer!: (reason: string | null) => void;
         harness.softSteerCompletion = new Promise((resolve) => { finishSteer = resolve; });

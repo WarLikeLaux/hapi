@@ -8,11 +8,13 @@ export type OpencodeRoundSnapshot = {
 export type OpencodeRoundModelUsage = {
     inputTokens: number;
     outputTokens: number;
+    reasoningTokens: number;
     cacheReadInputTokens: number;
     cacheCreationInputTokens: number;
 };
 
 export type OpencodeRoundSummary = {
+    provider: 'opencode';
     usage: OpencodeRoundModelUsage;
     modelUsage: Record<string, OpencodeRoundModelUsage>;
     totalCostUsd?: number;
@@ -187,6 +189,7 @@ function parseAssistantUsage(message: OpencodeMessage, allowMissingCost: boolean
         usage: {
             inputTokens,
             outputTokens: displayOutputTokens,
+            reasoningTokens,
             cacheReadInputTokens,
             cacheCreationInputTokens
         },
@@ -197,6 +200,7 @@ function parseAssistantUsage(message: OpencodeMessage, allowMissingCost: boolean
 function addUsage(total: OpencodeRoundModelUsage, next: OpencodeRoundModelUsage): boolean {
     total.inputTokens += next.inputTokens;
     total.outputTokens += next.outputTokens;
+    total.reasoningTokens += next.reasoningTokens;
     total.cacheReadInputTokens += next.cacheReadInputTokens;
     total.cacheCreationInputTokens += next.cacheCreationInputTokens;
     return Object.values(total).every(Number.isSafeInteger);
@@ -229,6 +233,10 @@ export async function fetchOpencodeRoundSummary(options: RoundFetchOptions & {
         if (!before.has(id)) delta.push(message);
     }
 
+    // The snapshot and result must overlap unless the session was empty.
+    // Without that boundary a full page could hide early steps of this turn.
+    if (before.size > 0 && !messageIds.some(id => before.has(id))) return null;
+
     const hasOriginalPrompt = delta.some((message) => message.info?.role === 'user' && messageText(message) === options.promptText);
     if (!hasOriginalPrompt) return null;
     const snapshot = { messageIds };
@@ -236,6 +244,7 @@ export async function fetchOpencodeRoundSummary(options: RoundFetchOptions & {
     const usage: OpencodeRoundModelUsage = {
         inputTokens: 0,
         outputTokens: 0,
+        reasoningTokens: 0,
         cacheReadInputTokens: 0,
         cacheCreationInputTokens: 0
     };
@@ -255,6 +264,7 @@ export async function fetchOpencodeRoundSummary(options: RoundFetchOptions & {
             perModel = {
                 inputTokens: 0,
                 outputTokens: 0,
+                reasoningTokens: 0,
                 cacheReadInputTokens: 0,
                 cacheCreationInputTokens: 0
             };
@@ -282,6 +292,7 @@ export async function fetchOpencodeRoundSummary(options: RoundFetchOptions & {
     return {
         snapshot,
         summary: {
+            provider: 'opencode',
             usage,
             modelUsage: Object.fromEntries(modelUsage),
             ...(hasCompleteCost && totalCostUsd > 0 ? { totalCostUsd } : {}),

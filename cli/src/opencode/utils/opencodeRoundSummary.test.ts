@@ -39,7 +39,7 @@ describe('captureOpencodeRoundSnapshot', () => {
     it('captures only valid persisted message IDs before a prompt', async () => {
         const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
             expect(url).toBe('http://127.0.0.1:48273/session/ses_abc/message?limit=512');
-            expect(init).toMatchObject({ method: 'GET', signal: noSignal });
+            expect(init).toMatchObject({ method: 'GET', signal: expect.any(AbortSignal) });
             return new Response(JSON.stringify([user('old-user', 'earlier'), assistant('old-assistant', 'old-user')]), { status: 200 });
         });
 
@@ -88,9 +88,11 @@ describe('fetchOpencodeRoundSummary', () => {
             'old-user', 'old-assistant', 'prompt-user', 'tool-step', 'stop-step', 'other-model'
         ]);
         expect(result?.summary).toEqual({
+            provider: 'opencode',
             usage: {
                 inputTokens: 220,
                 outputTokens: 44,
+                reasoningTokens: 8,
                 cacheReadInputTokens: 75,
                 cacheCreationInputTokens: 10
             },
@@ -98,12 +100,14 @@ describe('fetchOpencodeRoundSummary', () => {
                 'openai/gpt-5.4': {
                     inputTokens: 140,
                     outputTokens: 35,
+                    reasoningTokens: 8,
                     cacheReadInputTokens: 55,
                     cacheCreationInputTokens: 10
                 },
                 'anthropic/claude-opus-4-1': {
                     inputTokens: 80,
                     outputTokens: 9,
+                    reasoningTokens: 0,
                     cacheReadInputTokens: 20,
                     cacheCreationInputTokens: 0
                 }

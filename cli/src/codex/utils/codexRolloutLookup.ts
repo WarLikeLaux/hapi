@@ -10,11 +10,10 @@ function text(value: unknown): string | undefined { return typeof value === 'str
 
 export type CodexCompactionInfo = { summary?: string; estimatedTokensAfter?: number };
 
-/** Reads only the path supplied for this thread by native thread/read or resume.
- * Checkpoints have no item ID: bind one checkpoint to its persisted completed
- * ContextCompaction, never to an adjacent assistant message or retained history.
- */
-export class CodexCompactionSummaryLookup {
+type LookupOptions = { attempts?: number; sleep?: () => Promise<void> };
+
+/** Incrementally reads a rollout identified by native thread/read or resume. */
+export class CodexRolloutLookup {
     private path?: string;
     private identity?: string;
     private offset = 0;
@@ -25,13 +24,14 @@ export class CodexCompactionSummaryLookup {
     private turn?: string;
     private pending?: { turn: string; info: CodexCompactionInfo; ambiguous: boolean; contextSeen: boolean; estimateAllowed: boolean; estimateCount: number };
     private work: Promise<unknown> = Promise.resolve();
+    private readonly firstOutputTimes = new Map<string, number | null>();
     private readonly compactions = new Map<string, CodexCompactionInfo | null>();
 
     constructor(private readonly threadId: string) {}
 
     private reset(): void {
         this.offset = 0; this.partial = Buffer.alloc(0); this.verified = false; this.first = true;
-        this.turn = undefined; this.pending = undefined; this.compactions.clear();
+        this.turn = undefined; this.pending = undefined; this.compactions.clear(); this.firstOutputTimes.clear();
     }
 
     private line(line: string): void {
@@ -65,6 +65,11 @@ export class CodexCompactionSummaryLookup {
             delete this.pending.info.estimatedTokensAfter;
         }
         if (event.type !== 'event_msg') return;
+        if (payload.type === 'task_complete') {
+            const id = text(payload.turn_id);
+            const timing = payload.time_to_first_token_ms;
+            if (id) this.firstOutputTimes.set(id, typeof timing === 'number' && Number.isSafeInteger(timing) && timing >= 0 ? timing : null);
+        }
         if (this.pending && payload.type === 'token_count' && payload.info != null) {
             const info = record(payload.info); const last = record(info.last_token_usage);
             // Native0.166 recompute_token_usage emits a retained-context estimate
@@ -102,7 +107,7 @@ export class CodexCompactionSummaryLookup {
         try {
             const stat = await handle.stat();
             // Reuse the existing authenticated history transport's finite bound.
-            // Oversized/non-regular snapshots are optional-summary misses, not unbounded reads.
+            // Both checkpoint text and first-output timing are optional enrichments.
             if (!stat.isFile() || stat.size > CODEX_WEBSOCKET_MAX_PAYLOAD) { this.reset(); return false; }
             const identity = `${stat.dev}:${stat.ino}`;
             if (path !== this.path || identity !== this.identity || stat.size < this.offset
@@ -122,28 +127,36 @@ export class CodexCompactionSummaryLookup {
         } finally { await handle.close(); }
     }
 
-    find(thread: unknown, turnId: string, itemId: string, options?: {
-        attempts?: number; sleep?: () => Promise<void>;
-    }): Promise<CodexCompactionInfo | null> {
-        // Live notifications and history refresh run independently in the root.
-        // One reader owns the incremental offset and checkpoint binding at a time.
-        const result = this.work.catch(() => {}).then(() => this.findNow(thread, turnId, itemId, options));
+    find(thread: unknown, turnId: string, itemId: string, options?: LookupOptions): Promise<CodexCompactionInfo | null> {
+        if (!turnId || !itemId) return Promise.resolve(null);
+        return this.lookup(thread, () => this.compactions.get(`${turnId}:${itemId}`), options);
+    }
+
+    firstOutputTime(thread: unknown, turnId: string): Promise<number | null> {
+        if (!turnId) return Promise.resolve(null);
+        return this.lookup(thread, () => this.firstOutputTimes.get(turnId), {
+            attempts: 3,
+            sleep: () => new Promise(resolve => setTimeout(resolve, 40))
+        });
+    }
+
+    private lookup<T>(thread: unknown, read: () => T | null | undefined, options?: LookupOptions): Promise<T | null> {
+        // Live notifications and history refresh share the incremental offset.
+        const result = this.work.catch(() => {}).then(() => this.findNow(thread, read, options));
         this.work = result;
         return result;
     }
 
-    private async findNow(thread: unknown, turnId: string, itemId: string, options?: {
-        attempts?: number; sleep?: () => Promise<void>;
-    }): Promise<CodexCompactionInfo | null> {
+    private async findNow<T>(thread: unknown, read: () => T | null | undefined, options?: LookupOptions): Promise<T | null> {
         const source = record(thread); const path = text(source.path);
-        if (source.id !== this.threadId || !path || !isAbsolute(path) || !turnId || !itemId) return null;
-        // Same bounded late-flush policy as the existing Claude transcript lookup.
+        if (source.id !== this.threadId || !path || !isAbsolute(path)) return null;
+        // The native notification can precede the rollout flush.
         const attempts = options?.attempts ?? 10;
         for (let attempt = 0; attempt < attempts; attempt++) {
             try { if (!await this.scan(path)) return null; }
             catch { this.reset(); return null; }
-            const key = `${turnId}:${itemId}`;
-            if (this.compactions.has(key)) return this.compactions.get(key) ?? null;
+            const value = read();
+            if (value !== undefined) return value;
             if (attempt + 1 < attempts) await (options?.sleep ?? (() => new Promise(resolve => setTimeout(resolve, 500))))();
         }
         return null;

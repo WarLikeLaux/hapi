@@ -1,3 +1,4 @@
+import { CodexGenerationLedger } from '../utils/codexGenerationLedger';
 import { CodexRoundDuration } from '../utils/roundDuration';
 import { createHash } from 'node:crypto';
 import type { ApiSessionClient } from '@/api/apiSession';
@@ -7,7 +8,7 @@ import { AppServerEventConverter } from '../utils/appServerEventConverter';
 import { record, string } from './gateway';
 import { codexPlanProposalId } from './plan';
 import { asyncQuestionForItem, asyncQuestionAnswerId, asyncQuestionAnswerDisplay, parseAsyncQuestionAnswer } from './asyncQuestions';
-import { CodexCompactionSummaryLookup } from '../utils/codexCompactionSummary';
+import { CodexRolloutLookup } from '../utils/codexRolloutLookup';
 
 export function inputText(input: unknown): string {
     if (!Array.isArray(input)) return '';
@@ -39,10 +40,15 @@ function metadataHasDisplayTitle(metadata: { name?: string; summary?: { text: st
     return Boolean(metadata?.name?.trim() || metadata?.summary?.text?.trim());
 }
 
+function nativeTimestamp(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
 /** Canonical V2 stream only. Stable message IDs also deduplicate snapshot replay at the hub. */
 export class SharedCodexProjection {
     private converter = new AppServerEventConverter();
     private readonly roundDuration = new CodexRoundDuration();
+    private generation = new CodexGenerationLedger();
     private readonly emitted = new Set<string>();
     private readonly turns = new Map<string, string>();
     private readonly turnModels = new Map<string, string>();
@@ -60,13 +66,13 @@ export class SharedCodexProjection {
     private turnStaleAsyncQuestionIds = new Set<string>();
     private pendingAsyncQuestionIds = new Set<string>();
     private asyncQuestionsInitialized = false;
-    private readonly compactionSummaries: CodexCompactionSummaryLookup;
+    private readonly rollout: CodexRolloutLookup;
     private summaryThread: unknown;
     constructor(private readonly session: ApiSessionClient, readonly threadId: string,
         private readonly committed: (id: string, invokedAt?: number) => Promise<void>, private readonly parentThreadId?: string,
         private readonly acceptedAsyncAnswer: (questionId: string) => Record<string, { answers: string[] }> | undefined = () => undefined,
         private readonly readSummaryThread?: () => Promise<unknown>) {
-        this.compactionSummaries = new CodexCompactionSummaryLookup(threadId);
+        this.rollout = new CodexRolloutLookup(threadId);
         if (!parentThreadId) for (const [id, turn] of Object.entries(session.getMetadata()?.conversationHistoryTurns ?? {})) this.turns.set(id, turn);
     }
 
@@ -118,6 +124,15 @@ export class SharedCodexProjection {
         });
         this.send({ type: 'tool-call-result', callId: questionId, output: { answers } }, `async-answer:${questionId}`);
     }
+    seedFreshUsage(): void { this.generation.noteTokenUsage(0); }
+
+    beginUserWait(turnId: string | undefined, startedAt: number): ((endedAt: number) => void) | undefined {
+        return turnId && turnId === this.roundDuration.turnId ? this.generation.beginUserWait(startedAt) : undefined;
+    }
+
+    // Native reconnect can miss both tool windows and usage snapshots.
+    invalidateGeneration(): void { this.generation = new CodexGenerationLedger(); }
+
     reset(): void { this.converter = new AppServerEventConverter(); this.emitted.clear(); }
     private send(body: Record<string, unknown>, key: string, publish = true): void {
         if (this.emitted.has(key)) return;
@@ -170,19 +185,29 @@ export class SharedCodexProjection {
                 }
             }
         }
-        await this.project(method, params, modelAtReceipt, true, false, tierAtReceipt);
-        if (p.threadId === this.threadId && !this.parentThreadId) {
-            const turn = record(p.turn);
-            const turnId = string(turn.id);
-            if (method === 'turn/started') this.roundDuration.start(turnId, receivedAt);
-            if (method === 'turn/completed') {
-                const duration = this.roundDuration.finish(turnId, receivedAt, turn.status === 'completed');
-                if (duration) this.send(duration, `duration:${turnId}`);
+        const liveRoot = p.threadId === this.threadId && !this.parentThreadId;
+        const turn = record(p.turn);
+        const turnId = string(turn.id);
+        if (liveRoot && method === 'turn/started' && turnId !== this.roundDuration.turnId) {
+            this.roundDuration.start(turnId, receivedAt);
+            this.generation.startTurn(turnId, receivedAt);
+        }
+        await this.project(method, params, modelAtReceipt, true, false, tierAtReceipt, liveRoot ? receivedAt : undefined);
+        if (liveRoot && method === 'turn/completed') {
+            const completed = turn.status === 'completed';
+            const duration = this.roundDuration.finish(turnId, receivedAt, completed);
+            const generation = this.generation.settle(turnId, receivedAt, completed);
+            if (duration) {
+                if (!string(record(this.summaryThread).path) && this.readSummaryThread) {
+                    try { this.summaryThread = await this.readSummaryThread(); } catch { this.summaryThread = undefined; }
+                }
+                const timeToFirstTokenMs = await this.rollout.firstOutputTime(this.summaryThread, duration.turn_id);
+                this.send({ ...duration, ...generation, ...(timeToFirstTokenMs === null ? {} : { timeToFirstTokenMs }) }, `duration:${turnId}`);
             }
         }
     }
 
-    private async project(method: string, params: unknown, modelAtReceipt?: string, publish = true, fromHistory = false, tierAtReceipt?: string): Promise<void> {
+    private async project(method: string, params: unknown, modelAtReceipt?: string, publish = true, fromHistory = false, tierAtReceipt?: string, receivedAt?: number): Promise<void> {
         if (method.startsWith('codex/event/')) return;
         const p = record(params);
         const item = record(p.item);
@@ -252,6 +277,7 @@ export class SharedCodexProjection {
         }
         const events = this.converter.handleNotification(method, params);
         for (const event of events) {
+            if (receivedAt !== undefined) this.observeGeneration(event, turnId, receivedAt);
             const callId = string(event.call_id);
             const key = `${turnId ?? 'thread'}:${itemId ?? callId ?? createHash('sha256').update(JSON.stringify(event)).digest('hex')}:${event.type}`;
             if (event.type === 'agent_message') send({ type: 'message', message: event.message, ...(typeof event.phase === 'string' ? { phase: event.phase } : {}) }, key);
@@ -295,7 +321,7 @@ export class SharedCodexProjection {
                 if (!fromHistory && this.readSummaryThread) {
                     try { this.summaryThread = await this.readSummaryThread(); } catch { this.summaryThread = undefined; }
                 }
-                const compact = turnId && itemId ? await this.compactionSummaries.find(this.summaryThread, turnId, itemId, fromHistory ? { attempts: 1 } : undefined) : null;
+                const compact = turnId && itemId ? await this.rollout.find(this.summaryThread, turnId, itemId, fromHistory ? { attempts: 1 } : undefined) : null;
                 if (compact) {
                     // A distinct durable ID can enrich a previously stored boundary.
                     // Clients fold it back into that exact compaction's original position.
@@ -342,6 +368,33 @@ export class SharedCodexProjection {
                     summary: record(state).message, input: item, scope: { role: 'child', threadId: agentId, parentThreadId: this.threadId }, scope_role: 'child', thread_id: agentId
                 }, `agent:${agentId}:${itemId}:${method}:${JSON.stringify(state)}`, publish);
             }
+        }
+    }
+
+    private observeGeneration(event: Record<string, unknown>, turnId: string | undefined, receivedAt: number): void {
+        if (event.type === 'token_count') {
+            const info = record(event.info);
+            const total = record(info.total ?? info.totalTokenUsage ?? info.total_token_usage);
+            const output = total.outputTokens ?? total.output_tokens;
+            if (typeof output === 'number') this.generation.noteTokenUsage(output);
+            return;
+        }
+        const callId = string(event.call_id);
+        if (!callId || !turnId || turnId !== this.roundDuration.turnId) return;
+        switch (event.type) {
+            case 'exec_command_begin':
+            case 'mcp_tool_call_begin':
+            case 'patch_apply_begin':
+            case 'codex_tool_call_begin':
+                this.generation.beginTool(callId, nativeTimestamp(event.started_at_ms) ?? receivedAt);
+                break;
+            case 'exec_command_end':
+            case 'mcp_tool_call_end':
+            case 'patch_apply_end':
+            case 'codex_tool_call_end':
+                this.generation.endTool(callId, nativeTimestamp(event.completed_at_ms) ?? receivedAt,
+                    typeof event.duration_ms === 'number' ? event.duration_ms : undefined);
+                break;
         }
     }
 

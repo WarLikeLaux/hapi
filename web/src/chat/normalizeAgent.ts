@@ -106,7 +106,7 @@ function normalizeAgyRoundSummary(value: Record<string, unknown>): RoundSummary 
     const raw = value.agy_usage
     const agyUsage: NonNullable<RoundSummary['agyUsage']> = {}
     if (isObject(raw) && !Array.isArray(raw)) {
-        for (const key of ['input_tokens', 'output_tokens', 'thinking_tokens', 'cache_read_tokens', 'total_tokens'] as const) {
+        for (const key of ['input_tokens', 'output_tokens', 'thinking_tokens', 'cache_read_tokens', 'cache_write_tokens', 'total_tokens'] as const) {
             const token = nonNegativeSafeInteger(raw[key])
             if (token !== undefined) agyUsage[key] = token
         }
@@ -131,6 +131,7 @@ function normalizeAgyRoundSummary(value: Record<string, unknown>): RoundSummary 
 function normalizeOpencodeRoundSummary(value: unknown): RoundSummary | undefined {
     if (!isObject(value) || Array.isArray(value)) return undefined
     const usage = normalizeResultUsage(value.usage)
+    const reasoning = isObject(value.usage) ? nonNegativeSafeInteger(value.usage.reasoning_output_tokens) : undefined
     if (
         !usage
         || usage.cache_creation_input_tokens === undefined
@@ -151,7 +152,11 @@ function normalizeOpencodeRoundSummary(value: unknown): RoundSummary | undefined
             || cacheReadInputTokens === undefined
             || cacheCreationInputTokens === undefined
         ) return undefined
-        entries.push([model, { inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens }])
+        const reasoningTokens = nonNegativeSafeInteger(rawUsage.reasoningTokens)
+        entries.push([model, {
+            inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens,
+            ...(reasoningTokens !== undefined && reasoningTokens <= outputTokens ? { reasoningTokens } : {})
+        }])
     }
     if (entries.length === 0) return undefined
 
@@ -169,9 +174,14 @@ function normalizeOpencodeRoundSummary(value: unknown): RoundSummary | undefined
         && generationOutputTokens !== undefined && generationOutputTokens > 0
         ? { generationMs, generationOutputTokens } : {}
 
+    // Older Go, QCode and Z.ai summaries already carry the provider/model key.
+    const isOpencode = value.provider === 'opencode'
+        || entries.every(([model]) => /^(opencode-go|qcode|zai-coding-plan|zai)\//.test(model))
     return {
         ...generation,
-        usage,
+        ...(isOpencode ? { provider: 'opencode' as const } : {}),
+        usage: isOpencode && reasoning !== undefined && reasoning <= usage.output_tokens
+            ? { ...usage, reasoning_output_tokens: reasoning } : usage,
         modelUsage: Object.fromEntries(entries),
         totalCostUsd,
         numTurns,
@@ -233,10 +243,14 @@ function normalizeCodexTokenUsage(value: unknown, data?: Record<string, unknown>
     return {
         input_tokens: inputTokens,
         output_tokens: outputTokens,
+        ...(data?.flavor === 'codex' ? {
+            reasoning_output_tokens: nonNegativeSafeInteger(usageSource.reasoningOutputTokens ?? usageSource.reasoning_output_tokens),
+        } : {}),
         service_tier: asString(data?.service_tier ?? data?.serviceTier) ?? undefined,
         // Codex `inputTokens` already includes cached input tokens; expose cache
         // hits for display, but use `context_tokens` to avoid double-counting.
-        cache_creation_input_tokens: undefined,
+        cache_creation_input_tokens: data?.flavor === 'codex'
+            ? nonNegativeSafeInteger(usageSource.cacheWriteInputTokens ?? usageSource.cache_write_input_tokens) : undefined,
         cache_read_input_tokens: asNumber(
             usageSource.cachedInputTokens
             ?? usageSource.cached_input_tokens
@@ -1267,6 +1281,7 @@ export function normalizeAgentRecord(
             const scopeRole = asString(data.scope_role ?? data.scopeRole ?? scope?.role)
             if (data.flavor !== 'codex' || data.hapiUsageScope === 'imported-history'
                 || scopeRole === 'child' || !turnId || durationMs === undefined) return null
+            const timeToFirstTokenMs = nonNegativeSafeInteger(data.timeToFirstTokenMs)
             const generationMs = nonNegativeSafeInteger(data.generationMs)
             const generationOutputTokens = nonNegativeSafeInteger(data.generationOutputTokens)
             const generation = generationMs !== undefined && generationMs > 0
@@ -1277,7 +1292,8 @@ export function normalizeAgentRecord(
                 localId,
                 createdAt,
                 role: 'event',
-                content: { type: 'turn-duration', provider: 'codex', durationMs, turnId, ...generation },
+                content: { type: 'turn-duration', provider: 'codex', durationMs, turnId, ...generation,
+                    ...(timeToFirstTokenMs === undefined ? {} : { timeToFirstTokenMs }) },
                 isSidechain: false,
                 meta
             }

@@ -1838,7 +1838,7 @@ function SessionChatInner(props: SessionChatProps) {
         () => getAgentActivity(reconciled.blocks, normalizedMessages),
         [reconciled.blocks, normalizedMessages]
     )
-    const turnMetrics = useMemo(() => getTurnMetrics(normalizedMessages), [normalizedMessages])
+    const turnMetrics = useMemo(() => getTurnMetrics(normalizedMessages, reconciled.blocks), [normalizedMessages, reconciled.blocks])
     const sessionStatus = useMemo(
         () => buildSessionStatusData({
             goal: reduced.latestGoal,

@@ -6,6 +6,7 @@ import type { WorkspaceChanges } from '@hapi/protocol'
 export type UsageData = {
     input_tokens: number
     output_tokens: number
+    reasoning_output_tokens?: number
     cache_creation_input_tokens?: number
     cache_read_input_tokens?: number
     context_tokens?: number
@@ -18,26 +19,28 @@ export type UsageData = {
 export type RoundModelUsage = {
     inputTokens?: number
     outputTokens?: number
+    reasoningTokens?: number
     cacheReadInputTokens?: number
     cacheCreationInputTokens?: number
 }
 
 export type AgyUsage = Partial<Record<
-    'input_tokens' | 'output_tokens' | 'thinking_tokens' | 'cache_read_tokens' | 'total_tokens', number
+    'input_tokens' | 'output_tokens' | 'thinking_tokens' | 'cache_read_tokens' | 'cache_write_tokens' | 'total_tokens', number
 >>
 
 export type RoundSummary = {
-    provider?: 'codex' | 'agy'
+    provider?: 'codex' | 'agy' | 'opencode'
     agyUsage?: AgyUsage
     turnId?: string
-    usageScope?: 'round' | 'last-request'
+    usageScope?: 'round' | 'last-request' | 'session'
     usage?: UsageData
     modelUsage: Record<string, RoundModelUsage>
+    purchasedCreditsEstimate?: { amount: number; scope: 'round' | 'last-request' }
     totalCostUsd?: number
-    credits?: number
     numTurns?: number
     durationMs?: number
     workspaceChanges?: WorkspaceChanges
+    timeToFirstTokenMs?: number
     generationMs?: number
     generationOutputTokens?: number
 }
@@ -51,7 +54,7 @@ export type AgentEvent =
     | { type: 'limit-warning'; /** 0–1 ratio (e.g. 0.9 = 90%), integer-precision via CLI pipe format */ utilization: number; endsAt: number; limitType: string }
     | { type: 'ready' }
     | { type: 'api-error'; retryAttempt: number; maxRetries: number; error: unknown }
-    | { type: 'turn-duration'; durationMs: number; targetMessageId?: string; provider?: 'codex'; turnId?: string; generationMs?: number; generationOutputTokens?: number }
+    | { type: 'turn-duration'; durationMs: number; targetMessageId?: string; provider?: 'codex'; turnId?: string; timeToFirstTokenMs?: number; generationMs?: number; generationOutputTokens?: number }
     | { type: 'turn-summary'; summary: RoundSummary }
     | { type: 'workspace-changes'; changes: WorkspaceChanges }
     | { type: 'token-count'; info: unknown; provider?: 'codex'; turnId?: string; model?: string | null }

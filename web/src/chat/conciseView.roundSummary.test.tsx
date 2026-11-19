@@ -1,3 +1,4 @@
+import { fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -6,11 +7,19 @@ import { normalizeDecryptedMessage } from './normalize'
 import { reduceChatBlocks } from './reducer'
 import { reconcileChatBlocks, type ChatBlocksById } from './reconcile'
 import { buildVisibleChatBlocks } from './toolGroups'
-import type { AgentEvent, ChatBlock, NormalizedMessage } from './types'
+import type { AgentEvent, ChatBlock, NormalizedMessage, RoundModelUsage, UsageData } from './types'
 import { aggregateResponseGroups, assignThreadMessageIds, buildSourceMessageIdsByBlock } from '@/lib/assistant-runtime'
 import { buildMessageMetadataLabels, MessageMetadata } from '@/components/AssistantChat/messages/MessageMetadata'
 
-const wireSummary = {
+const wireSummary: {
+    usage: UsageData
+    modelUsage: Record<string, RoundModelUsage>
+    total_cost_usd: number
+    num_turns: number
+    duration_ms: number
+    generation_ms: number
+    generation_output_tokens: number
+} = {
     usage: { input_tokens: 100, output_tokens: 30, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
     modelUsage: { 'fixture/model': { inputTokens: 100, outputTokens: 30, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } },
     total_cost_usd: 0.02, num_turns: 2, duration_ms: 9000,
@@ -78,6 +87,27 @@ describe('concise summary through reducer, reconcile, grouping and runtime metad
         const source = result.canonical.find(block => 'roundSummary' in block)
         const canonicalSummary = source && 'roundSummary' in source ? source.roundSummary : undefined
         expect('roundSummary' in final ? final.roundSummary : undefined).toBe(canonicalSummary)
+    })
+
+    it('shows OpenCode reasoning once and distinguishes Go allowance from client cost', () => {
+        const result = pipeline(round('go', 'tool', {
+            ...wireSummary,
+            usage: { ...wireSummary.usage, reasoning_output_tokens: 12 },
+            modelUsage: { 'opencode-go/test-model': { inputTokens: 100, outputTokens: 30,
+                cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } }
+        }))
+        expect(result.labels).toEqual([['Time: 9.0s', '20.0 tok/s']])
+        render(<MessageMetadata {...result.aggregates.values().next().value} />)
+        const diagnostics = screen.getByRole('button', { name: 'Usage diagnostics' })
+        expect(diagnostics.getAttribute('aria-expanded')).toBe('false')
+        fireEvent.click(diagnostics)
+        expect(diagnostics.getAttribute('aria-expanded')).toBe('true')
+        expect(screen.getByText('Reasoning').closest('[hidden]')).toBeNull()
+        expect(result.rendered).toMatch(/<dt>Turn tokens<\/dt><dd[^>]*>130<\/dd>/)
+        expect(result.rendered).toMatch(/<dt>Output excluding reasoning<\/dt><dd[^>]*>18<\/dd>/)
+        expect(result.rendered).toMatch(/<dt>Reasoning<\/dt><dd[^>]*>12<\/dd>/)
+        expect(result.rendered).toContain('Go console')
+        expect(result.rendered).not.toContain('$0.020')
     })
 
     it('reacts to late S and each generation field change/removal through reconciliation', () => {

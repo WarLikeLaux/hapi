@@ -339,47 +339,42 @@ describe('reduceTimeline', () => {
         const wire = (id: string, turn_id: string, data: Record<string, unknown>) => normalizeAgentRecord(id, null, 1000, {
             type: 'codex', data: { ...data, turn_id }
         })!
-        const count = (id: string, turn: string, total: number, cached: number, output: number, last: number) => wire(id, turn, {
+        const count = (id: string, turn: string, total: number, cached: number, output: number, last: number, reasoning: number) => wire(id, turn, {
             type: 'token_count', flavor: 'codex', model: 'gpt-5.4', info: {
-                total_token_usage: { input_tokens: total, cached_input_tokens: cached, output_tokens: output },
+                total_token_usage: { input_tokens: total, cached_input_tokens: cached, output_tokens: output, reasoning_output_tokens: reasoning },
                 last_token_usage: { input_tokens: last, cached_input_tokens: last - 10, output_tokens: 5 }
             }
         })
         const messages = [makeUserMessage('previous'), wire('old', 'old', { type: 'message', message: 'old' }),
-            count('baseline', 'old', 1000, 900, 100, 100), makeUserMessage('next'),
+            count('baseline', 'old', 1000, 900, 100, 100, 50), makeUserMessage('next'),
             wire('answer', 'new', { type: 'message', message: 'answer' }),
-            count('one', 'new', 1100, 980, 105, 100), count('two', 'new', 1220, 1090, 110, 120),
+            count('one', 'new', 1100, 980, 105, 100, 52), count('two', 'new', 1220, 1090, 110, 120, 55),
             wire('duration', 'new', { type: 'turn_duration', flavor: 'codex', durationMs: 3000 })]
         const { blocks } = reduceTimeline(messages, makeContext())
         const answer = blocks.find(block => block.id === 'answer:0')
         expect(answer).toMatchObject({ roundSummary: { durationMs: 3000, usage: {
-            input_tokens: 220, output_tokens: 10, cache_read_input_tokens: 190
+            input_tokens: 220, output_tokens: 10, cache_read_input_tokens: 190, reasoning_output_tokens: 5
         } } })
+
     })
 
-    it('estimates credits for each complete Codex round and rejects inconsistent pricing', () => {
-        const wire = (id: string, turn: string, data: Record<string, unknown>) => normalizeAgentRecord(id, null, 1000, {
-            type: 'codex', data: { ...data, turn_id: turn }
+    it.each([
+        ['fast', Date.UTC(2026, 10, 19), '2.4'],
+        ['ultrafast', Date.UTC(2026, 10, 19), '7.2']
+    ] as const)('estimates credits at regular rates for a %s request at %s', (tier, timestamp, credits) => {
+        const turn_id = 'new'
+        const normalize = (id: string, data: object) => normalizeAgentRecord(id, null, timestamp, {
+            type: 'codex', data: { ...data, turn_id, flavor: 'codex' }
         })!
-        const count = (id: string, turn: string, input: number, cached: number, output: number, model = 'gpt-6.1-terra') => wire(id, turn, {
-            type: 'token_count', flavor: 'codex', model, service_tier: 'fast', info: {
-                total_token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output },
-                last_token_usage: { input_tokens: 100, cached_input_tokens: 90, output_tokens: 10 }
-            }
+        const answer = normalize('answer', { type: 'message', message: 'done' })
+        const sample = normalize('usage', {
+            type: 'token_count', model: 'gpt-6.2-sol', service_tier: tier,
+            info: { last: { inputTokens: 20_000, cachedInputTokens: 10_000, outputTokens: 2_700, reasoningOutputTokens: 1_700 } }
         })
-        const prefix = [makeUserMessage('previous'), wire('old', 'old', { type: 'message', message: 'old' }),
-            count('baseline', 'old', 1000, 900, 100), makeUserMessage('next'),
-            wire('answer', 'new', { type: 'message', message: 'answer' })]
-        const first = count('one', 'new', 43699, 43268, 233)
-        const second = count('two', 'new', 132999, 129924, 452)
-        const summary = (messages: typeof prefix) => {
-            const { blocks } = reduceTimeline(messages, makeContext())
-            const answer = blocks.find(block => block.id === 'answer:0')
-            return answer && 'roundSummary' in answer ? answer.roundSummary : undefined
-        }
-        expect(summary([...prefix, first, second])?.credits).toBeCloseTo(0.6991375)
-        expect(summary([...prefix, first, count('changed', 'new', 132999, 129924, 452, 'gpt-6.1-sol')])?.credits).toBeUndefined()
-        expect(summary([...prefix.slice(3), first])?.credits).toBeUndefined()
+        const { blocks } = reduceTimeline([makeUserMessage('user'), answer, sample], makeContext())
+        const result = blocks.find(block => block.kind === 'agent-text')
+        if (!result || result.kind !== 'agent-text') throw new Error('Missing Codex reply')
+        expect(buildMessageMetadataLabels({ roundSummary: result.roundSummary })).toContain(`Credits: ≈${credits} (last request)`)
     })
 
     it('keeps the existing latest-usage model policy when a persisted duration is present', () => {
@@ -455,21 +450,21 @@ describe('reduceTimeline', () => {
             usage: { input_tokens: 100, output_tokens: 10 },
             modelUsage: { 'gpt-5.4': { inputTokens: 100, outputTokens: 10 } } } })
         expect(buildMessageMetadataLabels({ roundSummary: (blocks[0] as { roundSummary?: Record<string, unknown> }).roundSummary as never }))
-            .toContain('22.7 tok/s')
+            .toContain('≈22.7 tok/s')
     })
 
-    it('carries the Codex generation pair into the round summary for the tok/s footer', () => {
+    it('carries independent Codex TTFT and generation timing into the info popup', () => {
         const messages = [
             { turn_id: 'turn', type: 'message', message: 'answer' },
             { turn_id: 'turn', type: 'token_count', flavor: 'codex', model: 'gpt-5.4',
                 info: { last_token_usage: { input_tokens: 100, output_tokens: 10 } } },
-            { turn_id: 'turn', type: 'turn_duration', flavor: 'codex', durationMs: 4_000, generationMs: 2_200, generationOutputTokens: 50 }
+            { turn_id: 'turn', type: 'turn_duration', flavor: 'codex', durationMs: 4_000, timeToFirstTokenMs: 1_125, generationMs: 2_200, generationOutputTokens: 50 }
         ].map((data, index) => normalizeAgentRecord(`generation-${index}`, null, index, { type: 'codex', data })!)
         const { blocks } = reduceTimeline(messages, makeContext())
         expect(blocks[0]).toMatchObject({ roundSummary: { provider: 'codex', turnId: 'turn',
-            durationMs: 4_000, generationMs: 2_200, generationOutputTokens: 50 } })
+            durationMs: 4_000, timeToFirstTokenMs: 1_125, generationMs: 2_200, generationOutputTokens: 50 } })
         expect(buildMessageMetadataLabels({ roundSummary: (blocks[0] as { roundSummary?: Record<string, unknown> }).roundSummary as never }))
-            .toContain('22.7 tok/s')
+            .toEqual(expect.arrayContaining(['TTFT: 1.1s', '≈22.7 tok/s']))
     })
 
     it('rejects unmatched Codex metadata when the response has a different native turn ID', () => {
@@ -1971,8 +1966,7 @@ describe('Codex cache metadata through the chat pipeline', () => {
             const visible = buildVisibleChatBlocks(blocks, { hasMoreMessages: false })
             const metadata = aggregateResponseGroups(visible).get('cache-answer:0')!
             expect(metadata.roundSummary?.usage?.cache_read_input_tokens).toBe(80)
-            expect(buildMessageMetadataLabels(metadata)).toContain('Cached input: 80%')
-            expect(buildMessageMetadataLabels(metadata)).toContain('Last request tokens: 110 (9.1% out)')
+            expect(metadata.roundSummary?.usageScope).toBe('last-request')
         }
     })
 })

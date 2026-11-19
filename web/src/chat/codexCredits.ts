@@ -11,19 +11,46 @@ const CODEX_CREDIT_RATES: Record<string, readonly [number, number, number]> = {
     'gpt-5.6-luna': [5, 0.5, 30],
 }
 
+const GPT_62_RATES: Record<string, readonly [number, number, number]> = {
+    'gpt-6.2-astra': [200, 10, 1_000],
+    'gpt-6.2-sol': [50, 2.5, 250]
+}
 
-export function estimateCodexCredits(model: string, tier: string, input: number, cached: number, output: number): number | undefined {
-    const rates = CODEX_CREDIT_RATES[model.toLowerCase()]
-    const speed = tier.toLowerCase()
-    if (!rates || (speed !== 'standard' && speed !== 'fast' && speed !== 'priority')
-        || !Number.isSafeInteger(input) || input < 0 || !Number.isSafeInteger(output) || output < 0
+function calculateCredits(
+    rates: readonly [number, number, number] | undefined,
+    multiplier: number,
+    input: number,
+    cached: number,
+    output: number
+): number | undefined {
+    if (!rates || !Number.isSafeInteger(input) || input < 0 || !Number.isSafeInteger(output) || output < 0
         || !Number.isSafeInteger(cached) || cached < 0 || cached > input) return
-    return ((input - cached) * rates[0] + cached * rates[1] + output * rates[2])
-        * (speed === 'standard' ? 1 : 2.5) / 1_000_000
+    return ((input - cached) * rates[0] + cached * rates[1] + output * rates[2]) * multiplier / 1_000_000
+}
+
+/** Estimate at regular purchased-credit rates. Per-turn eligibility for promotions is unavailable. */
+export function estimateCodexPurchasedCredits(
+    model: string, tier: string, input: number, cached: number, output: number
+): number | undefined {
+    const slug = model.toLowerCase()
+    const speed = tier.toLowerCase()
+    const gpt62 = GPT_62_RATES[slug]
+    const rates = gpt62 ?? CODEX_CREDIT_RATES[slug]
+    if (speed === 'standard') return calculateCredits(rates, 1, input, cached, output)
+    if (speed === 'fast' || speed === 'priority') {
+        if (slug.startsWith('gpt-5.6')) return
+        return calculateCredits(rates, 2, input, cached, output)
+    }
+    if (speed === 'ultrafast') {
+        if (gpt62 || slug === 'gpt-6-astra' || slug === 'gpt-6.1-sol') {
+            return calculateCredits(rates, 6, input, cached, output)
+        }
+    }
+    return undefined
 }
 
 export function formatCodexCredits(credits: number): string {
-    if (credits > 0 && credits < 1) return '1'
-    const step = credits < 50 ? 1 : credits < 100 ? 5 : credits < 250 ? 10 : credits < 1000 ? 50 : 100
-    return String(Math.round(credits / step) * step)
+    return credits > 0 && credits < 0.01
+        ? '<0.01'
+        : `≈${credits.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
 }

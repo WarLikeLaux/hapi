@@ -16,6 +16,7 @@ import { RemoteLauncherBase, type RemoteLauncherDisplayContext, type RemoteLaunc
 import { OpencodeDisplay } from '@/ui/ink/OpencodeDisplay';
 import type { OpencodeSession } from './session';
 import type { OpencodeMode, PermissionMode } from './types';
+import { captureOpencodeRoundSnapshot, fetchOpencodeRoundSummary } from './utils/opencodeRoundSummary';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import {
     allocateFreePort,
@@ -128,6 +129,7 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
     // replacement while the source backend may still be live.
     private clearRequested = false;
     private abortController = new AbortController();
+    private roundUsageAbortController: AbortController | null = null;
     // Set by the dequeue loop as soon as a batch is identified as a
     // `operation:'compact'` one — deliberately *before* that batch's inline
     // model/effort switch runs, not only once runCompactOperation()'s
@@ -927,6 +929,21 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
             if (batch.mode.permissionMode === 'plan') {
                 messageText = `${PLAN_MODE_INSTRUCTION}\n\n${messageText}`;
             }
+            const usageController = new AbortController();
+            this.roundUsageAbortController = usageController;
+            const signal = usageController.signal;
+            const rest = this.v2RestInfo
+                ? { baseUrl: this.v2RestInfo.baseUrl, api: { version: 'v2' as const, password: this.v2RestInfo.password } }
+                : this.baseUrl ? { baseUrl: this.baseUrl } : null;
+            const usageRequest = rest ? { ...rest, sessionId: acpSessionId, signal } : null;
+            const snapshot = usageRequest ? await captureOpencodeRoundSnapshot(usageRequest) : null;
+            if (signal.aborted || this.shouldExit) {
+                this.roundUsageAbortController = null;
+                session.onThinkingChange(false);
+                if (session.queue.size() === 0 && !this.shouldExit) sendReady();
+                continue;
+            }
+
             if (!this.instructionsSent) {
                 messageText = `${getOpencodeNativeToolInstruction()}\n\n${messageText}`;
                 this.instructionsSent = true;
@@ -952,10 +969,13 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
             this.promptInFlight = true;
             session.client.updateAgentState?.((state) => ({ ...state, steeringActive: true }));
 
+            const promptStartedAt = performance.now();
+            let durationMs: number | undefined;
             try {
                 await backend.prompt(acpSessionId, promptContent, (message: AgentMessage) => {
                     this.handleAgentMessage(message);
                 });
+                durationMs = performance.now() - promptStartedAt;
                 await this.nativeTranscript?.refresh();
                 void backend.refreshSessionInfo(acpSessionId, session.path);
             } catch (error) {
@@ -981,6 +1001,15 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                     }
                     this.softSteerWaiters = [];
                 }
+                if (usageRequest && snapshot && durationMs !== undefined && !signal.aborted && !this.shouldExit) {
+                    const result = await fetchOpencodeRoundSummary({
+                        ...usageRequest, promptText: messageText, snapshot, durationMs
+                    });
+                    if (result?.summary && !signal.aborted && !this.shouldExit) {
+                        this.handleAgentMessage({ type: 'round_summary', summary: result.summary });
+                    }
+                }
+                this.roundUsageAbortController = null;
                 session.onThinkingChange(false);
                 await this.permissionHandler?.cancelAll('Prompt finished');
                 if (session.queue.size() === 0 && !this.shouldExit) {
@@ -1566,6 +1595,7 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
      * disconnects the ACP subprocess right after.
      */
     private async handleAbort(leavingRemote = false): Promise<void> {
+        this.roundUsageAbortController?.abort();
         // A hostile-review sweep found that a plain Stop during an in-flight
         // compact — which deliberately leaves the operation running for real
         // (see compactResultSuppressed's doc comment) — still unconditionally

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { NormalizedMessage } from './types'
-import { getTurnMetrics } from './turnMetrics'
+import { getTurnMetrics as getMetrics } from './turnMetrics'
+import { reduceChatBlocks } from './reducer'
+import { normalizeAgentRecord } from './normalizeAgent'
 
 const base = { localId: null, isSidechain: false }
 const user = (createdAt: number): NormalizedMessage => ({ ...base, id: `u${createdAt}`, createdAt, role: 'user', content: { type: 'text', text: 'Hello' } })
@@ -9,6 +11,8 @@ const snapshot = (createdAt: number, input: number, output: number): NormalizedM
         type: 'token-count', provider: 'codex', info: { total_token_usage: { input_tokens: input, output_tokens: output } }
     }
 })
+
+const getTurnMetrics = (messages: NormalizedMessage[]) => getMetrics(messages, reduceChatBlocks(messages, null).blocks)
 
 describe('turn metrics', () => {
     it('subtracts the previous cumulative snapshot and ignores steering messages', () => {
@@ -38,20 +42,21 @@ describe('turn metrics', () => {
         expect(getTurnMetrics([user(100), result])?.tokens).toBe(120)
     })
 
-    it('calculates the latest Codex round credits from complete snapshots and its actual tier', () => {
-        const count = (time: number, input: number, output: number, cached: number, tier: string | undefined, model = 'gpt-6.1-terra'): NormalizedMessage => ({
-            ...base, id: `c${time}`, createdAt: time, role: 'event', usage: { input_tokens: 1, output_tokens: 1, service_tier: tier },
-            content: { type: 'token-count', provider: 'codex', turnId: 'turn', model,
-                info: { total_token_usage: { input_tokens: input, output_tokens: output, cached_input_tokens: cached } } }
+    it.each([
+        ['fast', 2.4],
+        ['ultrafast', 7.2]
+    ])('shows the Codex %s estimate for the last request when no turn baseline is available', (tier, amount) => {
+        const normalize = (id: string, createdAt: number, data: object) => normalizeAgentRecord(id, null, createdAt, {
+            type: 'codex', data: { ...data, turn_id: 'turn', flavor: 'codex' }
+        })!
+        const answer = normalize('answer', 101, { type: 'message', message: 'done' })
+        const count = normalize('usage', 102, {
+            type: 'token_count', model: 'gpt-6.2-sol', service_tier: tier,
+            info: { last: { inputTokens: 20_000, cachedInputTokens: 10_000, outputTokens: 2_700 } }
         })
-        const before = count(101, 1000, 100, 900, 'standard')
-        const first = count(201, 43699, 233, 43268, 'fast')
-        const second = count(202, 132999, 452, 129924, 'fast')
-        const messages = [user(100), before, user(200), first, second]
-        expect(getTurnMetrics(messages)?.credits).toBeCloseTo(0.6991375)
-        expect(getTurnMetrics([user(200), first, second])?.credits).toBeUndefined()
-        expect(getTurnMetrics([user(100), before, user(200), first, { ...second, usage: { input_tokens: 1, output_tokens: 1 } }])?.credits).toBeUndefined()
-        expect(getTurnMetrics([user(100), before, user(200), first, count(202, 132999, 452, 129924, 'fast', 'gpt-6.1-sol')])?.credits).toBeUndefined()
+        const messages = [user(100), answer, count]
+        expect(getTurnMetrics(messages)?.purchasedCreditsEstimate).toEqual({ amount, scope: 'last-request' })
+        expect(getTurnMetrics([...messages, user(200)])?.purchasedCreditsEstimate).toBeUndefined()
     })
 
     it('uses completed Claude round totals including cached input', () => {

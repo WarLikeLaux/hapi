@@ -454,7 +454,7 @@ describe('AgyAcpRemoteLauncher', () => {
             summary: {
                 provider: 'agy',
                 model: 'gemini-4-argon-medium',
-                agy_usage: { input_tokens: 150, output_tokens: 7, cache_read_tokens: 10, total_tokens: 157 },
+                agy_usage: { input_tokens: 150, output_tokens: 7, total_tokens: 157 },
                 duration_ms: expect.any(Number)
             }
         });
@@ -1718,6 +1718,8 @@ describe('agy ACP helpers', () => {
             expect(summary).not.toHaveProperty('generation_ms');
             expect(summary).not.toHaveProperty('generation_output_tokens');
         }
+        expect(agyRoundSummary({ ...usage, thoughtTokens: undefined }, 9_000, null, 3_000).summary)
+            .not.toHaveProperty('generation_output_tokens');
         expect(agyRoundSummary({ ...usage, outputTokens: 0, thoughtTokens: 0 }, 9_000, null, 3_000).summary)
             .not.toHaveProperty('generation_ms');
     });
@@ -1731,8 +1733,8 @@ describe('agy ACP helpers', () => {
             inputTokens: 30,
             outputTokens: 4,
             totalTokens: undefined,
-            thoughtTokens: 2,
-            cacheReadTokens: 4,
+            thoughtTokens: undefined,
+            cacheReadTokens: undefined,
             cacheCreationTokens: undefined
         });
     });
