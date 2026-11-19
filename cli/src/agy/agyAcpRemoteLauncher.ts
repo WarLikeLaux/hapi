@@ -120,8 +120,8 @@ export function agyRoundSummary(
     numTurns: number | null = null
 ) {
     // Thinking is generated too, as in OpenCode's tok/s.
-    const generatedTokens = usage.outputTokens + (usage.thoughtTokens ?? 0);
-    const generation = generationMs !== null && generationMs > 0 && generatedTokens > 0
+    const generatedTokens = usage.thoughtTokens === undefined ? undefined : usage.outputTokens + usage.thoughtTokens;
+    const generation = generationMs !== null && generationMs > 0 && generatedTokens !== undefined && generatedTokens > 0
         ? { generation_ms: Math.round(generationMs), generation_output_tokens: generatedTokens }
         : {};
     return {
@@ -134,6 +134,7 @@ export function agyRoundSummary(
                 output_tokens: usage.outputTokens,
                 ...(usage.thoughtTokens !== undefined ? { thinking_tokens: usage.thoughtTokens } : {}),
                 ...(usage.cacheReadTokens !== undefined ? { cache_read_tokens: usage.cacheReadTokens } : {}),
+                ...(usage.cacheCreationTokens !== undefined ? { cache_write_tokens: usage.cacheCreationTokens } : {}),
                 ...(usage.totalTokens !== undefined ? { total_tokens: usage.totalTokens } : {})
             },
             ...(durationMs !== null ? { duration_ms: durationMs } : {}),

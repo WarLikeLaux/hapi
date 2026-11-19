@@ -1,5 +1,7 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { buildMessageMetadataLabels } from './MessageMetadata'
+import { buildMessageMetadataLabels, MessageMetadata } from './MessageMetadata'
 
 describe('buildMessageMetadataLabels', () => {
     it('omits the per-message model name', () => {
@@ -165,20 +167,6 @@ describe('buildMessageMetadataLabels', () => {
         expect(summary(3_661_000)).toContain('Time: 1h 1m 1s')
     })
 
-    it('omits a round label when only a turn count is available', () => {
-        expect(buildMessageMetadataLabels({
-            roundSummary: {
-                provider: 'codex',
-                modelUsage: {
-                    'gpt-5.4': { inputTokens: 100, outputTokens: 10 }
-                },
-                numTurns: 1
-            }
-        })).toEqual([
-            'Tokens: 110 (9.1% out)'
-        ])
-    })
-
     it('keeps the existing formatter byte-identical when no result summary is present', () => {
         expect(buildMessageMetadataLabels({
             durationMs: 1234,
@@ -211,64 +199,41 @@ describe('buildMessageMetadataLabels', () => {
 
 
 describe('Codex cached input metadata', () => {
-    const labels = (input: number, cached?: number) => buildMessageMetadataLabels({
+    const render = (input: number, cached?: number, output = 10) => renderToStaticMarkup(createElement(MessageMetadata, {
         roundSummary: {
             provider: 'codex',
-            usage: { input_tokens: input, output_tokens: 10, cache_read_input_tokens: cached },
-            modelUsage: { 'gpt-5.4': { inputTokens: input, outputTokens: 10 } },
-            numTurns: 1
+            usage: { input_tokens: input, output_tokens: output, cache_read_input_tokens: cached },
+            modelUsage: {}
         }
-    })
+    }))
 
     it('uses cache-inclusive input without adding cached tokens again', () => {
-        expect(labels(100, 80)).toEqual([
-            'Tokens: 110 (9.1% out)',
-            'Cached input: 80%'
-        ])
-    })
-
-    it('uses token totals rather than averaging cache percentages', () => {
-        expect(buildMessageMetadataLabels({
-            roundSummary: {
-                provider: 'codex',
-                modelUsage: {
-                    'model-a': { inputTokens: 100, cacheReadInputTokens: 80, outputTokens: 5 },
-                    'model-b': { inputTokens: 900, cacheReadInputTokens: 90, outputTokens: 5 }
-                }
-            }
-        })).toContain('Cached input: 17%')
+        expect(render(100, 80)).toMatch(/<dt>Turn tokens<\/dt><dd[^>]*>110<\/dd>/)
+        expect(render(100, 80)).toMatch(/<dt>Cache read<\/dt><dd[^>]*>80<\/dd>/)
     })
 
     it('distinguishes missing cache usage from an explicit zero', () => {
-        expect(labels(100).some(label => label.startsWith('Cached input:'))).toBe(false)
-        expect(labels(100, 0)).toContain('Cached input: 0%')
-        expect(labels(100, 100)).toContain('Cached input: 100%')
+        expect(render(100)).not.toContain('Cache read')
+        expect(render(100, 0)).toMatch(/<dt>Cache read<\/dt><dd[^>]*>0<\/dd>/)
     })
 
     it.each([-1, NaN, Infinity, 1.5])('omits invalid Codex output counts (%s)', output => {
-        expect(buildMessageMetadataLabels({ roundSummary: {
-            provider: 'codex', modelUsage: {},
-            usage: { input_tokens: 100, output_tokens: output, cache_read_input_tokens: 80 }
-        } }).some(label => label.startsWith('Tokens:') || label.startsWith('Cached input:'))).toBe(false)
+        expect(render(100, 80, output)).not.toMatch(/<dt>(Turn tokens|Output)/)
     })
 
     it.each([
-        [0, 0], [-1, 0], [100, -1], [100, 101], [100, NaN],
+        [-1, 0], [100, -1], [100, 101], [100, NaN],
         [100, Infinity], [Infinity, 80], [NaN, 80], [100.5, 80],
         [100, 1.5], [Number.MAX_SAFE_INTEGER + 1, 80]
-    ])('omits an invalid cache ratio for input=%s cached=%s', (input, cached) => {
-        expect(labels(input, cached).some(label => label.startsWith('Cached input:'))).toBe(false)
-        expect(labels(input, cached).join(' ')).not.toMatch(/NaN|Infinity/)
+    ])('omits an invalid cache count for input=%s cached=%s', (input, cached) => {
+        expect(render(input, cached)).not.toContain('Cache read')
     })
 })
 
-it('shows the rounded round credit estimate in message details', () => {
-    expect(buildMessageMetadataLabels({ roundSummary: { provider: 'codex', modelUsage: {}, credits: 0.6991375 } }))
-        .toContain('Credits: 70')
-})
-
-it('puts round and credits first without repeating the model', () => {
-    expect(buildMessageMetadataLabels({ roundSummary: { provider: 'codex', modelUsage: { 'gpt-6.1-terra': {} },
-        usage: { input_tokens: 100, output_tokens: 10, service_tier: 'fast' }, durationMs: 3000, credits: 0.6991375 } }))
-        .toEqual(['Time: 3.0s', 'Credits: 70', 'Tokens: 110 (9.1% out)'])
+it.each(['fast', 'ultrafast'])('keeps %s compact when credits and speed are unavailable', serviceTier => {
+    const parts = buildMessageMetadataLabels({ roundSummary: {
+        provider: 'codex', modelUsage: { 'gpt-6.2-sol': {} },
+        usage: { input_tokens: 100, output_tokens: 10, service_tier: serviceTier }, durationMs: 3000
+    } })
+    expect(parts).toEqual(['Time: 3.0s', 'Credits: —', 'tok/s: —'])
 })

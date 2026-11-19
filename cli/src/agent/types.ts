@@ -35,11 +35,13 @@ export type PlanItem = {
 export type AgentRoundModelUsage = {
     inputTokens: number;
     outputTokens: number;
+    reasoningTokens?: number;
     cacheReadInputTokens: number;
     cacheCreationInputTokens: number;
 };
 
 export type AgentRoundSummary = {
+    provider?: 'opencode';
     usage: AgentRoundModelUsage;
     modelUsage: Record<string, AgentRoundModelUsage>;
     totalCostUsd?: number;

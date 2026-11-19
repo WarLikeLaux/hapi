@@ -45,8 +45,9 @@ export type CodexMessage =
     | {
         type: 'round-summary';
         summary: {
-            usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number };
-            modelUsage: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number }>;
+            provider?: 'opencode';
+            usage: { input_tokens: number; output_tokens: number; reasoning_output_tokens?: number; cache_read_input_tokens: number; cache_creation_input_tokens: number };
+            modelUsage: Record<string, { inputTokens: number; outputTokens: number; reasoningTokens?: number; cacheReadInputTokens: number; cacheCreationInputTokens: number }>;
             total_cost_usd?: number;
             num_turns: number;
             duration_ms: number;
@@ -137,9 +138,12 @@ export function convertAgentMessage(message: AgentMessage, model?: string | null
             return {
                 type: 'round-summary',
                 summary: {
+                    ...(message.summary.provider ? { provider: message.summary.provider } : {}),
                     usage: {
                         input_tokens: message.summary.usage.inputTokens,
                         output_tokens: message.summary.usage.outputTokens,
+                        ...(message.summary.usage.reasoningTokens !== undefined
+                            ? { reasoning_output_tokens: message.summary.usage.reasoningTokens } : {}),
                         cache_read_input_tokens: message.summary.usage.cacheReadInputTokens,
                         cache_creation_input_tokens: message.summary.usage.cacheCreationInputTokens
                     },

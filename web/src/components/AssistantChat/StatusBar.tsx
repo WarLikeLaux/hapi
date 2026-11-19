@@ -269,7 +269,11 @@ export function StatusBar(props: {
     const duration = props.thinking && props.turnMetrics
         ? Math.max(0, now - props.turnMetrics.startedAt)
         : props.turnMetrics?.durationMs
-    const creditLabel = props.turnMetrics?.credits !== undefined ? `${formatCodexCredits(props.turnMetrics.credits * 100)} credits` : null
+    const creditEstimate = props.turnMetrics?.purchasedCreditsEstimate
+    const creditLabel = creditEstimate ? `${formatCodexCredits(creditEstimate.amount)} credits` : null
+    const creditTitle = creditEstimate?.scope === 'last-request'
+        ? 'Last request estimate at regular purchased-credit rates'
+        : 'Turn estimate at regular purchased-credit rates'
     const durationSeconds = duration === undefined ? null : Math.floor(duration / 1000)
     const durationLabel = durationSeconds === null ? null : durationSeconds >= 3600
         ? `${Math.floor(durationSeconds / 3600)}h ${Math.floor((durationSeconds % 3600) / 60)}m`
@@ -374,12 +378,12 @@ export function StatusBar(props: {
                     />
                     {showMetrics ? (
                         <span data-testid="turn-metrics" className={`inline-flex items-center gap-2 whitespace-nowrap text-xs leading-4 tabular-nums ${connectionStatus.color}`}
-                            aria-label={[connectionStatus.text, durationLabel, creditLabel ? `${creditLabel} (allowance equivalent)` : null].filter(Boolean).join(' ')}>
+                            aria-label={[connectionStatus.text, durationLabel, creditLabel ? `${creditLabel} (${creditTitle})` : null].filter(Boolean).join(' ')}>
                             {!durationLabel && !creditLabel ? <span>{connectionStatus.text}</span> : null}
                             {durationLabel ? <span>{durationLabel}</span> : null}
                             {creditLabel ? <>
                                 {durationLabel ? <span aria-hidden="true" className="h-3 w-px bg-[var(--app-border)]" /> : null}
-                                <span title="Estimated allowance equivalent multiplied by 100; not credits charged">{creditLabel}</span>
+                                <span title={creditTitle}>{creditLabel}</span>
                             </> : null}
                         </span>
                     ) : <span className={`whitespace-nowrap text-xs ${displayedStatus.color}`}>{displayedStatus.text}</span>}

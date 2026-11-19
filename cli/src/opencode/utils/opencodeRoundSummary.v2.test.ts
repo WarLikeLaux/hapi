@@ -12,7 +12,7 @@ const assistant = (id: string, overrides: Record<string, unknown> = {}) => ({
 });
 function request(data: unknown) {
     return {
-        ...base, promptText: user.text, snapshot: { messageIds: ['old'] }, durationMs: 100,
+        ...base, promptText: user.text, snapshot: { messageIds: [] }, durationMs: 100,
         fetchImpl: vi.fn(async () => Response.json({ data }))
     };
 }
@@ -37,8 +37,9 @@ describe('OpenCode v2 round usage', () => {
         ]);
         const result = await fetchOpencodeRoundSummary(opts);
         expect(result?.summary).toEqual({
-            usage: { inputTokens: 30, outputTokens: 9, cacheReadInputTokens: 15, cacheCreationInputTokens: 9 },
-            modelUsage: { 'fixture/model': { inputTokens: 30, outputTokens: 9, cacheReadInputTokens: 15, cacheCreationInputTokens: 9 } },
+            provider: 'opencode',
+            usage: { inputTokens: 30, outputTokens: 9, reasoningTokens: 3, cacheReadInputTokens: 15, cacheCreationInputTokens: 9 },
+            modelUsage: { 'fixture/model': { inputTokens: 30, outputTokens: 9, reasoningTokens: 3, cacheReadInputTokens: 15, cacheCreationInputTokens: 9 } },
             totalCostUsd: 0.04, numTurns: 3, durationMs: 100
         });
         expect(opts.fetchImpl).toHaveBeenCalledWith(
@@ -60,6 +61,11 @@ describe('OpenCode v2 round usage', () => {
     ])('fails closed for malformed or unassociated messages %j', async (...data) => {
         const result = await fetchOpencodeRoundSummary(request(data));
         expect(result?.summary ?? null).toBeNull();
+    });
+
+    it('omits partial usage when the result page lost the pre-prompt boundary', async () => {
+        const opts = request([user, assistant('new')]);
+        await expect(fetchOpencodeRoundSummary({ ...opts, snapshot: { messageIds: ['previous'] } })).resolves.toBeNull();
     });
 
     it('rejects malformed envelope and pre-snapshot identity failures without throwing', async () => {
@@ -107,8 +113,9 @@ describe('OpenCode v2 provider throughput', () => {
         expect(result?.summary).not.toHaveProperty('generationMs');
         expect(result?.summary).not.toHaveProperty('generationOutputTokens');
         expect(result?.summary).toEqual({
-            usage: { inputTokens: 20, outputTokens: 6, cacheReadInputTokens: 10, cacheCreationInputTokens: 6 },
-            modelUsage: { 'fixture/model': { inputTokens: 20, outputTokens: 6, cacheReadInputTokens: 10, cacheCreationInputTokens: 6 } },
+            provider: 'opencode',
+            usage: { inputTokens: 20, outputTokens: 6, reasoningTokens: 2, cacheReadInputTokens: 10, cacheCreationInputTokens: 6 },
+            modelUsage: { 'fixture/model': { inputTokens: 20, outputTokens: 6, reasoningTokens: 2, cacheReadInputTokens: 10, cacheCreationInputTokens: 6 } },
             totalCostUsd: 0.03, numTurns: 2, durationMs: 100
         });
     });
@@ -119,8 +126,9 @@ describe('OpenCode v2 provider throughput', () => {
             assistant('compact', { type: 'compaction', status: 'completed', cost: 0.01, time: { created: 10, streamed: 9 } })
         ]));
         expect(result?.summary).toEqual({
-            usage: { inputTokens: 20, outputTokens: 6, cacheReadInputTokens: 10, cacheCreationInputTokens: 6 },
-            modelUsage: { 'fixture/model': { inputTokens: 20, outputTokens: 6, cacheReadInputTokens: 10, cacheCreationInputTokens: 6 } },
+            provider: 'opencode',
+            usage: { inputTokens: 20, outputTokens: 6, reasoningTokens: 2, cacheReadInputTokens: 10, cacheCreationInputTokens: 6 },
+            modelUsage: { 'fixture/model': { inputTokens: 20, outputTokens: 6, reasoningTokens: 2, cacheReadInputTokens: 10, cacheCreationInputTokens: 6 } },
             totalCostUsd: 0.03, numTurns: 2, durationMs: 100,
             generationMs: 500, generationOutputTokens: 3
         });

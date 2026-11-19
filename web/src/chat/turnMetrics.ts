@@ -1,10 +1,14 @@
 import { isObject } from '@hapi/protocol'
-import { estimateCodexCredits } from './codexCredits'
-import type { NormalizedMessage, RoundSummary } from '@/chat/types'
+import type { ChatBlock, NormalizedMessage, RoundSummary } from '@/chat/types'
 
-export type TurnMetrics = { startedAt: number; durationMs?: number; tokens?: number; credits?: number }
+export type TurnMetrics = {
+    startedAt: number
+    durationMs?: number
+    tokens?: number
+    purchasedCreditsEstimate?: RoundSummary['purchasedCreditsEstimate']
+}
 
-function totalSnapshot(message: NormalizedMessage): { input: number; output: number; cached?: number } | undefined {
+function totalSnapshot(message: NormalizedMessage): { input: number; output: number } | undefined {
     if (message.role !== 'event' || message.content.type !== 'token-count'
         || message.content.provider !== 'codex' || message.usage?.scope_role === 'child') return
     const info = message.content.info
@@ -15,9 +19,7 @@ function totalSnapshot(message: NormalizedMessage): { input: number; output: num
     const output = total.outputTokens ?? total.output_tokens
     if (!Number.isSafeInteger(input) || !Number.isSafeInteger(output)
         || (input as number) < 0 || (output as number) < 0) return
-    const cached = total.cachedInputTokens ?? total.cached_input_tokens
-    return { input: input as number, output: output as number,
-        cached: Number.isSafeInteger(cached) && (cached as number) >= 0 ? cached as number : undefined }
+    return { input: input as number, output: output as number }
 }
 
 function summaryTokens(summary: RoundSummary): number | undefined {
@@ -35,7 +37,7 @@ function summaryTokens(summary: RoundSummary): number | undefined {
 }
 
 /** Use only a complete turn summary or a pair of session cumulative snapshots. */
-export function getTurnMetrics(messages: readonly NormalizedMessage[]): TurnMetrics | null {
+export function getTurnMetrics(messages: readonly NormalizedMessage[], blocks: readonly ChatBlock[]): TurnMetrics | null {
     const start = messages.findLastIndex(message => message.role === 'user' && !message.isSidechain && !message.steered)
     if (start < 0) return null
     const startedAt = messages[start].invokedAt ?? messages[start].createdAt
@@ -48,11 +50,6 @@ export function getTurnMetrics(messages: readonly NormalizedMessage[]): TurnMetr
     }
     let tokens: number | undefined
     let durationMs: number | undefined
-    let credits: number | undefined
-    let pricingModel: string | undefined
-    let pricingTier: string | undefined
-    let pricingTurn: string | undefined
-    let pricingConsistent = true
     for (const message of messages.slice(start + 1)) {
         if (message.isSidechain || message.role !== 'event') continue
         if (message.content.type === 'turn-summary') {
@@ -65,21 +62,19 @@ export function getTurnMetrics(messages: readonly NormalizedMessage[]): TurnMetr
             const total = totalSnapshot(message)
             if (baseline && total && total.input >= baseline.input && total.output >= baseline.output) {
                 tokens = total.input - baseline.input + total.output - baseline.output
-                const model = typeof message.content.model === 'string' ? message.content.model : undefined
-                const tier = message.usage?.service_tier
-                const turn = typeof message.content.turnId === 'string' ? message.content.turnId : undefined
-                if (!model || !tier || !turn || (pricingModel && pricingModel !== model)
-                    || (pricingTier && pricingTier !== tier) || (pricingTurn && pricingTurn !== turn)) pricingConsistent = false
-                pricingModel = model ?? pricingModel
-                pricingTier = tier ?? pricingTier
-                pricingTurn = turn ?? pricingTurn
-                if (pricingConsistent && pricingModel && pricingTier && total.cached !== undefined && baseline.cached !== undefined
-                    && total.cached >= baseline.cached) {
-                    credits = estimateCodexCredits(pricingModel, pricingTier, total.input - baseline.input,
-                        total.cached - baseline.cached, total.output - baseline.output)
-                } else credits = undefined
             }
         }
     }
-    return { startedAt, durationMs, tokens, ...(credits !== undefined ? { credits } : {}) }
+    // The chat reducer already attributes the estimate to the response and
+    // decides whether usage covers the full turn or only the last request.
+    const promptIndex = blocks.findLastIndex(block => block.kind === 'user-text' && block.id === messages[start].id)
+    let estimate: TurnMetrics['purchasedCreditsEstimate']
+    for (let i = blocks.length - 1; promptIndex >= 0 && i > promptIndex; i--) {
+        const block = blocks[i]
+        if ('roundSummary' in block && block.roundSummary?.provider === 'codex') {
+            estimate = block.roundSummary.purchasedCreditsEstimate
+            break
+        }
+    }
+    return { startedAt, durationMs, tokens, ...(estimate ? { purchasedCreditsEstimate: estimate } : {}) }
 }

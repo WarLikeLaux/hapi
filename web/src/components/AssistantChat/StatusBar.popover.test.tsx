@@ -41,32 +41,25 @@ describe('StatusBar context details popover', () => {
     it('shows a waiting status before a queued prompt starts, then shows live metrics', () => {
         const view = (awaitingStart: boolean, thinking: boolean) => <I18nProvider>
             <StatusBar active thinking={thinking} awaitingStart={awaitingStart} agentState={null}
-                turnMetrics={{ startedAt: Date.now(), durationMs: 3000, tokens: 100, credits: 0.2 }} />
+                turnMetrics={{ startedAt: Date.now(), durationMs: 3000, tokens: 100, purchasedCreditsEstimate: { amount: 0.2, scope: 'round' } }} />
         </I18nProvider>
         const { rerender } = render(view(true, false))
         expect(screen.getByText('Ожидает запуска…')).toBeVisible()
-        expect(screen.queryByText('20 credits')).toBeNull()
+        expect(screen.queryByText('≈0.2 credits')).toBeNull()
         rerender(view(false, true))
-        expect(screen.getByText('20 credits')).toBeVisible()
+        expect(screen.getByText('≈0.2 credits')).toBeVisible()
     })
 
-    it('shows the scaled credit estimate beside elapsed time without tokens', () => {
+    it('shows the regular-rate estimate and its scope beside elapsed time', () => {
         render(<I18nProvider><StatusBar active thinking={false} agentState={null}
-            turnMetrics={{ startedAt: 100, durationMs: 3000, tokens: 132351, credits: 0.6991375 }} /></I18nProvider>)
-        expect(screen.getByTestId('turn-metrics')).toHaveTextContent('3s')
-        expect(screen.getByTestId('turn-metrics')).not.toHaveTextContent('tokens')
-        expect(screen.getByTestId('turn-metrics')).toHaveTextContent('70 credits')
-    })
-
-    it.each([
-        [0, '0'], [0.4, '1'], [1.4, '1'], [12.6, '13'], [49.6, '50'],
-        [52, '50'], [52.5, '55'], [99, '100'], [104, '100'], [105, '110'],
-        [249, '250'], [274, '250'], [275, '300'], [999, '1000'],
-        [1049, '1000'], [1050, '1100'],
-    ])('displays %s estimated credits as %s', (amount, expected) => {
-        render(<I18nProvider><StatusBar active thinking={false} agentState={null}
-            turnMetrics={{ startedAt: 100, credits: amount / 100 }} /></I18nProvider>)
-        expect(screen.getByText(`${expected} credits`)).toBeVisible()
+            turnMetrics={{ startedAt: 100, durationMs: 3000, tokens: 132351,
+                purchasedCreditsEstimate: { amount: 4.52304, scope: 'last-request' } }} /></I18nProvider>)
+        const metrics = screen.getByTestId('turn-metrics')
+        expect(metrics).toHaveTextContent('3s')
+        expect(metrics).not.toHaveTextContent('tokens')
+        const credits = screen.getByText('≈4.52 credits')
+        expect(credits).toBeVisible()
+        expect(credits).toHaveAttribute('title', 'Last request estimate at regular purchased-credit rates')
     })
 
     it('shows live activity only while working and preserves connection and permission priority', () => {

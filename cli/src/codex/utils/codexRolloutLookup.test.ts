@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, writeFile, appendFile, rename, rm, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { CodexCompactionSummaryLookup } from './codexCompactionSummary';
+import { CodexRolloutLookup } from './codexRolloutLookup';
 
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -21,7 +21,7 @@ const lines = (...events: unknown[]) => events.map(x => JSON.stringify(x) + '\n'
 async function fixture(content: string) {
     const dir = await mkdtemp(join(tmpdir(), 'codex-summary-')); dirs.push(dir);
     const path = join(dir, 'rollout.jsonl'); await writeFile(path, content);
-    return { path, thread: { id: 'thread', path }, lookup: new CodexCompactionSummaryLookup('thread') };
+    return { path, thread: { id: 'thread', path }, lookup: new CodexRolloutLookup('thread') };
 }
 
 describe('exact Codex checkpoint summary lookup', () => {

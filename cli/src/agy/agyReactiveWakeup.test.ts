@@ -432,13 +432,9 @@ describe('agyReactiveWakeup pure helpers', () => {
 
         expect(bgCommands).toEqual([]);
         expect(converted.durationMs).toBe(4_000);
-        expect(converted.usage).toEqual({
-            type: 'usage',
-            inputTokens: 250,
-            outputTokens: 50,
-            thoughtTokens: 10,
-            totalTokens: 310
-        });
+        expect(converted.usage).toMatchObject({ type: 'usage', inputTokens: 250, outputTokens: 50 });
+        expect(converted.usage?.thoughtTokens).toBeUndefined();
+        expect(converted.usage?.totalTokens).toBeUndefined();
         expect(converted.messages).toEqual([
             {
                 type: 'tool_result',

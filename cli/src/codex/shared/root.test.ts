@@ -91,7 +91,7 @@ afterEach(async () => {
     finally { vi.useRealTimers(); }
 });
 
-async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; create?: RootHost['create']; initialState?: AgentState; publishInitialHistory?: boolean; nativeTurns?: NativeTurn[]; nativeSettings?: Record<string, unknown> }) {
+async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; create?: RootHost['create']; initialState?: AgentState; publishInitialHistory?: boolean; newThread?: boolean; nativeTurns?: NativeTurn[]; nativeSettings?: Record<string, unknown> }) {
     const directory = await mkdtemp('/tmp/hapi-shared-root-');
     let state: AgentState = opts?.initialState ?? { steeringActive: true };
     let metadata: Metadata = { path: directory, host: 'test', flavor: 'codex' };
@@ -139,7 +139,7 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; cr
         responses: Array<{ id: string | number; result: unknown }>;
     };
     native.thread.turns = opts?.nativeTurns ?? [];
-    await root.bind('thread', { model: 'mock', ...opts?.nativeSettings, thread: { turns: [] } }, false);
+    await root.bind('thread', { model: 'mock', ...opts?.nativeSettings, thread: { turns: [] } }, false, opts?.newThread);
     return {
         root, native, rpc, send, events, consumed, uncertain, sessionReady, metadata: () => metadata, state: () => state, updateState,
         postUser: (message: UserMessage, localId?: string) => userMessage?.(message, localId),
@@ -150,6 +150,29 @@ async function fixture(opts?: { hubArchived?: boolean; end?: RootHost['end']; cr
         end,
     };
 }
+
+describe('generation telemetry', () => {
+    it.each([true, false])('only assumes an empty usage baseline for a newly created thread (%s)', async newThread => {
+        const f = await fixture({ newThread });
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(10_000);
+        f.native.notify('turn/started', { threadId: 'thread', turn: { id: 'first' } });
+        await f.drain();
+        f.native.notify('thread/tokenUsage/updated', {
+            threadId: 'thread', turnId: 'first',
+            tokenUsage: { total: { outputTokens: 90, reasoningOutputTokens: 30 } }
+        });
+        await f.drain();
+        vi.setSystemTime(12_000);
+        f.native.notify('turn/completed', { threadId: 'thread', turn: { id: 'first', status: 'completed' } });
+        await f.drain();
+
+        const [duration] = f.send.mock.calls.map(([body]) => body).filter(body => body.type === 'turn_duration');
+        expect(duration).toMatchObject({ turn_id: 'first', durationMs: 2_000 });
+        if (newThread) expect(duration).toMatchObject({ generationMs: 2_000, generationOutputTokens: 90 });
+        else expect(duration).not.toHaveProperty('generationMs');
+    });
+});
 
 describe('image attachment delivery', () => {
     it('reads the session upload and supplies image bytes alongside the original text to the native queue', async () => {

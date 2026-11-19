@@ -230,10 +230,21 @@ export class SharedCodexRoot {
             this.session,
             this.client,
             this.host.generation,
-            this.getPermissionMode
+            this.getPermissionMode,
+            this.beginUserWait
         );
         this.client.setServerRequestHandler(request => { void this.receiveRequest(request); });
     }
+    private readonly beginUserWait = (threadId: string, turnId: string | undefined, startedAt: number) => {
+        if (threadId !== this.threadId) return;
+        // Keep approval windows ordered with the native turn and tool events.
+        const wait = this.notifications.then(() => this.projection.beginUserWait(turnId, startedAt));
+        return (endedAt: number) => {
+            const prior = this.notifications;
+            this.notifications = prior.then(async () => (await wait)?.(endedAt));
+        };
+    };
+
     private async receiveRequest(request: { id: string | number; method: string; params: unknown }): Promise<void> {
         await this.bound;
         if (this.closed || this.stopping) return;
@@ -283,6 +294,7 @@ export class SharedCodexRoot {
             return state === 'queued' || state === 'consumed'
                 ? parseAsyncQuestionAnswer(inputText(this.queue.input(answerId)))?.answers : undefined;
         }, async () => record(await this.client.request('thread/read', { threadId, includeTurns: false })).thread);
+        if (newThread) this.projection.seedFreshUsage();
         this.session.updateMetadata(metadata => ({ ...metadata, codexSessionId: threadId, capabilities: {
             ...metadata.capabilities, concurrentClients: true, terminal: true,
             // In-place rewind needs a native + hub commit barrier. Do not
@@ -655,6 +667,7 @@ export class SharedCodexRoot {
     private async reconnect(): Promise<void> {
         if (this.closed || this.stopping || this.reconnecting || !this.threadId) return;
         this.reconnecting = true;
+        this.notifications = this.notifications.then(() => this.projection.invalidateGeneration());
         this.dequeuedInputs.clear(); this.deliveryTurn = undefined; this.compactingTurn = undefined;
         this.publishSteering(); this.publishPlan(); this.permissions.close();
         try {
@@ -666,7 +679,8 @@ export class SharedCodexRoot {
                         this.session,
                         this.client,
                         `${this.host.generation}:${randomUUID()}`,
-                        this.getPermissionMode
+                        this.getPermissionMode,
+                        this.beginUserWait
                     );
                     this.client.setServerRequestHandler(request => { void this.receiveRequest(request); });
                     const settingsRevision = this.settingsRevision;
