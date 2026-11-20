@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ReactNode, TextareaHTMLAttributes } from 'react'
 import { useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -525,6 +525,23 @@ describe('HappyComposer generic model/effort value buttons', () => {
         expect(runtime.cancelRun).not.toHaveBeenCalled()
         runtime.snapshot.thread.isRunning = false
     })
+    it('lets Escape reach the chat shortcut during a running turn and stops only on Abort', () => {
+        localStorage.setItem('hapi.fue.v1.rich-composer-mentions', '1')
+        runtime.snapshot.thread.isRunning = true
+        renderComposer('codex')
+
+        const input = screen.getByRole('textbox')
+        input.focus()
+        const escape = createEvent.keyDown(input, { key: 'Escape' })
+        fireEvent(input, escape)
+
+        expect(escape.defaultPrevented).toBe(false)
+        expect(runtime.cancelRun).not.toHaveBeenCalled()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Abort' }))
+        expect(runtime.cancelRun).toHaveBeenCalledOnce()
+    })
+
     it('returns focus to the settings trigger', () => {
         localStorage.setItem('hapi.fue.v1.rich-composer-mentions', '1')
         renderComposer('claude')

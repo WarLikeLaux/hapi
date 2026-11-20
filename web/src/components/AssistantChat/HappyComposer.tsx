@@ -87,19 +87,6 @@ export interface TextInputState {
     selection: { start: number; end: number }
 }
 
-export function getComposerEscapeAction(input: {
-    hasSuggestions: boolean
-    showSettings?: boolean
-    threadIsRunning: boolean
-    isExpanded: boolean
-}): 'dismissSettings' | 'clearSuggestions' | 'abort' | 'collapse' | null {
-    if (input.showSettings) return 'dismissSettings'
-    if (input.hasSuggestions) return 'clearSuggestions'
-    if (input.threadIsRunning) return 'abort'
-    if (input.isExpanded) return 'collapse'
-    return null
-}
-
 /**
  * One rejected send.  `id` is bumped per failure so two failures with the
  * same `text` still trigger a fresh restore (the dedupe key is the id, not
@@ -1559,28 +1546,27 @@ export function HappyComposer(props: {
         }
 
         if (key === 'Escape') {
-            // FUE callout also listens on window; dismiss it first so Escape
-            // does not also abort a running thread or collapse the editor.
+            // FUE also listens on window. Give it the first Escape.
             if (richComposerFueStatus === 'engaging') {
                 e.preventDefault()
                 e.stopPropagation()
                 dismissRichComposerFue()
                 return
             }
-            const action = getComposerEscapeAction({
-                showSettings,
-                hasSuggestions: suggestions.length > 0,
-                threadIsRunning,
-                isExpanded,
-            })
-            if (action) {
+            if (showSettings) {
                 e.preventDefault()
-                if (action === 'dismissSettings') {
-                    e.stopPropagation()
-                    dismissSettingsWithFocus()
-                } else if (action === 'clearSuggestions') clearSuggestions()
-                else if (action === 'abort') handleAbort()
-                else handleExpandedToggle()
+                e.stopPropagation()
+                dismissSettingsWithFocus()
+                return
+            }
+            if (suggestions.length > 0) {
+                e.preventDefault()
+                clearSuggestions()
+                return
+            }
+            if (isExpanded) {
+                e.preventDefault()
+                handleExpandedToggle()
                 return
             }
         }
@@ -1600,8 +1586,6 @@ export function HappyComposer(props: {
         moveDown,
         clearSuggestions,
         handleSuggestionSelect,
-        threadIsRunning,
-        handleAbort,
         onPermissionModeChange,
         permissionMode,
         permissionModes,
