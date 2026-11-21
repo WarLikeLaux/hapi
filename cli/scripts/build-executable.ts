@@ -217,10 +217,12 @@ async function buildTarget(projectRoot: string, target: string, outdir: string, 
         'build',
         '--compile',
         '--no-compile-autoload-dotenv',
+        '--entry-naming=[name].[ext]',
         `--feature=${featureFlag}`,
         `--target=${target}`,
         `--outfile=${outfile}`,
-        join(projectRoot, 'src', 'bootstrap.ts')
+        join(projectRoot, 'src', 'bootstrap.ts'),
+        join(projectRoot, '..', 'hub', 'src', 'store', 'messageSearchWorker.ts')
     ];
 
     console.log(`[build:exe] ${cmd.join(' ')}`);

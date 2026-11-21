@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Store } from './index'
+import { MessageStore } from './messageStore'
 import {
     MESSAGE_SEARCH_TEXT_LIMIT,
     buildSearchSnippet,
@@ -113,6 +114,38 @@ describe('MessageStore.searchMessages', () => {
     function makeSession(store: Store, tag: string) {
         return store.sessions.getOrCreateSession(tag, { path: `/tmp/${tag}` }, null, 'default')
     }
+
+    it('lets the Hub release a SQLite lock while a file-backed search waits', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-message-search-'))
+        const dbPath = join(dir, 'search.db')
+        const store = new Store(dbPath)
+        const session = makeSession(store, 'search-under-lock')
+        const message = store.messages.addMessage(session.id, userText('match under lock'))
+        store.close()
+        Bun.gc(true)
+
+        const database = new Database(dbPath, { readwrite: true })
+        const fileStore = new MessageStore(database)
+        let release: ReturnType<typeof setTimeout> | undefined
+        try {
+            // Rollback mode makes this lock block readers, unlike WAL mode.
+            database.exec('PRAGMA journal_mode = DELETE')
+            database.exec('BEGIN EXCLUSIVE')
+            let released = false
+            release = setTimeout(() => {
+                database.exec('ROLLBACK')
+                released = true
+            }, 50)
+            const result = await fileStore.searchMessagesAsync('match under lock')
+            expect(released).toBe(true)
+            expect(result.hits.map(hit => hit.messageId)).toEqual([message.id])
+        } finally {
+            clearTimeout(release)
+            fileStore.close()
+            database.close()
+            rmSync(dir, { recursive: true, force: true })
+        }
+    })
 
     it('finds user and agent finals case-insensitively across sessions', () => {
         const store = makeStore()

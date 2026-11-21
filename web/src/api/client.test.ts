@@ -86,6 +86,25 @@ describe('ApiClient error mapping', () => {
         })
     })
 
+    it('times out session loading even while authentication refresh is still pending', async () => {
+        vi.useFakeTimers()
+        try {
+            fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }))
+            const onUnauthorized = vi.fn(() => new Promise<string | null>(() => {}))
+            const api = new ApiClient('expired-token', { onUnauthorized })
+            const outcome = Promise.race([
+                api.getSession('session-1').catch(error => error),
+                new Promise(resolve => setTimeout(() => resolve('Still pending'), 16_000)),
+            ])
+
+            await vi.advanceTimersByTimeAsync(16_000)
+            expect(onUnauthorized).toHaveBeenCalledOnce()
+            expect(await outcome).toMatchObject({ name: 'TimeoutError' })
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
     it('passes cancellation through to session file search', async () => {
         const controller = new AbortController()
         fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {

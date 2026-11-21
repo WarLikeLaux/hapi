@@ -379,6 +379,7 @@ export class Store {
 
     close(): void {
         if (this.closed) return
+        this.messages.close()
         clearCachedStatements(this.db)
         this.db.close()
         this.closed = true

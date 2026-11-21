@@ -863,8 +863,26 @@ export class ApiClient {
         })
     }
 
-    async getSession(sessionId: string): Promise<SessionResponse> {
-        return await this.request<SessionResponse>(`/api/sessions/${encodeURIComponent(sessionId)}`)
+    async getSession(sessionId: string, signal?: AbortSignal): Promise<SessionResponse> {
+        const controller = new AbortController()
+        const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+        // Bound the whole request, including any authentication refresh after a 401.
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const deadline = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+                const error = new DOMException('Session loading timed out.', 'TimeoutError')
+                reject(error)
+                controller.abort(error)
+            }, 15_000)
+        })
+        try {
+            return await Promise.race([
+                this.request<SessionResponse>(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal: requestSignal }),
+                deadline,
+            ])
+        } finally {
+            clearTimeout(timer)
+        }
     }
 
     async getSessionExport(
