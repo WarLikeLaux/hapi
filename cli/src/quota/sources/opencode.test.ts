@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { collectOpencodeQuota } from './opencode'
 
 const NOW_SEC = 1_700_000_000
-const refreshConsole = vi.hoisted(() => vi.fn())
-vi.mock('node:child_process', () => ({ execFile: refreshConsole }))
+const opencodeCli = vi.hoisted(() => vi.fn())
+vi.mock('node:child_process', () => ({ execFile: opencodeCli }))
 let dataHome: string
 
 function consoleAccount(expiresAt = (NOW_SEC + 3600) * 1000, key = 'console-access') {
@@ -20,7 +20,8 @@ function consoleAccount(expiresAt = (NOW_SEC + 3600) * 1000, key = 'console-acce
 }
 
 beforeEach(() => {
-    refreshConsole.mockReset()
+    opencodeCli.mockReset()
+    opencodeCli.mockImplementation((_cmd, _args, _opts, callback) => callback(new Error('unsupported command')))
     dataHome = mkdtempSync(join(tmpdir(), 'hapi-opencode-quota-'))
     mkdirSync(join(dataHome, 'opencode'))
     writeFileSync(join(dataHome, 'opencode', 'auth.json'), JSON.stringify({
@@ -43,12 +44,13 @@ describe('collectOpencodeQuota', () => {
         expect(await collectOpencodeQuota(NOW_SEC, { XDG_DATA_HOME: dataHome }, fetchImpl)).toEqual({
             kind: 'ok', windows: [{ source: 'opencode:monthly', usedPercent: 8, resetsAt: null, measuredAt: NOW_SEC }]
         })
-        expect(refreshConsole).not.toHaveBeenCalled()
+        expect(opencodeCli.mock.calls.some(([, args]) => args[0] === 'console')).toBe(false)
     })
 
     it.each([-60, 120])('delegates Console refresh to OpenCode with %i seconds left and rereads the credential', async (remaining) => {
         consoleAccount((NOW_SEC + remaining) * 1000)
-        refreshConsole.mockImplementation((_cmd, _args, _opts, callback) => {
+        opencodeCli.mockImplementation((_cmd, args, _opts, callback) => {
+            if (args[0] !== 'console') return callback(new Error('unsupported command'))
             consoleAccount((NOW_SEC + 3600) * 1000, 'refreshed-console-access')
             callback(null, '', '')
         })
@@ -59,14 +61,14 @@ describe('collectOpencodeQuota', () => {
             return new Response(JSON.stringify({ usage: { monthly: { status: 'ok', percent: 8 } } }))
         })
         expect(await collectOpencodeQuota(NOW_SEC, { XDG_DATA_HOME: dataHome }, fetchImpl)).toMatchObject({ kind: 'ok' })
-        expect(refreshConsole).toHaveBeenCalledWith('opencode', ['console', 'orgs'], expect.objectContaining({
+        expect(opencodeCli).toHaveBeenCalledWith('opencode', ['console', 'orgs'], expect.objectContaining({
             env: expect.objectContaining({ XDG_DATA_HOME: dataHome })
         }), expect.any(Function))
     })
 
     it('reports a Console recovery failure without exposing native errors or falling back to another account', async () => {
         consoleAccount((NOW_SEC - 60) * 1000)
-        refreshConsole.mockImplementation((_cmd, _args, _opts, callback) => callback(new Error('secret refresh failure')))
+        opencodeCli.mockImplementation((_cmd, _args, _opts, callback) => callback(new Error('secret refresh failure')))
         const fetchImpl = vi.fn<typeof fetch>()
         expect(await collectOpencodeQuota(NOW_SEC, { XDG_DATA_HOME: dataHome }, fetchImpl)).toEqual({
             kind: 'unavailable', source: 'opencode:monthly', reason: 'unavailable', detail: 'Console refresh failed'
@@ -87,7 +89,10 @@ describe('collectOpencodeQuota', () => {
 
     it('requires sign-in if OpenCode completes without renewing an expired Console token', async () => {
         consoleAccount((NOW_SEC - 60) * 1000)
-        refreshConsole.mockImplementation((_cmd, _args, _opts, callback) => callback(null, '', ''))
+        opencodeCli.mockImplementation((_cmd, args, _opts, callback) => {
+            if (args[0] !== 'console') return callback(new Error('unsupported command'))
+            callback(null, '', '')
+        })
         const fetchImpl = vi.fn<typeof fetch>()
         expect(await collectOpencodeQuota(NOW_SEC, { XDG_DATA_HOME: dataHome }, fetchImpl)).toEqual({
             kind: 'unavailable', source: 'opencode:monthly', reason: 'unavailable', detail: 'Console sign-in required'
@@ -105,6 +110,35 @@ describe('collectOpencodeQuota', () => {
             kind: 'unavailable', source: 'opencode:monthly', reason: 'unavailable', detail: 'Unsupported Console server'
         })
         expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
+    it('reads the active Go key from the database used by an OpenCode v2 wrapper', async () => {
+        consoleAccount((NOW_SEC - 3600) * 1000)
+        const runtimeDir = join(dataHome, 'wrapper-data')
+        mkdirSync(runtimeDir)
+        const dbPath = join(runtimeDir, 'opencode.db')
+        const db = new DatabaseSync(dbPath)
+        db.exec(`CREATE TABLE credential (integration_id TEXT, value TEXT, active INTEGER);
+            INSERT INTO credential VALUES
+                ('opencode-go', '{"type":"key","key":"expired-v2-key"}', 0),
+                ('opencode-go', '{"type":"key","key":"active-v2-key"}', 1),
+                ('opencode', '{"type":"key","key":"zen-key"}', 1);`)
+        db.close()
+        opencodeCli.mockImplementation((_cmd, args, _opts, callback) => {
+            if (args[0] === 'debug') return callback(null, { stdout: dbPath + '\n' })
+            callback(new Error('unsupported command'))
+        })
+        const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
+            if ((init?.headers as Record<string, string>).Authorization !== 'Bearer active-v2-key') {
+                return new Response(null, { status: 401 })
+            }
+            return new Response(JSON.stringify({
+                usage: { monthly: { status: 'ok', percent: 0, resetsAt: '2026-12-21T17:17:06.000Z' } }
+            }))
+        })
+        expect(await collectOpencodeQuota(NOW_SEC, { XDG_DATA_HOME: dataHome }, fetchImpl)).toEqual({
+            kind: 'ok', windows: [{ source: 'opencode:monthly', usedPercent: 0, resetsAt: 1797873426, measuredAt: NOW_SEC }]
+        })
     })
 
     it('reports monthly spend and period end using the local Go credential', async () => {
