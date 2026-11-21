@@ -111,6 +111,34 @@ describe('concise summary through reducer, reconcile, grouping and runtime metad
         expect(result.rendered).not.toContain('$0.020')
     })
 
+    it('shows complete Codex turn metrics after a chat rename during the turn', () => {
+        const native = (id: string, data: object) => {
+            const message = normalizeDecryptedMessage({
+                id, seq: 4, localId: null, createdAt: 4,
+                content: { role: 'agent', content: { type: 'codex', data: { ...data, turn_id: 'turn' } } }
+            })
+            if (!message) throw new Error('Invalid native Codex message')
+            return message
+        }
+        const usage = (id: string, outputTokens: number) => native(id, {
+            type: 'token_count', flavor: 'codex', model: 'gpt-6.2-sol', service_tier: 'ultrafast',
+            info: { last: { inputTokens: 1000, cachedInputTokens: 800, outputTokens } }
+        })
+        const result = pipeline([
+            user('prompt'), native('narration', { type: 'message', message: 'Working on it' }),
+            usage('partial-usage', 266),
+            native('rename', { type: 'tool-call', callId: 'rename-call', name: 'mcp__hapi__change_title', input: { title: 'New title' } }),
+            native('tool', { type: 'tool-call', callId: 'command', name: 'CodexBash', input: { command: 'pwd' } }),
+            native('answer', { type: 'message', message: 'Done' }),
+            usage('final-usage', 49),
+            native('duration', { type: 'turn_duration', flavor: 'codex', durationMs: 13_231,
+                timeToFirstTokenMs: 1715, generationMs: 8816, generationOutputTokens: 1060 })
+        ])
+        const labels = ['Time: 13.2s', 'TTFT: 1.7s', 'Credits: 15', 'TPS: 120 tok/s']
+        expect(result.labels).toEqual([labels])
+        expect(project(result.canonical, false).labels).toEqual([labels])
+    })
+
     it('reacts to late S and each generation field change/removal through reconciliation', () => {
         const messages = round('late')
         let result = pipeline(messages.filter(message => message.id !== 'late-summary'))

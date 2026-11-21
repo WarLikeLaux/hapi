@@ -129,7 +129,12 @@ function attachCodexRoundSummaryToLatestGroup(blocks: ChatBlock[], summary: Roun
     }
     let firstIndex = -1
     for (let index = targetIndex; index >= 0; index -= 1) {
-        if (!isSummaryTarget(blocks[index])) break
+        const block = blocks[index]
+        // The root reducer hides title changes. They do not split a native
+        // Codex turn's usage and completion into separate visible responses.
+        if (summary.turnId && block.kind === 'agent-event' && block.event.type === 'title-changed'
+            && isObject(block.meta) && block.meta.codexTurnId === summary.turnId) continue
+        if (!isSummaryTarget(block)) break
         firstIndex = index
     }
     if (firstIndex === -1) return
