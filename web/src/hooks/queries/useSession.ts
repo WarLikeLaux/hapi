@@ -37,11 +37,11 @@ export function useSession(api: ApiClient | null, sessionId: string | null): {
     const resolvedSessionId = sessionId ?? 'unknown'
     const query = useQuery({
         queryKey: queryKeys.session(resolvedSessionId),
-        queryFn: async () => {
+        queryFn: async ({ signal }) => {
             if (!api || !sessionId) {
                 throw new Error('Session unavailable')
             }
-            const response = await api.getSession(sessionId)
+            const response = await api.getSession(sessionId, signal)
             const current = queryClient.getQueryData<{ session: Session }>(queryKeys.session(sessionId))?.session
             return { ...response, session: { ...response.session,
                 contentRevision: Math.max(current?.contentRevision ?? 0, response.session.contentRevision ?? 0),
@@ -49,6 +49,9 @@ export function useSession(api: ApiClient | null, sessionId: string | null): {
             } }
         },
         enabled: Boolean(api && sessionId),
+        // An offline cold start should surface an error instead of leaving the
+        // query paused on the loading screen until the browser reconnects.
+        networkMode: 'always',
         staleTime: SESSION_DETAIL_STALE_TIME_MS,
         // SSE fallback: a dropped/out-of-order `session-updated` patch (strictly-
         // newer version gate in `applySessionDetailPatch`) can hide a fresh
@@ -59,7 +62,7 @@ export function useSession(api: ApiClient | null, sessionId: string | null): {
                 ? SESSION_PENDING_REQUESTS_POLL_MS
                 : false,
         retry: (failureCount, error) => {
-            if (isSessionNotFoundError(error)) {
+            if (isSessionNotFoundError(error) || (error instanceof DOMException && error.name === 'TimeoutError')) {
                 return false
             }
             return failureCount < 2

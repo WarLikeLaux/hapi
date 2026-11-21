@@ -735,8 +735,8 @@ export class SyncEngine {
         return this.messageService.getMessagesPage(sessionId, options)
     }
 
-    searchMessages(query: string, options?: MessageSearchOptions): MessageSearchResponse {
-        return this.store.messages.searchMessages(query, options)
+    searchMessages(query: string, options?: MessageSearchOptions, signal?: AbortSignal): Promise<MessageSearchResponse> {
+        return this.store.messages.searchMessagesAsync(query, options, signal)
     }
 
     getMessageContext(sessionId: string, messageId: string): MessageContextResponse | null {

@@ -3,6 +3,7 @@ import type { Database } from 'bun:sqlite'
 import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import { decodeMessageContent } from './contentCodec'
 import { prepareCached } from './statementCache'
+import { MessageSearchQueue } from './messageSearchQueue'
 
 import type { StoredMessage } from './types'
 import {
@@ -62,9 +63,18 @@ import {
 } from './messages'
 export class MessageStore {
     private readonly db: Database
+    private readonly searchQueue: MessageSearchQueue | undefined
 
     constructor(db: Database) {
         this.db = db
+        const path = db.filename
+        if (path && path !== ':memory:' && !path.startsWith('file::memory:')) {
+            this.searchQueue = new MessageSearchQueue(path)
+        }
+    }
+
+    close(): void {
+        this.searchQueue?.close()
     }
 
     truncateOpenCodeRewind(sessionId: string, cutoffSeq: number, boundaryId: string): number {
@@ -148,6 +158,12 @@ export class MessageStore {
 
     searchMessages(query: string, options?: MessageSearchOptions): MessageSearchResult {
         return searchMessages(this.db, query, options)
+    }
+
+    async searchMessagesAsync(query: string, options?: MessageSearchOptions, signal?: AbortSignal): Promise<MessageSearchResult> {
+        signal?.throwIfAborted()
+        if (this.searchQueue) return await this.searchQueue.search(query, options, signal)
+        return this.searchMessages(query, options)
     }
 
     getFirstMessages(sessionId: string, limit: number = 50): StoredMessage[] {

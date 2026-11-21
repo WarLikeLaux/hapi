@@ -1930,8 +1930,10 @@ export function searchMessages(db: Database, query: string, options: MessageSear
     let total = 0
     let sessions: MessageSearchResult['sessions'] = []
     if (options.sessionId === undefined) {
+        // A substring match cannot use the session index to find candidates.
+        // Read the table in row order instead of looking up every row from the index.
         const aggregates = prepareCached(db,
-            `SELECT session_id, COUNT(*) AS count, MAX(created_at) AS newestAt FROM messages WHERE ${where} GROUP BY session_id ORDER BY newestAt DESC, count DESC, session_id ASC`
+            `SELECT session_id, COUNT(*) AS count, MAX(created_at) AS newestAt FROM messages NOT INDEXED WHERE ${where} GROUP BY session_id ORDER BY newestAt DESC, count DESC, session_id ASC`
         ).all(...baseParams) as Array<{ session_id: string; count: number }>
         sessions = aggregates.map((row) => ({ sessionId: row.session_id, count: row.count }))
         total = sessions.reduce((sum, session) => sum + session.count, 0)

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { MessageSearchQuerySchema, MessagesQuerySchema, QueuedStateRequestSchema, SendMessageRequestSchema } from '@hapi/protocol'
+import { MessageSearchUnavailable } from '../../store/messageSearchQueue'
 import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
@@ -18,12 +19,20 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ error: 'Invalid query', issues: parsed.error.flatten() }, 400)
         }
 
-        return c.json(engine.searchMessages(parsed.data.q, {
-            hitLimit: parsed.data.limit,
-            sessionId: parsed.data.sessionId,
-            beforeCreatedAt: parsed.data.beforeCreatedAt,
-            beforeSeq: parsed.data.beforeSeq
-        }))
+        try {
+            const response = await engine.searchMessages(parsed.data.q, {
+                hitLimit: parsed.data.limit,
+                sessionId: parsed.data.sessionId,
+                beforeCreatedAt: parsed.data.beforeCreatedAt,
+                beforeSeq: parsed.data.beforeSeq
+            }, c.req.raw.signal)
+            return c.json(response)
+        } catch (error) {
+            if (error instanceof MessageSearchUnavailable) {
+                return c.json({ error: error.message }, 503)
+            }
+            throw error
+        }
     })
 
     app.get('/sessions/:id/messages', async (c) => {
