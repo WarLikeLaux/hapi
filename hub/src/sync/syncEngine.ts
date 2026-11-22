@@ -120,6 +120,7 @@ const AUTO_RESTORE_STALE_RECHECK_MS = 31_000
 type SyncEngineOptions = {
     autoRestoreSessions?: boolean
     autoRestoreDelayMs?: number
+    onStartupCacheLoaded?: (elapsedMs: number) => void
 }
 
 export type { Session, SyncEvent } from '@hapi/protocol/types'
@@ -402,7 +403,9 @@ export class SyncEngine {
         this.titleSuggestionService = createTitleSuggestionService(store)
         this.rpcGateway = new RpcGateway(io, rpcRegistry)
         this.sessionCache.closeTurnsLeftOpen()
+        const cacheStartedAt = performance.now()
         this.reloadAll()
+        options.onStartupCacheLoaded?.(performance.now() - cacheStartedAt)
         this.inactivityTimer = setInterval(() => this.expireInactive(), 5_000)
         // Hub start: undelivered opt-in wakes survive process restart as eligible
         // SQLite rows — requeue after caches are warm.

@@ -42,6 +42,7 @@ import { startRunnerControlServer } from './controlServer';
 import { createWorktree, removeWorktree, type WorktreeInfo } from './worktree';
 import { validateWorkspaceDirectory } from './validateWorkspaceDirectory';
 import { join } from 'path';
+import { isIPv4 } from 'node:net';
 import { buildMachineMetadata } from '@/agent/sessionFactory';
 import { resolveWorkspaceRoots } from '@/utils/workspaceRoot';
 import { hashRunnerCliApiToken, hashRunnerExtraHeaders } from './runnerIdentity';
@@ -1966,6 +1967,9 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     logger.debug(`[RUNNER RUN] Workspace roots: ${workspaceRoots?.join(', ') ?? '(not set)'}`);
 
     // Get or create machine (with retry for transient connection errors)
+    const hubHostname = URL.canParse(configuration.apiUrl) ? new URL(configuration.apiUrl).hostname : ''
+    const isLoopbackHub = hubHostname === 'localhost' || hubHostname === '[::1]'
+      || (isIPv4(hubHostname) && hubHostname.startsWith('127.'))
     const machine = await withRetry(
       () => api.getOrCreateMachine({
         machineId,
@@ -1977,9 +1981,10 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
         runnerState: initialRunnerState
       }),
       {
-        maxAttempts: 60,
+        // Keep roughly the same retry window while checking loopback more often during local Hub startup.
+        maxAttempts: isLoopbackHub ? 420 : 60,
         minDelay: 1000,
-        maxDelay: 30000,
+        maxDelay: isLoopbackHub ? 4000 : 30000,
         shouldRetry: isRetryableConnectionError,
         onRetry: (error, attempt, nextDelayMs) => {
           const errorMsg = error instanceof Error ? error.message : String(error)
