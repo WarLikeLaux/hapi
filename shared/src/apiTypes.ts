@@ -213,7 +213,7 @@ export type AuthResponse = {
     }
 }
 
-export type SessionsResponse = { sessions: SessionSummary[] }
+export type SessionsResponse = { sessions: SessionSummary[]; historyDeferred?: boolean }
 export type SessionContentMatch = {
     messageId: string
     role: 'user' | 'assistant'

@@ -58,7 +58,8 @@ export const ExternalConversationSchema = z.object({
     lastMessageDirection: z.enum(['incoming', 'outgoing']).nullable().optional(),
     lastMessageDeliveryStatus: ExternalMessageDeliveryStatusSchema.nullable().optional(),
     unreadCount: z.number().int().nonnegative(),
-    avatarDataUrl: z.string().nullable().optional()
+    avatarDataUrl: z.string().nullable().optional(),
+    avatarVersion: z.string().optional()
 })
 export type ExternalConversation = z.infer<typeof ExternalConversationSchema>
 

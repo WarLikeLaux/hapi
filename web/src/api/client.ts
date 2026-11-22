@@ -327,12 +327,17 @@ export class ApiClient {
         }
     }
 
-    private async request<T>(
+    private async request<T>(path: string, init?: RequestInit): Promise<T> {
+        const response = await this.requestResponse(path, init)
+        return await response.json() as T
+    }
+
+    private async requestResponse(
         path: string,
         init?: RequestInit,
         attempt: number = 0,
         overrideToken?: string | null
-    ): Promise<T> {
+    ): Promise<Response> {
         const headers = new Headers(init?.headers)
         const liveToken = this.getToken ? this.getToken() : null
         const authToken = overrideToken !== undefined
@@ -357,7 +362,7 @@ export class ApiClient {
                 const refreshed = await this.onUnauthorized()
                 if (refreshed) {
                     this.token = refreshed
-                    return await this.request<T>(path, init, attempt + 1, refreshed)
+                    return await this.requestResponse(path, init, attempt + 1, refreshed)
                 }
             }
             throw new Error('Session expired. Please sign in again.')
@@ -374,7 +379,7 @@ export class ApiClient {
             )
         }
 
-        return await res.json() as T
+        return res
     }
 
     async authenticate(
@@ -448,8 +453,8 @@ export class ApiClient {
         })
     }
 
-    async getSessions(): Promise<SessionsResponse> {
-        return await this.request<SessionsResponse>('/api/sessions')
+    async getSessions(view?: 'initial', signal?: AbortSignal): Promise<SessionsResponse> {
+        return await this.request<SessionsResponse>(view ? '/api/sessions?view=initial' : '/api/sessions', { signal })
     }
 
     async getMessengerConnections(): Promise<MessengerConnectionsResponse> {
@@ -550,7 +555,15 @@ export class ApiClient {
     }
 
     async getExternalConversations(): Promise<ExternalConversationsResponse> {
-        return await this.request('/api/conversations')
+        return await this.request('/api/conversations?avatars=separate')
+    }
+
+    async getExternalConversationAvatar(id: string, version: string, signal?: AbortSignal): Promise<Blob> {
+        const response = await this.requestResponse(
+            `/api/conversations/${encodeURIComponent(id)}/avatar?v=${encodeURIComponent(version)}`,
+            { signal, cache: 'force-cache' }
+        )
+        return await response.blob()
     }
 
     async getExternalParticipants(conversationId: string): Promise<{ participants: ExternalParticipant[] }> {

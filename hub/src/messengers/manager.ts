@@ -181,6 +181,11 @@ export class MessengerManager {
         return conversations.map(repairAvatarUrl)
     }
 
+    getSelectedConversationAvatar(namespace: string, conversationId: string): string | null {
+        const conversation = this.getAvailableConversation(namespace, conversationId)
+        return conversation?.selected ? conversation.avatarDataUrl ?? null : null
+    }
+
     /**
      * Background fallback for chat-list avatars that did not arrive via the
      * binary `history` payload. When a Yandex direct/saved conversation is

@@ -19,7 +19,7 @@ import { PrimarySectionNav } from '@/components/PrimarySectionNav'
 import { RoundVideoPlayer } from '@/components/RoundVideoPlayer'
 import { VoiceMessagePlayer } from '@/components/VoiceMessagePlayer'
 import { ChatParticipantAvatar } from '@/components/ChatParticipantAvatar'
-import { ConversationAvatar, ProviderMark } from '@/components/ConversationAvatar'
+import { ConversationAvatar, ProviderMark, useConversationAvatarUrl } from '@/components/ConversationAvatar'
 import { getUserBubbleClassName } from '@/components/AssistantChat/messages/user-bubble'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
@@ -576,7 +576,7 @@ function ConversationAliases(props: { conversations: ExternalConversation[] }) {
                 {props.conversations.map((conversation) => (
                     <div key={conversation.id} className="border-b border-[var(--app-border)] bg-[var(--app-subtle-bg)] p-2.5 last:border-b-0">
                         <div className="flex items-center gap-2">
-                            <ConversationAvatar conversation={conversation} />
+                            <ConversationAvatar api={api} conversation={conversation} />
                             <div className="min-w-0 flex-1">
                                 <div className="mb-1 truncate text-xs font-medium">{conversation.sourceTitle ?? conversation.title}</div>
                                 <LocalAliasInput
@@ -905,6 +905,7 @@ function ChatList(props: {
 }) {
     const { t } = useTranslation()
     const navigate = useNavigate()
+    const { api } = useAppContext()
     return (
         <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--app-border)] px-4">
@@ -932,7 +933,7 @@ function ChatList(props: {
                             props.selectedId === conversation.id ? 'bg-[var(--app-secondary-bg)]' : 'hover:bg-[var(--app-subtle-bg)]'
                         )}
                     >
-                        <ConversationAvatar conversation={conversation} />
+                        <ConversationAvatar api={api} conversation={conversation} />
                         <span className="min-w-0 flex-1">
                             <span className="flex items-baseline gap-2">
                                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{conversation.title}</span>
@@ -1094,6 +1095,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
     }, [editingMessage, cancelEditing])
     useChatsComposerAutoFocus({ composerRef, enabled: !editPendingRef.current })
     const conversation = conversations.data?.find((item) => item.id === conversationId)
+    const conversationAvatar = useConversationAvatarUrl(api, conversation, conversation?.kind === 'direct')
     // The pane renders a loading placeholder until the conversations list
     // delivers this chat, so the message viewport does not exist yet. Scroll
     // effects keyed only on `conversationId` run once during that placeholder
@@ -1382,7 +1384,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
             ) : null}
             <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-3">
                 <button type="button" onClick={() => navigate({ to: props.backTo })} className="rounded-full p-2 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] split:hidden"><BackIcon /></button>
-                <ConversationAvatar conversation={conversation} />
+                <ConversationAvatar api={api} conversation={conversation} />
                 <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold">{conversation.title}</div>
                     <div className="text-[10px] uppercase tracking-wide text-[var(--app-hint)]">{PROVIDER_LABELS[conversation.provider as ChatsProvider] ?? conversation.provider}</div>
@@ -1478,7 +1480,7 @@ function ChatConversationView(props: { conversationId: string; backTo: '/chats' 
                         const showSenderName = incoming && !continuesPrevious && Boolean(item.senderName) && conversation.kind !== 'direct'
                         const avatarSrc = item.senderAvatarDataUrl
                             ?? (item.senderId ? participantAvatars.get(item.senderId) : null)
-                            ?? (incoming && conversation.kind === 'direct' ? conversation.avatarDataUrl : null)
+                            ?? (incoming && conversation.kind === 'direct' ? conversationAvatar : null)
                         const groupedCornerClassName = cn(
                             continuesPrevious && 'messenger-bubble-joined-top',
                             continuesNext && 'messenger-bubble-joined-bottom'

@@ -116,7 +116,7 @@ export default function SharePage() {
     const { t } = useTranslation()
     const navigate = useNavigate()
     const [load, setLoad] = useState<LoadState>({ state: 'loading' })
-    const { sessions, isLoading: sessionsLoading } = useSessions(api)
+    const { sessions, isLoading: sessionsLoading } = useSessions(api, { includeHistory: true })
     const { machines } = useMachines(api, true)
     const machineLabelsById = useMachineLabels(machines)
     const { sessionPreviewLimit } = useSessionPreviewLimit()

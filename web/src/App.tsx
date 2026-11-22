@@ -10,6 +10,7 @@ import { useAuthSource } from '@/hooks/useAuthSource'
 import { useServerUrl } from '@/hooks/useServerUrl'
 import { useSSE } from '@/hooks/useSSE'
 import { useSessions } from '@/hooks/queries/useSessions'
+import { useSession } from '@/hooks/queries/useSession'
 import { useReconnectingState } from '@/hooks/useReconnectingState'
 import { useSyncingState } from '@/hooks/useSyncingState'
 import { pushNotificationsDisabled, usePushNotifications } from '@/hooks/usePushNotifications'
@@ -217,6 +218,7 @@ function AppInner() {
         sessions: appSessions,
         isLoading: appSessionsLoading,
         error: appSessionsError,
+        historyDeferred,
     } = useSessions(api, { enabled: Boolean(api && token) })
     const { titles: browserTitles } = useBrowserTitles(api)
     const { projects: titleProjects } = useProjectPreferences(api)
@@ -226,7 +228,9 @@ function AppInner() {
         enabled: Boolean(api && token),
         staleTime: 30_000,
     })
-    const selectedSession = appSessions.find(session => session.id === selectedSessionId)
+    const selectedSummary = appSessions.find(session => session.id === selectedSessionId)
+    const { session: selectedDetail } = useSession(api, historyDeferred && !selectedSummary ? selectedSessionId : null)
+    const selectedSession = selectedSummary ?? selectedDetail
     const projectPath = selectedSession?.metadata?.worktree?.basePath ?? selectedSession?.metadata?.path
     const machineId = selectedSession?.metadata?.machineId ?? null
     const workPaths = useMemo(() => getProjectPaths(appSessions, machineId, {
