@@ -261,29 +261,50 @@ export class MessageStore {
         lastMessageAt?: number
         lastAgentMessageAt?: number
     } {
-        const query = this.db.prepare<{ content: string | Uint8Array; created_at: number }, [string]>(
-            'SELECT content, created_at FROM messages WHERE session_id = ? ORDER BY created_at DESC'
-        )
-        let lastMessageAt: number | undefined
-        let lastAgentMessageAt: number | undefined
-        try {
-            for (const row of query.iterate(sessionId)) {
-                const content = decodeMessageContent(row.content)
-                if (!hasConversationMessageContent(content)) continue
-                if (lastMessageAt === undefined) lastMessageAt = Math.max(0, row.created_at)
-                if (lastAgentMessageAt === undefined && unwrapRoleWrappedRecordEnvelope(content)?.role === 'agent') {
-                    lastAgentMessageAt = Math.max(0, row.created_at)
-                }
-                if (lastMessageAt !== undefined && lastAgentMessageAt !== undefined) break
+        const cached = prepareCached(this.db, `
+            SELECT last_message_at, last_agent_message_at
+            FROM session_conversation_activity WHERE session_id = ?
+        `).get(sessionId) as { last_message_at: number | null; last_agent_message_at: number | null } | null
+        if (cached) {
+            return {
+                hasContent: cached.last_message_at !== null,
+                lastMessageAt: cached.last_message_at ?? undefined,
+                lastAgentMessageAt: cached.last_agent_message_at ?? undefined
             }
-        } finally {
-            query.finalize()
         }
-        return {
-            hasContent: lastMessageAt !== undefined,
-            lastMessageAt,
-            lastAgentMessageAt,
-        }
+
+        return this.db.transaction(() => {
+            const query = this.db.prepare<{ content: string | Uint8Array; created_at: number }, [string]>(
+                'SELECT content, created_at FROM messages WHERE session_id = ? ORDER BY created_at DESC'
+            )
+            let lastMessageAt: number | undefined
+            let lastAgentMessageAt: number | undefined
+            try {
+                for (const row of query.iterate(sessionId)) {
+                    const content = decodeMessageContent(row.content)
+                    if (!hasConversationMessageContent(content)) continue
+                    if (lastMessageAt === undefined) lastMessageAt = Math.max(0, row.created_at)
+                    if (lastAgentMessageAt === undefined && unwrapRoleWrappedRecordEnvelope(content)?.role === 'agent') {
+                        lastAgentMessageAt = Math.max(0, row.created_at)
+                    }
+                    if (lastMessageAt !== undefined && lastAgentMessageAt !== undefined) break
+                }
+            } finally {
+                query.finalize()
+            }
+            // The triggers invalidate this snapshot in the same transaction as
+            // inserts, rewinds, edits and moves between sessions.
+            prepareCached(this.db, `
+                INSERT OR IGNORE INTO session_conversation_activity
+                    (session_id, last_message_at, last_agent_message_at)
+                SELECT id, ?, ? FROM sessions WHERE id = ?
+            `).run(lastMessageAt ?? null, lastAgentMessageAt ?? null, sessionId)
+            return {
+                hasContent: lastMessageAt !== undefined,
+                lastMessageAt,
+                lastAgentMessageAt,
+            }
+        }).immediate()
     }
 
     countMessages(sessionId: string): number {

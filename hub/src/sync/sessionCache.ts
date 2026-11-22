@@ -4,6 +4,7 @@ import { AgentStateSchema, ExternalRefsSchema, MetadataSchema, SessionPatchSchem
 import { hasConversationMessageContent, unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { BackgroundTask, CodexCollaborationMode, CopilotAgentMode, ExternalRef, PermissionMode, Session, SessionPatch } from '@hapi/protocol/types'
 import type { SessionTurnEndReason, SessionTurnTrigger, Store } from '../store'
+import type { StoredSession } from '../store/types'
 import { parkedSessionMetadata } from '../store/sessions'
 import { clampAliveTime } from './aliveTime'
 import { EventPublisher } from './eventPublisher'
@@ -169,6 +170,7 @@ export class SessionCache {
     private readonly sessions: Map<string, Session> = new Map()
     private readonly lastBroadcastAtBySessionId: Map<string, number> = new Map()
     private readonly todoBackfillAttemptedSessionIds: Set<string> = new Set()
+    private readonly deferredHistoryRecovery = new Set<string>()
     private readonly deduplicateInProgress: Set<string> = new Set()
     private readonly deduplicatePending: Map<string, Set<string>> = new Map()
     private readonly pendingThinkingUntilBySessionId: Map<string, number> = new Map()
@@ -226,6 +228,9 @@ export class SessionCache {
     }
 
     getSession(sessionId: string): Session | undefined {
+        if (this.deferredHistoryRecovery.has(sessionId)) {
+            return this.refreshSession(sessionId) ?? undefined
+        }
         return this.sessions.get(sessionId)
     }
 
@@ -234,14 +239,16 @@ export class SessionCache {
         if (!session || session.namespace !== namespace) {
             return undefined
         }
-        return session
+        return this.getSession(sessionId)
     }
 
     resolveSessionAccess(
         sessionId: string,
         namespace: string
     ): { ok: true; sessionId: string; session: Session } | { ok: false; reason: 'not-found' | 'access-denied' } {
-        const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+        const cached = this.sessions.get(sessionId)
+        if (cached && cached.namespace !== namespace) return { ok: false, reason: 'access-denied' }
+        const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
         if (session) {
             if (session.namespace !== namespace) {
                 return { ok: false, reason: 'access-denied' }
@@ -360,9 +367,10 @@ export class SessionCache {
     }
 
     refreshSession(sessionId: string): Session | null {
-        let stored = this.store.sessions.getSession(sessionId)
+        const stored = this.store.sessions.getSession(sessionId)
         if (!stored) {
             const existed = this.sessions.delete(sessionId)
+            this.deferredHistoryRecovery.delete(sessionId)
             this.pendingThinkingUntilBySessionId.delete(sessionId)
             this.idleBoundaryAtBySessionId.delete(sessionId)
             this.runtimeConfigUpdatedAtBySessionId.delete(sessionId)
@@ -372,15 +380,23 @@ export class SessionCache {
             }
             return null
         }
+        return this.refreshStoredSession(stored)
+    }
 
+    private refreshStoredSession(stored: StoredSession, deferHistoryRecovery = false): Session {
+        const sessionId = stored.id
         const existing = this.sessions.get(sessionId)
-        const shouldBackfillTodos = stored.todos === null && !this.todoBackfillAttemptedSessionIds.has(sessionId)
+        if (deferHistoryRecovery) this.deferredHistoryRecovery.add(sessionId)
+        const shouldRecoverReady = !deferHistoryRecovery
+            && (!existing || this.deferredHistoryRecovery.has(sessionId))
+        const shouldBackfillTodos = !deferHistoryRecovery && stored.todos === null
+            && !this.todoBackfillAttemptedSessionIds.has(sessionId)
         // Both recovery passes use the same recent messages. Decode them once.
-        const recentMessages = !existing || shouldBackfillTodos
+        const recentMessages = shouldRecoverReady || shouldBackfillTodos
             ? this.store.messages.getMessages(sessionId, READY_RECOVERY_MESSAGE_LIMIT)
             : []
 
-        if (!existing) {
+        if (shouldRecoverReady) {
             const latestUserMessageAt = stored.lastUserMessageAt ?? stored.createdAt
             const latestReadyAfterUserMessage = recentMessages
                 .filter((message) => (
@@ -432,6 +448,10 @@ export class SessionCache {
         })()
 
         const conversationActivity = this.store.messages.getConversationActivity(sessionId)
+        const recoveredReadyAt = this.idleBoundaryAtBySessionId.get(sessionId) ?? 0
+        const lastReadyAt = shouldRecoverReady
+            ? Math.max(existing?.lastReadyAt ?? 0, recoveredReadyAt)
+            : existing?.lastReadyAt ?? recoveredReadyAt
         const session: Session = {
             hasConversationContent: conversationActivity.hasContent,
             id: stored.id,
@@ -444,7 +464,7 @@ export class SessionCache {
             lastUserMessageAt: stored.lastUserMessageAt ?? stored.createdAt,
             lastMessageAt: conversationActivity.lastMessageAt ?? 0,
             lastAgentMessageAt: conversationActivity.lastAgentMessageAt ?? 0,
-            lastReadyAt: existing?.lastReadyAt ?? this.idleBoundaryAtBySessionId.get(sessionId) ?? 0,
+            lastReadyAt,
             pinned: stored.pinned,
             globalPinned: stored.globalPinned,
             active: existing?.active ?? stored.active,
@@ -479,8 +499,9 @@ export class SessionCache {
             copilotAgentMode: existing?.copilotAgentMode ?? metadata?.preferredCopilotAgentMode
         }
 
+        if (!deferHistoryRecovery) this.deferredHistoryRecovery.delete(sessionId)
         this.sessions.set(sessionId, session)
-        this.publisher.emit({ type: existing ? 'session-updated' : 'session-added', sessionId, data: session })
+        this.publisher.emit({ type: existing ? 'session-updated' : 'session-added', sessionId, namespace: stored.namespace, data: session })
         return session
     }
 
@@ -543,7 +564,9 @@ export class SessionCache {
     reloadAll(): void {
         const sessions = this.store.sessions.getSessions()
         for (const session of sessions) {
-            this.refreshSession(session.id)
+            // The sidebar needs activity summaries. Inactive sessions can
+            // recover their ready boundary and historical todos on first access.
+            this.refreshStoredSession(session, !session.active)
         }
     }
 
@@ -552,7 +575,7 @@ export class SessionCache {
     }
 
     setSessionPinMode(sessionId: string, mode: 'none' | 'project' | 'global'): void {
-        const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+        const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
         if (!session) throw new Error('Session not found')
         this.store.sessions.setSessionPinMode(sessionId, mode, session.namespace)
         this.refreshSession(sessionId)
@@ -560,7 +583,7 @@ export class SessionCache {
 
     markSessionActive(sessionId: string, time: number = Date.now()): void {
         const t = clampAliveTime(time) ?? Date.now()
-        const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+        const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
         if (!session) return
 
         const wasActive = session.active
@@ -690,7 +713,7 @@ export class SessionCache {
         const t = clampAliveTime(payload.time)
         if (!t) return
 
-        const session = this.sessions.get(payload.sid) ?? this.refreshSession(payload.sid)
+        const session = this.getSession(payload.sid) ?? this.refreshSession(payload.sid)
         if (!session) return
 
         const wasActive = session.active
@@ -829,7 +852,7 @@ export class SessionCache {
         time: number = Date.now(),
         activeTurnStartedAt: number = time
     ): void {
-        const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+        const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
         if (!session) return
         if (!session.active) return
 
@@ -1173,7 +1196,7 @@ export class SessionCache {
     handleSessionEnd(payload: { sid: string; time: number }): void {
         const t = clampAliveTime(payload.time) ?? Date.now()
 
-        const session = this.sessions.get(payload.sid) ?? this.refreshSession(payload.sid)
+        const session = this.getSession(payload.sid) ?? this.refreshSession(payload.sid)
         if (!session) return
         this.forgetInterruptedTurn(session.id)
 
@@ -1211,7 +1234,7 @@ export class SessionCache {
 
     handleSessionIdle(sessionId: string, time: number): void {
         const t = clampAliveTime(time) ?? Date.now()
-        const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+        const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
         if (!session) return
 
         this.pendingThinkingUntilBySessionId.delete(session.id)
@@ -1238,7 +1261,7 @@ export class SessionCache {
      */
     handleSessionBusy(sessionId: string, time: number): void {
         const t = clampAliveTime(time) ?? Date.now()
-        const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+        const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
         if (!session) return
 
         const wasActive = session.active
@@ -1324,7 +1347,7 @@ export class SessionCache {
             copilotAgentMode?: CopilotAgentMode
         }
     ): void {
-        const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+        const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
         if (!session) {
             return
         }
@@ -1443,7 +1466,7 @@ export class SessionCache {
      */
     markSessionArchivedFromHub(sessionId: string, reason: string): void {
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session) return
             const current = session.metadata
             if (!current) return
@@ -1499,7 +1522,7 @@ export class SessionCache {
      */
     markSessionParkedFromHub(sessionId: string, reason: string): void {
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session) return
             const current = session.metadata
             if (!current) return
@@ -1535,7 +1558,7 @@ export class SessionCache {
     /** Persist whether an inactive runner-backed session should return after a cold restart. */
     setSessionRestoreOnRestart(sessionId: string, restoreOnRestart: boolean): void {
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session?.metadata) {
                 throw new Error('Session metadata missing')
             }
@@ -1563,7 +1586,7 @@ export class SessionCache {
 
     async setSessionMuted(sessionId: string, muted: boolean): Promise<void> {
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session) throw new Error('Session not found')
             const result = this.store.sessions.updateSessionMetadata(
                 sessionId, { ...(session.metadata ?? { path: '', host: '' }), muted },
@@ -1593,7 +1616,7 @@ export class SessionCache {
         // this, a stale cache snapshot produces forever-409 on PATCH /sessions/:id
         // until some unrelated event triggers a refresh.
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session) {
                 throw new Error('Session not found')
             }
@@ -1639,7 +1662,7 @@ export class SessionCache {
     ): Promise<ExternalRef[]> {
         // tiann/hapi#1162: same metadata-version retry contract as renameSession.
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session) {
                 throw new Error('Session not found')
             }
@@ -1700,7 +1723,7 @@ export class SessionCache {
         // manually chosen name must continue to win in the Web title helper,
         // while the summary remains available as the agent-authored fallback.
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session) {
                 throw new Error('Session not found')
             }
@@ -1743,7 +1766,7 @@ export class SessionCache {
      */
     updatePromptTitle(sessionId: string, text: string): boolean {
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session?.metadata) return false
 
             const metadata = session.metadata
@@ -1786,7 +1809,7 @@ export class SessionCache {
     }
 
     async markModelErrorBridged(sessionId: string, eventId: string): Promise<void> {
-        const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+        const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
         if (!session) {
             throw new Error('Session not found')
         }
@@ -1834,7 +1857,7 @@ export class SessionCache {
         // Identity is eventId (not wall-clock atTs). Retry version-mismatch
         // (CLI metadata race) like markModelErrorNotified.
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session) {
                 throw new Error('Session not found')
             }
@@ -1887,7 +1910,7 @@ export class SessionCache {
      */
     async markModelErrorNotified(sessionId: string, eventId: string): Promise<void> {
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session) {
                 return
             }
@@ -1946,7 +1969,7 @@ export class SessionCache {
         // flow runs this on every archived-session resume — a stale snapshot
         // here used to forever-409 the only reopen affordance.
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session) {
                 throw new Error('Session not found')
             }
@@ -2026,7 +2049,7 @@ export class SessionCache {
         // half-cleared archive state, so making it robust to a stale snapshot
         // matters more here than for the other two.
         for (let attempt = 0; attempt < METADATA_RETRY_ATTEMPTS; attempt += 1) {
-            const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+            const session = this.getSession(sessionId) ?? this.refreshSession(sessionId)
             if (!session) return
             const current = session.metadata
             if (!current) return
@@ -2105,6 +2128,7 @@ export class SessionCache {
         this.store.sessionRedirects.deleteTargeting(sessionId, session.namespace)
 
         this.sessions.delete(sessionId)
+        this.deferredHistoryRecovery.delete(sessionId)
         this.lastBroadcastAtBySessionId.delete(sessionId)
         this.todoBackfillAttemptedSessionIds.delete(sessionId)
         this.pendingThinkingUntilBySessionId.delete(sessionId)
@@ -2436,6 +2460,7 @@ export class SessionCache {
             }
 
             const existed = this.sessions.delete(oldSessionId)
+            this.deferredHistoryRecovery.delete(oldSessionId)
             if (existed) {
                 this.publisher.emit({ type: 'session-removed', sessionId: oldSessionId, namespace })
             }

@@ -60,6 +60,30 @@ describe('session conversation content', () => {
         }
     })
 
+    it('recomputes activity for both sessions when old history is moved', () => {
+        const store = new Store(':memory:')
+        try {
+            const source = store.sessions.getOrCreateSession('source', { path: '/work', host: 'test' }, null, 'default')
+            const target = store.sessions.getOrCreateSession('target', { path: '/work', host: 'test' }, null, 'default')
+            store.messages.addImportedMessage(source.id, {
+                role: 'agent', content: { type: 'codex', data: { type: 'message', message: 'Answer' } }
+            }, 'answer', 700)
+            expect(store.messages.getConversationActivity(source.id).lastAgentMessageAt).toBe(700)
+            expect(store.messages.getConversationActivity(target.id).hasContent).toBe(false)
+
+            store.messages.mergeSessionMessages(source.id, target.id)
+
+            expect(store.messages.getConversationActivity(source.id).hasContent).toBe(false)
+            expect(store.messages.getConversationActivity(target.id)).toMatchObject({
+                hasContent: true,
+                lastMessageAt: 700,
+                lastAgentMessageAt: 700
+            })
+        } finally {
+            store.close()
+        }
+    })
+
     it('publishes eligibility changes for first sends, cancellations and CLI messages', async () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []
