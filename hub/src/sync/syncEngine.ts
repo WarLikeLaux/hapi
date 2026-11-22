@@ -446,7 +446,7 @@ export class SyncEngine {
             return event.namespace
         }
         if ('sessionId' in event) {
-            return this.getSession(event.sessionId)?.namespace
+            return (this.sessionCache.getCachedSession(event.sessionId) ?? this.getSession(event.sessionId))?.namespace
         }
         if ('machineId' in event) {
             return this.machineCache.getMachine(event.machineId)?.namespace
@@ -780,7 +780,10 @@ export class SyncEngine {
             // REPLACES the cache entry, leaving the old object reference
             // intact for the caller). Use the snapshot for BOTH branches
             // so the comparison contract is identical.
-            const before = this.sessionCache.getSession(event.sessionId)
+            //
+            // The metadata event follows the database write. Recovering deferred
+            // history here would load the new owner before we can compare it.
+            const before = this.sessionCache.getCachedSession(event.sessionId)
             const beforeMetadata = before?.metadata ?? null
             const patchApplied = event.data
                 ? this.sessionCache.applySessionPatch(event.sessionId, event.data, event.namespace)
@@ -788,7 +791,7 @@ export class SyncEngine {
 
             if (patchApplied) {
                 this.eventPublisher.emit(event)
-                const after = this.sessionCache.getSession(event.sessionId)
+                const after = this.sessionCache.getCachedSession(event.sessionId)
                 this.reconcileSteerDeliveryOwner(beforeMetadata, after)
                 if (after?.metadata && !this.hasSameAgentSessionIds(beforeMetadata, after.metadata)) {
                     if (!this.canRunCursorDedup(after)) {
@@ -804,8 +807,7 @@ export class SyncEngine {
             // No-data event (or data we can't apply directly, e.g. full
             // Session payload from a different emitter): fall back to the
             // legacy refresh-from-DB-and-broadcast path.
-            this.sessionCache.refreshSession(event.sessionId)
-            const after = this.sessionCache.getSession(event.sessionId)
+            const after = this.sessionCache.refreshSession(event.sessionId) ?? undefined
             this.reconcileSteerDeliveryOwner(beforeMetadata, after)
             if (after?.metadata && !this.hasSameAgentSessionIds(beforeMetadata, after.metadata)) {
                 if (!this.canRunCursorDedup(after)) {

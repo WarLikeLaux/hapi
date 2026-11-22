@@ -227,6 +227,10 @@ export class SessionCache {
         return this.getSessions().filter((session) => session.namespace === namespace)
     }
 
+    getCachedSession(sessionId: string): Session | undefined {
+        return this.sessions.get(sessionId)
+    }
+
     getSession(sessionId: string): Session | undefined {
         if (this.deferredHistoryRecovery.has(sessionId)) {
             return this.refreshSession(sessionId) ?? undefined
