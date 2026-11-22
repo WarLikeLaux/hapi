@@ -123,7 +123,7 @@ export class Store {
         return this._dbPath
     }
 
-    constructor(dbPath: string) {
+    constructor(dbPath: string, reportStartup?: (phase: string, elapsedMs: number) => void) {
         this._dbPath = dbPath
         if (dbPath !== ':memory:' && !dbPath.startsWith('file::memory:')) {
             const dir = dirname(dbPath)
@@ -142,16 +142,21 @@ export class Store {
             }
         }
 
+        const openStartedAt = performance.now()
         this.db = new Database(dbPath, { create: true, readwrite: true, strict: true })
         this.db.exec('PRAGMA journal_mode = WAL')
         this.db.exec('PRAGMA synchronous = NORMAL')
         this.db.exec('PRAGMA foreign_keys = ON')
         this.db.exec('PRAGMA busy_timeout = 5000')
+        reportStartup?.('SQLite open and configuration', performance.now() - openStartedAt)
+
+        const schemaStartedAt = performance.now()
         this.initSchema()
         // Conversation activity needs the newest message timestamps, which
         // are not necessarily in sequence order after imports or rewinds.
         // This additive index works with existing schemas and is built once.
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_created_at ON messages(session_id, created_at DESC)')
+        reportStartup?.('SQLite schema and migrations', performance.now() - schemaStartedAt)
 
         if (dbPath !== ':memory:' && !dbPath.startsWith('file::memory:')) {
             for (const path of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
@@ -180,7 +185,9 @@ export class Store {
         this.modelPreferences = new ModelPreferenceStore(this.db)
         this.browserTitles = new BrowserTitleStore(this.db)
         this.projectPreferences = new ProjectPreferenceStore(this.db)
+        const backfillStartedAt = performance.now()
         this.backfillLastUserMessageAt()
+        reportStartup?.('Session user activity backfill', performance.now() - backfillStartedAt)
     }
 
     runInTransaction<T>(work: () => T): T {
