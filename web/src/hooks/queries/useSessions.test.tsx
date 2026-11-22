@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, renderHook } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ApiClient } from '@/api/client'
 import type { SessionsResponse, SessionSummary } from '@/types/api'
@@ -39,4 +39,25 @@ it('does not let a delayed REST snapshot undo newer user input from SSE', async 
     const data = client.getQueryData<SessionsResponse>(queryKeys.sessions)!
     expect(data.sessions.map(s => s.id)).toEqual(['a', 'b'])
     expect(data.sessions[0]!.lastUserMessageAt).toBe(300)
+})
+
+it('requests compact sessions until history is opened, then keeps the full list on refresh', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const getSessions = vi.fn(async (view?: 'initial') => view
+        ? { sessions: [row('active', 20)], historyDeferred: true }
+        : { sessions: [row('active', 20), row('archived', 10)] })
+    const api = { getSessions } as unknown as ApiClient
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children)
+    const { result } = renderHook(() => useSessions(api), { wrapper })
+
+    await waitFor(() => expect(result.current.historyDeferred).toBe(true))
+    expect(getSessions.mock.calls.map(([view]) => view)).toEqual(['initial'])
+    expect(result.current.sessions.map(session => session.id)).toEqual(['active'])
+
+    await act(() => result.current.loadHistory())
+    await waitFor(() => expect(result.current.historyDeferred).toBe(false))
+    expect(result.current.sessions.map(session => session.id)).toEqual(['active', 'archived'])
+
+    await act(() => result.current.refetch())
+    expect(getSessions.mock.calls.map(([view]) => view)).toEqual(['initial', undefined, undefined])
 })

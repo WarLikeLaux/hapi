@@ -1,6 +1,6 @@
 import { useSessionGroups } from '@/hooks/queries/useSessionGroups'
 import { SessionGroupWorkspace } from '@/components/SessionGroups'
-import { CREATABLE_AGENT_FLAVORS, type SessionGroup, type UpdateSessionGroup } from '@hapi/protocol'
+import { CREATABLE_AGENT_FLAVORS, toSessionSummary, type SessionGroup, type UpdateSessionGroup } from '@hapi/protocol'
 import type { AgentType } from '@/components/NewSession/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -209,7 +209,7 @@ function SessionsPage() {
     const matchRoute = useMatchRoute()
     const { t } = useTranslation()
     const { addToast } = useToast()
-    const { sessions, isLoading, error, refetch } = useSessions(api)
+    const { sessions: listSessions, isLoading, error, refetch, historyDeferred, historyLoading, loadHistory } = useSessions(api)
     const [initializedHub, setInitializedHub] = useState<string | null>(null)
     const [limitsOpen, setLimitsOpen] = useState(false)
     const [aboutOpen, setAboutOpen] = useState(false)
@@ -239,6 +239,13 @@ function SessionsPage() {
     const groupRoute = matchRoute({ to: '/sessions/groups/$groupId', fuzzy: true })
     const sessionSearch = useSearch({ strict: false })
     const creationGroupId = pathname === '/sessions/new' ? sessionSearch.groupId : undefined
+    const sessionMatch = matchRoute({ to: '/sessions/$sessionId', fuzzy: true })
+    const selectedSessionId = !groupRoute && sessionMatch && sessionMatch.sessionId !== 'new' ? sessionMatch.sessionId : null
+    const detailId = historyDeferred && !listSessions.some(session => session.id === selectedSessionId) ? selectedSessionId : null
+    const { session: selectedDetail } = useSession(api, detailId)
+    const sessions = useMemo(() => selectedDetail
+        ? [...listSessions, toSessionSummary(selectedDetail)]
+        : listSessions, [listSessions, selectedDetail])
     const groupedIds = useMemo(() => new Set(groupState.groups.flatMap(g => g.members.map(m => m.sessionId))), [groupState.groups])
     const groupedSessions = useMemo(() => sessions.filter(s => groupedIds.has(s.id)), [sessions, groupedIds])
     const standaloneSessions = useMemo(() => sessions.filter(s => !groupedIds.has(s.id)), [sessions, groupedIds])
@@ -282,8 +289,6 @@ function SessionsPage() {
         () => machines.some(m => (m.metadata?.workspaceRoots?.length ?? 0) > 0),
         [machines]
     )
-    const sessionMatch = matchRoute({ to: '/sessions/$sessionId', fuzzy: true })
-    const selectedSessionId = !groupRoute && sessionMatch && sessionMatch.sessionId !== 'new' ? sessionMatch.sessionId : null
     const selectedGroup = groupState.groups.find(group => groupRoute ? group.id === groupRoute.groupId : creationGroupId ? group.id === creationGroupId : group.members.some(m => m.sessionId === selectedSessionId))
     const selectedSession = useMemo(
         () => selectedSessionId ? sessions.find((session) => session.id === selectedSessionId) ?? null : null,
@@ -457,6 +462,10 @@ function SessionsPage() {
                         onBrowse={canBrowse ? () => navigate({ to: '/browse' }) : undefined}
                         onRefresh={handleRefresh}
                         isLoading={isLoading}
+                        historyDeferred={historyDeferred}
+                        historyLoading={historyLoading}
+                        historyError={historyDeferred ? error : null}
+                        onLoadHistory={loadHistory}
                         // Keep ranks: new 4, settings 6,
                         // mark-all 7, about 8. Higher sheds into More first (#2039).
                         renderHeader
@@ -923,7 +932,7 @@ function SessionPage() {
         getSuggestions: getSkillSuggestions,
     } = useSkills(api, sessionId)
     // Mentionable sessions must have conversation content (#1506).
-    const { sessions: allSessions } = useSessions(api)
+    const { sessions: allSessions, historyDeferred, loadHistory } = useSessions(api)
     const { mentionInactiveCollapsed, setMentionInactiveCollapsed } = useMentionInactiveCollapsed()
     const { machines: mentionMachines } = useMachines(api, true)
     const mentionMachineLabelsById = useMachineLabels(mentionMachines)
@@ -947,13 +956,18 @@ function SessionPage() {
             // v2: segmented rich composer with inline session tokens — #1215.
             // Match via sessionMatchesQuery (share/sidebar).
             const sessionHits = buildSessionMentionSuggestions({
-                sessions: allSessions,
+                sessions: historyDeferred && (search || !mentionInactiveCollapsed)
+                    ? await loadHistory().catch(() => allSessions)
+                    : allSessions,
                 query: search,
                 excludeId: sessionId,
                 resolveMachineLabel: resolveMentionMachineLabel,
                 inactiveCollapsed: mentionInactiveCollapsed,
                 inactiveLabel: t('richComposer.inactiveSessions'),
-                toggleInactive: () => setMentionInactiveCollapsed(!mentionInactiveCollapsed),
+                toggleInactive: () => {
+                    if (mentionInactiveCollapsed && historyDeferred) void loadHistory().catch(() => {})
+                    setMentionInactiveCollapsed(!mentionInactiveCollapsed)
+                },
             })
 
             if ((agentType === 'codex' || agentType === 'copilot') && api && sessionId) {
@@ -995,6 +1009,8 @@ function SessionPage() {
         api,
         sessionId,
         allSessions,
+        historyDeferred,
+        loadHistory,
         mentionInactiveCollapsed,
         setMentionInactiveCollapsed,
         t,
@@ -1247,7 +1263,7 @@ function NewSessionPage() {
     } = useSession(api, continueFromSessionId ?? null)
 
     const creationGroups = useSessionGroups(api)
-    const creationSessions = useSessions(api)
+    const creationSessions = useSessions(api, { includeHistory: true })
     const creationGroup = creationGroups.groups.find(group => group.id === groupId)
     const firstChat = creationSessions.sessions.find(session => session.id === creationGroup?.members[0]?.sessionId)
     const firstMachine = machines.find(machine => machine.id === firstChat?.metadata?.machineId)

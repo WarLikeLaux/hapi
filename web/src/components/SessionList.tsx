@@ -957,6 +957,7 @@ export function SessionListSearch(props: {
     customEnd?: string
     sessionActivityDates?: ReadonlySet<string>
     onDateRangeChange?: (start: string, end: string) => void
+    onOpenDatePicker?: () => void
     expanded: boolean
     onExpandedChange: (expanded: boolean) => void
     /** Minimum width of search + clear. Query text may shrink; these may not. */
@@ -1002,7 +1003,10 @@ export function SessionListSearch(props: {
                 type="button"
                 data-testid="session-list-search-date-embedded"
                 data-toolbar-chrome=""
-                onClick={() => setDatePickerOpen(open => !open)}
+                onClick={() => {
+                    if (!datePickerOpen) props.onOpenDatePicker?.()
+                    setDatePickerOpen(!datePickerOpen)
+                }}
                 className={cn(
                     'relative flex shrink-0 items-center justify-center transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] focus-visible:ring-inset',
@@ -1236,7 +1240,7 @@ function CollapsiblePanel(props: { open: boolean; children: ReactNode }) {
 }
 
 // A fresh messenger chat rendered as a peer row inside the session list.
-function FreshChatItem({ conversation }: { conversation: ExternalConversation }) {
+function FreshChatItem({ conversation, api }: { conversation: ExternalConversation; api: ApiClient | null }) {
     const { t } = useTranslation()
     const navigate = useNavigate()
     const params = useParams({ strict: false })
@@ -1250,7 +1254,7 @@ function FreshChatItem({ conversation }: { conversation: ExternalConversation })
             aria-current={selected ? 'page' : undefined}
             className={`session-list-item group/session-row flex w-full select-none items-center gap-2.5 rounded-lg py-2 pl-0 pr-2 text-left transition-colors hover:bg-[var(--app-secondary-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
         >
-            <ConversationAvatar conversation={conversation} className="h-9 w-9 text-[11px]" />
+            <ConversationAvatar api={api} conversation={conversation} className="h-9 w-9 text-[11px]" />
             <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-2">
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
@@ -1407,6 +1411,10 @@ export function SessionList(props: {
     groupsStatus?: React.ReactNode
     hasGroupRows?: boolean
     sessions: SessionSummary[]
+    historyDeferred?: boolean
+    historyLoading?: boolean
+    historyError?: string | null
+    onLoadHistory?: () => Promise<unknown>
     onSelect: (sessionId: string) => void
     onNewSession: () => void
     onNewSessionInDirectory?: (args: { machineId: string | null; directory: string }) => void
@@ -1514,6 +1522,20 @@ export function SessionList(props: {
     const excluding = excludeMatches && normalizedQuery.length > 0
     const timeRange = getSessionTimeRange(customStart, customEnd)
     const isFiltering = normalizedQuery.length > 0 || timeRange !== null
+    const { historyDeferred, historyLoading, historyError, onLoadHistory } = props
+    const needsHistory = !recentSectionCollapsed || isFiltering || showProjectGroups || machineFilter !== null
+    useEffect(() => {
+        if (historyDeferred && needsHistory) void onLoadHistory?.().catch(() => {})
+    }, [historyDeferred, needsHistory, onLoadHistory])
+
+    const renderHistoryStatus = () => historyError ? (
+        <button type="button" onClick={() => void onLoadHistory?.().catch(() => {})}
+            className="self-start rounded-md px-2 py-1.5 text-sm text-[var(--app-link)] hover:bg-[var(--app-subtle-bg)]">
+            {t('button.retry')}
+        </button>
+    ) : (
+        <div role="status" className="px-2 py-1.5 text-sm text-[var(--app-hint)]">{t('misc.loading')}</div>
+    )
 
     const openProjectMenu = (
         group: SessionGroup,
@@ -2000,7 +2022,7 @@ export function SessionList(props: {
     const renderMixedRow = (row: ReturnType<typeof mergeChatGroupRows>[number], timeBasis: SessionActivityTimeBasis) => (
         row.kind === 'group' ? renderChatGroups([row.group])
             : row.kind === 'session' ? renderSessionRow(row.session, row.key, timeBasis)
-                : <FreshChatItem key={row.key} conversation={row.conversation} />
+                : <FreshChatItem key={row.key} conversation={row.conversation} api={api} />
     )
 
     const renderFiveStepControls = (total: number, limit: number, setLimit: (update: (count: number) => number) => void) => {
@@ -2089,7 +2111,7 @@ export function SessionList(props: {
 
     const renderRecentSessions = () => {
         // In the project view filtered results already appear in project groups.
-        if ((recentSessions.length === 0 && (useActivitySections && !isFiltering ? chatGroupSections.recent.length : 0) === 0) || (isFiltering && showProjectGroups)) return null
+        if ((!historyDeferred && recentSessions.length === 0 && (useActivitySections && !isFiltering ? chatGroupSections.recent.length : 0) === 0) || (isFiltering && showProjectGroups)) return null
         const recentOpen = !recentSectionCollapsed || isFiltering
         const recentRows = recentOpen ? mergeChatGroupRows(recentSessions, useActivitySections && !isFiltering ? chatGroupSections.recent : [], 'agent') : []
         const visibleRecentRows = recentRows.slice(0, recentVisibleCount)
@@ -2127,7 +2149,9 @@ export function SessionList(props: {
                     {!recentSectionCollapsed || isFiltering ? (
                         <div className="flex flex-col gap-0.5 ml-2 py-1">
                             {visibleRecentRows.map(row => renderMixedRow(row, 'agent'))}
-                            {renderFiveStepControls(recentRows.length, recentVisibleCount, setRecentVisibleCount)}
+                            {historyDeferred && !isFiltering
+                                ? renderHistoryStatus()
+                                : renderFiveStepControls(recentRows.length, recentVisibleCount, setRecentVisibleCount)}
                         </div>
                     ) : null}
                     </div>
@@ -2331,7 +2355,7 @@ export function SessionList(props: {
     // The search control unmounts when the list empties; reset the expansion so
     // it cannot suppress header actions (or re-expand on its own when sessions
     // return) while no search control is rendered.
-    const showSearch = props.sessions.length > 0 || Boolean(props.hasGroupRows) || (props.groupedSessions?.length ?? 0) > 0
+    const showSearch = props.sessions.length > 0 || historyDeferred || Boolean(props.hasGroupRows) || (props.groupedSessions?.length ?? 0) > 0
     useEffect(() => {
         if (!showSearch) setSearchExpanded(false)
     }, [showSearch])
@@ -2507,6 +2531,9 @@ export function SessionList(props: {
                             customStart={customStart}
                             customEnd={customEnd}
                             sessionActivityDates={sessionActivityDates}
+                            onOpenDatePicker={() => {
+                                if (historyDeferred) void onLoadHistory?.().catch(() => {})
+                            }}
                             onDateRangeChange={(start, end) => {
                                 setCustomStart(start)
                                 setCustomEnd(end)
@@ -2694,7 +2721,7 @@ export function SessionList(props: {
             <SessionListScrollAnchor sessions={props.sessions} className="mx-auto flex w-full max-w-content flex-col gap-1 pl-1.5 pr-2 pb-2">
                 {props.groupsStatus}
                 {!useActivitySections || isFiltering ? renderChatGroups([...chatGroupSections.working, ...chatGroupSections.active, ...chatGroupSections.idle, ...chatGroupSections.recent]) : null}
-                {props.sessions.length === 0 && !props.isLoading && !props.hasGroupRows ? (
+                {props.sessions.length === 0 && !props.isLoading && !props.hasGroupRows && !historyDeferred ? (
                     <SessionsEmptyState
                         onNewSession={props.onNewSession}
                         onBrowse={props.onBrowse}
@@ -2725,7 +2752,7 @@ export function SessionList(props: {
                                 <span className="min-w-0 truncate">
                                     {t(tab === 'chats' ? 'sessions.search.tabChats' : 'sessions.search.tabMessages')}
                                 </span>
-                                {tab === 'chats' && searchScoreIndex ? (
+                                {tab === 'chats' && searchScoreIndex && !historyDeferred ? (
                                     <span className="shrink-0 text-[11px] tabular-nums opacity-70">
                                         ({searchScoreIndex.matchedIds.size + matchingChatGroupCount})
                                     </span>
@@ -2739,7 +2766,9 @@ export function SessionList(props: {
                     </div>
                 ) : null}
 
-                {showSessionSections && props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null) && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && idleSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
+                {showSessionSections && historyDeferred && (isFiltering || showProjectGroups || activeMachineFilter !== null)
+                    && (historyLoading || historyError) ? renderHistoryStatus() : null}
+                {showSessionSections && !historyDeferred && props.sessions.length > 0 && (isFiltering || activeMachineFilter !== null) && groups.length === 0 && workingSessions.length === 0 && activeSessions.length === 0 && idleSessions.length === 0 && recentSessions.length === 0 && globalPinnedSessions.length === 0 ? (
                     <div className="px-4 py-8 text-center text-sm text-[var(--app-hint)]">
                         {t('sessions.search.noResults')}
                     </div>

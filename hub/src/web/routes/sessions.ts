@@ -265,6 +265,22 @@ export function createSessionsRoutes(
             sessionIds.map((id) => [id, engine.allocateAttachedJobVersion(id)])
         )
         const attachedJobs = engine.getPrimaryAttachedJobsBySessionIds(sessionIds)
+        let historyDeferred = false
+        // The multi-machine view shows counts and filters across its complete
+        // directory. Keep that view populated even when all work on a machine is idle.
+        if (c.req.query('view') === 'initial'
+            && new Set(sessionRecords.map(session => session.metadata?.machineId ?? null)).size <= 1) {
+            const groupedIds = new Set(engine.groups.list(namespace).flatMap(group => group.members.map(member => member.sessionId)))
+            const initialRecords = sessionRecords.filter((session) => (
+                session.active || session.pinned || session.globalPinned
+                || isParkedLifecycleState(session.metadata?.lifecycleState)
+                || groupedIds.has(session.id) || attachedJobs.has(session.id) || (scheduledCounts.get(session.id) ?? 0) > 0
+                || (!session.metadata?.muted && (session.readState?.manualUnread
+                    || (session.contentRevision ?? 0) > (session.readState?.readRevision ?? 0)))
+            ))
+            historyDeferred = initialRecords.length < sessionRecords.length
+            sessionRecords = initialRecords
+        }
         const sessions = sessionRecords.map((session) => {
             const summary = toSessionSummary(session, {
                 attachedJob: attachedJobs.get(session.id) ?? null,
@@ -278,7 +294,7 @@ export function createSessionsRoutes(
             }
         })
 
-        return c.json({ sessions })
+        return c.json({ sessions, ...(historyDeferred ? { historyDeferred } : {}) })
     })
 
     app.put('/sessions/:id/read-state', async (c) => {

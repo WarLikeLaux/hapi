@@ -1,4 +1,5 @@
 export const queryKeys = {
+    sessionHistoryRequested: ['session-history-requested'] as const,
     sessions: ['sessions'] as const,
     messengerConnections: ['messenger-connections'] as const,
     messengerCandidates: (provider: string) => ['messenger-candidates', provider] as const,

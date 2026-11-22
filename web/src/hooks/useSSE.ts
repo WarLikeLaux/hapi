@@ -729,6 +729,9 @@ export function useSSE(options: {
 
             if (event.type === 'groups-updated') {
                 void queryClient.invalidateQueries({ queryKey: ['session-groups'] })
+                if (queryClient.getQueryData<SessionsResponse>(queryKeys.sessions)?.historyDeferred) {
+                    queueSessionListInvalidation()
+                }
                 return
             }
 

@@ -12,6 +12,42 @@ import { createMessengerRoutes } from './messengers'
 import type { MessengerConnectorFactory } from '../../messengers/types'
 
 describe('messenger routes', () => {
+    it('returns a versioned avatar reference and serves bytes only for the selected chat in the namespace', async () => {
+        const store = new Store(':memory:')
+        const dataDir = await mkdtemp(join(tmpdir(), 'hapi-preview-avatar-'))
+        const manager = new MessengerManager({ dataDir, store, sseManager: { broadcast() {} } as unknown as SSEManager })
+        const avatar = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aM6YAAAAASUVORK5CYII='
+        const conversation: ExternalConversation = {
+            id: 'telegram:avatar-test', provider: 'telegram', remoteId: 'avatar-test', title: 'Chat', kind: 'direct',
+            selected: true, lastMessageAt: 1, lastMessagePreview: null, unreadCount: 0,
+            avatarDataUrl: 'data:image/png;base64,' + avatar,
+        }
+        store.messengers.upsertConversation('owner', conversation)
+        store.messengers.upsertConversation('elsewhere', { ...conversation, selected: false })
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => { c.set('namespace', c.req.header('x-test-namespace') ?? 'owner'); await next() })
+        app.route('/', createMessengerRoutes(manager))
+        try {
+            const list = await (await app.request('/conversations?avatars=separate')).json() as { conversations: ExternalConversation[] }
+            expect(list.conversations[0]?.avatarDataUrl).toBeNull()
+            expect(list.conversations[0]?.avatarVersion).toBeTruthy()
+            const url = `/conversations/${encodeURIComponent(conversation.id)}/avatar?v=${list.conversations[0]?.avatarVersion}`
+            expect((await app.request(url, { headers: { 'x-test-namespace': 'elsewhere' } })).status).toBe(404)
+            expect((await app.request(url, { headers: { 'x-test-namespace': 'missing' } })).status).toBe(404)
+            const asset = await app.request(url)
+            expect(asset.status).toBe(200)
+            expect(asset.headers.get('cache-control')).toContain('private')
+            expect(asset.headers.get('content-type')).toBe('image/png')
+            expect(Buffer.from(await asset.arrayBuffer()).toString('base64')).toBe(avatar)
+            store.messengers.upsertConversation('owner', { ...conversation, avatarDataUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7' })
+            expect((await app.request(url)).status).toBe(404)
+        } finally {
+            await manager.stop()
+            store.close()
+            await rm(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('addresses voice receipts only to a selected incoming Telegram voice in the authenticated account', async () => {
         const store = new Store(':memory:')
         const dataDir = await mkdtemp(join(tmpdir(), 'hapi-voice-receipts-'))

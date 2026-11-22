@@ -2611,6 +2611,36 @@ describe('sessions routes', () => {
         expect(body.sessions.map((s) => s.id)).toEqual(['mid-active'])
     })
 
+    it('only defers standalone history without activity in the initial view', async () => {
+        const sessions = [
+            createSession({ id: 'archived', active: false }),
+            createSession({ id: 'live' }),
+            createSession({ id: 'pinned', active: false, globalPinned: true }),
+            createSession({ id: 'grouped', active: false }),
+            createSession({ id: 'unread', active: false, contentRevision: 3 }),
+            createSession({ id: 'scheduled', active: false }),
+            createSession({ id: 'parked', active: false, metadata: { path: '/work', host: 'test', lifecycleState: 'parked' } }),
+        ]
+        const engine = {
+            groups: { list: () => [{ members: [{ sessionId: 'grouped' }] }] },
+            getSessionsByNamespace: () => sessions,
+            getFutureScheduledMessageCounts: () => new Map([['scheduled', 1]]),
+            getNextScheduledAtBySessionIds: () => new Map(),
+            getPrimaryAttachedJobsBySessionIds: () => new Map(),
+            allocateAttachedJobVersion: () => 1,
+        } as unknown as SyncEngine
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => { c.set('namespace', 'default'); await next() })
+        app.route('/api', createSessionsRoutes(() => engine))
+
+        const initial = await (await app.request('/api/sessions?view=initial')).json() as { sessions: Session[]; historyDeferred?: boolean }
+        expect(initial.historyDeferred).toBe(true)
+        expect(initial.sessions.map(session => session.id).sort()).toEqual(['grouped', 'live', 'parked', 'pinned', 'scheduled', 'unread'])
+        const full = await (await app.request('/api/sessions')).json() as typeof initial
+        expect(full.historyDeferred).toBeUndefined()
+        expect(full.sessions.map(session => session.id)).toContain('archived')
+    })
+
     it('allocates attachedJob watermark before reading jobs (SSE race)', async () => {
         const session = createSession({ id: 'session-watermark' })
         const callOrder: string[] = []

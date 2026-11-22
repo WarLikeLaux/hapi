@@ -13,6 +13,7 @@ import {
     UpdateExternalAliasRequestSchema
 } from '@hapi/protocol'
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { MessengerManager } from '../../messengers/manager'
@@ -24,6 +25,11 @@ function errorMessage(error: unknown): string {
 }
 
 const MAX_MESSENGER_MEDIA_BYTES = 50 * 1024 * 1024
+const inlineAvatar = /^data:(image\/(?:png|jpeg|gif|webp|avif));base64,/i
+
+function avatarVersion(dataUrl: string): string {
+    return createHash('sha256').update(dataUrl).digest('hex').slice(0, 24)
+}
 
 function inlineContentDisposition(fileName: string): string {
     const sanitized = fileName.replace(/[\r\n\0"\\]/g, '_')
@@ -135,7 +141,30 @@ export function createMessengerRoutes(manager: MessengerManager): Hono<WebAppEnv
         // Starting configured connectors here keeps incoming messages live even
         // when the user has not opened the Chats route since the hub restarted.
         await manager.getConnections(namespace)
-        return c.json({ conversations: manager.listConversations(namespace) })
+        const conversations = manager.listConversations(namespace)
+        if (c.req.query('avatars') !== 'separate') return c.json({ conversations })
+        return c.json({ conversations: conversations.map((conversation) => {
+            const source = conversation.avatarDataUrl
+            return source && inlineAvatar.test(source)
+                ? { ...conversation, avatarDataUrl: null, avatarVersion: avatarVersion(source) }
+                : conversation
+        }) })
+    })
+
+    app.get('/conversations/:id/avatar', (c) => {
+        const source = manager.getSelectedConversationAvatar(c.get('namespace'), c.req.param('id'))
+        const match = source?.match(inlineAvatar)
+        if (!source || !match || c.req.query('v') !== avatarVersion(source)) {
+            return c.json({ error: 'Avatar not found' }, 404)
+        }
+        const bytes = Buffer.from(source.slice(match[0].length), 'base64')
+        if (!bytes.length) return c.json({ error: 'Avatar not found' }, 404)
+        return c.body(bytes, 200, {
+            'Content-Type': match[1].toLowerCase(),
+            'Cache-Control': 'private, max-age=86400',
+            'Vary': 'Authorization',
+            'X-Content-Type-Options': 'nosniff'
+        })
     })
 
     app.get('/conversations/:id/messages', async (c) => {

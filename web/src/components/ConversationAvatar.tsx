@@ -1,4 +1,7 @@
+import { useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { ExternalConversation } from '@hapi/protocol/messengers'
+import type { ApiClient } from '@/api/client'
 import { cn } from '@/lib/utils'
 
 const providers: Record<string, { label: string; accent: string; badge: string }> = {
@@ -21,20 +24,63 @@ export function ProviderMark({ provider, className }: { provider: string; classN
     )
 }
 
-export function ConversationAvatar({ conversation, className }: {
+export function useConversationAvatarUrl(
+    api: ApiClient | null,
+    conversation: ExternalConversation | undefined,
+    visible = true
+): string | null {
+    const id = conversation?.id
+    const version = conversation?.avatarVersion
+    const { data: blob } = useQuery({
+        queryKey: ['external-conversation-avatar', id, version],
+        queryFn: ({ signal }) => api!.getExternalConversationAvatar(id!, version!, signal),
+        enabled: Boolean(api && id && version && visible),
+        staleTime: Infinity,
+        retry: false,
+    })
+    const [objectUrl, setObjectUrl] = useState<{ blob: Blob; url: string } | null>(null)
+    useEffect(() => {
+        if (!blob) return
+        const url = URL.createObjectURL(blob)
+        setObjectUrl({ blob, url })
+        return () => URL.revokeObjectURL(url)
+    }, [blob])
+    return conversation?.avatarDataUrl || (objectUrl && objectUrl.blob === blob ? objectUrl.url : null)
+}
+
+export function ConversationAvatar({ conversation, className, api = null }: {
     conversation: ExternalConversation
     className?: string
+    api?: ApiClient | null
 }) {
     const provider = providers[conversation.provider]
     const title = conversation.customTitle?.trim() || conversation.sourceTitle?.trim() || conversation.title
+    const element = useRef<HTMLSpanElement>(null)
+    const [visible, setVisible] = useState(false)
+    useEffect(() => {
+        if (!conversation.avatarVersion || visible || !element.current) return
+        if (typeof IntersectionObserver === 'undefined') {
+            setVisible(true)
+            return
+        }
+        const observer = new IntersectionObserver((entries) => {
+            if (entries.some(entry => entry.isIntersecting)) {
+                setVisible(true)
+                observer.disconnect()
+            }
+        }, { rootMargin: '64px' })
+        observer.observe(element.current)
+        return () => observer.disconnect()
+    }, [conversation.avatarVersion, visible])
+    const src = useConversationAvatarUrl(api, conversation, visible)
     return (
-        <span className={cn('relative block h-10 w-10 shrink-0 text-xs', className)}>
+        <span ref={element} className={cn('relative block h-10 w-10 shrink-0 text-xs', className)}>
             <span className={cn(
                 'flex h-full w-full items-center justify-center overflow-hidden rounded-full font-semibold',
                 provider?.accent ?? 'bg-[var(--app-secondary-bg)] text-[var(--app-hint)]'
             )} aria-hidden="true">
-                {conversation.avatarDataUrl
-                    ? <img src={conversation.avatarDataUrl} alt="" className="h-full w-full object-cover" />
+                {src
+                    ? <img src={src} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                     : title.trim().slice(0, 2).toUpperCase() || '··'}
             </span>
             {provider ? (
