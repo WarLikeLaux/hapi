@@ -156,6 +156,8 @@ export class Store {
         // are not necessarily in sequence order after imports or rewinds.
         // This additive index works with existing schemas and is built once.
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_messages_session_created_at ON messages(session_id, created_at DESC)')
+        // This derived cache can be recreated without migrating stored history.
+        this.createSessionConversationActivity()
         reportStartup?.('SQLite schema and migrations', performance.now() - schemaStartedAt)
 
         if (dbPath !== ':memory:' && !dbPath.startsWith('file::memory:')) {
@@ -546,6 +548,32 @@ export class Store {
             );
             CREATE INDEX IF NOT EXISTS idx_session_redirects_namespace_new
                 ON session_redirects(namespace, new_id);
+        `)
+    }
+
+    private createSessionConversationActivity(): void {
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS session_conversation_activity (
+                session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                last_message_at INTEGER,
+                last_agent_message_at INTEGER
+            );
+            CREATE TRIGGER IF NOT EXISTS invalidate_session_activity_after_insert
+            AFTER INSERT ON messages BEGIN
+                DELETE FROM session_conversation_activity WHERE session_id = NEW.session_id;
+            END;
+            CREATE TRIGGER IF NOT EXISTS invalidate_session_activity_after_update
+            AFTER UPDATE OF session_id, content, created_at ON messages
+            WHEN OLD.session_id IS NOT NEW.session_id
+                 OR OLD.content IS NOT NEW.content
+                 OR OLD.created_at IS NOT NEW.created_at
+            BEGIN
+                DELETE FROM session_conversation_activity WHERE session_id IN (OLD.session_id, NEW.session_id);
+            END;
+            CREATE TRIGGER IF NOT EXISTS invalidate_session_activity_after_delete
+            AFTER DELETE ON messages BEGIN
+                DELETE FROM session_conversation_activity WHERE session_id = OLD.session_id;
+            END;
         `)
     }
 

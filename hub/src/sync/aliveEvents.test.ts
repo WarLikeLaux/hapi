@@ -206,7 +206,12 @@ describe('alive incremental events', () => {
         }
 
         const restartedCache = new SessionCache(store, createPublisher([]))
-        restartedCache.refreshSession(session.id)
+        restartedCache.reloadAll()
+        const listedSession = restartedCache.getSessions().find((item) => item.id === session.id)
+        expect(listedSession).toMatchObject({
+            hasConversationContent: true,
+            lastReadyAt: 0
+        })
         restartedCache.handleSessionAlive({ sid: session.id, time: now + 100, thinking: true })
 
         expect(restartedCache.getSession(session.id)?.thinking).toBe(false)
